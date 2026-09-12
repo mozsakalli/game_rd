@@ -1,0 +1,244 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+using System;
+using UnityEditor.UIElements;
+using UnityEngine.Bindings;
+using UnityEngine.UIElements;
+using UnityEngine.Rendering;
+using UnityEngine;
+using UnityEditor.Rendering;
+using UnityEditor.Shaders;
+
+namespace UnityEditor.Build.Profile
+{
+    [VisibleToOtherModules("UnityEditor.BuildProfileModule")]
+    [CustomEditor(typeof(BuildProfileGraphicsSettings))]
+    class BuildProfileGraphicsSettingsEditor : Editor
+    {
+        const string k_Uxml = "BuildProfile/UXML/BuildProfileCommonGraphicsSettings.uxml";
+        const string k_StyleSheet = "BuildProfile/StyleSheets/BuildProfile.uss";
+        const string k_LastDefaultPropertyPath = "m_EditorClassIdentifier";
+        const string k_ShaderBuildSettingsTypeName = "ShaderBuildSettings";
+
+        ShaderBuildSettingsUI m_ShaderBuildSettingsUI = new();
+        EnumField m_DefaultMeshBufferTargetField;
+
+        void OnDisable()
+        {
+            if (!m_ShaderBuildSettingsUI.HasUnsavedChanges)
+                return;
+
+            var parentProfile = FindProfileStillOwningTarget();
+            if (parentProfile == null)
+                return;
+
+            m_ShaderBuildSettingsUI.HandleUnsavedChangesDialog(parentProfile.name);
+        }
+
+        BuildProfile FindProfileStillOwningTarget()
+        {
+            var assetPath = AssetDatabase.GetAssetPath(target);
+            var parentProfile = AssetDatabase.LoadMainAssetAtPath(assetPath) as BuildProfile;
+            return parentProfile != null && parentProfile.graphicsSettings == target ? parentProfile : null;
+        }
+
+        void OnDestroy()
+        {
+            EditorApplication.playModeStateChanged -= UpdateDefaultMeshBufferTargetFieldState;
+        }
+
+        public override VisualElement CreateInspectorGUI()
+        {
+            var root = new VisualElement();
+            var visualTree = EditorGUIUtility.LoadRequired(k_Uxml) as VisualTreeAsset;
+            var windowUss = EditorGUIUtility.LoadRequired(k_StyleSheet) as StyleSheet;
+            visualTree.CloneTree(root);
+            root.styleSheets.Add(windowUss);
+
+            root.Bind(serializedObject);
+            root.Query<UIElements.ProjectSettings.ProjectSettingsElementWithSO>()
+                .ForEach(d => d.InitializeWithoutWindow(serializedObject));
+
+            BindEnumFieldWithFadeGroup(root, "Lightmap", CalculateLightmapStrippingFromCurrentScene);
+            BindEnumFieldWithFadeGroup(root, "Fog", CalculateFogStrippingFromCurrentScene);
+
+            GraphicsStateCollectionSettingsUI.BindGraphicsStateCollection(root, serializedObject);
+            BindShaderPreload(root);
+
+            BindDefaultMeshBufferTargetEnumField(root);
+
+            m_ShaderBuildSettingsUI.Initialize(root, serializedObject, true);
+
+            // Align fields as in the inspector
+            var type = typeof(BaseField<>);
+            root.Query<BindableElement>()
+                .Where(e =>
+                    IsSubclassOfGeneric(type, e.GetType()))
+                .ForEach(e =>
+                    e.EnableInClassList(BaseField<bool>.alignedFieldUssClassName, true));
+
+            return root;
+        }
+
+        void BindDefaultMeshBufferTargetEnumField(VisualElement content)
+        {
+            m_DefaultMeshBufferTargetField = content.MandatoryQ<EnumField>("BuildProfileDefaultMeshBufferTarget");
+
+            // The setting is not stored in the build profile; it binds to the shared GraphicsSettings asset.
+            var graphicsSettingsSO = new SerializedObject(GraphicsSettings.GetGraphicsSettings());
+            var enumFieldProperty = graphicsSettingsSO.FindProperty(m_DefaultMeshBufferTargetField.bindingPath);
+            UIElementsEditorUtility.BindSerializedProperty<DefaultMeshBufferTarget>(m_DefaultMeshBufferTargetField, enumFieldProperty);
+
+            UpdateDefaultMeshBufferTargetFieldState();
+            EditorApplication.playModeStateChanged -= UpdateDefaultMeshBufferTargetFieldState;
+            EditorApplication.playModeStateChanged += UpdateDefaultMeshBufferTargetFieldState;
+        }
+
+        void UpdateDefaultMeshBufferTargetFieldState(PlayModeStateChange state) => UpdateDefaultMeshBufferTargetFieldState();
+
+        void UpdateDefaultMeshBufferTargetFieldState()
+        {
+            m_DefaultMeshBufferTargetField.SetEnabled(!EditorApplication.isPlayingOrWillChangePlaymode);
+        }
+
+        void BindEnumFieldWithFadeGroup(VisualElement content, string id, Action buttonCallback)
+        {
+            var enumMode = content.MandatoryQ<EnumField>($"{id}Modes");
+            var enumModeGroup = content.MandatoryQ<VisualElement>($"{id}ModesGroup");
+            var enumModeProperty = serializedObject.FindProperty($"m_{id}Stripping");
+
+            UIElementsEditorUtility.BindSerializedProperty<StrippingModes>(enumMode, enumModeProperty,
+                mode => UIElementsEditorUtility.SetVisibility(enumModeGroup, mode == StrippingModes.Custom));
+
+            content.MandatoryQ<Button>($"Import{id}FromCurrentScene").clicked += buttonCallback;
+        }
+
+        void BindShaderPreload(VisualElement root)
+        {
+            var shaderPreloadElements = root.MandatoryQ<PropertyField>("PreloadedShaders");
+            var shaderPreloadProperty = serializedObject.FindProperty("m_PreloadedShaders");
+            shaderPreloadProperty.isExpanded = false;
+            shaderPreloadElements.RegisterValueChangeCallback(evt =>
+            {
+                UIElementsEditorUtility.SetVisibility(root.MandatoryQ<HelpBox>("RecommendGSCInfoBox"), shaderPreloadProperty.arraySize > 0);
+                shaderPreloadProperty.serializedObject.ApplyModifiedProperties();
+            });
+
+            var delayedShaderTimeLimitProperty = serializedObject.FindProperty("m_PreloadShadersBatchTimeLimit");
+            var shaderPreloadToggle = root.MandatoryQ<Toggle>("ShaderPreloadToggle");
+            var delayedShaderTimeLimitGroup = root.MandatoryQ<VisualElement>("DelayedShaderTimeLimitGroup");
+            var delayedShaderTimeLimit = root.MandatoryQ<IntegerField>("DelayedShaderTimeLimit");
+            shaderPreloadToggle.RegisterValueChangedCallback(evt => {
+                delayedShaderTimeLimitGroup.style.display = evt.newValue ? DisplayStyle.Flex : DisplayStyle.None;
+                var newVal = evt.newValue ? delayedShaderTimeLimit.value : -1;
+                if (delayedShaderTimeLimitProperty.intValue != newVal)
+                {
+                    delayedShaderTimeLimitProperty.intValue = newVal;
+                    delayedShaderTimeLimitProperty.serializedObject.ApplyModifiedProperties();
+                }
+            });
+            delayedShaderTimeLimit.RegisterValueChangedCallback(evt =>
+            {
+                if (delayedShaderTimeLimitProperty.intValue != evt.newValue)
+                {
+                    delayedShaderTimeLimitProperty.intValue = evt.newValue;
+                    delayedShaderTimeLimitProperty.serializedObject.ApplyModifiedProperties();
+                }
+            });
+            shaderPreloadToggle.SetValueWithoutNotify(delayedShaderTimeLimitProperty.intValue >= 0);
+            delayedShaderTimeLimit.SetValueWithoutNotify(Mathf.Max(0, delayedShaderTimeLimitProperty.intValue));
+            delayedShaderTimeLimitGroup.style.display = delayedShaderTimeLimitProperty.intValue >= 0 ? DisplayStyle.Flex : DisplayStyle.None;
+
+            var shaderTracking = root.MandatoryQ<HelpBox>("ShaderTrackingInfoBox");
+            shaderTracking.schedule.Execute(() =>
+                shaderTracking.text =
+                    $"Currently tracked: {ShaderUtil.GetCurrentShaderVariantCollectionShaderCount()} shaders {ShaderUtil.GetCurrentShaderVariantCollectionVariantCount()} total variants").Every(500);
+
+            var saveButton = root.MandatoryQ<Button>("SaveShaderVariants");
+            saveButton.clickable = new Clickable(() =>
+            {
+                var assetPath = EditorUtility.SaveFilePanelInProject(
+                    L10n.Tr("Save Shader Variant Collection", null),
+                    "NewShaderVariants",
+                    "shadervariants",
+                    L10n.Tr("Save shader variant collection", null),
+                    ProjectWindowUtil.GetActiveFolderPath());
+                if (!string.IsNullOrEmpty(assetPath))
+                    ShaderUtil.SaveCurrentShaderVariantCollection(assetPath);
+            });
+            var clearButton = root.MandatoryQ<Button>("ClearCurrentShaderVariants");
+            clearButton.clickable = new Clickable(ShaderUtil.ClearCurrentShaderVariantCollection);
+        }
+
+        void CalculateLightmapStrippingFromCurrentScene()
+        {
+            bool lightmapKeepPlain, lightmapKeepDirCombined, lightmapKeepDynamicPlain, lightmapKeepDynamicDirCombined, lightmapKeepShadowMask, lightmapKeepSubtractive;
+            ShaderUtil.CalculateLightmapStrippingFromCurrentSceneForBuildProfile(out lightmapKeepPlain, out lightmapKeepDirCombined,
+                out lightmapKeepDynamicPlain, out lightmapKeepDynamicDirCombined, out lightmapKeepShadowMask, out lightmapKeepSubtractive);
+
+            serializedObject.FindProperty("m_LightmapKeepPlain").boolValue = lightmapKeepPlain;
+            serializedObject.FindProperty("m_LightmapKeepDirCombined").boolValue = lightmapKeepDirCombined;
+            serializedObject.FindProperty("m_LightmapKeepDynamicPlain").boolValue = lightmapKeepDynamicPlain;
+            serializedObject.FindProperty("m_LightmapKeepDynamicDirCombined").boolValue = lightmapKeepDynamicDirCombined;
+            serializedObject.FindProperty("m_LightmapKeepShadowMask").boolValue = lightmapKeepShadowMask;
+            serializedObject.FindProperty("m_LightmapKeepSubtractive").boolValue = lightmapKeepSubtractive;
+
+            serializedObject.ApplyModifiedProperties();
+        }
+
+        void CalculateFogStrippingFromCurrentScene()
+        {
+            bool fogKeepLinear, fogKeepExp, fogKeepExp2;
+            ShaderUtil.CalculateFogStrippingFromCurrentSceneForBuildProfile(out fogKeepLinear, out fogKeepExp, out fogKeepExp2);
+
+            serializedObject.FindProperty("m_FogKeepLinear").boolValue = fogKeepLinear;
+            serializedObject.FindProperty("m_FogKeepExp").boolValue = fogKeepExp;
+            serializedObject.FindProperty("m_FogKeepExp2").boolValue = fogKeepExp2;
+
+            serializedObject.ApplyModifiedProperties();
+        }
+
+        static bool IsSubclassOfGeneric(Type genericType, Type typeToCheck) {
+            while (typeToCheck != null && typeToCheck != typeof(object))
+            {
+                var currentType = typeToCheck.IsGenericType ? typeToCheck.GetGenericTypeDefinition() : typeToCheck;
+                if (genericType == currentType)
+                    return true;
+                typeToCheck = typeToCheck.BaseType;
+            }
+            return false;
+        }
+
+        public void ResetToGlobalGraphicsSettingsValues()
+        {
+            var globalGraphicsSettings = GraphicsSettings.GetGraphicsSettings();
+            var globalGraphicsSettingsSO = new SerializedObject(globalGraphicsSettings);
+            var profileSerializedProperty = serializedObject.FindProperty(k_LastDefaultPropertyPath);
+
+            while (profileSerializedProperty.Next(false))
+            {
+                var globalSerializedProperty = globalGraphicsSettingsSO.FindProperty(profileSerializedProperty.name);
+                if (profileSerializedProperty.isArray)
+                {
+                    profileSerializedProperty.arraySize = globalSerializedProperty.arraySize;
+                    for (int i = 0; i < profileSerializedProperty.arraySize; i++)
+                    {
+                        var profileArrayElement = profileSerializedProperty.GetArrayElementAtIndex(i);
+                        var globalArrayElement = globalSerializedProperty.GetArrayElementAtIndex(i);
+                        profileArrayElement.boxedValue = globalArrayElement.boxedValue;
+                    }
+                }
+                else
+                {
+                    profileSerializedProperty.boxedValue = profileSerializedProperty.type == k_ShaderBuildSettingsTypeName
+                        ? EditorGraphicsSettings.GetShaderBuildSettings()
+                        : globalSerializedProperty.boxedValue;
+                }
+            }
+
+            serializedObject.ApplyModifiedProperties();
+        }
+    }
+}

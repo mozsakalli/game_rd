@@ -1,0 +1,2192 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+using System;
+using System.Collections.Generic;
+using System.ComponentModel;
+using System.Linq;
+using System.Text;
+using UnityEditor.Build;
+using UnityEngine;
+using UnityEngine.Bindings;
+using UnityEditor.Modules;
+using UnityEditor.Build.Profile;
+using UnityEngine.Rendering;
+using Unity.Scripting.LifecycleManagement;
+
+
+namespace UnityEditor
+{
+    // Resolution dialog setting
+    [Obsolete("The Display Resolution Dialog has been removed.", false)]
+    public enum ResolutionDialogSetting
+    {
+        // Never show the resolutions dialog.
+        Disabled = 0,
+
+        // Show the resolutions dialog on first launch.
+        Enabled = 1,
+
+        // Hide the resolutions dialog on first launch.
+        HiddenByDefault = 2,
+    }
+
+    public enum ScriptingImplementation
+    {
+        Mono2x = 0,
+        IL2CPP = 1,
+        WinRTDotNET = 2,
+        CoreCLR = 3,
+    }
+
+    // Must be in sync with Il2CppCompilerConfiguration enum in SerializationMetaFlags.h
+    public enum Il2CppCompilerConfiguration
+    {
+        Debug = 0,
+        Release = 1,
+        Master = 2,
+    }
+
+    // Must be in sync with Il2CppStacktraceInformation enum in SerializationMetaFlags.h
+    public enum Il2CppStacktraceInformation
+    {
+        MethodOnly = 0,
+        MethodFileLineNumber = 1,
+    }
+
+    // Must be in sync with Il2CppLTOMode enum in SerializationMetaFlags.h
+    public enum Il2CppLTOMode
+    {
+        None = 0,
+        Thin = 1,
+        Full = 2,
+    }
+
+    // Mac fullscreen mode
+    public enum MacFullscreenMode
+    {
+        [Obsolete("Capture Display mode is deprecated, Use FullscreenWindow instead")]
+        CaptureDisplay = 0,
+
+        // Fullscreen window.
+        FullscreenWindow = 1,
+
+        // Fullscreen window with Dock and Menu bar.
+        FullscreenWindowWithDockAndMenuBar = 2,
+    }
+
+    [Obsolete("D3D9 support has been removed")]
+    public enum D3D9FullscreenMode
+    {
+        [Obsolete("D3D9 support has been removed")]
+        ExclusiveMode = 0,
+        [Obsolete("D3D9 support has been removed")]
+        FullscreenWindow = 1,
+    }
+
+    // Direct3D 11 fullscreen mode
+    public enum D3D11FullscreenMode
+    {
+        // Exclusive mode.
+        ExclusiveMode = 0,
+
+        // Fullscreen window.
+        FullscreenWindow = 1,
+    }
+
+    // Must be in sync with StereoRenderingPath enum in GfxDeviceTypes.h
+    public enum StereoRenderingPath
+    {
+        // Slow multi pass method ( For reference only )
+        MultiPass = 0,
+
+        // Single pass stereo rendering
+        SinglePass = 1,
+
+        // Single pass stereo rendering with instancing
+        Instancing = 2
+    }
+
+    // Managed code stripping level - must be in sync with StrippingLevel enum in BuildTargetPlatformSpecific.h
+    public enum StrippingLevel
+    {
+        // Managed code stripping is disabled
+        Disabled = 0,
+
+        // Unused parts of managed code are stripped away
+        StripAssemblies = 1,
+
+        // Managed method bodies are stripped away. AOT platforms only.
+        StripByteCode = 2,
+
+        // Lightweight mscorlib version will be used at expense of limited compatibility.
+        UseMicroMSCorlib = 3
+    }
+
+    // Script call optimization level
+    public enum ScriptCallOptimizationLevel
+    {
+        // Default setting
+        SlowAndSafe = 0,
+
+        // Script method call overhead decreased at the expense of limited compatibility.
+        FastButNoExceptions = 1
+    }
+
+    // Default mobile device orientation
+    public enum UIOrientation
+    {
+        // Portrait
+        Portrait = 0,
+
+        // Portrait upside down
+        PortraitUpsideDown = 1,
+
+        // Landscape: clockwise from Portrait
+        LandscapeRight = 2,
+
+        // Landscape : counter-clockwise from Portrait
+        LandscapeLeft = 3,
+
+        // Auto Rotation Enabled
+        AutoRotation = 4
+    }
+
+    // Scripting runtime version
+    [Obsolete("ScriptingRuntimeVersion has been deprecated in 2019.3 now that legacy mono has been removed")]
+    public enum ScriptingRuntimeVersion
+    {
+        // .NET 3.5
+        Legacy = 0,
+
+        // .NET 4.6
+        Latest = 1
+    }
+
+    // .NET API compatibility level
+    public enum ApiCompatibilityLevel
+    {
+        // .NET 2.0
+        [Obsolete("No longer in use")]
+        NET_2_0 = 1,
+
+        // .NET 2.0 Subset
+        [Obsolete("No longer in use")]
+        NET_2_0_Subset = 2,
+
+        // .NET 4.6
+        NET_4_6 = 3,
+
+        // unity_web profile, currently unused. Formerly used by Samsung TV
+        [Obsolete("No longer in use")]
+        NET_Web = 4,
+
+        // micro profile, used by Mono scripting backend if stripping level is set to "Use micro mscorlib"
+        [Obsolete("No longer in use")]
+        NET_Micro = 5,
+
+        // .NET Standard 2.0
+        NET_Standard_2_0 = 6,
+
+        // Latest .NET Standard version Unity supports
+        NET_Standard = NET_Standard_2_0,
+
+        // .NET Framework 8 + .NET Standard 2.1 APIs
+        NET_Unity_4_8 = NET_4_6,
+
+        [Obsolete("The .NET (net10) API compatibility level is still a work in progress and is disabled for now.")] // Hide from intellisense
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        NET = 7
+    }
+
+
+    // Editor Assembly compatibility level
+    public enum EditorAssembliesCompatibilityLevel
+    {
+        // For now it will be the same as #2. In future updates, the default will be the same as #3.
+        Default = 1,
+        NET_Unity_4_8 = 2,
+        NET_Standard = 3,
+    }
+
+    public enum ManagedStrippingLevel
+    {
+        Disabled = 0,
+        Low = 1,
+        Medium = 2,
+        High = 3,
+        Minimal = 4,
+    }
+
+    // Matches ManagedCodeVariant in native (BuildTargetPlatformSpecific.h).
+    // Controls which diagnostic preprocessor defines are emitted and optimization level when compiling managed code for player builds.
+    public enum ManagedCodeVariant
+    {
+        // Emit DEBUG, UNITY_ENABLE_CHECKS, and UNITY_INCLUDE_INSTRUMENTATION. Compile code in Debug CodeGen.
+        Debug = 0,
+        // Emit UNITY_ENABLE_CHECKS and UNITY_INCLUDE_INSTRUMENTATION (no DEBUG).
+        Checked = 1,
+        // Emit UNITY_INCLUDE_INSTRUMENTATION only.
+        Instrumented = 2,
+        // Emit no diagnostic defines.
+        Release = 3,
+    }
+
+    // What to do on uncaught .NET exception (on iOS)
+    [Obsolete("The enum is deprecated and will be removed in a future release.")]
+    public enum ActionOnDotNetUnhandledException
+    {
+        // Silent exit
+        SilentExit = 0,
+
+        // Crash
+        Crash = 1
+    }
+
+    [Obsolete("SplashScreenStyle deprecated, Use PlayerSettings.SplashScreen.UnityLogoStyle instead")]
+    public enum SplashScreenStyle
+    {
+        Light = 0,
+        Dark = 1
+    }
+
+    // Must be in sync with GraphicsJobMode enum in GfxDeviceTypes.h
+    public enum GraphicsJobMode
+    {
+        Native = 0,
+        Legacy = 1,
+        Split
+    }
+
+    // Must be in sync with GfxThreadingMode enum in GfxDeviceTypes.h
+    public enum GfxThreadingMode
+    {
+        // Direct threading mode.
+        // Main thread writes native graphics commands and submits them directly.
+        Direct = 0,
+
+        // SingleThreaded mode.
+        // Main thread writes Unity graphics commands that it later reads and converts to native graphics commands.
+        NonThreaded = 1,
+
+        // MultiThreaded mode.
+        // Main thread writes Unity graphics commands. A Render thread reads Unity graphics commands and converts them to native graphics commands.
+        Threaded = 2,
+
+        // Legacy Graphics Jobs ("Jobified Rendering").
+        // Main thread writes Unity graphics commands and starts worker threads to do the same.
+        // A Render thread reads Unity graphics commands and converts them to native graphics commands.
+        ClientWorkerJobs = 3,
+
+        // Native Graphics Jobs.
+        // Main thread writes Unity graphics commands.
+        // Render thread reads Unity graphics commands and converts them to native graphics commands.
+        // The render thread also starts worker threads to write native graphics commands.
+        ClientWorkerNativeJobs = 4,
+
+        // Native Graphics Jobs without Render Thread.
+        // Main thread writes native graphics commands, starts worker threads to do the same, and submits them directly.
+        DirectNativeJobs = 5,
+
+        // Split Graphics Jobs.
+        // Main thread starts worker threads to write Unity graphics commands.
+        // Render thread reads Unity graphics commands converts them to native graphics commands.
+        // The render thread also starts worker threads to write native graphics commands.
+        SplitJobs = 6
+    }
+
+    // Must be in sync with MeshDeformation enum in GfxDeviceTypes.h
+    public enum MeshDeformation
+    {
+        CPU = 0,
+        GPU = 1,
+        GPUBatched = 2
+    }
+
+    // Must be in sync with IconKind enum in EditorOnlyPlayerSettings.h
+    public enum IconKind
+    {
+        Any = -1,
+        Application = 0,
+        Settings = 1,
+        Notification = 2,
+        Spotlight = 3,
+        Store = 4
+    }
+
+    // Keep in synch with LightmapEncodingQuality enum from GfxDeviceTypes.h
+    internal enum LightmapEncodingQuality
+    {
+        Low = 0,
+        Normal = 1,
+        High = 2
+    }
+
+    // Keep in synch with HDRCubemapEncodingQuality enum from GfxDeviceTypes.h
+    internal enum HDRCubemapEncodingQuality
+    {
+        Low = 0,
+        Normal = 1,
+        High = 2
+    }
+
+    // Must be in sync with ShaderPrecisionModel enum in EditorOnlyPlayerSettings.h
+    public enum ShaderPrecisionModel
+    {
+        PlatformDefault = 0,
+        Unified = 1,
+    }
+
+    public enum NormalMapEncoding
+    {
+        XYZ = 0,
+        DXT5nm = 1
+    }
+
+    public enum TextureCompressionFormat
+    {
+        Unknown = 0,
+        ETC = 1,
+        ETC2 = 2,
+        ASTC = 3,
+        [Obsolete("Texture compression format PVRTC has been deprecated and will be removed in a future release")]
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        PVRTC = 4,
+        DXTC = 5,
+        BPTC = 6,
+        DXTC_RGTC = 7
+    }
+
+    public enum InsecureHttpOption
+    {
+        NotAllowed = 0,
+        DevelopmentOnly = 1,
+        AlwaysAllowed = 2,
+    }
+
+    [Flags]
+    public enum RayTracingFeatureFlags
+    {
+        None = 0,
+        RayTracingShaders = (1 << 0),
+        InlineRayTracing = (1 << 1),
+    }
+
+    // Keep in synch with HttpAllowed enum from PlayerSettings.h
+    [Flags]
+    internal enum HttpAllowed
+    {
+        Default = 0,
+        HTTP1 = 1 << 0,
+        HTTP2 = 1 << 1,
+        HTTP3 = 1 << 2
+    }
+
+    // Windows platform input APIs
+    // Keep in sync with WindowsGamepadBackendHint enum from PlayerSettings.h
+    public enum WindowsGamepadBackendHint
+    {
+        // Backend selected automatically based on platform support
+        WindowsGamepadBackendHintDefault = 0,
+
+        // XInput
+        WindowsGamepadBackendHintXInput = 1,
+
+        // GameInput
+        WindowsGamepadBackendHintWindowsGamingInput = 2
+    }
+
+    internal struct ShaderCompilerEnvironmentVariable
+    {
+        [NativeName("variable")]
+        public string Variable;
+        [NativeName("value")]
+        public string Value;
+    }
+
+    // Set of player settings that require an editor restart
+    // Keep in sync with PlayerSettingsRequiringRestart in PlayerSettings.h
+    internal enum PlayerSettingsRequiringRestart
+    {
+        IncrementalGC = 0,
+        ActiveInputHandling = 1,
+        GraphicsJobs = 2,
+        VirtualTexturing = 3,
+        GraphicsAPI = 4,
+    }
+
+    // Player Settings is where you define various parameters for the final game that you will build in Unity. Some of these values are used in the Resolution Dialog that launches when you open a standalone game.
+    [NativeClass(null, PersistentTypeId = 129)]
+    [NativeHeader("Editor/Mono/PlayerSettings.bindings.h")]
+    [NativeHeader("Runtime/Misc/BuildSettings.h")]
+    [NativeHeader("Runtime/Misc/PlayerSettings.h")]
+    [NativeHeader("Runtime/Misc/PlayerSettingsSplashScreen.h")]
+    [StaticAccessor("GetPlayerSettings()")]
+    public sealed partial class PlayerSettings : UnityEngine.Object
+    {
+        private PlayerSettings() { }
+
+        // Lazily (re)created in GetSerializedObject(); reset to null on reload so it rebuilds on next access
+        // (the disposable SerializedObject has no field initializer for the generator to reassign after dispose).
+        [AutoStaticsCleanupOnCodeReload(CleanupStrategy = CleanupStrategy.ResetToDefaultValue)]
+        private static SerializedObject _serializedObject;
+
+        [FreeFunction("GetPlayerSettingsPtr")]
+        private static extern UnityEngine.Object InternalGetPlayerSettingsObject();
+
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        internal static extern PlayerSettings GetProjectSettingsPlayerSettings();
+
+        internal static void ValidateBuildTargetNameParameter(string buildTargetName, bool unknownIsValid = false)
+        {
+            // The empty string is the valid form of BuildTargetGroup.Unknown, so don't throw an execption for that case.
+            if (BuildPipeline.GetBuildTargetGroupByName(buildTargetName) == BuildTargetGroup.Unknown && (!unknownIsValid || buildTargetName != ""))
+                throw new ArgumentException($"The provided target platform group name ({buildTargetName}) is not valid.");
+        }
+
+        internal static SerializedObject GetSerializedObject()
+        {
+            if (_serializedObject == null || _serializedObject.targetObject != InternalGetPlayerSettingsObject())
+                _serializedObject = new SerializedObject(InternalGetPlayerSettingsObject());
+            return _serializedObject;
+        }
+
+        internal static SerializedProperty FindProperty(string name)
+        {
+            SerializedProperty property = GetSerializedObject().FindProperty(name);
+            if (property == null)
+                Debug.LogError("Failed to find:" + name);
+            return property;
+        }
+
+        [Obsolete("Use explicit API instead.")]
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        public static extern void SetPropertyInt(string name, int value, BuildTargetGroup target);
+
+        [Obsolete("Use explicit API instead.")]
+        public static void SetPropertyInt(string name, int value)
+        {
+            SetPropertyInt(name, value, BuildTargetGroup.Unknown);
+        }
+
+        [Obsolete("Use explicit API instead.")]
+        public static void SetPropertyInt(string name, int value, BuildTarget target)
+        {
+            SetPropertyInt(name, value, BuildPipeline.GetBuildTargetGroup(target));
+        }
+
+        [Obsolete("Use explicit API instead.")]
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        public static extern int GetPropertyInt(string name, BuildTargetGroup target);
+
+        [Obsolete("Use explicit API instead.")]
+        public static int GetPropertyInt(string name)
+        {
+            return GetPropertyInt(name, BuildTargetGroup.Unknown);
+        }
+
+        [Obsolete("Use explicit API instead.")]
+        public static bool GetPropertyOptionalInt(string name, ref int value, BuildTargetGroup target)
+        {
+            value = GetPropertyInt(name, target);
+            return true;
+        }
+
+        [Obsolete("Use explicit API instead.")]
+        public static bool GetPropertyOptionalInt(string name, ref int value)
+        {
+            value = GetPropertyInt(name, BuildTargetGroup.Unknown);
+            return true;
+        }
+
+        [Obsolete("Use explicit API instead.")]
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        public static extern void SetPropertyBool(string name, bool value, BuildTargetGroup target);
+
+        [Obsolete("Use explicit API instead.")]
+        public static void SetPropertyBool(string name, bool value)
+        {
+            SetPropertyBool(name, value, BuildTargetGroup.Unknown);
+        }
+
+        [Obsolete("Use explicit API instead.")]
+        public static void SetPropertyBool(string name, bool value, BuildTarget target)
+        {
+            SetPropertyBool(name, value, BuildPipeline.GetBuildTargetGroup(target));
+        }
+
+        [Obsolete("Use explicit API instead.")]
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        public static extern bool GetPropertyBool(string name, BuildTargetGroup target);
+
+        [Obsolete("Use explicit API instead.")]
+        public static bool GetPropertyBool(string name)
+        {
+            return GetPropertyBool(name, BuildTargetGroup.Unknown);
+        }
+
+        [Obsolete("Use explicit API instead.")]
+        public static bool GetPropertyOptionalBool(string name, ref bool value, BuildTargetGroup target)
+        {
+            value = GetPropertyBool(name, target);
+            return true;
+        }
+
+        [Obsolete("Use explicit API instead.")]
+        public static bool GetPropertyOptionalBool(string name, ref bool value)
+        {
+            value = GetPropertyBool(name, BuildTargetGroup.Unknown);
+            return true;
+        }
+
+        [Obsolete("Use explicit API instead.")]
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        public static extern void SetPropertyString(string name, string value, BuildTargetGroup target);
+
+        [Obsolete("Use explicit API instead.")]
+        public static void SetPropertyString(string name, string value)
+        {
+            SetPropertyString(name, value, BuildTargetGroup.Unknown);
+        }
+
+        [Obsolete("Use explicit API instead.")]
+        public static void SetPropertyString(string name, string value, BuildTarget target)
+        {
+            SetPropertyString(name, value, BuildPipeline.GetBuildTargetGroup(target));
+        }
+
+        [Obsolete("Use explicit API instead.")]
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        public static extern string GetPropertyString(string name, BuildTargetGroup target);
+
+        [Obsolete("Use explicit API instead.")]
+        public static string GetPropertyString(string name)
+        {
+            return GetPropertyString(name, BuildTargetGroup.Unknown);
+        }
+
+        [Obsolete("Use explicit API instead.")]
+        public static bool GetPropertyOptionalString(string name, ref string value, BuildTargetGroup target)
+        {
+            value = GetPropertyString(name, target);
+            return true;
+        }
+
+        [Obsolete("Use explicit API instead.")]
+        public static bool GetPropertyOptionalString(string name, ref string value)
+        {
+            value = GetPropertyString(name, BuildTargetGroup.Unknown);
+            return true;
+        }
+
+        internal static extern void SetDirty();
+
+        internal static extern void CopySettingsToBuildProfilePlayerSettings(BuildProfilePlayerSettings buildProfilePlayerSettings);
+
+        [StaticAccessor("PlayerSettings", StaticAccessorType.DoubleColon)]
+        internal static extern BuildProfilePlayerSettings DeserializeBuildProfilePlayerSettingsFromYAMLString(string yamlSettings);
+
+        [StaticAccessor("PlayerSettings", StaticAccessorType.DoubleColon)]
+        internal static extern PlayerSettings CreateAsBuildProfileOverride(BuildProfilePlayerSettings buildProfilePlayerSettings);
+
+        // The name of your company.
+        public static extern string companyName { get; set; }
+
+        // The name of your product.
+        public static extern string productName { get; set; }
+
+        [Obsolete("Use PlayerSettings.SplashScreen.show instead")]
+        [StaticAccessor("GetPlayerSettings().GetSplashScreenSettings()")]
+        public static extern bool showUnitySplashScreen { get; set; }
+
+        [Obsolete("Use PlayerSettings.SplashScreen.unityLogoStyle instead")]
+        [StaticAccessor("GetPlayerSettings().GetSplashScreenSettings()")]
+        [NativeProperty("SplashScreenLogoStyle")]
+        public static extern SplashScreenStyle splashScreenStyle { get; set; }
+
+        /// Cloud project id.
+        [Obsolete("cloudProjectId is deprecated, use CloudProjectSettings.projectId instead")]
+        public static extern string cloudProjectId { get; }
+
+        internal static extern void SetCloudProjectId(string projectId);
+
+        [StaticAccessor("GetPlayerSettings().GetEditorOnlyForUpdate()")]
+        internal static extern void SetCloudServiceEnabled(string serviceKey, bool enabled);
+
+        [StaticAccessor("GetPlayerSettings().GetEditorOnly()")]
+        internal static extern bool GetCloudServiceEnabled(string serviceKey);
+
+        /// Uniquely identifies your product.
+        public static Guid productGUID
+        {
+            get { return new Guid(productGUIDRaw); }
+        }
+
+        /// *undocumented*
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        private static extern byte[] productGUIDRaw { get; }
+
+        // Set the color space for the current project
+        public static extern ColorSpace colorSpace { get; set; }
+
+        // Default horizontal dimension of stand-alone player window.
+        public static extern int defaultScreenWidth { get; set; }
+
+        // Default vertical dimension of stand-alone player window.
+        public static extern int defaultScreenHeight { get; set; }
+
+        // Default horizontal dimension of web player window.
+        public static extern int defaultWebScreenWidth { get; set; }
+
+        // Default vertical dimension of web player window.
+        public static extern int defaultWebScreenHeight { get; set; }
+
+        // Defines the behaviour of the Resolution Dialog on product launch.
+        [Obsolete("displayResolutionDialog has been removed.", false)]
+        public static extern ResolutionDialogSetting displayResolutionDialog { get; set; }
+
+        // If enabled, the game will default to fullscreen mode.
+        [Obsolete("(defaultIsFullScreen is deprecated, use fullScreenMode instead")]
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        public static extern bool defaultIsFullScreen { get; set; }
+
+        // If enabled, the game will default to native resolution in fullscreen mode.
+        public static extern bool defaultIsNativeResolution { get; set; }
+
+        // If enabled, the game will render at retina resolution
+        public static extern bool macRetinaSupport { get; set; }
+
+        // If enabled, your game will continue to run after lost focus.
+        public static extern bool runInBackground { get; set; }
+
+        // Defines if fullscreen games should darken secondary displays.
+        [Obsolete("captureSingleScreen has been removed.", false)]
+        [NoAutoStaticsCleanup] // obsolete removed member; cleanup codegen would trip CS0619
+        public static bool captureSingleScreen { get; set; }
+
+        // Write a log file with debugging information.
+        public static extern bool usePlayerLog { get; set; }
+
+        // Use resizable window in standalone player builds.
+        public static extern bool resizableWindow { get; set; }
+
+        // Should resolution be reset when native window size changes. Shared between iOS & Android platforms.
+        public static extern bool resetResolutionOnWindowResize { get; set; }
+
+        /// Bake collision meshes into the mesh asset.
+        public static extern bool bakeCollisionMeshes { get; set; }
+
+        // Enable receipt validation for the Mac App Store.
+        public static extern bool useMacAppStoreValidation { get; set; }
+
+        // Enable advanced optimiztions for Dedicated Server builds
+        public static extern bool dedicatedServerOptimizations { get; set; }
+
+        // Define how to handle fullscreen mode in Mac OS X standalones
+        [Obsolete("macFullscreenMode is deprecated, use fullScreenMode instead")]
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        public static extern MacFullscreenMode macFullscreenMode { get; set; }
+
+        // Define how to handle fullscreen mode with Direct3D 9
+        [Obsolete("d3d9FullscreenMode is deprecated, use fullScreenMode instead")]
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        public static extern D3D9FullscreenMode d3d9FullscreenMode { get; set; }
+
+        // Define how to handle fullscreen mode with Direct3D 11
+        [Obsolete("d3d11FullscreenMode is deprecated, use fullScreenMode instead")]
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        public static extern D3D11FullscreenMode d3d11FullscreenMode { get; set; }
+
+        [NativeProperty("FullscreenMode")]
+        public static extern FullScreenMode fullScreenMode { get; set; }
+
+        [NativeHeader("Runtime/Misc/PlayerSettings.h")]
+        [StaticAccessor("GetPlayerSettings()", StaticAccessorType.Dot)]
+        internal class PlayerSettings360StereoCapture
+        {
+            public static extern bool enable360StereoCapture
+            {
+                get;
+                set;
+            }
+        }
+
+        public static bool enable360StereoCapture
+        {
+            get { return PlayerSettings360StereoCapture.enable360StereoCapture; }
+            set { PlayerSettings360StereoCapture.enable360StereoCapture = value; }
+        }
+
+        [Obsolete("singlePassStereoRendering will be deprecated. Use stereoRenderingPath instead.")]
+        public static bool singlePassStereoRendering
+        {
+            get { return stereoRenderingPath == StereoRenderingPath.SinglePass; }
+            set { stereoRenderingPath = value ? StereoRenderingPath.SinglePass : StereoRenderingPath.MultiPass; }
+        }
+
+        public static extern StereoRenderingPath stereoRenderingPath { get; set; }
+
+        [Obsolete("protectGraphicsMemory is deprecated. This field has no effect.", false)]
+        public static bool protectGraphicsMemory { get { return false; } set { } }
+
+        public static extern bool enableFrameTimingStats { get; set; }
+        public static extern bool enableOpenGLProfilerGPURecorders { get; set; }
+
+        public static extern bool allowHDRDisplaySupport { get; set; }
+        public static extern bool useHDRDisplay { get; set; }
+
+        [Obsolete("D3DHDRBitDepth has been replaced by hdrBitDepth. (UnityUpgradable) -> hdrBitDepth", true)]
+        public static extern D3DHDRDisplayBitDepth D3DHDRBitDepth { [NativeName("GetHDRBitDepthForObseleteEnum")] get; [NativeName("SetHDRBitDepthForObseleteEnum")] set; }
+
+        public static extern HDRDisplayBitDepth hdrBitDepth { get; set; }
+
+        // What happens with the fullscreen Window when it runs in the background
+
+        public static extern bool visibleInBackground { get; set; }
+
+        // What happens the user presses OS specific full screen switch key combination
+
+        public static extern bool allowFullscreenSwitch { get; set; }
+
+        // Restrict standalone players to a single concurrent running instance.
+        public static extern bool forceSingleInstance { get; set; }
+
+        public static extern bool useFlipModelSwapchain { get; set; }
+
+        [Obsolete("OpenGL ES 3.1 is now the Android minimum supported version; this setting has no effect.", false)]
+        public static bool openGLRequireES31 { get { return true; } set { } }
+
+        [NativeProperty(TargetType = TargetType.Field)]
+        public static extern bool openGLRequireES31AEP
+        {
+            [StaticAccessor("GetPlayerSettings().GetEditorOnly()")]
+            get;
+
+            [StaticAccessor("GetPlayerSettings().GetEditorOnlyForUpdate()")]
+            set;
+        }
+
+        [NativeProperty(TargetType = TargetType.Field)]
+        public static extern bool openGLRequireES32
+        {
+            [StaticAccessor("GetPlayerSettings().GetEditorOnly()")]
+            get;
+
+            [StaticAccessor("GetPlayerSettings().GetEditorOnlyForUpdate()")]
+            set;
+        }
+
+        // Set Maximum Vertex Threshold for Sprite Batching.
+        public static extern int spriteBatchVertexThreshold { get; set; }
+
+        // Set Maxomum Batch Vertex Count
+        internal static extern int spriteBatchMaxVertexCount { get; set; }
+
+        // The image to display in the Resolution Dialog window.
+        [Obsolete("resolutionDialogBanner has been removed.", false)]
+        public static extern Texture2D resolutionDialogBanner { get; set; }
+
+        // The image to display on the Virtual Reality splash screen.
+        [StaticAccessor("GetPlayerSettings().GetSplashScreenSettings()")]
+        public static extern Texture2D virtualRealitySplashScreen { get; set; }
+
+        // The bundle identifier of the iPhone application.
+        [Obsolete("iPhoneBundleIdentifier is deprecated. Use PlayerSettings.SetApplicationIdentifier(NamedBuildTarget.iOS) instead.")]
+        public static string iPhoneBundleIdentifier
+        {
+            get { return GetApplicationIdentifier(NamedBuildTarget.iOS); }
+            set { SetApplicationIdentifier(NamedBuildTarget.iOS, value); }
+        }
+
+        // Note: If an empty list is returned, no icons are assigned specifically to the specified platform at this point,
+        [NativeMethod("GetPlatformIcons")]
+        internal static extern Texture2D[] GetIconsForPlatform(string platform, IconKind kind);
+
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        internal static extern Texture2D[] GetIconsForPlatformByKind(int layerCount, string platform, int kind, string subKind, int width, int height);
+
+        internal static void SetIconsForPlatform(string platform, Texture2D[] icons)
+        {
+            SetIconsForPlatform(platform, icons, IconKind.Any);
+        }
+
+        [NativeMethod("SetPlatformIcons", ThrowsException = true)]
+        internal static extern void SetIconsForPlatform(string platform, Texture2D[] icons, IconKind kind);
+
+        [NativeMethod("GetPlatformIconWidths")]
+        internal static extern int[] GetIconWidthsForPlatform(string platform, IconKind kind);
+
+        [NativeMethod("GetPlatformIconHeights")]
+        internal static extern int[] GetIconHeightsForPlatform(string platform, IconKind kind);
+
+        [NativeMethod("GetPlatformIconKinds")]
+        internal static extern IconKind[] GetIconKindsForPlatform(string platform);
+
+        public static extern UnityEngine.Object[] GetPreloadedAssets();
+
+        public static extern void SetPreloadedAssets(UnityEngine.Object[] assets);
+
+        internal static string GetPlatformName(BuildTargetGroup targetGroup)
+        {
+            return BuildPipeline.GetBuildTargetGroupName(targetGroup);
+        }
+
+        // Deprecated: 'dynamicBatching' parameter is retained for serialized data compatibility and will be removed in a future release.
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        internal static extern void GetBatchingForPlatform(BuildTarget platform, out int staticBatching, out int dynamicBatching);
+
+        // Deprecated: 'dynamicBatching' parameter is retained for serialized data compatibility and will be removed in a future release.
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        internal static extern void SetBatchingForPlatform(BuildTarget platform, int staticBatching, int dynamicBatching);
+
+        public static bool GetStaticBatchingForPlatform(BuildTarget platform)
+        {
+            PlayerSettings.GetBatchingForPlatform(platform, out var staticBatching, out _);
+            return staticBatching > 0;
+        }
+
+        public static void SetStaticBatchingForPlatform(BuildTarget platform, bool enable)
+        {
+            PlayerSettings.GetBatchingForPlatform(platform, out _, out var dynamicBatching);
+            PlayerSettings.SetBatchingForPlatform(platform, enable == true ? 1 : 0, dynamicBatching);
+        }
+
+        [System.Obsolete("GetDynamicBatchingForPlatform is obsolete.", true)]
+        public static bool GetDynamicBatchingForPlatform(BuildTarget platform)
+        {
+            return false;
+        }
+
+        [System.Obsolete("SetDynamicBatchingForPlatform is obsolete.", true)]
+        public static void SetDynamicBatchingForPlatform(BuildTarget platform, bool enable)
+        {
+        }
+
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        public static extern int GetShaderChunkSizeInMBForPlatform(BuildTarget buildTarget);
+
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        public static extern void SetShaderChunkSizeInMBForPlatform(BuildTarget buildTarget, int sizeInMegabytes);
+
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        public static extern int GetShaderChunkCountForPlatform(BuildTarget buildTarget);
+
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        public static extern void SetShaderChunkCountForPlatform(BuildTarget buildTarget, int chunkCount);
+
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        public static extern int GetDefaultShaderChunkSizeInMB();
+
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        public static extern void SetDefaultShaderChunkSizeInMB(int sizeInMegabytes);
+
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        public static extern int GetDefaultShaderChunkCount();
+
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        public static extern void SetDefaultShaderChunkCount(int chunkCount);
+
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        public static extern bool GetOverrideShaderChunkSettingsForPlatform(BuildTarget buildTarget);
+
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        public static extern void SetOverrideShaderChunkSettingsForPlatform(BuildTarget buildTarget, bool value);
+
+        [NativeMethod("GetLightmapEncodingQuality")]
+        internal static extern LightmapEncodingQuality GetLightmapEncodingQualityForPlatform(BuildTarget platform);
+
+        [NativeMethod("SetLightmapEncodingQuality")]
+        internal static extern void SetLightmapEncodingQualityForPlatform(BuildTarget platform, LightmapEncodingQuality encodingQuality);
+
+        [NativeMethod("GetHDRCubemapEncodingQuality")]
+        internal static extern HDRCubemapEncodingQuality GetHDRCubemapEncodingQualityForPlatform(BuildTarget platform);
+
+        [NativeMethod("SetHDRCubemapEncodingQuality")]
+        internal static extern void SetHDRCubemapEncodingQualityForPlatform(BuildTarget platform, HDRCubemapEncodingQuality encodingQuality);
+
+        [FreeFunction("GetTargetPlatformGraphicsAPIAvailability")]
+        internal static extern UnityEngine.Rendering.GraphicsDeviceType[] GetSupportedGraphicsAPIs(BuildTarget platform);
+
+        [NativeMethod("GetPlatformGraphicsAPIs")]
+        public static extern UnityEngine.Rendering.GraphicsDeviceType[] GetGraphicsAPIs(BuildTarget platform);
+
+        public static void SetGraphicsAPIs(BuildTarget platform, UnityEngine.Rendering.GraphicsDeviceType[] apis)
+        {
+            SetGraphicsAPIsImpl(platform, apis);
+            // we do cache api list in player settings editor, so if we update from script we should forcibly update cache
+            PlayerSettingsEditor.SyncEditors(platform);
+        }
+
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        private static extern void SetGraphicsAPIsImpl(BuildTarget platform, UnityEngine.Rendering.GraphicsDeviceType[] apis);
+
+        [NativeMethod("GetPlatformAutomaticGraphicsAPIs")]
+        public static extern bool GetUseDefaultGraphicsAPIs(BuildTarget platform);
+
+        public static void SetUseDefaultGraphicsAPIs(BuildTarget platform, bool automatic)
+        {
+            SetUseDefaultGraphicsAPIsImpl(platform, automatic);
+            // we do cache api list in player settings editor, so if we update from script we should forcibly update cache
+            PlayerSettingsEditor.SyncEditors(platform);
+        }
+
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        private static extern void SetUseDefaultGraphicsAPIsImpl(BuildTarget platform, bool automatic);
+
+        // Set the output color space for the current project. This setting only
+        // defines the format of the final framebuffer and render textures
+        internal static extern ColorGamut[] GetColorGamuts();
+
+        internal static void SetColorGamuts(ColorGamut[] colorSpaces)
+        {
+            SetColorGamutsImpl(colorSpaces);
+            // Color space data is cached in player settings editor
+            PlayerSettingsEditor.SyncEditors(BuildTarget.NoTarget);
+        }
+
+        [NativeMethod("SetColorGamuts")]
+        private static extern void SetColorGamutsImpl(ColorGamut[] colorSpaces);
+
+        internal static extern string[] templateCustomKeys { get; set; }
+
+        public static extern void SetTemplateCustomValue(string name, string value);
+
+        public static extern string GetTemplateCustomValue(string name);
+
+        internal static extern string spritePackerPolicy
+        {
+            [StaticAccessor("GetPlayerSettings().GetEditorOnly().spritePackerPolicy")]
+            [NativeMethod("c_str")]
+            get;
+
+            [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+            set;
+        }
+
+        // TargetGroup no longer defines the entire build targets space. Now build targets are better
+        // identified by a string key (wrapped into NamedBuildTarget), so all the following methods are being replaced.
+
+        [Obsolete("Use GetScriptingDefineSymbols(NamedBuildTarget buildTarget) instead")]
+        public static string GetScriptingDefineSymbolsForGroup(BuildTargetGroup targetGroup) =>
+            GetScriptingDefineSymbols(NamedBuildTarget.FromBuildTargetGroup(targetGroup));
+
+        [Obsolete("Use GetScriptingDefineSymbols(NamedBuildTarget buildTarget, out string[] defines) instead")]
+        public static void GetScriptingDefineSymbolsForGroup(BuildTargetGroup targetGroup, out string[] defines) =>
+            defines = ScriptingDefinesHelper.ConvertScriptingDefineStringToArray(GetScriptingDefineSymbolsForGroup(targetGroup));
+
+        [Obsolete("Use SetScriptingDefineSymbols(NamedBuildTarget buildTarget, string defines) instead")]
+        public static void SetScriptingDefineSymbolsForGroup(BuildTargetGroup targetGroup, string defines) =>
+            SetScriptingDefineSymbols(NamedBuildTarget.FromBuildTargetGroup(targetGroup), defines);
+
+        [Obsolete("Use SetScriptingDefineSymbols(NamedBuildTarget buildTarget, string[] defines) instead")]
+        public static void SetScriptingDefineSymbolsForGroup(BuildTargetGroup targetGroup, string[] defines) =>
+            SetScriptingDefineSymbols(NamedBuildTarget.FromBuildTargetGroup(targetGroup), defines);
+
+        [Obsolete("Use GetAdditionalCompilerArguments(NamedBuildTarget buildTarget) instead")]
+        public static string[] GetAdditionalCompilerArgumentsForGroup(BuildTargetGroup targetGroup) =>
+            GetAdditionalCompilerArguments(NamedBuildTarget.FromBuildTargetGroup(targetGroup));
+
+        [Obsolete("Use SetAdditionalCompilerArguments(NamedBuildTarget buildTarget, string[] additionalCompilerArguments) instead")]
+        public static void SetAdditionalCompilerArgumentsForGroup(BuildTargetGroup targetGroup, string[] additionalCompilerArguments) =>
+            SetAdditionalCompilerArguments(NamedBuildTarget.FromBuildTargetGroup(targetGroup), additionalCompilerArguments);
+
+        [Obsolete("Use GetArchitecture(NamedBuildTarget buildTarget) instead")]
+        public static int GetArchitecture(BuildTargetGroup targetGroup) =>
+            GetArchitecture(NamedBuildTarget.FromBuildTargetGroup(targetGroup));
+
+        [Obsolete("Use SetArchitecture(NamedBuildTarget buildTarget, int architecture) instead")]
+        public static void SetArchitecture(BuildTargetGroup targetGroup, int architecture) =>
+            SetArchitecture(NamedBuildTarget.FromBuildTargetGroup(targetGroup), architecture);
+
+        [Obsolete("Use GetScriptingBackend(NamedBuildTarget buildTarget) instead")]
+        public static ScriptingImplementation GetScriptingBackend(BuildTargetGroup targetGroup) =>
+            GetScriptingBackend(NamedBuildTarget.FromBuildTargetGroup(targetGroup));
+
+        [Obsolete("Use SetScriptingBackend(NamedBuildTarget buildTarget, ScriptingImplementation backend) instead")]
+        public static void SetScriptingBackend(BuildTargetGroup targetGroup, ScriptingImplementation backend) =>
+            SetScriptingBackend(NamedBuildTarget.FromBuildTargetGroup(targetGroup), backend);
+
+        [Obsolete("Use GetDefaultScriptingBackend(NamedBuildTarget buildTarget) instead")]
+        public static ScriptingImplementation GetDefaultScriptingBackend(BuildTargetGroup targetGroup) =>
+            GetDefaultScriptingBackend(NamedBuildTarget.FromBuildTargetGroup(targetGroup));
+
+        [Obsolete("Use GetApplicationIdentifier(NamedBuildTarget buildTarget) instead")]
+        public static string GetApplicationIdentifier(BuildTargetGroup targetGroup) =>
+            GetApplicationIdentifier(NamedBuildTarget.FromBuildTargetGroup(targetGroup));
+
+        [Obsolete("Use SetApplicationIdentifier(NamedBuildTarget buildTarget, string identifier) instead")]
+        public static void SetApplicationIdentifier(BuildTargetGroup targetGroup, string identifier) =>
+            SetApplicationIdentifier(NamedBuildTarget.FromBuildTargetGroup(targetGroup), identifier);
+
+        [Obsolete("Use GetIl2CppCompilerConfiguration(NamedBuildTarget buildTarget) instead")]
+        public static Il2CppCompilerConfiguration GetIl2CppCompilerConfiguration(BuildTargetGroup targetGroup) =>
+            GetIl2CppCompilerConfiguration(NamedBuildTarget.FromBuildTargetGroup(targetGroup));
+
+        [Obsolete("Use SetIl2CppCompilerConfiguration(NamedBuildTarget buildTarget, Il2CppCompilerConfiguration configuration) instead")]
+        public static void SetIl2CppCompilerConfiguration(BuildTargetGroup targetGroup, Il2CppCompilerConfiguration configuration) =>
+            SetIl2CppCompilerConfiguration(NamedBuildTarget.FromBuildTargetGroup(targetGroup), configuration);
+
+        [Obsolete("GetIncrementalIl2CppBuild has no impact on the build process")]
+        public static bool GetIncrementalIl2CppBuild(BuildTargetGroup targetGroup) =>
+            GetIncrementalIl2CppBuild(NamedBuildTarget.FromBuildTargetGroup(targetGroup));
+
+        [Obsolete("SetIncrementalIl2CppBuild has no impact on the build process")]
+        public static void SetIncrementalIl2CppBuild(BuildTargetGroup targetGroup, bool enabled) =>
+            SetIncrementalIl2CppBuild(NamedBuildTarget.FromBuildTargetGroup(targetGroup), enabled);
+
+        [Obsolete("Use SetManagedStrippingLevel(NamedBuildTarget buildTarget, ManagedStrippingLevel level) instead")]
+        public static void SetManagedStrippingLevel(BuildTargetGroup targetGroup, ManagedStrippingLevel level) =>
+            SetManagedStrippingLevel(NamedBuildTarget.FromBuildTargetGroup(targetGroup), level);
+
+        [Obsolete("Use GetManagedStrippingLevel(NamedBuildTarget buildTarget) instead")]
+        public static ManagedStrippingLevel GetManagedStrippingLevel(BuildTargetGroup targetGroup) =>
+            GetManagedStrippingLevel(NamedBuildTarget.FromBuildTargetGroup(targetGroup));
+
+        [Obsolete("Use GetApiCompatibilityLevel(NamedBuildTarget buildTarget) instead")]
+        public static ApiCompatibilityLevel GetApiCompatibilityLevel(BuildTargetGroup buildTargetGroup) =>
+            GetApiCompatibilityLevel(NamedBuildTarget.FromBuildTargetGroup(buildTargetGroup));
+
+        [Obsolete("Use SetApiCompatibilityLevel(NamedBuildTarget buildTarget, ApiCompatibilityLevel value) instead")]
+        public static void SetApiCompatibilityLevel(BuildTargetGroup buildTargetGroup, ApiCompatibilityLevel value) =>
+            SetApiCompatibilityLevel(NamedBuildTarget.FromBuildTargetGroup(buildTargetGroup), value);
+
+        [Obsolete("Use GetMobileMTRendering(NamedBuildTarget buildTarget) instead")]
+        public static bool GetMobileMTRendering(BuildTargetGroup targetGroup) =>
+            GetMobileMTRendering(NamedBuildTarget.FromBuildTargetGroup(targetGroup));
+
+        [Obsolete("Use SetMobileMTRendering(NamedBuildTarget buildTarget, bool enable) instead")]
+        public static void SetMobileMTRendering(BuildTargetGroup targetGroup, bool enable) =>
+            SetMobileMTRendering(NamedBuildTarget.FromBuildTargetGroup(targetGroup), enable);
+
+        [Obsolete("Use GetNormalMapEncoding(NamedBuildTarget buildTarget) instead")]
+        public static NormalMapEncoding GetNormalMapEncoding(BuildTargetGroup platform) =>
+            GetNormalMapEncoding(NamedBuildTarget.FromBuildTargetGroup(platform));
+
+        [Obsolete("Use SetNormalMapEncoding(NamedBuildTarget buildTarget, NormalMapEncoding encoding) instead")]
+        public static void SetNormalMapEncoding(BuildTargetGroup platform, NormalMapEncoding encoding) =>
+            SetNormalMapEncoding(NamedBuildTarget.FromBuildTargetGroup(platform), encoding);
+
+
+        // Get user-specified symbols for script compilation for the given build target name.
+        [StaticAccessor("GetPlayerSettings().GetEditorOnly()")]
+        [NativeMethod("GetUserScriptingDefineSymbols", ThrowsException = true)]
+        private static extern string GetScriptingDefineSymbolsInternal(string buildTargetName);
+        public static string GetScriptingDefineSymbols(NamedBuildTarget buildTarget) =>
+            GetScriptingDefineSymbolsInternal(buildTarget.TargetName);
+        public static void GetScriptingDefineSymbols(NamedBuildTarget buildTarget, out string[] defines) =>
+            defines = ScriptingDefinesHelper.ConvertScriptingDefineStringToArray(GetScriptingDefineSymbols(buildTarget));
+
+        // Set user-specified symbols for script compilation for the given build target group.
+        public static void SetScriptingDefineSymbols(NamedBuildTarget buildTarget, string defines)
+        {
+            if (!string.IsNullOrEmpty(defines))
+                defines = string.Join(";", ScriptingDefinesHelper.ConvertScriptingDefineStringToArray(defines));
+
+            BuildProfileContext.UpdateScriptingDefineSymbolsInActivePlayerSettingsOverride(buildTarget, defines);
+
+            SetScriptingDefineSymbolsInternal(buildTarget.TargetName, defines);
+        }
+
+        public static void SetScriptingDefineSymbols(NamedBuildTarget buildTarget, string[] defines)
+        {
+            if (defines == null)
+                throw new ArgumentNullException(nameof(defines));
+
+            SetScriptingDefineSymbols(buildTarget, ScriptingDefinesHelper.ConvertScriptingDefineArrayToString(defines));
+        }
+
+        [StaticAccessor("GetPlayerSettings().GetEditorOnlyForUpdate()")]
+        [NativeMethod("SetUserScriptingDefineSymbols", ThrowsException = true)]
+        private static extern void SetScriptingDefineSymbolsInternal(string buildTargetName, string defines);
+
+        [StaticAccessor("GetPlayerSettings().GetEditorOnly()")]
+        [NativeMethod("GetAdditionalCompilerArguments", ThrowsException = true)]
+        private static extern string[] GetAdditionalCompilerArgumentsInternal(string buildTargetName);
+        public static string[] GetAdditionalCompilerArguments(NamedBuildTarget buildTarget) =>
+            GetAdditionalCompilerArgumentsInternal(buildTarget.TargetName);
+
+        public static void SetAdditionalCompilerArguments(NamedBuildTarget buildTarget, string[] additionalCompilerArguments)
+        {
+            if (additionalCompilerArguments == null)
+                throw new ArgumentNullException(nameof(additionalCompilerArguments));
+
+            SetAdditionalCompilerArgumentsInternal(buildTarget.TargetName, additionalCompilerArguments);
+        }
+
+        [StaticAccessor("GetPlayerSettings().GetEditorOnlyForUpdate()")]
+        [NativeMethod("SetAdditionalCompilerArguments", ThrowsException = true)]
+        private static extern void SetAdditionalCompilerArgumentsInternal(string buildTargetName, string[] additionalCompilerArguments);
+
+        [StaticAccessor("GetPlayerSettings().GetEditorOnly()")]
+        [NativeMethod("GetPlatformArchitecture", ThrowsException = true)]
+        private static extern int GetArchitectureInternal(string buildTargetName);
+        public static int GetArchitecture(NamedBuildTarget buildTarget) => GetArchitectureInternal(buildTarget.TargetName);
+
+        [StaticAccessor("GetPlayerSettings().GetEditorOnlyForUpdate()")]
+        [NativeMethod("SetPlatformArchitecture", ThrowsException = true)]
+        private static extern void SetArchitectureInternal(string buildTargetName, int architecture);
+        public static void SetArchitecture(NamedBuildTarget buildTarget, int architecture) =>
+            SetArchitectureInternal(buildTarget.TargetName, architecture);
+
+        [StaticAccessor("GetPlayerSettings().GetEditorOnly()")]
+        [NativeMethod("GetPlatformScriptingBackend", ThrowsException = true)]
+        private static extern ScriptingImplementation GetScriptingBackendInternal(string buildTargetName);
+        public static ScriptingImplementation GetScriptingBackend(NamedBuildTarget buildTarget) =>
+            GetScriptingBackendInternal(buildTarget.TargetName);
+
+        [StaticAccessor("GetPlayerSettings().GetEditorOnlyForUpdate()")]
+        [NativeMethod("SetPlatformScriptingBackend", ThrowsException = true)]
+        private static extern void SetScriptingBackendInternal(string buildTargetName, ScriptingImplementation backend);
+        public static void SetScriptingBackend(NamedBuildTarget buildTarget, ScriptingImplementation backend) =>
+            SetScriptingBackendInternal(buildTarget.TargetName, backend);
+
+        [FreeFunction("GetDefaultScriptingBackendForGroup")]
+        internal static extern ScriptingImplementation GetDefaultScriptingBackendForGroup(BuildTargetGroup targetGroup);
+        public static ScriptingImplementation GetDefaultScriptingBackend(NamedBuildTarget buildTarget)
+        {
+            return GetDefaultScriptingBackendForGroup(buildTarget.ToBuildTargetGroup());
+        }
+
+        [NativeMethod("GetCaptureStartupLogs", ThrowsException = true)]
+        private static extern bool GetCaptureStartupLogsInternal(string buildTargetName);
+        public static bool GetCaptureStartupLogs(NamedBuildTarget buildTarget) =>
+            GetCaptureStartupLogsInternal(buildTarget.TargetName);
+
+        [NativeMethod("SetCaptureStartupLogs", ThrowsException = true)]
+        private static extern void SetCaptureStartupLogsInternal(string buildTargetName, bool enable);
+        public static void SetCaptureStartupLogs(NamedBuildTarget buildTarget, bool enable) =>
+            SetCaptureStartupLogsInternal(buildTarget.TargetName, enable);
+
+        [StaticAccessor("GetPlayerSettings().GetEditorOnly()")]
+        internal static extern bool IsApplicationIdentifierValid(string name, BuildTargetGroup targetGroup);
+
+        [StaticAccessor("GetPlayerSettings().GetEditorOnly()")]
+        internal static extern string SanitizeApplicationIdentifier(string name, BuildTargetGroup targetGroup);
+
+        [StaticAccessor("GetPlayerSettings().GetEditorOnlyForUpdate()")]
+        [NativeMethod("SetApplicationIdentifier", ThrowsException = true)]
+        private static extern void SetApplicationIdentifierInternal(string buildTargetName, string identifier);
+        public static void SetApplicationIdentifier(NamedBuildTarget buildTarget, string identifier) =>
+            SetApplicationIdentifierInternal(buildTarget.TargetName, identifier);
+
+        [StaticAccessor("GetPlayerSettings().GetEditorOnly()")]
+        [NativeMethod("GetApplicationIdentifier", ThrowsException = true)]
+        private static extern string GetApplicationIdentifierInternal(string buildTargetName);
+        public static string GetApplicationIdentifier(NamedBuildTarget buildTarget) =>
+            GetApplicationIdentifierInternal(buildTarget.TargetName);
+
+        [StaticAccessor("GetPlayerSettings().GetEditorOnly()")]
+        [NativeMethod("GetApplicationBuildNumber", ThrowsException = true)]
+        internal static extern string GetBuildNumber(string buildTargetName);
+
+        [StaticAccessor("GetPlayerSettings().GetEditorOnlyForUpdate()")]
+        [NativeMethod("SetApplicationBuildNumber", ThrowsException = true)]
+        internal static extern void SetBuildNumber(string buildTargetName, string buildNumber);
+
+        [StaticAccessor("GetPlayerSettings().GetEditorOnlyForUpdate()")]
+        [NativeMethod("SetIl2CppCompilerConfiguration", ThrowsException = true)]
+        private static extern void SetIl2CppCompilerConfigurationInternal(string buildTargetName, Il2CppCompilerConfiguration configuration);
+
+        [StaticAccessor("GetPlayerSettings().GetEditorOnly()")]
+        [NativeMethod("GetIl2CppCompilerConfiguration", ThrowsException = true)]
+        private static extern Il2CppCompilerConfiguration GetIl2CppCompilerConfigurationInternal(string buildTargetName);
+        public static Il2CppCompilerConfiguration GetIl2CppCompilerConfiguration(NamedBuildTarget buildTarget) =>
+            GetIl2CppCompilerConfigurationInternal(buildTarget.TargetName);
+
+        public static void SetIl2CppCompilerConfiguration(NamedBuildTarget buildTarget, Il2CppCompilerConfiguration configuration)
+        {
+            var scriptingImpl = ModuleManager.GetScriptingImplementations(buildTarget);
+            if (scriptingImpl != null && !scriptingImpl.AllowIL2CPPCompilerConfigurationSelection())
+            {
+                Debug.LogWarning($"The C++ compiler configuration option does not apply to the {buildTarget.TargetName} platform as it is configured. Set the configuration in the generated IDE project instead.");
+                return;
+            }
+
+            SetIl2CppCompilerConfigurationInternal(buildTarget.TargetName, configuration);
+        }
+
+        [StaticAccessor("GetPlayerSettings().GetEditorOnly()")]
+        [NativeMethod("GetIl2CppStacktraceInformation", ThrowsException = true)]
+        private static extern Il2CppStacktraceInformation GetIl2CppStacktraceInformationInternal(string buildTargetName);
+        public static Il2CppStacktraceInformation GetIl2CppStacktraceInformation(NamedBuildTarget buildTarget) =>
+            GetIl2CppStacktraceInformationInternal(buildTarget.TargetName);
+
+        [StaticAccessor("GetPlayerSettings().GetEditorOnlyForUpdate()")]
+        [NativeMethod("SetIl2CppStacktraceInformation", ThrowsException = true)]
+        private static extern void SetIl2CppStacktraceInformationInternal(string buildTargetName, Il2CppStacktraceInformation option);
+        public static void SetIl2CppStacktraceInformation(NamedBuildTarget buildTarget, Il2CppStacktraceInformation option)
+        {
+            if (buildTarget == NamedBuildTarget.WebGL && option == Il2CppStacktraceInformation.MethodFileLineNumber)
+            {
+                Debug.LogWarning("The \"Method Name, File Name, and Line Number\" option for IL2CPP stack traces is not supported on WebGL.");
+                option = Il2CppStacktraceInformation.MethodOnly;
+            }
+            SetIl2CppStacktraceInformationInternal(buildTarget.TargetName, option);
+        }
+
+        [StaticAccessor("GetPlayerSettings().GetEditorOnly()")]
+        [NativeMethod("GetIl2CppLTOMode", ThrowsException = true)]
+        private static extern Il2CppLTOMode GetIl2CppLTOModeInternal(string buildTargetName);
+        public static Il2CppLTOMode GetIl2CppLTOMode(NamedBuildTarget buildTarget) =>
+            GetIl2CppLTOModeInternal(buildTarget.TargetName);
+
+        [StaticAccessor("GetPlayerSettings().GetEditorOnlyForUpdate()")]
+        [NativeMethod("SetIl2CppLTOMode", ThrowsException = true)]
+        private static extern void SetIl2CppLTOModeInternal(string buildTargetName, Il2CppLTOMode mode);
+        public static void SetIl2CppLTOMode(NamedBuildTarget buildTarget, Il2CppLTOMode mode) =>
+            SetIl2CppLTOModeInternal(buildTarget.TargetName, mode);
+
+        [StaticAccessor("GetPlayerSettings().GetEditorOnly()")]
+        [NativeMethod("GetPlatformIncrementalIl2CppBuild", ThrowsException = true)]
+        private static extern bool GetIncrementalIl2CppBuildInternal(string buildTargetName);
+        [Obsolete("GetIncrementalIl2CppBuild has no impact on the build process")]
+        public static bool GetIncrementalIl2CppBuild(NamedBuildTarget buildTarget) => GetIncrementalIl2CppBuildInternal(buildTarget.TargetName);
+
+        [StaticAccessor("GetPlayerSettings().GetEditorOnlyForUpdate()")]
+        [NativeMethod("SetPlatformIncrementalIl2CppBuild", ThrowsException = true)]
+        private static extern void SetIncrementalIl2CppBuildInternal(string buildTargetName, bool enabled);
+        [Obsolete("SetIncrementalIl2CppBuild has no impact on the build process")]
+        public static void SetIncrementalIl2CppBuild(NamedBuildTarget buildTarget, bool enabled) =>
+            SetIncrementalIl2CppBuildInternal(buildTarget.TargetName, enabled);
+
+        [StaticAccessor("GetPlayerSettings().GetEditorOnlyForUpdate()")]
+        [NativeMethod("SetManagedStrippingLevel", ThrowsException = true)]
+        private static extern void SetManagedStrippingLevelInternal(string buildTargetName, ManagedStrippingLevel level);
+        public static void SetManagedStrippingLevel(NamedBuildTarget buildTarget, ManagedStrippingLevel level) =>
+            SetManagedStrippingLevelInternal(buildTarget.TargetName, level);
+
+        [StaticAccessor("GetPlayerSettings().GetEditorOnly()")]
+        [NativeMethod("GetManagedStrippingLevel", ThrowsException = true)]
+        private static extern ManagedStrippingLevel GetManagedStrippingLevelInternal(string buildTargetName);
+        public static ManagedStrippingLevel GetManagedStrippingLevel(NamedBuildTarget buildTarget) => GetManagedStrippingLevelInternal(buildTarget.TargetName);
+
+        [StaticAccessor("GetPlayerSettings().GetEditorOnly()")]
+        [NativeMethod("GetApiCompatibilityLevel", ThrowsException = true)]
+        private static extern ApiCompatibilityLevel GetApiCompatibilityLevelInternal(string buildTargetName);
+        public static ApiCompatibilityLevel GetApiCompatibilityLevel(NamedBuildTarget buildTarget) => GetApiCompatibilityLevelInternal(buildTarget.TargetName);
+
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        [NativeMethod("GetApiCompatibilityLevel_Internal", ThrowsException = true)]
+        internal static extern ApiCompatibilityLevel GetApiCompatibilityLevel_Internal(PlayerSettings instance, string buildTargetName);
+
+        [StaticAccessor("GetPlayerSettings().GetEditorOnlyForUpdate()")]
+        [NativeMethod("SetApiCompatibilityLevel", ThrowsException = true)]
+        private static extern void SetApiCompatibilityLevelInternal(string buildTargetName, ApiCompatibilityLevel value);
+        public static void SetApiCompatibilityLevel(NamedBuildTarget buildTarget, ApiCompatibilityLevel value) =>
+            SetApiCompatibilityLevelInternal(buildTarget.TargetName, value);
+
+        internal static extern bool defaultEditorAssembliesCompatibilityLevel
+        {
+            [StaticAccessor("GetPlayerSettings().GetEditorOnly()")]
+            get;
+        }
+
+        internal static ApiCompatibilityLevel EditorAssemblyCompatibilityToApiCompatibility(EditorAssembliesCompatibilityLevel level)
+        {
+            switch (level)
+            {
+                case EditorAssembliesCompatibilityLevel.NET_Standard:
+                {
+                    return ApiCompatibilityLevel.NET_Standard_2_0;
+                }
+                default:
+                {
+                    return ApiCompatibilityLevel.NET_Unity_4_8;
+                }
+            }
+        }
+
+        [StaticAccessor("GetPlayerSettings().GetEditorOnly()")]
+        [NativeMethod("GetEditorAssembliesCompatibilityLevel", ThrowsException = true)]
+        private static extern EditorAssembliesCompatibilityLevel GetEditorAssembliesCompatibilityLevelInternal();
+        public static EditorAssembliesCompatibilityLevel GetEditorAssembliesCompatibilityLevel() => GetEditorAssembliesCompatibilityLevelInternal();
+
+        [NativeMethod("GetEditorOnly().HasAnyNetFXCompatibilityLevel")]
+        private extern bool HasAnyNetFXCompatibilityLevelInternal();
+
+        internal bool HasAnyNetFXCompatibilityLevel()
+        {
+            return HasAnyNetFXCompatibilityLevelInternal();
+        }
+
+        [StaticAccessor("GetPlayerSettings().GetEditorOnlyForUpdate()")]
+        [NativeMethod("SetEditorAssembliesCompatibilityLevel", ThrowsException = true)]
+        private static extern void SetEditorAssembliesCompatibilityLevelInternal(EditorAssembliesCompatibilityLevel value);
+        public static void SetEditorAssembliesCompatibilityLevel(EditorAssembliesCompatibilityLevel value) => SetEditorAssembliesCompatibilityLevelInternal(value);
+
+        [StaticAccessor("GetPlayerSettings().GetEditorOnly()")]
+        [NativeMethod("GetIl2CppCodeGeneration", ThrowsException = true)]
+        private static extern Il2CppCodeGeneration GetIl2CppCodeGenerationInternal(string buildTargetName);
+        public static Il2CppCodeGeneration GetIl2CppCodeGeneration(NamedBuildTarget buildTarget) => GetIl2CppCodeGenerationInternal(buildTarget.TargetName);
+
+        [StaticAccessor("GetPlayerSettings().GetEditorOnlyForUpdate()")]
+        [NativeMethod("SetIl2CppCodeGeneration", ThrowsException = true)]
+        private static extern void SetIl2CppCodeGenerationInternal(string buildTargetName, Il2CppCodeGeneration value);
+        public static void SetIl2CppCodeGeneration(NamedBuildTarget buildTarget, Il2CppCodeGeneration value) =>
+            SetIl2CppCodeGenerationInternal(buildTarget.TargetName, value);
+
+        [StaticAccessor("GetPlayerSettings().GetEditorOnly()")]
+        [NativeMethod("GetManagedCodeVariant", ThrowsException = true)]
+        private static extern ManagedCodeVariant GetManagedCodeVariantInternal(string buildTargetName);
+        public static ManagedCodeVariant GetManagedCodeVariant(NamedBuildTarget buildTarget) => GetManagedCodeVariantInternal(buildTarget.TargetName);
+
+        [StaticAccessor("GetPlayerSettings().GetEditorOnlyForUpdate()")]
+        [NativeMethod("SetManagedCodeVariant", ThrowsException = true)]
+        private static extern void SetManagedCodeVariantInternal(string buildTargetName, ManagedCodeVariant variant);
+        public static void SetManagedCodeVariant(NamedBuildTarget buildTarget, ManagedCodeVariant variant) =>
+            SetManagedCodeVariantInternal(buildTarget.TargetName, variant);
+
+        [NativeMethod("SetMobileMTRendering", ThrowsException = true)]
+        private static extern void SetMobileMTRenderingInternal(string buildTargetName, bool enable);
+        public static void SetMobileMTRendering(NamedBuildTarget buildTarget, bool enable) =>
+            SetMobileMTRenderingInternal(buildTarget.TargetName, enable);
+
+        [NativeMethod("GetMobileMTRendering", ThrowsException = true)]
+        private static extern bool GetMobileMTRenderingInternal(string buildTargetName);
+        public static bool GetMobileMTRendering(NamedBuildTarget buildTarget) => GetMobileMTRenderingInternal(buildTarget.TargetName);
+
+        [StaticAccessor("GetPlayerSettings().GetEditorOnly()")]
+        [NativeMethod("GetNormalMapEncoding", ThrowsException = true)]
+        private static extern NormalMapEncoding GetNormalMapEncodingInternal(string buildTargetName);
+        public static NormalMapEncoding GetNormalMapEncoding(NamedBuildTarget buildTarget) => GetNormalMapEncodingInternal(buildTarget.TargetName);
+
+        [StaticAccessor("GetPlayerSettings().GetEditorOnlyForUpdate()")]
+        [NativeMethod("SetNormalMapEncoding", ThrowsException = true)]
+        private static extern void SetNormalMapEncodingInternal(string buildTargetName, NormalMapEncoding encoding);
+        public static void SetNormalMapEncoding(NamedBuildTarget buildTarget, NormalMapEncoding encoding) =>
+            SetNormalMapEncodingInternal(buildTarget.TargetName, encoding);
+
+        [Obsolete("assemblyVersionValidation has been deprecated due to the introduction of binding redirects")]
+        public static bool assemblyVersionValidation
+        {
+            get => false;
+            set { }
+        }
+
+        [StaticAccessor("GetPlayerSettings().GetEditorOnly().additionalIl2CppArgs")]
+        [NativeMethod("c_str")]
+        public static extern string GetAdditionalIl2CppArgs();
+
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        public static extern void SetAdditionalIl2CppArgs(string additionalArgs);
+
+        [Obsolete("ScriptingRuntimeVersion has been deprecated in 2019.3 due to the removal of legacy mono")]
+        public static ScriptingRuntimeVersion scriptingRuntimeVersion
+        {
+            get { return ScriptingRuntimeVersion.Latest; }
+
+            set { }
+        }
+
+        public static extern bool suppressCommonWarnings
+        {
+            [StaticAccessor("GetPlayerSettings().GetEditorOnly()")]
+            get;
+
+            [StaticAccessor("GetPlayerSettings().GetEditorOnlyForUpdate()")]
+            set;
+        }
+
+        [Obsolete(@"Unsafe code is always enabled; this setting no longer has any effect.")]
+        [EditorBrowsable(EditorBrowsableState.Never)]
+        public static extern bool allowUnsafeCode
+        {
+            [StaticAccessor("GetPlayerSettings().GetEditorOnly()")]
+            get;
+
+            [StaticAccessor("GetPlayerSettings().GetEditorOnlyForUpdate()")]
+            set;
+        }
+
+        internal static extern bool UseDeterministicCompilation
+        {
+            [StaticAccessor("GetPlayerSettings().GetEditorOnly()")]
+            get;
+
+            [StaticAccessor("GetPlayerSettings().GetEditorOnlyForUpdate()")]
+            set;
+        }
+
+        [Obsolete("Use of reference assemblies is always enabled")]
+        public static bool useReferenceAssemblies
+        {
+            get { return true; }
+            set { }
+        }
+
+        internal static extern bool gcWBarrierValidation
+        {
+            [StaticAccessor("GetPlayerSettings().GetEditorOnly()")]
+            get;
+
+            [StaticAccessor("GetPlayerSettings().GetEditorOnlyForUpdate()")]
+            set;
+        }
+
+        public static extern bool gcIncremental
+        {
+            [StaticAccessor("GetPlayerSettings().GetEditorOnly()")]
+            get;
+
+            [StaticAccessor("GetPlayerSettings().GetEditorOnlyForUpdate()")]
+            set;
+        }
+
+        // Xbox 360 title id
+        [Obsolete("Xbox 360 has been removed in >=5.5")]
+        public static string xboxTitleId
+        {
+            get { return String.Empty; }
+            set { }
+        }
+
+        // Xbox 360 ImageXex override configuration file path
+        [Obsolete("Xbox 360 has been removed in >=5.5")]
+        public static string xboxImageXexFilePath
+        {
+            get { return String.Empty; }
+        }
+
+        // Xbox 360 SPA file path
+        [Obsolete("Xbox 360 has been removed in >=5.5")]
+        public static string xboxSpaFilePath
+        {
+            get { return String.Empty; }
+        }
+
+        // Xbox 360 auto-generation of _SPAConfig.cs
+        [Obsolete("Xbox 360 has been removed in >=5.5")]
+        public static bool xboxGenerateSpa
+        {
+            get { return false; }
+        }
+
+        // Xbox 360 Enable XboxLive guest accounts
+        [Obsolete("Xbox 360 has been removed in >=5.5")]
+        public static bool xboxEnableGuest
+        {
+            get { return false; }
+        }
+
+        // Xbox 360 Kinect resource file deployment
+        [Obsolete("Xbox 360 has been removed in >=5.5")]
+        public static bool xboxDeployKinectResources
+        {
+            get { return false; }
+        }
+
+        // Xbox 360 Kinect Head Orientation file deployment
+        [Obsolete("Xbox 360 has been removed in >=5.5")]
+        public static bool xboxDeployKinectHeadOrientation
+        {
+            get { return false; }
+            set { }
+        }
+
+        // Xbox 360 Kinect Head Position file deployment
+        [Obsolete("Xbox 360 has been removed in >=5.5")]
+        public static bool xboxDeployKinectHeadPosition
+        {
+            get { return false; }
+            set { }
+        }
+
+        // Xbox 360 splash screen
+        [Obsolete("Xbox 360 has been removed in >=5.5")]
+        public static Texture2D xboxSplashScreen
+        {
+            get { return null; }
+        }
+
+        [Obsolete("Xbox 360 has been removed in >=5.5")]
+        public static int xboxAdditionalTitleMemorySize
+        {
+            get { return 0; }
+            set { }
+        }
+
+        // Xbox 360 Kinect title flag - if false, the Kinect APIs are inactive
+        [Obsolete("Xbox 360 has been removed in >=5.5")]
+        public static bool xboxEnableKinect
+        {
+            get { return false; }
+        }
+
+        // Xbox 360 Kinect automatic skeleton tracking.
+        [Obsolete("Xbox 360 has been removed in >=5.5")]
+        public static bool xboxEnableKinectAutoTracking
+        {
+            get { return false; }
+        }
+
+        // Xbox 360 Kinect Enable Speech Engine
+        [Obsolete("Xbox 360 has been removed in >=5.5")]
+        public static bool xboxEnableSpeech
+        {
+            get { return false; }
+        }
+
+        // Xbox 360 Kinect Speech DB
+        [Obsolete("Xbox 360 has been removed in >=5.5")]
+        public static UInt32 xboxSpeechDB
+        {
+            get { return 0; }
+        }
+
+        [Obsolete("PlayerSettings.gpuSkinning is deprecated and will be removed in a future release. Use PlayerSettings.meshDeformation instead.", false)]
+        [NativeProperty("GPUSkinning")]
+        public static extern bool gpuSkinning { get; set; }
+
+        [NativeProperty("MeshDeformation")]
+        public static extern MeshDeformation meshDeformation { get; set; }
+
+        public static bool graphicsJobs
+        {
+            get { return GetGraphicsJobsForPlatform(EditorUserBuildSettings.activeBuildTarget); }
+            set { SetGraphicsJobsForPlatform(EditorUserBuildSettings.activeBuildTarget, value); }
+        }
+
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        internal static extern bool GetGraphicsJobsForPlatform(BuildTarget platform);
+
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        internal static extern void SetGraphicsJobsForPlatform(BuildTarget platform, bool graphicsJobs);
+
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        internal static extern bool GetEditorGfxJobOverride();
+
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        internal static extern void SetEditorGfxJobOverride(bool gfxJobsAllow);
+
+        public static GraphicsJobMode graphicsJobMode
+        {
+            get { return GetGraphicsJobModeForPlatform(EditorUserBuildSettings.activeBuildTarget); }
+            set { SetGraphicsJobModeForPlatform(EditorUserBuildSettings.activeBuildTarget, value); }
+        }
+
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        internal static extern GraphicsJobMode GetGraphicsJobModeForPlatform(BuildTarget platform);
+
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        internal static extern void SetGraphicsJobModeForPlatform(BuildTarget platform, GraphicsJobMode gfxJobMode);
+
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        internal static extern GfxThreadingMode GetGraphicsThreadingModeForPlatform(BuildTarget platform);
+
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        internal static extern void SetGraphicsThreadingModeForPlatform(BuildTarget platform, GfxThreadingMode gfxJobMode);
+
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        internal static extern bool GetSwitchGraphicsJobsSyncAfterKick();
+
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        internal static extern void SetSwitchGraphicsJobsSyncAfterKick(bool syncAfterKick);
+
+        // Xbox 360 Pix Texture Capture
+        public static extern bool xboxPIXTextureCapture { get; }
+
+        // Xbox 360 Avatars
+        public static extern bool xboxEnableAvatar { get; }
+
+        // Xbox One resolution options
+        public static extern int xboxOneResolution { get; }
+
+        /// Whether internal profiler is enabled on iOS
+        [Obsolete("Internal profiler hass been removed.")]
+        public static extern bool enableInternalProfiler { get; set; }
+
+        /// What to do on unhandled .NET exceptions on iOS
+        [Obsolete("Non-functional. The property will be removed in a future release.")]
+        public static extern ActionOnDotNetUnhandledException actionOnDotNetUnhandledException { get; set; }
+
+        /// Whether to log Objective-C uncaught exceptions on iOS
+        public static extern bool logObjCUncaughtExceptions { get; set; }
+
+        /// Whether to enable the Crash Reporter API on iOS
+        public static extern bool enableCrashReportAPI { get; set; }
+
+        // Application (before 5.6 bundle) identifier was shared between iOS, Android and Tizen TV platforms before 5.6.
+        public static string applicationIdentifier
+        {
+            get { return GetApplicationIdentifier(NamedBuildTarget.FromActiveSettings(EditorUserBuildSettings.activeBuildTarget)); }
+            set
+            {
+                Debug.LogWarning("PlayerSettings.applicationIdentifier only changes the identifier for the currently active platform. Please use SetApplicationIdentifier to set it for any platform");
+                SetApplicationIdentifier(NamedBuildTarget.FromActiveSettings(EditorUserBuildSettings.activeBuildTarget), value);
+            }
+        }
+
+        // Application bundle version for the VisionOS platform
+        [NativeProperty("VisionOSApplicationVersion")]
+        public static extern string visionOSBundleVersion { get; set; }
+
+        // Application bundle version for the TVOS platform
+        [NativeProperty("TVOSApplicationVersion")]
+        public static extern string tvOSBundleVersion { get; set; }
+
+        // Application bundle version shared between iOS & Android platforms
+        [NativeProperty("ApplicationVersion")]
+        public static extern string bundleVersion { get; set; }
+
+        // Should status bar be hidden. Shared between iOS & Android platforms
+        [NativeProperty("UIStatusBarHidden")]
+        public static extern bool statusBarHidden { get; set; }
+
+        // Code stripping level
+        [Obsolete("strippingLevel is deprecated, Use PlayerSettings.GetManagedStrippingLevel()/PlayerSettings.SetManagedStrippingLevel() instead. StripByteCode and UseMicroMSCorlib are no longer supported.")]
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        public static extern StrippingLevel strippingLevel { get; set; }
+
+        [StaticAccessor("GetPlayerSettings().GetEditorOnly()")]
+        internal static extern void ReinitialiseShaderCompiler(ShaderCompilerEnvironmentVariable[] envVars);
+
+        // Strip Engine code
+        public static extern bool stripEngineCode { get; set; }
+
+        // Default screen orientation for mobiles
+        [NativeProperty("DefaultScreenOrientation")]
+        public static extern UIOrientation defaultInterfaceOrientation { get; set; }
+
+        // Is auto-rotation to portrait supported?
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        public static extern bool allowedAutorotateToPortrait { get; set; }
+
+        // Is auto-rotation to portrait upside-down supported?
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        public static extern bool allowedAutorotateToPortraitUpsideDown { get; set; }
+
+        // Is auto-rotation to landscape right supported?
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        public static extern bool allowedAutorotateToLandscapeRight { get; set; }
+
+        // Is auto-rotation to landscape left supported?
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        public static extern bool allowedAutorotateToLandscapeLeft { get; set; }
+
+        // Let the OS autorotate the screen as the device orientation changes.
+        [Obsolete("No longer relevant, will be removed in the future release.")]
+        [NativeProperty("UseAnimatedAutoRotation")]
+        public static extern bool useAnimatedAutorotation { get; set; }
+
+        // 32-bit Display Buffer is used
+        public static extern bool use32BitDisplayBuffer { get; set; }
+
+        // Preserve framebuffer alpha, iOS and Android only. Enables rendering Unity on top of native UI.
+        public static extern bool preserveFramebufferAlpha { get; set; }
+
+        // .NET API compatibility level
+        [Obsolete("apiCompatibilityLevel is deprecated. Use PlayerSettings.GetApiCompatibilityLevel()/PlayerSettings.SetApiCompatibilityLevel() instead.")]
+        public static ApiCompatibilityLevel apiCompatibilityLevel
+        {
+            get { return GetApiCompatibilityLevel(EditorUserBuildSettings.activeBuildTargetGroup); }
+            set { SetApiCompatibilityLevel(EditorUserBuildSettings.activeBuildTargetGroup, value); }
+        }
+
+        // Should unused [[Mesh]] components be excluded from game build?
+        public static extern bool stripUnusedMeshComponents { get; set; }
+
+        // Don't do fuzzy variant selection in the player. If the requested variant is not there, use error shader.
+        public static extern bool strictShaderVariantMatching { get; set; }
+
+        // Should unused mips be excluded from texture build?
+        public static extern bool mipStripping { get; set; }
+
+        // Is the advanced version being used?
+        [StaticAccessor("GetBuildSettings()")]
+        [NativeProperty("hasAdvancedVersion", TargetType.Field)]
+        public static extern bool advancedLicense { get; }
+
+        // Additional AOT compilation options. Shared by AOT platforms.
+        [Obsolete("This setting is no longer used.")]
+        public static extern string aotOptions { get; set; }
+
+        public static extern Texture2D defaultCursor { get; set; }
+
+        public static extern Vector2 cursorHotspot { get; set; }
+
+        // Accelerometer update frequency
+        public static extern int accelerometerFrequency { get; set; }
+
+        // Is multi-threaded rendering enabled?
+        public static extern bool MTRendering { get; set; }
+
+        // Call OnDisable on objects when unloading AssetBundles
+        public static extern bool callOnDisableOnAssetBundleUnload { get; set; }
+
+        [NativeMethod("GetStackTraceType")]
+        public static extern StackTraceLogType GetStackTraceLogType(LogType logType);
+
+        [NativeMethod("SetStackTraceType")]
+        public static extern void SetStackTraceLogType(LogType logType, StackTraceLogType stackTraceType);
+
+        [NativeMethod("GetGlobalStackTraceType")]
+        internal static extern StackTraceLogType GetGlobalStackTraceLogType(LogType logType);
+
+        [NativeMethod("SetGlobalStackTraceType")]
+        internal static extern void SetGlobalStackTraceLogType(LogType logType, StackTraceLogType stackTraceType);
+
+        [Obsolete("Use UnityEditor.PlayerSettings.SetGraphicsAPIs/GetGraphicsAPIs instead")]
+        public static bool useDirect3D11
+        {
+            get { return GetUseDefaultGraphicsAPIs(BuildTarget.StandaloneWindows); }
+            set { }  // setter does nothing; D3D11 is always the fallback
+        }
+
+        internal static extern bool submitAnalytics { get; set; }
+
+        // Defines whether the application will request audio focus, muting all other audio sources.
+        public static extern bool muteOtherAudioSources { get; set; }
+
+        public static extern AudioSpatialExperience audioSpatialExperience { get; set; }
+
+        internal static extern bool playModeTestRunnerEnabled { get; set; }
+
+        internal static extern bool runPlayModeTestAsEditModeTest { get; set; }
+
+        // Defines whether the BlendShape weight range in SkinnedMeshRenderers is clamped
+        public static extern bool legacyClampBlendShapeWeights { get; set; }
+
+        // If enabled, metal API validation will be turned on in the editor
+        [NativeProperty("MetalAPIValidation")]
+        public static extern bool enableMetalAPIValidation
+        {
+            [StaticAccessor("GetPlayerSettings().GetEditorOnly()", StaticAccessorType.Dot)]
+            get;
+            [StaticAccessor("GetPlayerSettings().GetEditorOnlyForUpdate()", StaticAccessorType.Dot)]
+            set;
+        }
+
+        [FreeFunction("GetPlayerSettings().GetLightmapStreamingEnabled")]
+        internal static extern bool GetLightmapStreamingEnabledForPlatformGroup(BuildTargetGroup platformGroup);
+
+        [FreeFunction("GetPlayerSettings().SetLightmapStreamingEnabled")]
+        internal static extern void SetLightmapStreamingEnabledForPlatformGroup(BuildTargetGroup platformGroup, bool lightmapStreamingEnabled);
+
+        [FreeFunction("GetPlayerSettings().GetLightmapStreamingPriority")]
+        internal static extern int GetLightmapStreamingPriorityForPlatformGroup(BuildTargetGroup platformGroup);
+
+        [FreeFunction("GetPlayerSettings().SetLightmapStreamingPriority")]
+        internal static extern void SetLightmapStreamingPriorityForPlatformGroup(BuildTargetGroup platformGroup, int lightmapStreamingPriority);
+
+        [FreeFunction("GetPlayerSettings().GetLoadStoreDebugModeEnabled")]
+        internal static extern bool GetLoadStoreDebugModeEnabledForPlatformGroup(BuildTargetGroup platformGroup);
+
+        [FreeFunction("GetPlayerSettings().SetLoadStoreDebugModeEnabled")]
+        internal static extern void SetLoadStoreDebugModeEnabledForPlatformGroup(BuildTargetGroup platformGroup, bool loadStoreDebugModeEnabled);
+
+        [FreeFunction("GetPlayerSettings().GetLoadStoreDebugModeEditorOnly")]
+        internal static extern bool GetLoadStoreDebugModeEditorOnlyForPlatformGroup(BuildTargetGroup platformGroup);
+
+        [FreeFunction("GetPlayerSettings().SetLoadStoreDebugModeEditorOnly")]
+        internal static extern void SetLoadStoreDebugModeEditorOnlyForPlatformGroup(BuildTargetGroup platformGroup, bool loadStoreDebugModeEnabled);
+
+        [FreeFunction("GetPlayerSettings().GetDisableOldInputManagerSupport")]
+        internal static extern bool GetDisableOldInputManagerSupport();
+
+        [FreeFunction("GetPlayerSettings().GetWindowsGamepadBackendHint")]
+        internal static extern WindowsGamepadBackendHint GetWindowsGamepadBackendHint();
+
+        [FreeFunction("GetPlayerSettings().SetWindowsGamepadBackendHint")]
+        internal static extern void SetWindowsGamepadBackendHint(WindowsGamepadBackendHint value);
+
+        // The input API backend used on Windows platforms
+        public static WindowsGamepadBackendHint windowsGamepadBackendHint
+        {
+            get { return GetWindowsGamepadBackendHint(); }
+            set { SetWindowsGamepadBackendHint(value); }
+        }
+
+        public static extern bool enableDirectStorage { get; set; }
+
+        [StaticAccessor("GetPlayerSettings()")]
+        [NativeMethod("GetVirtualTexturingSupportEnabled")]
+        public static extern bool GetVirtualTexturingSupportEnabled();
+
+        [StaticAccessor("GetPlayerSettings()")]
+        [NativeMethod("SetVirtualTexturingSupportEnabled")]
+        public static extern void SetVirtualTexturingSupportEnabled(bool enabled);
+
+        [StaticAccessor("GetPlayerSettings()")]
+        [NativeMethod("OnVirtualTexturingChanged")]
+        internal static extern bool OnVirtualTexturingChanged();
+
+        public static extern InsecureHttpOption insecureHttpOption { get; set; }
+
+        internal static extern HttpAllowed allowedHttpConnections { get; set; }
+
+        [StaticAccessor("GetPlayerSettings().GetEditorOnly()")]
+        public static extern ShaderPrecisionModel GetShaderPrecisionModel();
+
+        [StaticAccessor("GetPlayerSettings().GetEditorOnlyForUpdate()")]
+        public static extern void SetShaderPrecisionModel(ShaderPrecisionModel model);
+
+        [StaticAccessor("GetPlayerSettings().GetEditorOnly()")]
+        internal static extern TextureCompressionFormat GetDefaultTextureCompressionFormat(BuildTarget platform);
+
+        [StaticAccessor("GetPlayerSettings().GetEditorOnlyForUpdate()")]
+        internal static extern void SetDefaultTextureCompressionFormat(BuildTarget platform, TextureCompressionFormat format);
+
+        [NativeMethod("GetTextureCompressionFormats")]
+        [StaticAccessor("GetPlayerSettings().GetEditorOnly()")]
+        internal static extern TextureCompressionFormat[] GetTextureCompressionFormatsImpl(BuildTarget platform);
+
+        [NativeMethod("SetTextureCompressionFormats")]
+        [StaticAccessor("GetPlayerSettings().GetEditorOnlyForUpdate()")]
+        internal static extern void SetTextureCompressionFormatsImpl(BuildTarget platform, TextureCompressionFormat[] formats);
+
+        [FreeFunction("GetPlayerSettings().GetEditorOnly().RecompileScripts")]
+        internal static extern void RecompileScripts(string reason, bool refreshProject = true);
+
+        internal static extern bool isHandlingScriptRecompile
+        {
+            [StaticAccessor("GetPlayerSettings().GetEditorOnly()", StaticAccessorType.Dot)]
+            get;
+            [StaticAccessor("GetPlayerSettings().GetEditorOnly()", StaticAccessorType.Dot)]
+            set;
+        }
+
+        // note that we dont expose it in ui (yet) and keep it hidden on purpose
+        // when the time comes we can totally rename this before making it public
+        [NativeProperty("IOSCopyPluginsCodeInsteadOfSymlink")]
+        internal static extern bool iosCopyPluginsCodeInsteadOfSymlink
+        {
+            [StaticAccessor("GetPlayerSettings().GetEditorOnly()", StaticAccessorType.Dot)]
+            get;
+            [StaticAccessor("GetPlayerSettings().GetEditorOnlyForUpdate()", StaticAccessorType.Dot)]
+            set;
+        }
+
+        [StaticAccessor("PlayerSettings", StaticAccessorType.DoubleColon)]
+        internal static extern void SetOverridePlayerSettingsInternal(PlayerSettings playerSettings);
+
+        [StaticAccessor("PlayerSettings", StaticAccessorType.DoubleColon)]
+        internal static extern bool IsGlobalManagerPlayerSettings(PlayerSettings playerSettings);
+
+        [StaticAccessor("PlayerSettings", StaticAccessorType.DoubleColon)]
+        internal static extern string SerializeAsYAMLString(PlayerSettings playerSettings);
+
+        [StaticAccessor("PlayerSettings", StaticAccessorType.DoubleColon)]
+        internal static extern PlayerSettings DeserializeFromYAMLString(string yamlSettings);
+
+        internal static extern bool platformRequiresReadableAssets { get; set; }
+
+        /*
+         * Internal instance methods used when accessing settings outside of the global static instance.
+         * Referenced by PlayerSettingsEditor when reading/writing to a non-active player settings object.
+         */
+
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        internal static extern string GetScriptingDefineSymbols_Internal(PlayerSettings instance, string buildTargetName);
+
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        internal static extern void SetScriptingDefineSymbols_Internal(PlayerSettings instance, string buildTargetName, string defines);
+
+        // Deprecated: 'dynamicBatching' parameter is retained for serialized data compatibility and will be removed in a future release.
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        internal static extern void GetBatchingForPlatform_Internal(PlayerSettings instance, BuildTarget platform, out int staticBatching, out int dynamicBatching);
+
+        internal void GetBatchingForPlatform_Internal(BuildTarget platform, out int staticBatching, out int dynamicBatching)
+        {
+            GetBatchingForPlatform_Internal(this, platform, out staticBatching, out dynamicBatching);
+        }
+
+        // Deprecated: 'dynamicBatching' parameter is retained for serialized data compatibility and will be removed in a future release.
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        internal static extern void SetBatchingForPlatform_Internal(PlayerSettings instance, BuildTarget platform, int staticBatching, int dynamicBatching);
+
+        internal void SetBatchingForPlatform_Internal(BuildTarget platform, int staticBatching, int dynamicBatching)
+        {
+            SetBatchingForPlatform_Internal(this, platform, staticBatching, dynamicBatching);
+        }
+
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        internal static extern int GetDefaultShaderChunkSizeInMB_Internal(PlayerSettings instance);
+
+        internal int GetDefaultShaderChunkSizeInMB_Internal()
+        {
+            return GetDefaultShaderChunkSizeInMB_Internal(this);
+        }
+
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        internal static extern void SetDefaultShaderChunkSizeInMB_Internal(PlayerSettings instance, int sizeInMegabytes);
+
+        internal void SetDefaultShaderChunkSizeInMB_Internal(int sizeInMegabytes)
+        {
+            SetDefaultShaderChunkSizeInMB_Internal(this, sizeInMegabytes);
+        }
+
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        internal static extern int GetDefaultShaderChunkCount_Internal(PlayerSettings instance);
+
+        internal int GetDefaultShaderChunkCount_Internal()
+        {
+            return GetDefaultShaderChunkCount_Internal(this);
+        }
+
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        internal static extern void SetDefaultShaderChunkCount_Internal(PlayerSettings instance, int chunkCount);
+
+        internal void SetDefaultShaderChunkCount_Internal(int chunkCount)
+        {
+            SetDefaultShaderChunkCount_Internal(this, chunkCount);
+        }
+
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        internal static extern bool GetOverrideShaderChunkSettingsForPlatform_Internal(PlayerSettings instance, BuildTarget buildTarget);
+
+        internal bool GetOverrideShaderChunkSettingsForPlatform_Internal(BuildTarget buildTarget)
+        {
+            return GetOverrideShaderChunkSettingsForPlatform_Internal(this, buildTarget);
+        }
+
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        internal static extern void SetOverrideShaderChunkSettingsForPlatform_Internal(PlayerSettings instance, BuildTarget buildTarget, bool value);
+
+        internal void SetOverrideShaderChunkSettingsForPlatform_Internal(BuildTarget buildTarget, bool value)
+        {
+            SetOverrideShaderChunkSettingsForPlatform_Internal(this, buildTarget, value);
+        }
+
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        internal static extern int GetShaderChunkSizeInMBForPlatform_Internal(PlayerSettings instance, BuildTarget buildTarget);
+
+        internal int GetShaderChunkSizeInMBForPlatform_Internal(BuildTarget buildTarget)
+        {
+            return GetShaderChunkSizeInMBForPlatform_Internal(this, buildTarget);
+        }
+
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        internal static extern void SetShaderChunkSizeInMBForPlatform_Internal(PlayerSettings instance, BuildTarget buildTarget, int sizeInMegabytes);
+
+        internal void SetShaderChunkSizeInMBForPlatform_Internal(BuildTarget buildTarget, int sizeInMegabytes)
+        {
+            SetShaderChunkSizeInMBForPlatform_Internal(this, buildTarget, sizeInMegabytes);
+        }
+
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        internal static extern int GetShaderChunkCountForPlatform_Internal(PlayerSettings instance, BuildTarget buildTarget);
+
+        internal int GetShaderChunkCountForPlatform_Internal(BuildTarget buildTarget)
+        {
+            return GetShaderChunkCountForPlatform_Internal(this, buildTarget);
+        }
+
+        // --- Graphics Job
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        internal static extern bool GetGraphicsJobsForPlatform_Internal(PlayerSettings instance, BuildTarget platform);
+
+        internal bool GetGraphicsJobsForPlatform_Internal(BuildTarget platform)
+        {
+            return GetGraphicsJobsForPlatform_Internal(this, platform);
+        }
+
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        internal static extern void SetGraphicsJobsForPlatform_Internal(PlayerSettings instance, BuildTarget platform, bool graphicsJobs);
+
+        internal void SetGraphicsJobsForPlatform_Internal(BuildTarget platform, bool graphicsJobs)
+        {
+            SetGraphicsJobsForPlatform_Internal(this, platform, graphicsJobs);
+        }
+
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        internal static extern GraphicsJobMode GetGraphicsJobModeForPlatform_Internal(PlayerSettings instance, BuildTarget platform);
+
+        internal GraphicsJobMode GetGraphicsJobModeForPlatform_Internal(BuildTarget platform)
+        {
+            return GetGraphicsJobModeForPlatform_Internal(this, platform);
+        }
+
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        internal static extern void SetGraphicsJobModeForPlatform_Internal(PlayerSettings instance, BuildTarget platform, GraphicsJobMode gfxJobMode);
+
+        internal void SetGraphicsJobModeForPlatform_Internal(BuildTarget platform, GraphicsJobMode gfxJobMode)
+        {
+            SetGraphicsJobModeForPlatform_Internal(this, platform, gfxJobMode);
+        }
+
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        internal static extern void SetGraphicsThreadingModeForPlatform_Internal(PlayerSettings instance, BuildTarget platform, GfxThreadingMode gfxJobMode);
+
+        internal void SetGraphicsThreadingModeForPlatform_Internal(BuildTarget platform, GfxThreadingMode gfxJobMode)
+        {
+            SetGraphicsThreadingModeForPlatform_Internal(this, platform, gfxJobMode);
+        }
+
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        internal static extern void SetShaderChunkCountForPlatform_Internal(PlayerSettings instance, BuildTarget buildTarget, int chunkCount);
+
+        internal void SetShaderChunkCountForPlatform_Internal(BuildTarget buildTarget, int chunkCount)
+        {
+            SetShaderChunkCountForPlatform_Internal(this, buildTarget, chunkCount);
+        }
+
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        internal static extern NormalMapEncoding GetNormalMapEncoding_Internal(PlayerSettings instance, string platform);
+
+        internal NormalMapEncoding GetNormalMapEncoding_Internal(string platform)
+        {
+            return GetNormalMapEncoding_Internal(this, platform);
+        }
+
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        internal static extern void SetNormalMapEncoding_Internal(PlayerSettings instance, string platform, NormalMapEncoding encoding);
+
+        internal void SetNormalMapEncoding_Internal(string platform, NormalMapEncoding encoding)
+        {
+            SetNormalMapEncoding_Internal(this, platform, encoding);
+        }
+
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        internal static extern ScriptingImplementation GetScriptingBackend_Internal(PlayerSettings playerSettings, string buildTargetGroupName);
+
+        internal ScriptingImplementation GetScriptingBackend_Internal(string buildTargetGroupName)
+        {
+            return GetScriptingBackend_Internal(this, buildTargetGroupName);
+        }
+
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        internal static extern bool ShouldSyncShaderPrecisionModel(PlayerSettings prev, PlayerSettings next);
+
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        internal static extern void SyncShaderPrecisionModel();
+
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        internal static extern void SyncVirtualTexturingState(PlayerSettings settings);
+
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        internal static extern void SyncSettingsAndCleanSettings();
+
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        internal static extern PlayerSettingsRequiringRestart[] GetSettingsRequiringRestart(PlayerSettings prevSettings, PlayerSettings newSettings, BuildTarget prevBuildTarget, BuildTarget newBuildTarget);
+
+        /*
+         * Internal non-static getter/setters referenced when reading/writing to non-active player settings object.
+         */
+
+        [NativeMethod("GetLightmapStreamingEnabled")]
+        internal extern bool GetLightmapStreamingEnabledForPlatformGroup_Internal(BuildTargetGroup platformGroup);
+
+        [NativeMethod("SetLightmapStreamingEnabled")]
+        internal extern void SetLightmapStreamingEnabledForPlatformGroup_Internal(BuildTargetGroup platformGroup, bool lightmapStreamingEnabled);
+
+        [NativeMethod("GetLightmapStreamingPriority")]
+        internal extern int GetLightmapStreamingPriorityForPlatformGroup_Internal(BuildTargetGroup platformGroup);
+
+        [NativeMethod("SetLightmapStreamingPriority")]
+        internal extern void SetLightmapStreamingPriorityForPlatformGroup_Internal(BuildTargetGroup platformGroup, int lightmapStreamingPriority);
+
+        [NativeMethod("GetLightmapEncodingQuality")]
+        internal extern LightmapEncodingQuality GetLightmapEncodingQualityForPlatform_Internal(BuildTarget platform);
+
+        [NativeMethod("SetLightmapEncodingQuality")]
+        internal extern void SetLightmapEncodingQualityForPlatform_Internal(BuildTarget platform, LightmapEncodingQuality encodingQuality);
+
+        [NativeMethod("GetHDRCubemapEncodingQuality")]
+        internal extern HDRCubemapEncodingQuality GetHDRCubemapEncodingQualityForPlatform_Internal(BuildTarget platform);
+
+        [NativeMethod("SetHDRCubemapEncodingQuality")]
+        internal extern void SetHDRCubemapEncodingQualityForPlatform_Internal(BuildTarget platform, HDRCubemapEncodingQuality encodingQuality);
+
+
+        // Load / Store
+        [NativeMethod("GetLoadStoreDebugModeEnabled")]
+        internal extern bool GetLoadStoreDebugModeEnabledForPlatformGroup_Internal(BuildTargetGroup platformGroup);
+
+        [NativeMethod("SetLoadStoreDebugModeEnabled")]
+        internal extern void SetLoadStoreDebugModeEnabledForPlatformGroup_Internal(BuildTargetGroup platformGroup, bool loadStoreDebugModeEnabled);
+
+        [NativeMethod("GetLoadStoreDebugModeEditorOnly")]
+        internal extern bool GetLoadStoreDebugModeEditorOnlyForPlatformGroup_Internal(BuildTargetGroup platformGroup);
+
+        [NativeMethod("SetLoadStoreDebugModeEditorOnly")]
+        internal extern void SetLoadStoreDebugModeEditorOnlyForPlatformGroup_Internal(BuildTargetGroup platformGroup, bool loadStoreDebugModeEnabled);
+
+        // Mobile Rendering
+        [NativeMethod("SetMobileMTRendering", ThrowsException = true)]
+        internal extern void SetMobileMTRenderingInternal_Instance(string buildTargetName, bool enable);
+
+        [NativeMethod("GetMobileMTRendering", ThrowsException = true)]
+        internal extern bool GetMobileMTRenderingInternal_Instance(string buildTargetName);
+
+        // Graphics APIs
+        [NativeMethod("GetPlatformAutomaticGraphicsAPIs")]
+        internal extern bool GetUseDefaultGraphicsAPIs_Internal(BuildTarget platform);
+
+        internal void SetUseDefaultGraphicsAPIs_Internal(BuildTarget platform, bool automatic)
+        {
+            SetUseDefaultGraphicsAPIsImpl_Internal(this, platform, automatic);
+            // we do cache api list in player settings editor, so if we update from script we should forcibly update cache
+            PlayerSettingsEditor.SyncEditors(platform);
+        }
+
+        [NativeMethod("GetPlatformAutomaticGraphicsAPIsList")]
+        internal extern GraphicsDeviceType[] GetPlatformAutomaticGraphicsAPIsList(BuildTarget platform);
+
+
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        private static extern void SetUseDefaultGraphicsAPIsImpl_Internal(PlayerSettings instance, BuildTarget platform, bool automatic);
+
+        [NativeMethod("GetPlatformGraphicsAPIs")]
+        internal extern UnityEngine.Rendering.GraphicsDeviceType[] GetGraphicsAPIs_Internal(BuildTarget platform);
+
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        private static extern void SetGraphicsAPIsImpl_Internal(PlayerSettings instance, BuildTarget platform, UnityEngine.Rendering.GraphicsDeviceType[] apis);
+
+        internal void SetGraphicsAPIs_Internal(BuildTarget platform, UnityEngine.Rendering.GraphicsDeviceType[] apis, bool shouldSync)
+        {
+            SetGraphicsAPIsImpl_Internal(this, platform, apis);
+            // we do cache api list in player settings editor, so if we update from script we should forcibly update cache
+            if (shouldSync)
+                PlayerSettingsEditor.SyncEditors(platform);
+        }
+
+        [NativeMethod("GetColorGamuts")]
+        internal extern ColorGamut[] GetColorGamuts_Internal();
+
+        [NativeMethod("SetColorGamuts")]
+        internal extern void SetColorGamuts_Internal(ColorGamut[] colorSpaces);
+
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        internal static extern void EnsureUnityConnectSettingsEqual(PlayerSettings target, PlayerSettings source);
+
+        [NativeMethod("SetTemplateCustomKeys")]
+        internal extern void SetTemplateCustomKeys_Internal(string[] templateCustomKeys);
+
+        [NativeMethod("SetTemplateCustomValue")]
+        internal extern void SetTemplateCustomValue_Internal(string name, string value);
+
+        [NativeMethod("GetTemplateCustomValue")]
+        internal extern string GetTemplateCustomValue_Internal(string name);
+
+        [NativeMethod("SetEnableFrameTimingStats")]
+        [VisibleToOtherModules]
+        internal extern void SetEnableFrameTimingStats_Internal(bool value);
+
+        [NativeMethod("GetEnableFrameTimingStats")]
+        [VisibleToOtherModules]
+        internal extern bool GetEnableFrameTimingStats_Internal();
+
+        public static extern bool adjustIOSFPSUsingThermalState { get; set; }
+
+        [NativeMethod("SetAdjustIOSFPSUsingThermalState")]
+        [VisibleToOtherModules]
+        internal extern void SetAdjustIOSFPSUsingThermalState_Internal(bool value);
+
+        [NativeMethod("GetAdjustIOSFPSUsingThermalState")]
+        [VisibleToOtherModules]
+        internal extern bool GetAdjustIOSFPSUsingThermalState_Internal();
+
+        public static extern D3D12DeviceFilterLists d3D12DeviceFilterListAsset { get; set; }
+
+        public static extern WebGPUDeviceFilterLists webGPUDeviceFilterListAsset { get; set; }
+
+        [StaticAccessor("PlayerSettingsBindings", StaticAccessorType.DoubleColon)]
+        internal static extern RayTracingFeatureFlags GetRayTracingFeaturesSupportForPlatform_Internal(BuildTarget platform, bool checkGraphicsApisList);
+
+        public static RayTracingFeatureFlags GetRayTracingFeaturesSupportForPlatform(BuildTarget platform, bool checkGraphicsApisList)
+        {
+            return GetRayTracingFeaturesSupportForPlatform_Internal(platform, checkGraphicsApisList);
+        }
+    }
+}

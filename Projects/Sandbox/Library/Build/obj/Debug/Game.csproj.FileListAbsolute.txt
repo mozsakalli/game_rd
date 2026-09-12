@@ -1,0 +1,13 @@
+C:\Work\digitoygames\game_rd\Projects\Sandbox\Library\Build\bin\Sandbox.Game.deps.json
+C:\Work\digitoygames\game_rd\Projects\Sandbox\Library\Build\bin\Sandbox.Game.dll
+C:\Work\digitoygames\game_rd\Projects\Sandbox\Library\Build\bin\Sandbox.Game.pdb
+C:\Work\digitoygames\game_rd\Projects\Sandbox\Library\Build\bin\DigitoyEngine.dll
+C:\Work\digitoygames\game_rd\Projects\Sandbox\Library\Build\bin\DigitoyEngine.pdb
+C:\Work\digitoygames\game_rd\Projects\Sandbox\Library\Build\obj\Debug\Game.csproj.AssemblyReference.cache
+C:\Work\digitoygames\game_rd\Projects\Sandbox\Library\Build\obj\Debug\Game.GeneratedMSBuildEditorConfig.editorconfig
+C:\Work\digitoygames\game_rd\Projects\Sandbox\Library\Build\obj\Debug\Game.AssemblyInfoInputs.cache
+C:\Work\digitoygames\game_rd\Projects\Sandbox\Library\Build\obj\Debug\Game.AssemblyInfo.cs
+C:\Work\digitoygames\game_rd\Projects\Sandbox\Library\Build\obj\Debug\Game.csproj.CoreCompileInputs.cache
+C:\Work\digitoygames\game_rd\Projects\Sandbox\Library\Build\obj\Debug\Game.csproj.Up2Date
+C:\Work\digitoygames\game_rd\Projects\Sandbox\Library\Build\obj\Debug\Sandbox.Game.dll
+C:\Work\digitoygames\game_rd\Projects\Sandbox\Library\Build\obj\Debug\Sandbox.Game.pdb

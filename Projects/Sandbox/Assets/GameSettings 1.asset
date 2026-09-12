@@ -1,0 +1,6 @@
+type: GameSettings
+fields:
+  gameName: Sandbox
+  targetFps: 60
+  musicVolume: 1
+  showFps: true

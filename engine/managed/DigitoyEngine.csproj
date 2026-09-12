@@ -1,0 +1,32 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- DigitoyEngine runtime cekirdegi (LIBRARY). Editor (DigitoyEditor.csproj) ve
+       oyun player'lari bunu referanslar. langtest 'engine' build modu bu DLL'i CIL
+       frontend ile IR'a yukler, C'ye transpile eder ve native host + sokol ile linkler. -->
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <AssemblyName>DigitoyEngine</AssemblyName>
+  </PropertyGroup>
+
+  <!-- Editor/debug altyapisi yalniz Debug'da derlenir; Release'e tek satir girmez. -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
+    <DefineConstants>$(DefineConstants);DE_EDITOR</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <InternalsVisibleTo Include="DigitoyEditor" />
+  </ItemGroup>
+
+  <!-- build_editor.cmd ciktisi native lib'i cikti yanina kopyala (referanslayan
+       exe'lere transitif tasinir; DllImport bulur). -->
+  <ItemGroup>
+    <None Include="..\native\build\digitoyengine_native.dll"
+          Link="digitoyengine_native.dll"
+          CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>

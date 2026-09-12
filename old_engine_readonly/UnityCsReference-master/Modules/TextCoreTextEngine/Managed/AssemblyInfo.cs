@@ -1,0 +1,43 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+using System.Runtime.CompilerServices;
+
+// Allow internal visibility to the following assemblies
+[assembly: InternalsVisibleTo("Unity.TextMeshPro")]
+[assembly: InternalsVisibleTo("Unity.TextCore.FontEngine.Tools")]
+[assembly: InternalsVisibleTo("UnityEngine.TextCoreModule")]
+[assembly: InternalsVisibleTo("UnityEngine.TextCoreTextModule")]
+
+// Used internally for testing and a few enterprise users.
+[assembly: InternalsVisibleTo("UnityEngine.TextCore.Tools")]
+
+[assembly: InternalsVisibleTo("UnityEditor.CoreModule")] // Needed for Editor Preferences
+[assembly: InternalsVisibleTo("Unity.TextCore.Editor")]
+[assembly: InternalsVisibleTo("UnityEditor.TextCoreTextModule")]
+[assembly: InternalsVisibleTo("Unity.TextMeshPro.Editor")]
+
+[assembly: InternalsVisibleTo("Unity.TextMeshPro.Tests")]
+[assembly: InternalsVisibleTo("Unity.TextCore.Tests")]
+[assembly: InternalsVisibleTo("Unity.FontEngine.Tests")]
+[assembly: InternalsVisibleTo("Unity.UIElements.Tests")]
+[assembly: InternalsVisibleTo("Unity.UIElements.PlayModeTests")]
+
+// Make internal visible to UIElements module.
+[assembly: InternalsVisibleTo("UnityEngine.UIElementsModule")]
+[assembly: InternalsVisibleTo("UnityEngine.ImguiModule")]
+[assembly: InternalsVisibleTo("UnityEngine.UI.Tests")]
+[assembly: InternalsVisibleTo("EditorGUI.Tests.Playmode")]
+[assembly: InternalsVisibleTo("UnityEngine.UIElements.Tests.Controls")]
+[assembly: InternalsVisibleTo("UnityEngine.UIElements.Tests.Utils")]
+[assembly: InternalsVisibleTo("Assembly-CSharp-testable")]
+
+[assembly: InternalsVisibleTo("UnityEditor.UIElementsModule")]
+[assembly: InternalsVisibleTo("UnityEditor.TextCoreTextEngineModule")]
+[assembly: InternalsVisibleTo("Unity.TextCore.Editor.Tests")]
+[assembly: InternalsVisibleTo("Unity.TextMeshPro.Editor")]
+[assembly: InternalsVisibleTo("Unity.TextMeshPro.Editor.Tests")]
+[assembly: InternalsVisibleTo("Unity.UIElements.EditorTests")]
+[assembly: InternalsVisibleTo("Assembly-CSharp-Editor-testable")]
+[assembly: InternalsVisibleTo("Unity.UIElements.EditorResources.EditorTests")]

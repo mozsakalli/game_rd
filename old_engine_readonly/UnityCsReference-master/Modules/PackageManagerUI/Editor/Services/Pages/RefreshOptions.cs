@@ -1,0 +1,36 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+using System;
+using System.Collections.Generic;
+
+namespace UnityEditor.PackageManager.UI.Internal
+{
+    [Flags]
+    internal enum RefreshOptions : uint
+    {
+        None             = 0,
+
+        UpmListOffline   = 1 << 0,
+        UpmList          = 1 << 1,
+        UpmSearchOffline = 1 << 2,
+        UpmSearch        = 1 << 3,
+        Purchased        = 1 << 4,
+        LocalInfo        = 1 << 5,
+        ImportedAssets   = 1 << 6,
+        ImportedSamples  = 1 << 7,
+    }
+
+    internal static class RefreshOptionsExtension
+    {
+        public static IEnumerable<RefreshOptions> Split(this RefreshOptions value)
+        {
+            foreach (var enumValue in Enum.GetValues(typeof(RefreshOptions)))
+                if (enumValue is RefreshOptions option && (value & option) != 0)
+                    yield return option;
+        }
+
+        public static bool Contains(this RefreshOptions value, RefreshOptions flag) => (value & flag) == flag;
+    }
+}

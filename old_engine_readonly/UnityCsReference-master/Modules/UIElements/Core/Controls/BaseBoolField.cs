@@ -1,0 +1,266 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+#pragma warning disable UAL0015,UAL0018,UAL0019,UAL0020,UAL0021 // AutoStaticsCleanup usage analysis: UIToolkitFramework not yet converted
+#pragma warning disable UAL0010,UAL0011,UAL0012,UAL0013,UAL0014 // AutoStaticsCleanup: UIToolkitFramework not yet converted
+using Unity.Properties;
+using Unity.Scripting.LifecycleManagement;
+using UnityEngine.Bindings;
+
+namespace UnityEngine.UIElements
+{
+    /// <summary>
+    /// A BaseBoolField is a clickable element that represents a boolean value.
+    /// </summary>
+    [UxmlElement]
+    public abstract partial class BaseBoolField : BaseField<bool>
+    {
+        internal static readonly BindingId textProperty = nameof(text);
+        internal static readonly BindingId toggleOnLabelClickProperty = nameof(toggleOnLabelClick);
+
+        static readonly UniqueStyleString k_CheckmarkName = new("unity-checkmark");
+
+        protected Label m_Label;
+        internal protected readonly VisualElement m_CheckMark;
+        internal readonly Clickable m_Clickable;
+
+        // Needed by the UIBuilder for authoring in the viewport
+        internal Label boolFieldLabelElement
+        {
+            [VisibleToOtherModules("UnityEditor.UIBuilderModule", "UnityEditor.UIToolkitAuthoringModule")]
+            get => m_Label;
+        }
+
+        [VisibleToOtherModules("UnityEditor.UIBuilderModule", "UnityEditor.UIToolkitAuthoringModule")]
+        internal bool acceptClicksIfDisabled
+        {
+            get => m_Clickable.acceptClicksIfDisabled;
+            set => m_Clickable.acceptClicksIfDisabled = value;
+        }
+
+        /// <summary>
+        /// Whether to activate the toggle when the user clicks the label.
+        /// </summary>
+        [CreateProperty]
+        [UxmlAttribute]
+        public bool toggleOnLabelClick { get; set; } = true;
+
+        // Used by foldout
+        [VisibleToOtherModules("UnityEditor.UIBuilderModule", "UnityEditor.UIToolkitAuthoringModule")]
+        internal bool toggleOnTextClick { get; set; } = true;
+
+        /// <summary>
+        /// Creates a <see cref="BaseBoolField"/> with a Label and a default manipulator.
+        /// </summary>
+        /// <remarks>
+        /// The default manipulator makes it possible to activate the BaseBoolField with a left mouse click.
+        /// </remarks>
+        /// <param name="label">The Label text.</param>
+        public BaseBoolField(string label)
+            : base(label, null)
+        {
+            // Allocate and add the checkmark to the hierarchy
+            m_CheckMark = new VisualElement() { pickingMode = PickingMode.Ignore };
+            m_CheckMark.SetName(k_CheckmarkName);
+            visualInput.Add(m_CheckMark);
+
+            // The picking mode needs to be Position in order to have the Pseudostate Hover applied...
+            visualInput.pickingMode = PickingMode.Position;
+
+            // Prevent label from taking focus when the element is clicked so that navigation direction changes are applied correctly.
+            labelElement.focusable = false;
+
+            // Set-up the label and text...
+            text = null;
+            this.AddManipulator(m_Clickable = new Clickable(OnClickEvent));
+
+            Callbacks.OnNavigationSubmit.Register(this);
+        }
+
+        private void OnNavigationSubmit(NavigationSubmitEvent evt)
+        {
+            ToggleValue();
+            evt.StopPropagation();
+        }
+
+        private string m_OriginalText;
+
+        /// <summary>
+        /// Optional text that appears after the BaseBoolField.
+        /// </summary>
+        /// <remarks>
+        /// Unity creates a <see cref="Label"/> automatically if one does not exist.
+        /// </remarks>
+        [UxmlAttribute]
+        [CreateProperty, MultilineTextField(lines = 3)]
+        public string text
+        {
+            get { return m_Label?.text; }
+            set
+            {
+                if (string.CompareOrdinal(m_Label?.text, value) == 0)
+                    return;
+
+                if (!string.IsNullOrEmpty(value))
+                {
+                    InitLabel();
+                    m_Label.text = value;
+                }
+                else if (m_Label != null)
+                {
+                    m_Label.RemoveFromHierarchy();
+                    m_Label.text = value;
+                }
+
+                NotifyPropertyChanged(textProperty);
+            }
+        }
+
+        /// <summary>
+        /// Initializes the Label element whenever the <see cref="BaseBoolField.text"/> property changes.
+        /// </summary>
+        /// <remarks>
+        /// Override this method to modify the Label after its creation.
+        /// You must call the base implementation of this method before trying to access to <see cref="m_Label"/> property in your own implementation.
+        /// </remarks>
+        protected virtual void InitLabel()
+        {
+            if (m_Label == null)
+                m_Label = new Label();
+            else if (m_Label.parent != null)
+                return;
+
+            if (m_CheckMark.hierarchy.parent != visualInput)
+            {
+                visualInput.Add(m_Label);
+            }
+            else
+            {
+                var checkmarkIndex = visualInput.IndexOf(m_CheckMark);
+                visualInput.Insert(checkmarkIndex + 1, m_Label);
+            }
+        }
+
+        /// <summary>
+        /// Sets the value of the <see cref="BaseBoolField"/>, but does not notify the rest of the hierarchy of the change.
+        /// </summary>
+        /// <remarks>
+        /// This method is useful when you want to change the control's value without triggering events. For example, you can use it when you initialize UI
+        /// to avoid triggering unnecessary events, and to prevent situations where changing the value of one control triggers an event that tries to update
+        /// another control that hasn't been initialized, and may not exist yet.
+        ///
+        /// This method is also useful for preventing circular updates. Let's say you link two controls so they always have the same value. When a user changes
+        /// the value of the first control, it fires an event to update the value of the second control. If you update the second control's value "normally,"
+        /// as though a user changed it, it will fire another event to update the first control's value, which will fire an event to update the second control's
+        /// value again, and so on. If one control update's the other's value using SetValueWithoutNotify, the update does not trigger an event, which prevents
+        /// the circular update loop.
+        /// </remarks>
+        /// <param name="newValue"></param>
+        public override void SetValueWithoutNotify(bool newValue)
+        {
+            visualInput.SetCheckedPseudoState(newValue);
+            SetCheckedPseudoState(newValue);
+
+            base.SetValueWithoutNotify(newValue);
+        }
+
+        void OnClickEvent(EventBase evt)
+        {
+            if (evt.eventTypeId == MouseUpEvent.TypeId())
+            {
+                var ce = (IMouseEvent) evt;
+
+                if (ShouldIgnoreClick(ce.mousePosition))
+                    return;
+
+                if (ce.button == (int) MouseButton.LeftMouse)
+                {
+                    ToggleValue();
+                }
+            }
+            else if (evt.eventTypeId == PointerUpEvent.TypeId() || evt.eventTypeId == ClickEvent.TypeId())
+            {
+                var ce = (IPointerEvent) evt;
+
+                if (ShouldIgnoreClick(ce.position))
+                    return;
+
+                if (ce.button == (int) MouseButton.LeftMouse)
+                {
+                    ToggleValue();
+                }
+            }
+        }
+
+        bool ShouldIgnoreClick(Vector3 position)
+        {
+            if (!toggleOnLabelClick && labelElement.worldBound.Contains(position))
+                return true;
+
+            if (!toggleOnTextClick && m_Label?.worldBound.Contains(position) == true)
+                return true;
+
+            return false;
+        }
+
+        /// <summary>
+        /// Inverts the <see cref="BaseField{TValueType}.value"/> property.
+        /// </summary>
+        /// <remarks>
+        /// Override this method to change the logic of toggling the value in your subclass.
+        /// </remarks>
+        protected virtual void ToggleValue()
+        {
+            value = !value;
+        }
+
+        protected override void UpdateMixedValueContent()
+        {
+            if (showMixedValue)
+            {
+                visualInput.SetCheckedPseudoState(false);
+                SetCheckedPseudoState(false);
+
+                m_CheckMark.RemoveFromHierarchy();
+                visualInput.Add(mixedValueLabel);
+                m_OriginalText = text;
+                text = "";
+            }
+            else
+            {
+                mixedValueLabel.RemoveFromHierarchy();
+                visualInput.Add(m_CheckMark);
+                if (m_OriginalText != null)
+                    text = m_OriginalText;
+            }
+        }
+
+        internal override void RegisterEditingCallbacks()
+        {
+            Callbacks.OnPointerUpStartEditing.Register(this);
+            Callbacks.OnFocusOutEndEditing.Register(this);
+        }
+
+        internal override void UnregisterEditingCallbacks()
+        {
+            Callbacks.OnFocusOutEndEditing.Unregister(this);
+            Callbacks.OnPointerUpStartEditing.Unregister(this);
+        }
+
+        private static partial class Callbacks
+        {
+            [NoAutoStaticsCleanup]
+            public static readonly EventCallbackDefinition<BaseBoolField> OnNavigationSubmit =
+                EventCallback.Create<NavigationSubmitEvent, BaseBoolField>(static (evt, self) => self.OnNavigationSubmit(evt));
+            [NoAutoStaticsCleanup]
+            public static readonly EventCallbackDefinition<BaseBoolField> OnPointerUpStartEditing =
+                EventCallback.Create<PointerUpEvent, BaseBoolField>(static (evt, self) => self.StartEditing(evt));
+            [NoAutoStaticsCleanup]
+            public static readonly EventCallbackDefinition<BaseBoolField> OnFocusOutEndEditing =
+                EventCallback.Create<FocusOutEvent, BaseBoolField>(static (evt, self) => self.EndEditing(evt));
+        }
+    }
+}
+#pragma warning restore UAL0010,UAL0011,UAL0012,UAL0013,UAL0014
+#pragma warning restore UAL0015,UAL0018,UAL0019,UAL0020,UAL0021

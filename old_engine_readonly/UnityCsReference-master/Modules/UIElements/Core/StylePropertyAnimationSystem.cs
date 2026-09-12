@@ -1,0 +1,2517 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+using Unity.Scripting.LifecycleManagement;
+using System;
+using System.Collections.Generic;
+using JetBrains.Annotations;
+using UnityEngine.Assertions;
+using UnityEngine.UIElements.StyleSheets;
+
+namespace UnityEngine.UIElements
+{
+    [Bindings.VisibleToOtherModules("UnityEditor.UIBuilderModule", "UnityEditor.UIToolkitAuthoringModule")]
+    internal interface IStylePropertyAnimationSystem
+    {
+        bool StartTransition(VisualElement owner, StylePropertyId prop, float startValue, float endValue, int durationMs, int delayMs, [NotNull] Func<float, float> easingCurve);
+        bool StartTransition(VisualElement owner, StylePropertyId prop, int startValue, int endValue, int durationMs, int delayMs, [NotNull] Func<float, float> easingCurve);
+        bool StartTransition(VisualElement owner, StylePropertyId prop, Length startValue, Length endValue, int durationMs, int delayMs, [NotNull] Func<float, float> easingCurve);
+        bool StartTransition(VisualElement owner, StylePropertyId prop, Color startValue, Color endValue, int durationMs, int delayMs, [NotNull] Func<float, float> easingCurve);
+        bool StartTransitionEnum(VisualElement owner, StylePropertyId prop, int startValue, int endValue, int durationMs, int delayMs, [NotNull] Func<float, float> easingCurve);
+        bool StartTransition(VisualElement owner, StylePropertyId prop, EntityId startValue, EntityId endValue, int durationMs, int delayMs, [NotNull] Func<float, float> easingCurve);
+        bool StartTransition(VisualElement owner, StylePropertyId prop, UnityEngine.UIElements.Cursor startValue, UnityEngine.UIElements.Cursor endValue, int durationMs, int delayMs, [NotNull] Func<float, float> easingCurve);
+        bool StartTransition(VisualElement owner, StylePropertyId prop, TextShadow startValue, TextShadow endValue, int durationMs, int delayMs, [NotNull] Func<float, float> easingCurve);
+        bool StartTransition(VisualElement owner, StylePropertyId prop, Scale startValue, Scale endValue, int durationMs, int delayMs, [NotNull] Func<float, float> easingCurve);
+        bool StartTransition(VisualElement owner, StylePropertyId prop, TransformOrigin startValue, TransformOrigin endValue, int durationMs, int delayMs, [NotNull] Func<float, float> easingCurve);
+        bool StartTransition(VisualElement owner, StylePropertyId prop, Translate startValue, Translate endValue, int durationMs, int delayMs, [NotNull] Func<float, float> easingCurve);
+        bool StartTransition(VisualElement owner, StylePropertyId prop, Rotate startValue, Rotate endValue, int durationMs, int delayMs, [NotNull] Func<float, float> easingCurve);
+        bool StartTransition(VisualElement owner, StylePropertyId prop, Ratio startValue, Ratio endValue, int durationMs, int delayMs, [NotNull] Func<float, float> easingCurve);
+        bool StartTransition(VisualElement owner, StylePropertyId prop, BackgroundPosition startValue, BackgroundPosition endValue, int durationMs, int delayMs, [NotNull] Func<float, float> easingCurve);
+        bool StartTransition(VisualElement owner, StylePropertyId prop, BackgroundRepeat startValue, BackgroundRepeat endValue, int durationMs, int delayMs, [NotNull] Func<float, float> easingCurve);
+        bool StartTransition(VisualElement owner, StylePropertyId prop, BackgroundSize startValue, BackgroundSize endValue, int durationMs, int delayMs, [NotNull] Func<float, float> easingCurve);
+        bool StartTransition(VisualElement owner, StylePropertyId prop, List<FilterFunction> startValue, List<FilterFunction> endValue, int durationMs, int delayMs, [NotNull] Func<float, float> easingCurve);
+        bool StartTransition(VisualElement owner, StylePropertyId prop, MaterialDefinition startValue, MaterialDefinition endValue, int durationMs, int delayMs, [NotNull] Func<float, float> easingCurve);
+        bool StartTransition(VisualElement owner, StylePropertyId prop, Background startValue, Background endValue, int durationMs, int delayMs, [NotNull] Func<float, float> easingCurve);
+
+        void CancelAllAnimations();
+        void CancelAllAnimations(VisualElement owner);
+        void CancelAnimation(VisualElement owner, StylePropertyId id);
+        bool HasRunningAnimation(VisualElement owner, StylePropertyId id);
+        void UpdateAnimation(VisualElement owner, StylePropertyId id);
+        void GetAllAnimations(VisualElement owner, List<StylePropertyId> propertyIds);
+
+        void UpdateElementClipAnimation(VisualElement owner, double currentTime);
+        void CancelElementClipAnimation(VisualElement owner);
+
+        void SetClipPreviewing(VisualElement owner, bool isPreviewing);
+
+        bool TryGetActiveClipForOwner(VisualElement owner, out UIAnimationClip clip, out UIAnimationBinder binder);
+
+        void Update(double updateTimeInSeconds);
+    }
+
+    [Bindings.VisibleToOtherModules("UnityEditor.UIBuilderModule", "UnityEditor.UIToolkitAuthoringModule")]
+    internal class StylePropertyAnimationSystem : IStylePropertyAnimationSystem
+    {
+        [Flags]
+        private enum TransitionState
+        {
+            None = 0,
+            Running = 1 << 0,
+            Started = 1 << 1,
+            Ended = 1 << 2,
+            Canceled = 1 << 3
+        }
+
+        private double m_CurrentTime = 0;
+
+        private struct AnimationDataSet<TTimingData, TStyleData>
+        {
+            private const int InitialSize = 2;
+
+            // Using a struct-of-arrays pattern to make this easier to migrate to NativeArray + Job system eventually.
+
+            // Running animations
+            public VisualElement[] elements;
+            public StylePropertyId[] properties;
+            public TTimingData[] timing;
+            public TStyleData[] style;
+            public int count;
+
+            // An [(element, property) -> index] lookup for O(1) IndexOf.
+            private Dictionary<ElementPropertyPair, int> indices;
+
+            private int capacity
+            {
+                get => elements.Length;
+                set
+                {
+                    Array.Resize(ref elements, value);
+                    Array.Resize(ref properties, value);
+                    Array.Resize(ref timing, value);
+                    Array.Resize(ref style, value);
+                }
+            }
+
+            private void LocalInit()
+            {
+                elements = new VisualElement[InitialSize];
+                properties = new StylePropertyId[InitialSize];
+                timing = new TTimingData[InitialSize];
+                style = new TStyleData[InitialSize];
+                indices = new Dictionary<ElementPropertyPair, int>(ElementPropertyPair.Comparer);
+            }
+
+            public static AnimationDataSet<TTimingData, TStyleData> Create()
+            {
+                var result = new AnimationDataSet<TTimingData, TStyleData>();
+                result.LocalInit();
+                return result;
+            }
+
+            public bool IndexOf(VisualElement ve, StylePropertyId prop, out int index)
+            {
+                return indices.TryGetValue(new ElementPropertyPair(ve, prop), out index);
+            }
+
+            public void Add(VisualElement owner, StylePropertyId prop, TTimingData timingData,
+                TStyleData styleData)
+            {
+                if (count >= capacity)
+                {
+                    capacity *= 2;
+                }
+
+                int index = count++;
+                elements[index] = owner;
+                properties[index] = prop;
+                timing[index] = timingData;
+                style[index] = styleData;
+                indices.Add(new ElementPropertyPair(owner, prop), index);
+            }
+
+            public void Remove(int cancelledIndex)
+            {
+                int lastIndex = --count;
+
+                indices.Remove(new ElementPropertyPair(elements[cancelledIndex], properties[cancelledIndex]));
+
+                if (cancelledIndex != lastIndex)
+                {
+                    var movedElement = elements[cancelledIndex] = elements[lastIndex];
+                    var movedProperty = properties[cancelledIndex] = properties[lastIndex];
+                    timing[cancelledIndex] = timing[lastIndex];
+                    style[cancelledIndex] = style[lastIndex];
+                    indices[new ElementPropertyPair(movedElement, movedProperty)] = cancelledIndex;
+                }
+
+                elements[lastIndex] = default;
+                properties[lastIndex] = default;
+                timing[lastIndex] = default;
+                style[lastIndex] = default;
+            }
+
+            public void Replace(int index, TTimingData timingData, TStyleData styleData)
+            {
+                timing[index] = timingData;
+                style[index] = styleData;
+            }
+
+            public void RemoveAll(VisualElement ve)
+            {
+                int n = count;
+                for (var i = n - 1; i >= 0; i--)
+                {
+                    if (elements[i] == ve)
+                        Remove(i);
+                }
+            }
+
+            public void RemoveAll()
+            {
+                capacity = InitialSize;
+                var usedSize = Mathf.Min(count, capacity);
+                Array.Clear(elements, 0, usedSize);
+                Array.Clear(properties, 0, usedSize);
+                Array.Clear(timing, 0, usedSize);
+                Array.Clear(style, 0, usedSize);
+                count = 0;
+                indices.Clear();
+            }
+
+            public void GetActivePropertiesForElement(VisualElement ve, List<StylePropertyId> outProperties)
+            {
+                int n = count;
+                for (var i = n - 1; i >= 0; i--)
+                {
+                    if (elements[i] == ve)
+                        outProperties.Add(properties[i]);
+                }
+            }
+        }
+
+        private partial struct ElementPropertyPair
+        {
+            [NoAutoStaticsCleanup]
+            public static readonly IEqualityComparer<ElementPropertyPair> Comparer = new EqualityComparer();
+
+            public readonly VisualElement element;
+            public readonly StylePropertyId property;
+
+            public ElementPropertyPair(VisualElement element, StylePropertyId property)
+            {
+                this.element = element;
+                this.property = property;
+            }
+
+            private class EqualityComparer : IEqualityComparer<ElementPropertyPair>
+            {
+                public bool Equals(ElementPropertyPair x, ElementPropertyPair y)
+                {
+                    return x.element == y.element && x.property == y.property;
+                }
+
+                public int GetHashCode(ElementPropertyPair obj)
+                {
+                    unchecked
+                    {
+                        return (obj.element.GetHashCode() * 397) ^ (int)obj.property;
+                    }
+                }
+            }
+        }
+
+        abstract class Values
+        {
+            public abstract void CancelAllAnimations();
+            public abstract void CancelAllAnimations(VisualElement ve);
+            public abstract void CancelAnimation(VisualElement ve, StylePropertyId id);
+            public abstract bool HasRunningAnimation(VisualElement ve, StylePropertyId id);
+            public abstract void UpdateAnimation(VisualElement ve, StylePropertyId id);
+            public abstract void GetAllAnimations(VisualElement ve, List<StylePropertyId> outPropertyIds);
+            public abstract void Update(double currentTime);
+            protected abstract void UpdateValues();
+            protected abstract void UpdateComputedStyle();
+            protected abstract void UpdateComputedStyle(int i);
+        }
+
+        abstract class Values<T> : Values
+        {
+            private double m_CurrentTime = 0;
+            private partial class TransitionEventsFrameState
+            {
+                [NoAutoStaticsCleanup]
+                private static readonly UnityEngine.Pool.ObjectPool<Queue<EventBase>> k_EventQueuePool = new UnityEngine.Pool.ObjectPool<Queue<EventBase>>(() => new Queue<EventBase>(4));
+
+                // Contains the transition state that changed during the frame.
+                public readonly Dictionary<ElementPropertyPair, TransitionState> elementPropertyStateDelta = new Dictionary<ElementPropertyPair, TransitionState>(ElementPropertyPair.Comparer);
+                // Contains the events that were queued during the frame, which are collapsed if needed when QueueTransitionCancelEvent is called.
+                public readonly Dictionary<ElementPropertyPair, Queue<EventBase>> elementPropertyQueuedEvents = new Dictionary<ElementPropertyPair, Queue<EventBase>>(ElementPropertyPair.Comparer);
+                public IPanel panel;
+
+                private int m_ChangesCount;
+
+                public static Queue<EventBase> GetPooledQueue()
+                {
+                    return k_EventQueuePool.Get();
+                }
+
+                public void RegisterChange()
+                {
+                    m_ChangesCount++;
+                }
+
+                public void UnregisterChange()
+                {
+                    m_ChangesCount--;
+                }
+
+                public bool StateChanged()
+                {
+                    return m_ChangesCount > 0;
+                }
+
+                public void Clear()
+                {
+                    foreach (var kvp in elementPropertyQueuedEvents)
+                    {
+                        kvp.Value.Clear();
+                        k_EventQueuePool.Release(kvp.Value);
+                    }
+                    elementPropertyQueuedEvents.Clear();
+                    elementPropertyStateDelta.Clear();
+                    panel = null;
+                    m_ChangesCount = 0;
+                }
+            }
+
+            private TransitionEventsFrameState m_CurrentFrameEventsState = new TransitionEventsFrameState();
+            private TransitionEventsFrameState m_NextFrameEventsState = new TransitionEventsFrameState();
+
+            public struct TimingData
+            {
+                public double startTime;
+                public float duration;
+                public Func<float, float> easingCurve;
+                public float easedProgress;
+                public float reversingShorteningFactor;
+                public bool isStarted;
+                public float delay;
+            }
+
+            public struct StyleData
+            {
+                public T startValue;
+                public T endValue;
+                public T reversingAdjustedStartValue;
+                public T currentValue;
+            }
+
+            public partial struct EmptyData
+            {
+                [NoAutoStaticsCleanup]
+                public static EmptyData Default = default;
+            }
+
+            public AnimationDataSet<TimingData, StyleData> running;
+            public AnimationDataSet<EmptyData, T> completed;
+            public bool isEmpty => running.count + completed.count == 0;
+
+            public abstract Func<T, T, bool> SameFunc { get; }
+
+            protected virtual bool ConvertUnits(VisualElement owner, StylePropertyId prop, ref T a, ref T b)
+            {
+                return true;
+            }
+
+            protected virtual T Copy(T value) { return value; }
+
+            protected Values()
+            {
+                running = AnimationDataSet<TimingData, StyleData>.Create();
+                completed = AnimationDataSet<EmptyData, T>.Create();
+                m_CurrentTime = 0;
+            }
+
+            private void SwapFrameStates()
+            {
+                TransitionEventsFrameState temp = m_CurrentFrameEventsState;
+                m_CurrentFrameEventsState = m_NextFrameEventsState;
+                m_NextFrameEventsState = temp;
+            }
+
+            private void QueueEvent(EventBase evt, ElementPropertyPair epp)
+            {
+                evt.elementTarget = epp.element;
+                Queue<EventBase> queue;
+
+                if (!m_NextFrameEventsState.elementPropertyQueuedEvents.TryGetValue(epp, out queue))
+                {
+                    queue = TransitionEventsFrameState.GetPooledQueue();
+                    m_NextFrameEventsState.elementPropertyQueuedEvents.Add(epp, queue);
+                }
+                queue.Enqueue(evt);
+
+                if (m_NextFrameEventsState.panel == null)
+                    m_NextFrameEventsState.panel = epp.element.panel;
+                m_NextFrameEventsState.RegisterChange();
+            }
+
+            private void ClearEventQueue(ElementPropertyPair epp)
+            {
+                Queue<EventBase> queue;
+                if (m_NextFrameEventsState.elementPropertyQueuedEvents.TryGetValue(epp, out queue))
+
+                {
+                    while (queue.Count > 0)
+                    {
+                        queue.Dequeue().Dispose();
+                        m_NextFrameEventsState.UnregisterChange();
+                    }
+                }
+            }
+
+            private void QueueTransitionRunEvent(VisualElement ve, int runningIndex)
+            {
+                // Filter on EventCategory.StyleTransition directly. For internal state maintenance, we need to send
+                // all the transition events, or none of them.
+                if (!ve.HasParentEventInterests(EventCategory.StyleTransition))
+                    return;
+
+                var stylePropertyId = running.properties[runningIndex];
+                var epp = new ElementPropertyPair(ve, stylePropertyId);
+
+                if (m_NextFrameEventsState.elementPropertyStateDelta.TryGetValue(epp, out TransitionState state))
+                    m_NextFrameEventsState.elementPropertyStateDelta[epp] = state | TransitionState.Running;
+                else
+                    m_NextFrameEventsState.elementPropertyStateDelta.Add(epp, TransitionState.Running);
+
+                ref var timingData = ref running.timing[runningIndex];
+                var elapsedTime = timingData.delay < 0 ? Mathf.Min(Mathf.Max(-timingData.delay, 0), timingData.duration) : 0;
+                var evt = TransitionRunEvent.GetPooled(new StylePropertyName(stylePropertyId), elapsedTime);
+
+                QueueEvent(evt, epp);
+            }
+
+            private void QueueTransitionStartEvent(VisualElement ve, int runningIndex)
+            {
+                // Filter on EventCategory.StyleTransition directly. For internal state maintenance, we need to send
+                // all the transition events, or none of them.
+                if (!ve.HasParentEventInterests(EventCategory.StyleTransition))
+                    return;
+
+                var stylePropertyId = running.properties[runningIndex];
+                var epp = new ElementPropertyPair(ve, stylePropertyId);
+
+                if (m_NextFrameEventsState.elementPropertyStateDelta.TryGetValue(epp, out TransitionState state))
+                    m_NextFrameEventsState.elementPropertyStateDelta[epp] = state | TransitionState.Started;
+                else
+                    m_NextFrameEventsState.elementPropertyStateDelta.Add(epp, TransitionState.Started);
+
+                ref var timingData = ref running.timing[runningIndex];
+                var elapsedTime = timingData.delay < 0 ? Mathf.Min(Mathf.Max(-timingData.delay, 0), timingData.duration) : 0;
+                var evt = TransitionStartEvent.GetPooled(new StylePropertyName(stylePropertyId), elapsedTime);
+
+                QueueEvent(evt, epp);
+            }
+
+            private void QueueTransitionEndEvent(VisualElement ve, int runningIndex)
+            {
+                // Filter on EventCategory.StyleTransition directly. For internal state maintenance, we need to send
+                // all the transition events, or none of them.
+                if (!ve.HasParentEventInterests(EventCategory.StyleTransition))
+                    return;
+
+                var stylePropertyId = running.properties[runningIndex];
+                var epp = new ElementPropertyPair(ve, stylePropertyId);
+
+                if (m_NextFrameEventsState.elementPropertyStateDelta.TryGetValue(epp, out TransitionState state))
+                    m_NextFrameEventsState.elementPropertyStateDelta[epp] = state | TransitionState.Ended;
+                else
+                    m_NextFrameEventsState.elementPropertyStateDelta.Add(epp, TransitionState.Ended);
+
+                ref var timingData = ref running.timing[runningIndex];
+                var evt = TransitionEndEvent.GetPooled(new StylePropertyName(stylePropertyId), timingData.duration);
+
+                QueueEvent(evt, epp);
+            }
+
+            private void QueueTransitionCancelEvent(VisualElement ve, int runningIndex, double panelElapsed)
+            {
+                // Filter on EventCategory.StyleTransition directly. For internal state maintenance, we need to send
+                // all the transition events, or none of them.
+                if (!ve.HasParentEventInterests(EventCategory.StyleTransition))
+                    return;
+
+                var stylePropertyId = running.properties[runningIndex];
+                var epp = new ElementPropertyPair(ve, stylePropertyId);
+
+                bool sendCancelEvent;
+
+                if (m_NextFrameEventsState.elementPropertyStateDelta.TryGetValue(epp, out TransitionState state))
+                {
+                    // Delta is empty, set delta to Cancel, OR
+                    // Delta already contains Cancel, set delta to Cancel (removing run and start from the delta).
+                    // e.g. (cancel, run, start) + (cancel) = (cancel)
+                    if (state == TransitionState.None ||
+                        (state & TransitionState.Canceled) == TransitionState.Canceled)
+                    {
+                        m_NextFrameEventsState.elementPropertyStateDelta[epp] = TransitionState.Canceled;
+                        ClearEventQueue(epp);
+                        sendCancelEvent = true;
+                    }
+                    // Delta contains something but not Cancel, clearing delta.
+                    else
+                    {
+                        m_NextFrameEventsState.elementPropertyStateDelta[epp] = TransitionState.None;
+                        ClearEventQueue(epp);
+                        sendCancelEvent = false;
+                    }
+                }
+                else
+                {
+                    m_NextFrameEventsState.elementPropertyStateDelta.Add(epp, TransitionState.Canceled);
+                    sendCancelEvent = true;
+                }
+
+                if (!sendCancelEvent)
+                    return;
+
+                ref var timingData = ref running.timing[runningIndex];
+                var elapsedTime = timingData.isStarted ? panelElapsed - timingData.startTime : 0;
+
+                if (timingData.delay < 0)
+                {
+                    elapsedTime = -timingData.delay + elapsedTime;
+                }
+
+                var evt = TransitionCancelEvent.GetPooled(new StylePropertyName(stylePropertyId), elapsedTime);
+                QueueEvent(evt, epp);
+            }
+
+            private void SendTransitionCancelEvent(VisualElement ve, int runningIndex, double panelElapsed)
+            {
+                // Don't send event if there are no callbacks. Note that this method doesn't do any manipulations on
+                // the event queue state, so it's safe to just skip the entire method.
+                if (!ve.HasParentEventInterests(TransitionCancelEvent.EventCategory))
+                    return;
+
+                ref var timingData = ref running.timing[runningIndex];
+                var stylePropertyId = running.properties[runningIndex];
+                var elapsedTime = timingData.isStarted ? panelElapsed - timingData.startTime : 0;
+
+                if (timingData.delay < 0)
+                {
+                    elapsedTime = -timingData.delay + elapsedTime;
+                }
+
+                using (var evt = TransitionCancelEvent.GetPooled(new StylePropertyName(stylePropertyId), elapsedTime))
+                {
+                    evt.elementTarget = ve;
+                    ve.SendEvent(evt);
+                }
+            }
+
+            public sealed override void CancelAllAnimations()
+            {
+                var runningCount = running.count;
+                if (runningCount > 0)
+                {
+                    // All running.elements are in the same Panel, thus we can use the first one to gate the EventDispatcher.
+                    using (new EventDispatcherGate(running.elements[0].panel.dispatcher))
+                    {
+                        for (int i = 0; i < runningCount; ++i)
+                        {
+                            var ve = running.elements[i];
+                            // We send the event instantly instead of queuing it in the case of a panel change, to make sure it is sent while the panel is still the old one.
+                            SendTransitionCancelEvent(ve, i, m_CurrentTime);
+                            ForceComputedStyleEndValue(i);
+                            ve.styleAnimation.runningAnimationCount--;
+                        }
+                    }
+
+                    running.RemoveAll();
+                }
+
+                var completedCount = completed.count;
+                for (var i = 0; i < completedCount; ++i)
+                {
+                    var ve = completed.elements[i];
+                    ve.styleAnimation.completedAnimationCount--;
+                }
+                completed.RemoveAll();
+            }
+
+            public sealed override void CancelAllAnimations(VisualElement ve)
+            {
+                int count = running.count;
+
+                if (count > 0)
+                {
+                    // Loop forward to send the events in the proper order, even though it means we have to loop twice through the running data set.
+                    using (new EventDispatcherGate(running.elements[0].panel.dispatcher))
+                    {
+                        for (var i = 0; i < count; ++i)
+                        {
+                            if (running.elements[i] == ve)
+                            {
+                                // We send the event instantly instead of queuing it in the case of a panel change, to make sure it is sent while the panel is still the old one.
+                                SendTransitionCancelEvent(ve, i, m_CurrentTime);
+                                ForceComputedStyleEndValue(i);
+                                running.elements[i].styleAnimation.runningAnimationCount--;
+                            }
+                        }
+                    }
+                }
+
+                running.RemoveAll(ve);
+
+                var completedCount = completed.count;
+                for (int i = 0; i < completedCount; i++)
+                {
+                    if (completed.elements[i] == ve)
+                    {
+                        completed.elements[i].styleAnimation.completedAnimationCount--;
+                    }
+                }
+                completed.RemoveAll(ve);
+            }
+
+            public sealed override void CancelAnimation(VisualElement ve, StylePropertyId id)
+            {
+                if (running.IndexOf(ve, id, out int runningIndex))
+                {
+                    QueueTransitionCancelEvent(ve, runningIndex, m_CurrentTime);
+                    ForceComputedStyleEndValue(runningIndex);
+                    running.Remove(runningIndex);
+                    ve.styleAnimation.runningAnimationCount--;
+                }
+
+                if (completed.IndexOf(ve, id, out int completedIndex))
+                {
+                    completed.Remove(completedIndex);
+                    ve.styleAnimation.completedAnimationCount--;
+                }
+            }
+
+            public sealed override bool HasRunningAnimation(VisualElement ve, StylePropertyId id)
+            {
+                return running.IndexOf(ve, id, out _);
+            }
+
+            public sealed override void UpdateAnimation(VisualElement ve, StylePropertyId id)
+            {
+                if (running.IndexOf(ve, id, out int runningIndex))
+                    UpdateComputedStyle(runningIndex);
+            }
+
+            public sealed override void GetAllAnimations(VisualElement ve, List<StylePropertyId> outPropertyIds)
+            {
+                running.GetActivePropertiesForElement(ve, outPropertyIds);
+                completed.GetActivePropertiesForElement(ve, outPropertyIds);
+            }
+
+            private float ComputeReversingShorteningFactor(int oldIndex)
+            {
+                ref var timingData = ref running.timing[oldIndex];
+                return Mathf.Clamp01(
+                    Mathf.Abs(1 - (1 - timingData.easedProgress) * timingData.reversingShorteningFactor));
+            }
+
+            private float ComputeReversingDuration(float newTransitionDuration, float newReversingShorteningFactor)
+            {
+                return newTransitionDuration * newReversingShorteningFactor;
+            }
+
+            private float ComputeReversingDelay(float delay, float newReversingShorteningFactor)
+            {
+                return delay < 0 ? delay * newReversingShorteningFactor : delay;
+            }
+
+            // See https://drafts.csswg.org/css-transitions/#starting for W3 specs.
+            // Start or update the values for the style animation.
+            // Returns true if a transition animation is created, that is,
+            // if computed style doesn't need to be updated directly to the new style.
+            public bool StartTransition(VisualElement owner, StylePropertyId prop, T startValue, T endValue,
+                float duration, float delay, Func<float, float> easingCurve, double currentTime)
+            {
+                double startTime = currentTime + delay;
+
+                var timing = new TimingData
+                {
+                    startTime = startTime,
+                    duration = duration,
+                    easingCurve = easingCurve,
+                    reversingShorteningFactor = 1f,
+                    delay = delay
+                };
+                var style = new StyleData
+                {
+                    startValue = Copy(startValue),
+                    endValue = Copy(endValue),
+                    currentValue = Copy(startValue),
+                    reversingAdjustedStartValue = Copy(startValue)
+                };
+
+                float combinedDuration = Mathf.Max(0, duration) + delay;
+
+                if (!ConvertUnits(owner, prop, ref style.startValue, ref style.endValue))
+                    return false;
+
+                // There was a prior completed animation
+                if (completed.IndexOf(owner, prop, out var completedIndex))
+                {
+                    // 1. If all of the following are true:
+                    // - the element does not have a completed transition for the property or the end value of the
+                    //   completed transition is different from the after-change style for the property,
+                    if (SameFunc(endValue, completed.style[completedIndex]))
+                    {
+                        return false;
+                    }
+
+                    // 1. If all of the following are true:
+                    // - the combined duration is greater than 0s,
+                    if (combinedDuration <= 0)
+                    {
+                        return false;
+                    }
+
+                    // 2. If the element has a completed transition for the property and the end value of the completed
+                    // transition is different from the after-change style for the property, then implementations must
+                    // remove the completed transition from the set of completed transitions.
+                    completed.Remove(completedIndex);
+                    owner.styleAnimation.completedAnimationCount--;
+                }
+
+                // Existing animation? See if we can retarget the new one to better fit the old one.
+                if (running.IndexOf(owner, prop, out var index))
+                {
+                    // 4. If the element has a running transition for the property, there is a matching transition-
+                    // property value, and the end value of the running transition is not equal to the value of the
+                    // property in the after-change style, then:
+                    if (SameFunc(endValue, running.style[index].endValue))
+                    {
+                        return false;
+                    }
+
+                    // 4.1. If the current value of the property in the running transition is equal to the value of the
+                    // property in the after-change style then implementations must cancel the running transition.
+                    if (SameFunc(endValue, running.style[index].currentValue))
+                    {
+                        QueueTransitionCancelEvent(owner, index, currentTime);
+                        running.Remove(index);
+                        owner.styleAnimation.runningAnimationCount--;
+                        return false;
+                    }
+
+                    // 4.2. Otherwise, if the combined duration is less than or equal to 0s [...],
+                    // then implementations must cancel the running transition.
+                    if (combinedDuration <= 0)
+                    {
+                        QueueTransitionCancelEvent(owner, index, currentTime);
+                        running.Remove(index);
+                        owner.styleAnimation.runningAnimationCount--;
+                        return false;
+                    }
+
+                    style.startValue = Copy(running.style[index].currentValue);
+                    if (!ConvertUnits(owner, prop, ref style.startValue, ref style.endValue))
+                    {
+                        QueueTransitionCancelEvent(owner, index, currentTime);
+                        running.Remove(index);
+                        owner.styleAnimation.runningAnimationCount--;
+                        return false;
+                    }
+                    style.currentValue = Copy(style.startValue);
+
+                    // 4.3 Otherwise, if the reversing-adjusted start value of the running transition is the same as
+                    // the value of the property in the after-change style, implementations must cancel the running
+                    // transition and start a new transition whose reversing-adjusted start value is the end value
+                    // of the running transition, [...]
+                    if (SameFunc(endValue, running.style[index].reversingAdjustedStartValue))
+                    {
+                        float rsf = timing.reversingShorteningFactor = ComputeReversingShorteningFactor(index);
+                        timing.startTime = currentTime + ComputeReversingDelay(delay, rsf);
+                        timing.duration = ComputeReversingDuration(duration, rsf);
+                        style.reversingAdjustedStartValue = Copy(running.style[index].endValue);
+                    }
+
+                    running.timing[index].isStarted = false;
+                    QueueTransitionCancelEvent(owner, index, currentTime);
+                    QueueTransitionRunEvent(owner, index);
+                    running.Replace(index, timing, style);
+                    return true;
+                }
+
+                // According to the W3 standard, 0-duration anims don't exist, and simply don't start a transition.
+                // 1. If all of the following are true:
+                // - the combined duration is greater than 0s,
+                if (combinedDuration <= 0)
+                    return false;
+
+                // 1. If all of the following are true:
+                // - the before-change style is different from the after-change style for that property
+                if (SameFunc(startValue, endValue))
+                    return false;
+
+                // If we reached this point, then all the criteria are satisfied to start a new animation.
+                // Note that animations that no longer have a matching transition-property will be cancelled
+                // by the style updating system, so we don't need to account for that here.
+
+                running.Add(owner, prop, timing, style);
+                owner.styleAnimation.runningAnimationCount++;
+                QueueTransitionRunEvent(owner, running.count - 1);
+
+                return true;
+            }
+
+            private void ForceComputedStyleEndValue(int runningIndex)
+            {
+                // Force ComputedStyle to endValue immediately (used when cancelling animations).
+                ref var style = ref running.style[runningIndex];
+                style.currentValue = style.endValue;
+                UpdateComputedStyle(runningIndex);
+            }
+
+            public sealed override void Update(double currentTime)
+            {
+                m_CurrentTime = currentTime;
+                UpdateProgress(currentTime);
+                UpdateValues();
+                UpdateComputedStyle();
+                if (m_NextFrameEventsState.StateChanged())
+                    ProcessEventQueue();
+            }
+
+            private void ProcessEventQueue()
+            {
+                SwapFrameStates();
+
+                EventDispatcher d = m_CurrentFrameEventsState.panel?.dispatcher;
+                using (new EventDispatcherGate(d))
+                {
+                    foreach (var kvp in m_CurrentFrameEventsState.elementPropertyQueuedEvents)
+                    {
+                        var epp = kvp.Key;
+                        var queue = kvp.Value;
+                        var element = kvp.Key.element;
+
+                        while (queue.Count > 0)
+                        {
+                            var evt = queue.Dequeue();
+                            element.SendEvent(evt);
+                            evt.Dispose();
+                        }
+                    }
+                    m_CurrentFrameEventsState.Clear();
+                }
+            }
+
+            private void UpdateProgress(double currentTime)
+            {
+                int n = running.count;
+                if (n > 0)
+                {
+                    for (int i = 0; i < n; i++)
+                    {
+                        ref var timing = ref running.timing[i];
+
+
+                        if (currentTime < timing.startTime)
+                        {
+                            // We implement transition delay by running the animation and forcing the interpolation to be
+                            // frozen at the start value for the duration of the delay. This might not conform entirely
+                            // with the W3 standard, but there is no external system to support and test this property
+                            // so this is a reasonable start.
+                            timing.easedProgress = 0;
+                        }
+                        else
+                        {
+                            const double tenthOfAMillisecond = 0.0001; //our epsilon value, should be ok until 5 000 fps games hit the market
+                            double endTime = timing.startTime + (double)timing.duration;
+                            if (currentTime >= endTime ||
+                                (endTime - currentTime) < tenthOfAMillisecond) // the double >= check sometimes fails at the exact boundary when driven via apis using long milliseconds
+                            {
+                                ref var style = ref running.style[i];
+                                ref var owner = ref running.elements[i];
+
+                                style.currentValue =
+                                    style.endValue; // Force end value no matter what the easing curve says.
+                                UpdateComputedStyle(i);
+                                completed.Add(owner, running.properties[i], EmptyData.Default, style.endValue);
+                                owner.styleAnimation.runningAnimationCount--;
+                                owner.styleAnimation.completedAnimationCount++;
+
+                                QueueTransitionEndEvent(owner, i);
+                                running.Remove(i);
+
+                                i--;
+                                n--;
+                            }
+                            else
+                            {
+                                if (!timing.isStarted)
+                                {
+                                    timing.isStarted = true;
+                                    QueueTransitionStartEvent(running.elements[i], i);
+                                }
+
+                                var progress = (float)(currentTime - timing.startTime) / timing.duration;
+                                timing.easedProgress = timing.easingCurve(progress);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        class ValuesFloat : Values<float>
+        {
+            public override Func<float, float, bool> SameFunc { get; } = IsSame;
+            private static bool IsSame(float a, float b) => Mathf.Approximately(a, b);
+            private static void Lerp(float a, float b, ref float result, float t) => result = Mathf.LerpUnclamped(a, b, t);
+
+            protected sealed override void UpdateValues()
+            {
+                int n = running.count;
+                for (int i = 0; i < n; i++)
+                {
+                    ref var timing = ref running.timing[i];
+                    ref var style = ref running.style[i];
+                    Lerp(style.startValue, style.endValue, ref style.currentValue, timing.easedProgress);
+                }
+            }
+
+            protected sealed override void UpdateComputedStyle()
+            {
+                int n = running.count;
+                for (int i = 0; i < n; i++)
+                {
+                    running.elements[i].computedStyle.ApplyPropertyAnimation(running.elements[i],
+                        running.properties[i], running.style[i].currentValue);
+                }
+            }
+
+            protected sealed override void UpdateComputedStyle(int i)
+            {
+                running.elements[i].computedStyle.ApplyPropertyAnimation(running.elements[i],
+                    running.properties[i], running.style[i].currentValue);
+            }
+        }
+
+        class ValuesInt : Values<int>
+        {
+            public override Func<int, int, bool> SameFunc { get; } = IsSame;
+            private static bool IsSame(int a, int b) => a == b;
+            private static int Lerp(int a, int b, float t) => Mathf.RoundToInt(Mathf.LerpUnclamped(a, b, t));
+
+            protected sealed override void UpdateValues()
+            {
+                int n = running.count;
+                for (int i = 0; i < n; i++)
+                {
+                    ref var timing = ref running.timing[i];
+                    ref var style = ref running.style[i];
+                    var from = style.startValue;
+                    var to = style.endValue;
+                    if (running.properties[i] == StylePropertyId.ZIndex)
+                    {
+                        // z-index: auto is stored as int.MinValue; interpolate it as 0 for a numeric sweep, but leave the stored endValue untouched so completion settles back on the auto sentinel.
+                        if (from == int.MinValue) from = 0;
+                        if (to == int.MinValue) to = 0;
+                    }
+                    style.currentValue = Lerp(from, to, timing.easedProgress);
+                }
+            }
+
+            protected sealed override void UpdateComputedStyle()
+            {
+                int n = running.count;
+                for (int i = 0; i < n; i++)
+                {
+                    running.elements[i].computedStyle.ApplyPropertyAnimation(running.elements[i],
+                        running.properties[i], running.style[i].currentValue);
+                }
+            }
+
+            protected sealed override void UpdateComputedStyle(int i)
+            {
+                running.elements[i].computedStyle.ApplyPropertyAnimation(running.elements[i],
+                    running.properties[i], running.style[i].currentValue);
+            }
+        }
+
+        class ValuesLength : Values<Length>
+        {
+            public override Func<Length, Length, bool> SameFunc { get; } = IsSame;
+
+            private static bool IsSame(Length a, Length b) => a.unit == b.unit && Mathf.Approximately(a.value, b.value);
+
+            protected sealed override bool ConvertUnits(VisualElement owner, StylePropertyId prop, ref Length a, ref Length b)
+            {
+                return owner.TryConvertLengthUnits(prop, ref a, ref b);
+            }
+
+            internal static Length Lerp(Length a, Length b, float t) =>
+                new Length(Mathf.LerpUnclamped(a.value, b.value, t), b.unit);
+
+            protected sealed override void UpdateValues()
+            {
+                int n = running.count;
+                for (int i = 0; i < n; i++)
+                {
+                    ref var timing = ref running.timing[i];
+                    ref var style = ref running.style[i];
+                    style.currentValue = Lerp(style.startValue, style.endValue, timing.easedProgress);
+                }
+            }
+
+            protected sealed override void UpdateComputedStyle()
+            {
+                int n = running.count;
+                for (int i = 0; i < n; i++)
+                {
+                    running.elements[i].computedStyle.ApplyPropertyAnimation(running.elements[i],
+                        running.properties[i], running.style[i].currentValue);
+                }
+            }
+
+            protected sealed override void UpdateComputedStyle(int i)
+            {
+                running.elements[i].computedStyle.ApplyPropertyAnimation(running.elements[i],
+                    running.properties[i], running.style[i].currentValue);
+            }
+        }
+
+        class ValuesColor : Values<Color>
+        {
+            public override Func<Color, Color, bool> SameFunc { get; } = IsSame;
+
+            private static bool IsSame(Color c, Color d) =>
+                Mathf.Approximately(c.r, d.r) && Mathf.Approximately(c.g, d.g) &&
+                Mathf.Approximately(c.b, d.b) && Mathf.Approximately(c.a, d.a);
+
+            private static Color Lerp(Color a, Color b, float t) => Color.LerpUnclamped(a, b, t);
+
+            protected sealed override void UpdateValues()
+            {
+                int n = running.count;
+                for (int i = 0; i < n; i++)
+                {
+                    ref var timing = ref running.timing[i];
+                    ref var style = ref running.style[i];
+                    style.currentValue = Lerp(style.startValue, style.endValue, timing.easedProgress);
+                }
+            }
+
+            protected sealed override void UpdateComputedStyle()
+            {
+                int n = running.count;
+                for (int i = 0; i < n; i++)
+                {
+                    running.elements[i].computedStyle.ApplyPropertyAnimation(running.elements[i],
+                        running.properties[i], running.style[i].currentValue);
+                }
+            }
+
+            protected sealed override void UpdateComputedStyle(int i)
+            {
+                running.elements[i].computedStyle.ApplyPropertyAnimation(running.elements[i],
+                    running.properties[i], running.style[i].currentValue);
+            }
+        }
+
+        abstract class ValuesDiscrete<T> : Values<T>
+        {
+            public override Func<T, T, bool> SameFunc { get; } = IsSame;
+            private static bool IsSame(T a, T b) => EqualityComparer<T>.Default.Equals(a, b);
+            private static T Lerp(T a, T b, float t) => t < 0.5f ? a : b;
+
+            protected sealed override void UpdateValues()
+            {
+                int n = running.count;
+                for (int i = 0; i < n; i++)
+                {
+                    ref var timing = ref running.timing[i];
+                    ref var style = ref running.style[i];
+                    style.currentValue = Lerp(style.startValue, style.endValue, timing.easedProgress);
+                }
+            }
+        }
+
+        class ValuesEnum : ValuesDiscrete<int>
+        {
+            protected sealed override void UpdateComputedStyle()
+            {
+                int n = running.count;
+                for (int i = 0; i < n; i++)
+                {
+                    running.elements[i].computedStyle.ApplyPropertyAnimation(running.elements[i],
+                        running.properties[i], running.style[i].currentValue);
+                }
+            }
+
+            protected sealed override void UpdateComputedStyle(int i)
+            {
+                running.elements[i].computedStyle.ApplyPropertyAnimation(running.elements[i],
+                    running.properties[i], running.style[i].currentValue);
+            }
+        }
+
+        class ValuesEntityId : ValuesDiscrete<EntityId>
+        {
+            protected sealed override void UpdateComputedStyle()
+            {
+                int n = running.count;
+                for (int i = 0; i < n; i++)
+                {
+                    running.elements[i].computedStyle.ApplyPropertyAnimation(running.elements[i],
+                        running.properties[i], running.style[i].currentValue);
+                }
+            }
+
+            protected sealed override void UpdateComputedStyle(int i)
+            {
+                running.elements[i].computedStyle.ApplyPropertyAnimation(running.elements[i],
+                    running.properties[i], running.style[i].currentValue);
+            }
+        }
+
+        // Cursor (Texture2D + hotspot) has no meaningful interpolation, so it steps at 50% like
+        // the other discrete object values.
+        class ValuesCursor : ValuesDiscrete<UnityEngine.UIElements.Cursor>
+        {
+            // Compare by the texture EntityId rather than the resolved Texture2D reference (which
+            // Cursor.Equals does), avoiding an object lookup per comparison.
+            public override Func<UnityEngine.UIElements.Cursor, UnityEngine.UIElements.Cursor, bool> SameFunc { get; } = IsSame;
+            private static bool IsSame(UnityEngine.UIElements.Cursor a, UnityEngine.UIElements.Cursor b) =>
+                a.textureId == b.textureId && a.hotspot == b.hotspot && a.defaultCursorId == b.defaultCursorId;
+
+            protected sealed override void UpdateComputedStyle()
+            {
+                int n = running.count;
+                for (int i = 0; i < n; i++)
+                {
+                    running.elements[i].computedStyle.ApplyPropertyAnimation(running.elements[i],
+                        running.properties[i], running.style[i].currentValue);
+                }
+            }
+
+            protected sealed override void UpdateComputedStyle(int i)
+            {
+                running.elements[i].computedStyle.ApplyPropertyAnimation(running.elements[i],
+                    running.properties[i], running.style[i].currentValue);
+            }
+        }
+
+        class ValuesTextShadow : Values<TextShadow>
+        {
+            public override Func<TextShadow, TextShadow, bool> SameFunc { get; } = IsSame;
+            private static bool IsSame(TextShadow a, TextShadow b) => a == b;
+            private static TextShadow Lerp(TextShadow a, TextShadow b, float t) => TextShadow.LerpUnclamped(a, b, t);
+
+            protected sealed override void UpdateValues()
+            {
+                int n = running.count;
+                for (int i = 0; i < n; i++)
+                {
+                    ref var timing = ref running.timing[i];
+                    ref var style = ref running.style[i];
+                    style.currentValue = Lerp(style.startValue, style.endValue, timing.easedProgress);
+                }
+            }
+
+            protected sealed override void UpdateComputedStyle()
+            {
+                int n = running.count;
+                for (int i = 0; i < n; i++)
+                {
+                    running.elements[i].computedStyle.ApplyPropertyAnimation(running.elements[i],
+                        running.properties[i], running.style[i].currentValue);
+                }
+            }
+
+            protected sealed override void UpdateComputedStyle(int i)
+            {
+                running.elements[i].computedStyle.ApplyPropertyAnimation(running.elements[i],
+                    running.properties[i], running.style[i].currentValue);
+            }
+        }
+
+        class ValuesScale : Values<Scale>
+        {
+            public override Func<Scale, Scale, bool> SameFunc { get; } = IsSame;
+            private static bool IsSame(Scale a, Scale b) => a == b;
+            protected sealed override void UpdateComputedStyle()
+            {
+                int n = running.count;
+                for (int i = 0; i < n; i++)
+                {
+                    running.elements[i].computedStyle.ApplyPropertyAnimation(running.elements[i],
+                        running.properties[i], running.style[i].currentValue);
+                }
+            }
+
+            protected sealed override void UpdateComputedStyle(int i)
+            {
+                running.elements[i].computedStyle.ApplyPropertyAnimation(running.elements[i],
+                    running.properties[i], running.style[i].currentValue);
+            }
+
+            private static Scale Lerp(Scale a, Scale b, float t) => new Scale(Vector3.LerpUnclamped(a.value, b.value, t));
+
+
+            protected sealed override void UpdateValues()
+            {
+                int n = running.count;
+                for (int i = 0; i < n; i++)
+                {
+                    ref var timing = ref running.timing[i];
+                    ref var style = ref running.style[i];
+                    style.currentValue = Lerp(style.startValue, style.endValue, timing.easedProgress);
+                }
+            }
+        }
+
+        class ValuesRotate : Values<Rotate>
+        {
+            public override Func<Rotate, Rotate, bool> SameFunc { get; } = IsSame;
+            private static bool IsSame(Rotate a, Rotate b) => a == b;
+            protected sealed override void UpdateComputedStyle()
+            {
+                int n = running.count;
+                for (int i = 0; i < n; i++)
+                {
+                    running.elements[i].computedStyle.ApplyPropertyAnimation(running.elements[i],
+                        running.properties[i], running.style[i].currentValue);
+                }
+            }
+
+            protected sealed override void UpdateComputedStyle(int i)
+            {
+                running.elements[i].computedStyle.ApplyPropertyAnimation(running.elements[i],
+                    running.properties[i], running.style[i].currentValue);
+            }
+
+            // In web standards, we don't interpolate the axis and go straight to the final value.
+            private static Rotate Lerp(Rotate a, Rotate b, float t) => new Rotate(Mathf.LerpUnclamped(a.angle.ToDegrees(), b.angle.ToDegrees(), t), b.axis);
+
+            protected sealed override void UpdateValues()
+            {
+                int n = running.count;
+                for (int i = 0; i < n; i++)
+                {
+                    ref var timing = ref running.timing[i];
+                    ref var style = ref running.style[i];
+                    style.currentValue = Lerp(style.startValue, style.endValue, timing.easedProgress);
+                }
+            }
+        }
+
+        class ValuesRatio : Values<Ratio>
+        {
+            public override Func<Ratio, Ratio, bool> SameFunc { get; } = IsSame;
+            private static bool IsSame(Ratio a, Ratio b) => a == b;
+
+            protected sealed override bool ConvertUnits(VisualElement owner, StylePropertyId prop, ref Ratio a, ref Ratio b)
+            {
+                if (b.IsAuto())
+                    return false;
+
+                if(a.IsAuto())
+                {
+                    if (owner.resolvedStyle.height == 0 || float.IsNaN(owner.resolvedStyle.height))
+                        return false;
+                    a = new Ratio(owner.resolvedStyle.width/ owner.resolvedStyle.height);
+                    return true;
+                }
+                return true;
+            }
+
+            protected sealed override void UpdateComputedStyle()
+            {
+                int n = running.count;
+                for (int i = 0; i < n; i++)
+                {
+                    running.elements[i].computedStyle.ApplyPropertyAnimation(running.elements[i],
+                        running.properties[i], running.style[i].currentValue);
+                }
+            }
+
+            protected sealed override void UpdateComputedStyle(int i)
+            {
+                running.elements[i].computedStyle.ApplyPropertyAnimation(running.elements[i],
+                    running.properties[i], running.style[i].currentValue);
+            }
+
+            private static Ratio Lerp(Ratio a, Ratio b, float t) => new Ratio(Mathf.LerpUnclamped(a.value, b.value, t));
+
+            protected sealed override void UpdateValues()
+            {
+                int n = running.count;
+                for (int i = 0; i < n; i++)
+                {
+                    ref var timing = ref running.timing[i];
+                    ref var style = ref running.style[i];
+                    style.currentValue = Lerp(style.startValue, style.endValue, timing.easedProgress);
+                }
+            }
+        }
+
+        class ValuesTranslate : Values<Translate>
+        {
+            public override Func<Translate, Translate, bool> SameFunc { get; } = IsSame;
+            private static bool IsSame(Translate a, Translate b) => a == b;
+
+            protected sealed override bool ConvertUnits(VisualElement owner, StylePropertyId prop, ref Translate a, ref Translate b)
+            {
+                return owner.TryConvertTranslateUnits(ref a, ref b);
+            }
+
+            protected sealed override void UpdateComputedStyle()
+            {
+                int n = running.count;
+                for (int i = 0; i < n; i++)
+                {
+                    running.elements[i].computedStyle.ApplyPropertyAnimation(running.elements[i],
+                        running.properties[i], running.style[i].currentValue);
+                }
+            }
+
+            protected sealed override void UpdateComputedStyle(int i)
+            {
+                running.elements[i].computedStyle.ApplyPropertyAnimation(running.elements[i],
+                    running.properties[i], running.style[i].currentValue);
+            }
+
+            private static Translate Lerp(Translate a, Translate b, float t) => new Translate(ValuesLength.Lerp(a.x, b.x, t), ValuesLength.Lerp(a.y, b.y, t), Mathf.Lerp(a.z, b.z, t));
+
+            protected sealed override void UpdateValues()
+            {
+                int n = running.count;
+                for (int i = 0; i < n; i++)
+                {
+                    ref var timing = ref running.timing[i];
+                    ref var style = ref running.style[i];
+                    style.currentValue = Lerp(style.startValue, style.endValue, timing.easedProgress);
+                }
+            }
+        }
+
+        class ValuesTransformOrigin : Values<TransformOrigin>
+        {
+            public override Func<TransformOrigin, TransformOrigin, bool> SameFunc { get; } = IsSame;
+            private static bool IsSame(TransformOrigin a, TransformOrigin b) => a == b;
+
+            protected sealed override bool ConvertUnits(VisualElement owner, StylePropertyId prop, ref TransformOrigin a, ref TransformOrigin b)
+            {
+                return owner.TryConvertTransformOriginUnits(ref a, ref b);
+            }
+
+            protected sealed override void UpdateComputedStyle()
+            {
+                int n = running.count;
+                for (int i = 0; i < n; i++)
+                {
+                    running.elements[i].computedStyle.ApplyPropertyAnimation(running.elements[i],
+                        running.properties[i], running.style[i].currentValue);
+                }
+            }
+
+            protected sealed override void UpdateComputedStyle(int i)
+            {
+                running.elements[i].computedStyle.ApplyPropertyAnimation(running.elements[i],
+                    running.properties[i], running.style[i].currentValue);
+            }
+
+            private static TransformOrigin Lerp(TransformOrigin a, TransformOrigin b, float t) => new TransformOrigin(ValuesLength.Lerp(a.x, b.x, t), ValuesLength.Lerp(a.y, b.y, t), Mathf.Lerp(a.z, b.z, t));
+
+            protected sealed override void UpdateValues()
+            {
+                int n = running.count;
+                for (int i = 0; i < n; i++)
+                {
+                    ref var timing = ref running.timing[i];
+                    ref var style = ref running.style[i];
+                    style.currentValue = Lerp(style.startValue, style.endValue, timing.easedProgress);
+                }
+            }
+        }
+
+        class ValuesBackgroundPosition : ValuesDiscrete<BackgroundPosition>
+        {
+            protected sealed override void UpdateComputedStyle()
+            {
+                int n = running.count;
+                for (int i = 0; i < n; i++)
+                {
+                    running.elements[i].computedStyle.ApplyPropertyAnimation(running.elements[i],
+                        running.properties[i], running.style[i].currentValue);
+                }
+            }
+
+            protected sealed override void UpdateComputedStyle(int i)
+            {
+                running.elements[i].computedStyle.ApplyPropertyAnimation(running.elements[i],
+                    running.properties[i], running.style[i].currentValue);
+            }
+        }
+
+        class ValuesBackgroundRepeat : ValuesDiscrete<BackgroundRepeat>
+        {
+            protected sealed override void UpdateComputedStyle()
+            {
+                int n = running.count;
+                for (int i = 0; i < n; i++)
+                {
+                    running.elements[i].computedStyle.ApplyPropertyAnimation(running.elements[i],
+                        running.properties[i], running.style[i].currentValue);
+                }
+            }
+
+            protected sealed override void UpdateComputedStyle(int i)
+            {
+                running.elements[i].computedStyle.ApplyPropertyAnimation(running.elements[i],
+                    running.properties[i], running.style[i].currentValue);
+            }
+        }
+
+        class ValuesBackgroundSize : Values<BackgroundSize>
+        {
+            public override Func<BackgroundSize, BackgroundSize, bool> SameFunc { get; } = IsSame;
+            private static bool IsSame(BackgroundSize a, BackgroundSize b) => a == b;
+
+            protected sealed override bool ConvertUnits(VisualElement owner, StylePropertyId prop, ref BackgroundSize a, ref BackgroundSize b)
+            {
+                return owner.TryConvertBackgroundSizeUnits(ref a, ref b);
+            }
+
+            protected sealed override void UpdateComputedStyle()
+            {
+                int n = running.count;
+                for (int i = 0; i < n; i++)
+                {
+                    running.elements[i].computedStyle.ApplyPropertyAnimation(running.elements[i],
+                        running.properties[i], running.style[i].currentValue);
+                }
+            }
+
+            protected sealed override void UpdateComputedStyle(int i)
+            {
+                running.elements[i].computedStyle.ApplyPropertyAnimation(running.elements[i],
+                    running.properties[i], running.style[i].currentValue);
+            }
+
+            private static BackgroundSize Lerp(BackgroundSize a, BackgroundSize b, float t) => new BackgroundSize(ValuesLength.Lerp(a.x, b.x, t), ValuesLength.Lerp(a.y, b.y, t));
+
+            protected sealed override void UpdateValues()
+            {
+                int n = running.count;
+                for (int i = 0; i < n; i++)
+                {
+                    ref var timing = ref running.timing[i];
+                    ref var style = ref running.style[i];
+                    style.currentValue = Lerp(style.startValue, style.endValue, timing.easedProgress);
+                }
+            }
+        }
+
+        class ValuesListFilterFunction : Values<List<FilterFunction>>
+        {
+            protected override List<FilterFunction> Copy(List<FilterFunction> value)
+            {
+                return new List<FilterFunction>(value);
+            }
+
+            public override Func<List<FilterFunction>, List<FilterFunction>, bool> SameFunc { get; } = IsSame;
+
+            private static bool IsSame(List<FilterFunction> a, List<FilterFunction> b)
+            {
+                if (a.Count != b.Count)
+                    return false;
+
+                for (int i = 0; i< a.Count; ++i)
+                {
+                    if (a[i] != b[i])
+                        return false;
+                }
+
+                return true;
+            }
+
+            protected sealed override bool ConvertUnits(VisualElement owner, StylePropertyId prop, ref List<FilterFunction> a, ref List<FilterFunction> b)
+            {
+                // This isn't really a unit conversion, but we need to validate that the filter function matches.
+
+                // We try to follow the CSS spect for filter functions, which allows filter lists
+                // of different size, and the system automatically pads with default functions.
+
+                // Iterate through the shortest list and compare the functions.
+                int minCount = Math.Min(a.Count, b.Count);
+                for (int i = 0; i < minCount; i++)
+                {
+                    if (a[i].type != b[i].type)
+                        return false;
+
+                    if (a[i].type == FilterFunctionType.Custom && !AreFilterDefinitionsCompatible(a[i].customDefinition, b[i].customDefinition))
+                        return false;
+                }
+
+                return true;
+            }
+
+            static bool AreFilterDefinitionsCompatible(FilterFunctionDefinition filterDef1, FilterFunctionDefinition filterDef2)
+            {
+                if (filterDef1 == null || filterDef2 == null)
+                    return false;
+
+                if (object.ReferenceEquals(filterDef1, filterDef2))
+                    return true;
+
+                return false;
+            }
+
+            protected sealed override void UpdateComputedStyle()
+            {
+                int n = running.count;
+                for (int i = 0; i < n; i++)
+                {
+                    running.elements[i].computedStyle.ApplyPropertyAnimation(running.elements[i],
+                        running.properties[i], running.style[i].currentValue);
+                }
+            }
+
+            protected sealed override void UpdateComputedStyle(int i)
+            {
+                running.elements[i].computedStyle.ApplyPropertyAnimation(running.elements[i],
+                    running.properties[i], running.style[i].currentValue);
+            }
+
+            private static FilterParameter LerpFilterParameters(FilterParameter a, FilterParameter b, float t)
+            {
+                if (a.type != b.type)
+                    return a;
+
+                switch (a.type)
+                {
+                    case FilterParameterType.Float:
+                        return new FilterParameter()
+                        {
+                            type = FilterParameterType.Float,
+                            floatValue = Mathf.Lerp(a.floatValue, b.floatValue, t)
+                        };
+                    case FilterParameterType.Color:
+                        return new FilterParameter()
+                        {
+                            type = FilterParameterType.Color,
+                            colorValue = Color.Lerp(a.colorValue, b.colorValue, t)
+                        };
+                    default:
+                        return a;
+                }
+            }
+
+            private static void Lerp(List<FilterFunction> a, List<FilterFunction> b, ref List<FilterFunction> result, float t)
+            {
+                result.Clear();
+
+                int maxCount = a.Count >= b.Count ? a.Count : b.Count;
+                for (int i = 0; i < maxCount; i++)
+                {
+                    // If the a anb b lists are of different size, we need to pad with default values,
+                    // so we pass the other list as a reference in case the source list is too short.
+                    var fa = GetFunctionOrDefault(ref a, ref b, i);
+                    var fb = GetFunctionOrDefault(ref b, ref a, i);
+
+                    var fc = new FilterFunction() { type = fa.type, customDefinition = fa.customDefinition };
+                    for (int j = 0; j < fa.parameterCount; j++)
+                        fc.AddParameter(LerpFilterParameters(fa.parameters[j], fb.parameters[j], t));
+
+                    result.Add(fc);
+                }
+            }
+
+            private static FilterFunction GetFunctionOrDefault(ref List<FilterFunction> srcList, ref List<FilterFunction> refList, int index)
+            {
+                if (index < srcList.Count)
+                    return srcList[index];
+
+                var f = refList[index];
+                int parameterCount = f.parameterCount;
+
+                f.ClearParameters();
+                for (int i = 0; i < parameterCount; i++)
+                {
+                    FilterParameter defaultParam = new FilterParameter();
+                    var defaultParams = f.GetDefinition().parameters;
+                    if (i < defaultParams.Length)
+                        defaultParam = defaultParams[i].interpolationDefaultValue;
+
+                    f.AddParameter(defaultParam);
+                }
+
+                return f;
+            }
+
+            protected sealed override void UpdateValues()
+            {
+                int n = running.count;
+                for (int i = 0; i < n; i++)
+                {
+                    ref var timing = ref running.timing[i];
+                    ref var style = ref running.style[i];
+                    Lerp(style.startValue, style.endValue, ref style.currentValue, timing.easedProgress);
+                }
+            }
+        }
+
+        class ValuesMaterialDefinition : Values<MaterialDefinition>
+        {
+            protected override MaterialDefinition Copy(MaterialDefinition value)
+            {
+                return new MaterialDefinition(value);
+            }
+
+            public override Func<MaterialDefinition, MaterialDefinition, bool> SameFunc { get; } = IsSame;
+
+            private static bool IsSame(MaterialDefinition a, MaterialDefinition b)
+            {
+                if (a.material != b.material)
+                    return false;
+
+                var aValues = a.propertyValues;
+                var bValues = b.propertyValues;
+                if (aValues?.Count != bValues?.Count)
+                    return false;
+
+                for (int i = 0; i < aValues?.Count; ++i)
+                {
+                    if (aValues[i] != bValues[i])
+                        return false;
+                }
+
+                return true;
+            }
+
+            protected sealed override bool ConvertUnits(VisualElement owner, StylePropertyId prop, ref MaterialDefinition a, ref MaterialDefinition b)
+            {
+                // This isn't really a unit conversion, but we need to validate that the material properties matches.
+                // If the number of properties are different, we will do automatic padding similar
+                // to filter functions.
+
+                if ((a.material == null && b.material != null) || (b.material == null && a.material != null))
+                    // We allow animating to/from a null material, this will insert default properties for the animation
+                    return true;
+
+                if (a.material != b.material)
+                    return false;
+
+                var aValues = a.propertyValues;
+                var bValues = b.propertyValues;
+
+                int minCount = Math.Min(aValues?.Count ?? 0, bValues?.Count ?? 0);
+                for (int i = 0; i < minCount; ++i)
+                {
+                    if (aValues[i].type != bValues[i].type || aValues[i].name != bValues[i].name)
+                        return false;
+                }
+
+                return true;
+            }
+
+            protected sealed override void UpdateComputedStyle()
+            {
+                int n = running.count;
+                for (int i = 0; i < n; i++)
+                {
+                    running.elements[i].computedStyle.ApplyPropertyAnimation(running.elements[i],
+                        running.properties[i], running.style[i].currentValue);
+                }
+            }
+
+            protected sealed override void UpdateComputedStyle(int i)
+            {
+                running.elements[i].computedStyle.ApplyPropertyAnimation(running.elements[i],
+                    running.properties[i], running.style[i].currentValue);
+            }
+
+            private static MaterialPropertyValue LerpPropertyValues(MaterialPropertyValue a, MaterialPropertyValue b, float t)
+            {
+                if (a.type != b.type)
+                    return a;
+
+                switch (a.type)
+                {
+                    case MaterialPropertyValueType.Float:
+                    case MaterialPropertyValueType.Vector:
+                    case MaterialPropertyValueType.Color:
+                        return new MaterialPropertyValue()
+                        {
+                            type = a.type,
+                            name = a.name,
+                            packedValue = Vector4.Lerp(a.packedValue, b.packedValue, t),
+                        };
+                    case MaterialPropertyValueType.Texture:
+                        return t < 0.5f ? a : b; // No interpolation for textures
+                    default:
+                        return a;
+                }
+            }
+
+            private static MaterialPropertyValue GetValueOrDefault(List<MaterialPropertyValue> srcList, List<MaterialPropertyValue> refList, int index)
+            {
+                if (index < srcList?.Count)
+                    return srcList[index];
+
+                var v = refList[index];
+                return new MaterialPropertyValue() { type = v.type, name = v.name };
+            }
+
+            private static void Lerp(MaterialDefinition a, MaterialDefinition b, ref MaterialDefinition result, float t)
+            {
+                if (t > 0.999f)
+                {
+                    // We take a shortcut for the final value to avoid the automatic
+                    // material definition padding and use the actual end value instead.
+                    result = new MaterialDefinition(b);
+                    return;
+                }
+
+                var aValues = a.propertyValues;
+                var bValues = b.propertyValues;
+
+                int maxCount = Math.Max(aValues?.Count ?? 0, bValues?.Count ?? 0);
+
+                if (result.material == null)
+                {
+                    // When transitioning from an empty source, we sanitize the result beforehand
+                    result.material = a.material ?? b.material;
+                    result.propertyValues = new List<MaterialPropertyValue>(maxCount);
+                }
+                else
+                {
+                    result.propertyValues ??= new List<MaterialPropertyValue>();
+                    result.propertyValues.Capacity = maxCount;
+                }
+
+                while (result.propertyValues.Count < maxCount)
+                    result.propertyValues.Add(new MaterialPropertyValue());
+
+                for (int i = 0; i < maxCount; ++i)
+                {
+                    // If the a anb b lists are of different size, we need to pad with default values.
+                    var va = GetValueOrDefault(aValues, bValues, i);
+                    var vb = GetValueOrDefault(bValues, aValues, i);
+
+                    result.propertyValues[i] = LerpPropertyValues(va, vb, t);
+                }
+            }
+
+            protected sealed override void UpdateValues()
+            {
+                int n = running.count;
+                for (int i = 0; i < n; i++)
+                {
+                    ref var timing = ref running.timing[i];
+                    ref var style = ref running.style[i];
+
+                    Lerp(style.startValue, style.endValue, ref style.currentValue, timing.easedProgress);
+                }
+            }
+        }
+
+        class ValuesBackground : Values<Background>
+        {
+            public override Func<Background, Background, bool> SameFunc { get; } = IsSame;
+
+            private static bool IsSame(Background a, Background b) => a == b;
+
+            protected sealed override void UpdateComputedStyle()
+            {
+                int n = running.count;
+                for (int i = 0; i < n; i++)
+                {
+                    running.elements[i].computedStyle.ApplyPropertyAnimation(running.elements[i],
+                        running.properties[i], running.style[i].currentValue);
+                }
+            }
+
+            protected sealed override void UpdateComputedStyle(int i)
+            {
+                running.elements[i].computedStyle.ApplyPropertyAnimation(running.elements[i],
+                    running.properties[i], running.style[i].currentValue);
+            }
+
+            // CSS pads the shorter stop list by repeating its final stop.
+            private static BackgroundGradientStop GetStopOrLast(BackgroundGradientStop[] stops, int index)
+            {
+                return index < stops.Length ? stops[index] : stops[stops.Length - 1];
+            }
+
+            private static BackgroundGradientStop LerpStop(BackgroundGradientStop a, BackgroundGradientStop b, float t)
+            {
+                // Mixed px/% positions can't be blended without resolving against the
+                // element size, so the position steps at the midpoint instead.
+                bool sameUnits = a.positionIsPercent == b.positionIsPercent;
+                return new BackgroundGradientStop
+                {
+                    color = Color.Lerp(a.color, b.color, t),
+                    position = sameUnits ? Mathf.Lerp(a.position, b.position, t) : (t < 0.5f ? a.position : b.position),
+                    positionIsPercent = t < 0.5f ? a.positionIsPercent : b.positionIsPercent,
+                };
+            }
+
+            private static void Lerp(Background a, Background b, ref Background result, float t)
+            {
+                var ga = a.gradient;
+                var gb = b.gradient;
+
+                // Asset endpoints (or asset<->gradient) can't be blended; step at the midpoint.
+                if (ga.IsEmpty() || gb.IsEmpty())
+                {
+                    result = t < 0.5f ? a : b;
+                    return;
+                }
+
+                int maxCount = Math.Max(ga.stops.Length, gb.stops.Length);
+                var stops = result.gradient.stops;
+                // Reuse the result's stop array only when it is owned by the result;
+                // after a discrete step it aliases an endpoint's array.
+                if (stops == null || stops.Length != maxCount ||
+                    ReferenceEquals(stops, ga.stops) || ReferenceEquals(stops, gb.stops))
+                {
+                    stops = new BackgroundGradientStop[maxCount];
+                }
+
+                for (int i = 0; i < maxCount; i++)
+                    stops[i] = LerpStop(GetStopOrLast(ga.stops, i), GetStopOrLast(gb.stops, i), t);
+
+                // Enum sub-values are discrete and step at the midpoint.
+                var discrete = t < 0.5f ? ga : gb;
+                result = Background.FromGradient(new BackgroundGradient
+                {
+                    type = discrete.type,
+                    shape = discrete.shape,
+                    size = discrete.size,
+                    angle = Mathf.Lerp(ga.angle, gb.angle, t),
+                    position = Vector2.Lerp(ga.position, gb.position, t),
+                    stops = stops,
+                });
+            }
+
+            protected sealed override void UpdateValues()
+            {
+                int n = running.count;
+                for (int i = 0; i < n; i++)
+                {
+                    ref var timing = ref running.timing[i];
+                    ref var style = ref running.style[i];
+                    Lerp(style.startValue, style.endValue, ref style.currentValue, timing.easedProgress);
+                }
+            }
+        }
+
+        private ValuesFloat m_Floats;
+        private ValuesInt m_Ints;
+        private ValuesLength m_Lengths;
+        private ValuesColor m_Colors;
+        private ValuesEnum m_Enums;
+        private ValuesEntityId m_EntityIds;
+        private ValuesCursor m_Cursors;
+        private ValuesTextShadow m_TextShadows;
+        private ValuesScale m_Scale;
+        private ValuesRotate m_Rotate;
+        private ValuesRatio m_Ratio;
+        private ValuesTranslate m_Translate;
+        private ValuesTransformOrigin m_TransformOrigin;
+        private ValuesBackgroundPosition m_BackgroundPosition;
+        private ValuesBackgroundRepeat m_BackgroundRepeat;
+        private ValuesBackgroundSize m_BackgroundSize;
+        private ValuesListFilterFunction m_FilterFunctions;
+        private ValuesMaterialDefinition m_MaterialDefinition;
+        private ValuesBackground m_Background;
+
+        // All the value lists with ongoing animations. Add and remove Values objects when animations come in/out.
+        private readonly List<Values> m_AllValues = new List<Values>();
+
+        // Clip playback state. Lives here (rather than on VisualElementAnimationSystem) so that
+        // panels using EmptyStylePropertyAnimationSystem (e.g. UI Builder authoring mode) skip
+        // clip ticking automatically, mirroring how CSS transitions are gated.
+        private struct ClipPlayer
+        {
+            public UIAnimationClip clip;
+            public UIAnimationBinder binder;
+            public double startTime;
+            public float clipLength;
+            public float durationOverride;
+            public float delay;
+            public float iterationCount;
+            public AnimationDirection direction;
+            public bool isPaused;
+            public float pausedElapsed;
+            // Set only via SetClipPreviewing (also editor-only) - the Animation Window
+            // takes over sampling while previewing so the runtime ticker must yield.
+            public bool isPreviewing;
+
+            public void Sample(double now)
+            {
+                if (clip == null || binder == null || isPaused)
+                    return;
+                if (isPreviewing)
+                    return;
+
+                float sampleTime = ComputeClipSampleTime((float)(now - startTime), clipLength,
+                    durationOverride, delay, iterationCount, direction);
+                binder.SampleClip(clip, sampleTime);
+            }
+        }
+
+        // durationOverride == 0 samples across the clip's intrinsic length (unlike CSS, where 0s is instant).
+        internal static float ComputeClipSampleTime(float elapsedSinceStart, float clipLength,
+            float durationOverride, float delay, float iterationCount, AnimationDirection direction)
+        {
+            if (iterationCount <= 0f)
+                return DirectedSampleTime(0, 0f, clipLength, direction);
+
+            float iterationDuration = durationOverride > 0f ? durationOverride : clipLength;
+
+            float elapsed = elapsedSinceStart - delay;
+            if (elapsed <= 0f || iterationDuration <= 0f)
+                return DirectedSampleTime(0, 0f, clipLength, direction);
+
+            float totalIterations = elapsed / iterationDuration;
+
+            int iterationIndex;
+            float phase;
+
+            bool finished = !float.IsPositiveInfinity(iterationCount) && totalIterations >= iterationCount;
+            if (finished)
+            {
+                float fraction = iterationCount - Mathf.Floor(iterationCount);
+                if (fraction == 0f)
+                {
+                    iterationIndex = Mathf.Max(0, (int)iterationCount - 1);
+                    phase = 1f;
+                }
+                else
+                {
+                    iterationIndex = (int)Mathf.Floor(iterationCount);
+                    phase = fraction;
+                }
+            }
+            else
+            {
+                iterationIndex = (int)totalIterations;
+                phase = totalIterations - iterationIndex;
+            }
+
+            return DirectedSampleTime(iterationIndex, phase, clipLength, direction);
+        }
+
+        static float DirectedSampleTime(int iterationIndex, float phase, float clipLength, AnimationDirection direction)
+        {
+            bool reversed;
+            switch (direction)
+            {
+                case AnimationDirection.Reverse:
+                    reversed = true;
+                    break;
+                case AnimationDirection.Alternate:
+                    reversed = (iterationIndex & 1) == 1;
+                    break;
+                case AnimationDirection.AlternateReverse:
+                    reversed = (iterationIndex & 1) == 0;
+                    break;
+                default:
+                    reversed = false;
+                    break;
+            }
+
+            float directedPhase = reversed ? 1f - phase : phase;
+            return directedPhase * clipLength;
+        }
+
+        private readonly BaseVisualElementPanel m_OwnerPanel;
+        private readonly Panel m_Panel;
+        // Every player on an element shares its single UIAnimationBinder.
+        private Dictionary<VisualElement, List<ClipPlayer>> m_ElementClipAnimations;
+
+        // Last observed value, for flip detection only; playbackSuspended is the live source of truth.
+        private bool m_PlaybackSuspended;
+
+        private bool playbackSuspended => m_OwnerPanel?.animationPlaybackSuspended ?? false;
+
+        public StylePropertyAnimationSystem(BaseVisualElementPanel p)
+        {
+            m_CurrentTime = p.TimeSinceStartupSeconds();
+            m_OwnerPanel = p;
+            m_Panel = p as Panel;
+        }
+
+        private T GetOrCreate<T>(ref T values) where T : new()
+        {
+            return values ?? (values = new T());
+        }
+
+        private readonly Dictionary<StylePropertyId, Values> m_PropertyToValues = new Dictionary<StylePropertyId, Values>();
+
+        // Start or update the values for the style animation
+        private bool StartTransition<T>(VisualElement owner, StylePropertyId prop, T startValue, T endValue,
+            int durationMs, int delayMs, Func<float, float> easingCurve, Values<T> values)
+        {
+            // Suspended: the property jumps to its end value, and no run/start/end events are emitted.
+            if (playbackSuspended)
+                return false;
+
+            m_PropertyToValues[prop] = values;
+            var result = values.StartTransition(owner, prop, startValue, endValue, durationMs/1000.0f, delayMs/1000.0f, easingCurve, CurrentTimeSeconds());
+            UpdateTracking(values);
+            return result;
+        }
+
+        public bool StartTransition(VisualElement owner, StylePropertyId prop, float startValue, float endValue, int durationMs, int delayMs, [NotNull] Func<float, float> easingCurve)
+        {
+            return StartTransition(owner, prop, startValue, endValue, durationMs, delayMs, easingCurve, GetOrCreate(ref m_Floats));
+        }
+
+        public bool StartTransition(VisualElement owner, StylePropertyId prop, int startValue, int endValue, int durationMs, int delayMs, [NotNull] Func<float, float> easingCurve)
+        {
+            return StartTransition(owner, prop, startValue, endValue, durationMs, delayMs, easingCurve, GetOrCreate(ref m_Ints));
+        }
+
+        public bool StartTransition(VisualElement owner, StylePropertyId prop, Length startValue, Length endValue, int durationMs, int delayMs, [NotNull] Func<float, float> easingCurve)
+        {
+            return StartTransition(owner, prop, startValue, endValue, durationMs, delayMs, easingCurve, GetOrCreate(ref m_Lengths));
+        }
+
+        public bool StartTransition(VisualElement owner, StylePropertyId prop, Color startValue, Color endValue, int durationMs, int delayMs, [NotNull] Func<float, float> easingCurve)
+        {
+            return StartTransition(owner, prop, startValue, endValue, durationMs, delayMs, easingCurve, GetOrCreate(ref m_Colors));
+        }
+
+        public bool StartTransitionEnum(VisualElement owner, StylePropertyId prop, int startValue, int endValue, int durationMs, int delayMs, [NotNull] Func<float, float> easingCurve)
+        {
+            return StartTransition(owner, prop, startValue, endValue, durationMs, delayMs, easingCurve, GetOrCreate(ref m_Enums));
+        }
+
+        public bool StartTransition(VisualElement owner, StylePropertyId prop, EntityId startValue, EntityId endValue, int durationMs, int delayMs, [NotNull] Func<float, float> easingCurve)
+        {
+            return StartTransition(owner, prop, startValue, endValue, durationMs, delayMs, easingCurve, GetOrCreate(ref m_EntityIds));
+        }
+
+        public bool StartTransition(VisualElement owner, StylePropertyId prop, UnityEngine.UIElements.Cursor startValue, UnityEngine.UIElements.Cursor endValue, int durationMs, int delayMs, [NotNull] Func<float, float> easingCurve)
+        {
+            return StartTransition(owner, prop, startValue, endValue, durationMs, delayMs, easingCurve, GetOrCreate(ref m_Cursors));
+        }
+
+        public bool StartTransition(VisualElement owner, StylePropertyId prop, TextShadow startValue, TextShadow endValue, int durationMs, int delayMs, [NotNull] Func<float, float> easingCurve)
+        {
+            return StartTransition(owner, prop, startValue, endValue, durationMs, delayMs, easingCurve, GetOrCreate(ref m_TextShadows));
+        }
+
+        public bool StartTransition(VisualElement owner, StylePropertyId prop, Scale startValue, Scale endValue, int durationMs, int delayMs, [NotNull] Func<float, float> easingCurve)
+        {
+            return StartTransition(owner, prop, startValue, endValue, durationMs, delayMs, easingCurve, GetOrCreate(ref m_Scale));
+        }
+
+        public bool StartTransition(VisualElement owner, StylePropertyId prop, Rotate startValue, Rotate endValue, int durationMs, int delayMs, [NotNull] Func<float, float> easingCurve)
+        {
+            return StartTransition(owner, prop, startValue, endValue, durationMs, delayMs, easingCurve, GetOrCreate(ref m_Rotate));
+        }
+
+        public bool StartTransition(VisualElement owner, StylePropertyId prop, Translate startValue, Translate endValue, int durationMs, int delayMs, [NotNull] Func<float, float> easingCurve)
+        {
+            return StartTransition(owner, prop, startValue, endValue, durationMs, delayMs, easingCurve, GetOrCreate(ref m_Translate));
+        }
+
+        public bool StartTransition(VisualElement owner, StylePropertyId prop, Ratio startValue, Ratio endValue, int durationMs, int delayMs, [NotNull] Func<float, float> easingCurve)
+        {
+            return StartTransition(owner, prop, startValue, endValue, durationMs, delayMs, easingCurve, GetOrCreate(ref m_Ratio));
+        }
+
+        public bool StartTransition(VisualElement owner, StylePropertyId prop, TransformOrigin startValue, TransformOrigin endValue, int durationMs, int delayMs, [NotNull] Func<float, float> easingCurve)
+        {
+            return StartTransition(owner, prop, startValue, endValue, durationMs, delayMs, easingCurve, GetOrCreate(ref m_TransformOrigin));
+        }
+
+        public bool StartTransition(VisualElement owner, StylePropertyId prop, BackgroundPosition startValue, BackgroundPosition endValue, int durationMs, int delayMs, [NotNull] Func<float, float> easingCurve)
+        {
+            return StartTransition(owner, prop, startValue, endValue, durationMs, delayMs, easingCurve, GetOrCreate(ref m_BackgroundPosition));
+        }
+
+        public bool StartTransition(VisualElement owner, StylePropertyId prop, BackgroundRepeat startValue, BackgroundRepeat endValue, int durationMs, int delayMs, [NotNull] Func<float, float> easingCurve)
+        {
+            return StartTransition(owner, prop, startValue, endValue, durationMs, delayMs, easingCurve, GetOrCreate(ref m_BackgroundRepeat));
+        }
+
+        public bool StartTransition(VisualElement owner, StylePropertyId prop, BackgroundSize startValue, BackgroundSize endValue, int durationMs, int delayMs, [NotNull] Func<float, float> easingCurve)
+        {
+            return StartTransition(owner, prop, startValue, endValue, durationMs, delayMs, easingCurve, GetOrCreate(ref m_BackgroundSize));
+        }
+
+        public bool StartTransition(VisualElement owner, StylePropertyId prop, List<FilterFunction> startValue, List<FilterFunction> endValue, int durationMs, int delayMs, [NotNull] Func<float, float> easingCurve)
+        {
+            return StartTransition(owner, prop, startValue, endValue, durationMs, delayMs, easingCurve, GetOrCreate(ref m_FilterFunctions));
+        }
+
+        public bool StartTransition(VisualElement owner, StylePropertyId prop, MaterialDefinition startValue, MaterialDefinition endValue, int durationMs, int delayMs, [NotNull] Func<float, float> easingCurve)
+        {
+            return StartTransition(owner, prop, startValue, endValue, durationMs, delayMs, easingCurve, GetOrCreate(ref m_MaterialDefinition));
+        }
+
+        public bool StartTransition(VisualElement owner, StylePropertyId prop, Background startValue, Background endValue, int durationMs, int delayMs, [NotNull] Func<float, float> easingCurve)
+        {
+            return StartTransition(owner, prop, startValue, endValue, durationMs, delayMs, easingCurve, GetOrCreate(ref m_Background));
+        }
+
+        public void CancelAllAnimations()
+        {
+            foreach (var values in m_AllValues)
+            {
+                values.CancelAllAnimations();
+            }
+        }
+
+        public void CancelAllAnimations(VisualElement owner)
+        {
+            foreach (var values in m_AllValues)
+            {
+                values.CancelAllAnimations(owner);
+            }
+
+            Assert.AreEqual(0, owner.styleAnimation.runningAnimationCount);
+            Assert.AreEqual(0, owner.styleAnimation.completedAnimationCount);
+        }
+
+        public void CancelAnimation(VisualElement owner, StylePropertyId id)
+        {
+            // For performance considerations, we anticipate that the styling system could be calling specialized
+            // versions (CancelAnimationFloat, CancelAnimationColor, etc.) instead of this in the future.
+            if (m_PropertyToValues.TryGetValue(id, out var values))
+                values.CancelAnimation(owner, id);
+        }
+
+        public bool HasRunningAnimation(VisualElement owner, StylePropertyId id)
+        {
+            return m_PropertyToValues.TryGetValue(id, out var values) && values.HasRunningAnimation(owner, id);
+        }
+
+        public void UpdateAnimation(VisualElement owner, StylePropertyId id)
+        {
+            if (m_PropertyToValues.TryGetValue(id, out var values))
+                values.UpdateAnimation(owner, id);
+        }
+
+        public void GetAllAnimations(VisualElement owner, List<StylePropertyId> propertyIds)
+        {
+            foreach (var values in m_AllValues)
+                values.GetAllAnimations(owner, propertyIds);
+        }
+
+        private void UpdateTracking<T>(Values<T> values)
+        {
+            // Register new type of animations to keep track of. Note that we don't unregister if values becomes empty.
+            if (!values.isEmpty && !m_AllValues.Contains(values))
+            {
+                m_AllValues.Add(values);
+            }
+        }
+
+        double CurrentTimeSeconds()
+        {
+            return m_CurrentTime;
+        }
+
+        // A clip that was never running creates no player or binder, leaving the authoring Animation Window's preview binder untouched.
+        public void UpdateElementClipAnimation(VisualElement owner, double currentTime)
+        {
+            // Only Panel (not BaseVisualElementPanel) exposes GetOrCreateElementBinder.
+            if (m_Panel == null)
+                return;
+
+            var clips = owner.computedStyle.animationNames;
+            var playStates = owner.computedStyle.animationPlayStates;
+            var durations = owner.computedStyle.animationDuration;
+            var delays = owner.computedStyle.animationDelay;
+            var iterationCounts = owner.computedStyle.animationIterationCount;
+            var directions = owner.computedStyle.animationDirection;
+
+            int slotCount = clips.Length;
+
+            List<ClipPlayer> existing = null;
+            m_ElementClipAnimations?.TryGetValue(owner, out existing);
+            var reused = existing != null && existing.Count > 0 ? new bool[existing.Count] : null;
+
+            List<ClipPlayer> result = null;
+            UIAnimationBinder binder = null;
+
+            for (int i = 0; i < slotCount; i++)
+            {
+                var clip = (UIAnimationClip)Resources.EntityIdToObject(clips[i]);
+                if (clip == null || clip.animationClip == null)
+                    continue;
+
+                var playState = playStates.Length > 0 ? playStates[i % playStates.Length] : AnimationPlayState.Running;
+                float durationOverride = durations.Length > 0 ? durations[i % durations.Length] : 0f;
+                float delay = delays.Length > 0 ? delays[i % delays.Length] : 0f;
+                float iterationCount = iterationCounts.Length > 0 ? iterationCounts[i % iterationCounts.Length].value : 1f;
+                var direction = directions.Length > 0 ? directions[i % directions.Length] : AnimationDirection.Normal;
+
+                int existingIndex = -1;
+                if (existing != null)
+                {
+                    for (int j = 0; j < existing.Count; j++)
+                    {
+                        if (!reused[j] && existing[j].clip == clip)
+                        {
+                            existingIndex = j;
+                            break;
+                        }
+                    }
+                }
+                bool existed = existingIndex >= 0;
+
+                if (playState != AnimationPlayState.Running && !existed)
+                    continue;
+
+                binder ??= m_Panel.GetOrCreateElementBinder(owner);
+                ClipPlayer player = existed ? existing[existingIndex] : default;
+                if (existed)
+                    reused[existingIndex] = true;
+                player.binder = binder;
+
+                if (playState == AnimationPlayState.Running)
+                {
+                    if (existed && !player.isPaused)
+                    {
+                        // Already running this clip: leave the clock alone.
+                    }
+                    else if (existed && player.isPaused)
+                    {
+                        player.isPaused = false;
+                        player.startTime = currentTime - player.pausedElapsed;
+                    }
+                    else
+                    {
+                        player.clip = clip;
+                        player.startTime = currentTime;
+                        player.clipLength = clip.animationClip.length;
+                        player.isPaused = false;
+                        binder.IncrementBoundElementsStyleVersion();
+                    }
+                }
+                else
+                {
+                    if (!player.isPaused)
+                    {
+                        player.isPaused = true;
+                        player.pausedElapsed = (float)(currentTime - player.startTime);
+                    }
+                }
+
+                player.durationOverride = durationOverride;
+                player.delay = delay;
+                player.iterationCount = iterationCount;
+                player.direction = direction;
+
+                (result ??= new List<ClipPlayer>()).Add(player);
+            }
+
+            if (result == null)
+            {
+                if (existing != null)
+                {
+                    m_ElementClipAnimations.Remove(owner);
+                    // Must run before DestroyElementBinder (clears the element registry).
+                    if (existing.Count > 0 && existing[0].binder != null)
+                        existing[0].binder.IncrementBoundElementsStyleVersion();
+                    m_Panel.DestroyElementBinder(owner);
+                }
+                return;
+            }
+
+            // A gone clip leaves stale curves on the shared binder; clear them once so survivors repopulate on their next Sample.
+            if (existing != null)
+            {
+                for (int j = 0; j < existing.Count; j++)
+                {
+                    if (!reused[j])
+                    {
+                        binder.ClearBindings();
+                        binder.IncrementBoundElementsStyleVersion();
+                        break;
+                    }
+                }
+            }
+
+            m_ElementClipAnimations ??= new Dictionary<VisualElement, List<ClipPlayer>>();
+            m_ElementClipAnimations[owner] = result;
+        }
+
+        public void CancelElementClipAnimation(VisualElement owner)
+        {
+            if (m_ElementClipAnimations == null
+                || !m_ElementClipAnimations.TryGetValue(owner, out var players))
+                return;
+
+            m_ElementClipAnimations.Remove(owner);
+            // Must run before DestroyElementBinder (clears the element registry).
+            if (players.Count > 0 && players[0].binder != null)
+                players[0].binder.IncrementBoundElementsStyleVersion();
+            m_Panel?.DestroyElementBinder(owner);
+        }
+
+        public bool TryGetActiveClipForOwner(VisualElement owner, out UIAnimationClip clip, out UIAnimationBinder binder)
+        {
+            clip = null;
+            binder = null;
+            if (owner == null || m_ElementClipAnimations == null)
+                return false;
+            if (!m_ElementClipAnimations.TryGetValue(owner, out var players))
+                return false;
+            for (int i = 0; i < players.Count; i++)
+            {
+                if (players[i].clip != null && players[i].binder != null)
+                {
+                    clip = players[i].clip;
+                    binder = players[i].binder;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        public void SetClipPreviewing(VisualElement owner, bool isPreviewing)
+        {
+            if (owner == null || m_ElementClipAnimations == null)
+                return;
+
+            if (!m_ElementClipAnimations.TryGetValue(owner, out var players))
+                return;
+
+            for (int i = 0; i < players.Count; i++)
+            {
+                var player = players[i];
+                if (player.isPreviewing != isPreviewing)
+                {
+                    player.isPreviewing = isPreviewing;
+                    players[i] = player;
+                }
+            }
+        }
+
+        public void Update(double updateTime)
+        {
+            m_CurrentTime = updateTime;
+            var suspended = playbackSuspended;
+
+            // Runs while suspended: nothing can be transitioning, but this is the only drain for their
+            // pooled event queue, and draining before the flip keeps cancel events last.
+            var count = m_AllValues.Count;
+            for (int i = 0; i < count; i++)
+            {
+                m_AllValues[i].Update(m_CurrentTime);
+            }
+
+            if (suspended != m_PlaybackSuspended)
+            {
+                m_PlaybackSuspended = suspended;
+                if (suspended)
+                    CancelAllAnimations();   // transitions settle on their end value
+                else
+                    ResumePlayback();
+            }
+
+            if (suspended)
+                return;
+
+            if (m_ElementClipAnimations != null && m_ElementClipAnimations.Count > 0)
+            {
+                foreach (var kvp in m_ElementClipAnimations)
+                {
+                    var players = kvp.Value;
+                    // Sample in list order so a later clip animating the same property wins.
+                    for (int i = 0; i < players.Count; i++)
+                        players[i].Sample(m_CurrentTime);
+                }
+            }
+        }
+
+        // Without this rebase the stale startTime makes clips jump to wherever the wall clock landed.
+        void ResumePlayback()
+        {
+            if (m_ElementClipAnimations == null)
+                return;
+
+            foreach (var kvp in m_ElementClipAnimations)
+            {
+                var players = kvp.Value;
+                for (int i = 0; i < players.Count; i++)
+                {
+                    var player = players[i];
+                    player.startTime = m_CurrentTime;
+                    player.pausedElapsed = 0f;
+                    players[i] = player;
+                }
+            }
+        }
+    }
+
+    [Bindings.VisibleToOtherModules("UnityEditor.UIBuilderModule", "UnityEditor.UIToolkitAuthoringModule")]
+    internal class EmptyStylePropertyAnimationSystem : IStylePropertyAnimationSystem
+    {
+        public bool StartTransition(VisualElement owner, StylePropertyId prop, float startValue, float endValue, int durationMs, int delayMs, Func<float, float> easingCurve)
+        {
+            return false;
+        }
+
+        public bool StartTransition(VisualElement owner, StylePropertyId prop, int startValue, int endValue, int durationMs, int delayMs, Func<float, float> easingCurve)
+        {
+            return false;
+        }
+
+        public bool StartTransition(VisualElement owner, StylePropertyId prop, Length startValue, Length endValue, int durationMs, int delayMs, Func<float, float> easingCurve)
+        {
+            return false;
+        }
+
+        public bool StartTransition(VisualElement owner, StylePropertyId prop, Color startValue, Color endValue, int durationMs, int delayMs, Func<float, float> easingCurve)
+        {
+            return false;
+        }
+
+        public bool StartTransitionEnum(VisualElement owner, StylePropertyId prop, int startValue, int endValue, int durationMs, int delayMs, Func<float, float> easingCurve)
+        {
+            return false;
+        }
+
+        public bool StartTransition(VisualElement owner, StylePropertyId prop, EntityId startValue, EntityId endValue, int durationMs, int delayMs, Func<float, float> easingCurve)
+        {
+            return false;
+        }
+
+        public bool StartTransition(VisualElement owner, StylePropertyId prop, FontDefinition startValue, FontDefinition endValue, int durationMs, int delayMs, Func<float, float> easingCurve)
+        {
+            return false;
+        }
+
+        public bool StartTransition(VisualElement owner, StylePropertyId prop, Font startValue, Font endValue, int durationMs, int delayMs, Func<float, float> easingCurve)
+        {
+            return false;
+        }
+
+        public bool StartTransition(VisualElement owner, StylePropertyId prop, Cursor startValue, Cursor endValue, int durationMs, int delayMs, Func<float, float> easingCurve)
+        {
+            return false;
+        }
+
+        public bool StartTransition(VisualElement owner, StylePropertyId prop, TextShadow startValue, TextShadow endValue, int durationMs, int delayMs, Func<float, float> easingCurve)
+        {
+            return false;
+        }
+
+        public bool StartTransition(VisualElement owner, StylePropertyId prop, Scale startValue, Scale endValue, int durationMs, int delayMs, [NotNull] Func<float, float> easingCurve)
+        {
+            return false;
+        }
+
+        public bool StartTransition(VisualElement owner, StylePropertyId prop, TransformOrigin startValue, TransformOrigin endValue, int durationMs, int delayMs, [NotNull] Func<float, float> easingCurve)
+        {
+            return false;
+        }
+
+        public bool StartTransition(VisualElement owner, StylePropertyId prop, Translate startValue, Translate endValue, int durationMs, int delayMs, [NotNull] Func<float, float> easingCurve)
+        {
+            return false;
+        }
+
+        public bool StartTransition(VisualElement owner, StylePropertyId prop, Rotate startValue, Rotate endValue, int durationMs, int delayMs, [NotNull] Func<float, float> easingCurve)
+        {
+            return false;
+        }
+
+        public bool StartTransition(VisualElement owner, StylePropertyId prop, Ratio startValue, Ratio endValue, int durationMs, int delayMs, [NotNull] Func<float, float> easingCurve)
+        {
+            return false;
+        }
+
+        public bool StartTransition(VisualElement owner, StylePropertyId prop, BackgroundPosition startValue, BackgroundPosition endValue, int durationMs, int delayMs, [NotNull] Func<float, float> easingCurve)
+        {
+            return false;
+        }
+
+        public bool StartTransition(VisualElement owner, StylePropertyId prop, BackgroundRepeat startValue, BackgroundRepeat endValue, int durationMs, int delayMs, [NotNull] Func<float, float> easingCurve)
+        {
+            return false;
+        }
+
+        public bool StartTransition(VisualElement owner, StylePropertyId prop, BackgroundSize startValue, BackgroundSize endValue, int durationMs, int delayMs, [NotNull] Func<float, float> easingCurve)
+        {
+            return false;
+        }
+
+        public bool StartTransition(VisualElement owner, StylePropertyId prop, List<FilterFunction> startValue, List<FilterFunction> endValue, int durationMs, int delayMs, [NotNull] Func<float, float> easingCurve)
+        {
+            return false;
+        }
+
+        public bool StartTransition(VisualElement owner, StylePropertyId prop, MaterialDefinition startValue, MaterialDefinition endValue, int durationMs, int delayMs, [NotNull] Func<float, float> easingCurve)
+        {
+            return false;
+        }
+
+        public bool StartTransition(VisualElement owner, StylePropertyId prop, Background startValue, Background endValue, int durationMs, int delayMs, [NotNull] Func<float, float> easingCurve)
+        {
+            return false;
+        }
+
+        public void CancelAllAnimations()
+        {
+        }
+
+        public void CancelAllAnimations(VisualElement owner)
+        {
+        }
+
+        public void CancelAnimation(VisualElement owner, StylePropertyId id)
+        {
+        }
+
+        public bool HasRunningAnimation(VisualElement owner, StylePropertyId id)
+        {
+            return false;
+        }
+
+        public void UpdateAnimation(VisualElement owner, StylePropertyId id)
+        {
+        }
+
+        public void GetAllAnimations(VisualElement owner, List<StylePropertyId> propertyIds)
+        {
+        }
+
+        public void UpdateElementClipAnimation(VisualElement owner, double currentTime)
+        {
+        }
+
+        public void CancelElementClipAnimation(VisualElement owner)
+        {
+        }
+
+        public bool TryGetActiveClipForOwner(VisualElement owner, out UIAnimationClip clip, out UIAnimationBinder binder)
+        {
+            clip = null;
+            binder = null;
+            return false;
+        }
+
+        public void SetClipPreviewing(VisualElement owner, bool isPreviewing)
+        {
+        }
+
+        public void Update(double updateTimeInSeconds)
+        {
+        }
+    }
+}

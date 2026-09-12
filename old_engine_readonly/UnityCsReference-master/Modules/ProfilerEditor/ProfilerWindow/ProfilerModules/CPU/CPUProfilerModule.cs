@@ -1,0 +1,604 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+using System;
+using Unity.Profiling.Editor;
+using UnityEditor;
+using UnityEditor.Profiling;
+using Unity.Profiling;
+using UnityEngine;
+using UnityEngine.Profiling;
+using System.Collections.Generic;
+
+namespace UnityEditorInternal.Profiling
+{
+    [Serializable]
+    // TODO: refactor: rename to CpuProfilerModule
+    // together with CPUOrGPUProfilerModule and GpuProfilerModule
+    // in a PR that doesn't affect performance so that the sample names can be fixed as well without loosing comparability in Performance tests.
+    [ProfilerModuleMetadata("CPU Usage", typeof(LocalizationResource), IconPath = "Profiler.CPU")]
+    internal class CPUProfilerModule : CPUOrGPUProfilerModule
+    {
+        const string k_SettingsKeyPrefix = "Profiler.CPUProfilerModule.";
+        const int k_DefaultOrderIndex = 0;
+
+        // ProfilerWindow exposes this as a const value via ProfilerWindow.cpuModuleName, so we need to define it as const.
+        internal const string k_Identifier = "UnityEditorInternal.Profiling.CPUProfilerModule, UnityEditor.CoreModule, Version=0.0.0.0, Culture=neutral, PublicKeyToken=null";
+
+        static class Content
+        {
+            public static readonly GUIContent selectionHighlightLabelBaseText = EditorGUIUtility.TrTextContent("Selected: {0}", "Selected Sample Stack: {0}");
+            public static readonly GUIContent selectionHighlightNonMainThreadLabelBaseText = EditorGUIUtility.TrTextContent("Selected: {0} (Thread: {1})", "Selected Sample Stack: {0} (Thread: {1})");
+            public static readonly string gpuModulePerformanceWarning = L10n.Tr("The GPU Module is currently enabled, thus disabling graphics jobs. This greatly reduces the accuracy of the CPU Module and increases the load on main and render thread.\n\n" +
+                "Close the GPU module to access accurate data about your application's CPU performance. ", null);
+        }
+
+        GUIContent selectionHighlightLabel = new GUIContent();
+
+        [SerializeField]
+        ProfilerTimelineGUI m_TimelineGUI;
+
+        internal override ProfilerArea area => ProfilerArea.CPU;
+        public override bool usesCounters => false;
+
+        private protected override int defaultOrderIndex => k_DefaultOrderIndex;
+        private protected override string legacyPreferenceKey => "ProfilerChartCPU";
+        protected override string SettingsKeyPrefix => k_SettingsKeyPrefix;
+        protected override ProfilerViewType DefaultViewTypeSetting => ProfilerViewType.Timeline;
+
+        internal const string mainThreadName = "Main Thread";
+        internal const string mainThreadGroupName = "";
+        internal const string renderThreadName = "Render Thread";
+        internal const string renderThreadGroupName = "";
+        internal const string loadingThreadNamePrefix = "Loading";
+        internal const string jobThreadNamePrefix = "Job";
+        internal const string scriptingThreadNamePrefix = "Scripting Thread";
+
+        static readonly ProfilerCounterData[] k_LegacyAreaCounterNames =
+        {
+            new()
+            {
+                m_Name = "Rendering",
+                m_Category = ProfilerCategory.Scripts.Name,
+            },
+            new()
+            {
+                m_Name = "Scripts",
+                m_Category = ProfilerCategory.Scripts.Name,
+            },
+            new()
+            {
+                m_Name = "Physics",
+                m_Category = ProfilerCategory.Scripts.Name,
+            },
+            new()
+            {
+                m_Name = "Animation",
+                m_Category = ProfilerCategory.Scripts.Name,
+            },
+            new()
+            {
+                m_Name = "GarbageCollector",
+                m_Category = ProfilerCategory.Scripts.Name,
+            },
+            new()
+            {
+                m_Name = "VSync",
+                m_Category = ProfilerCategory.Scripts.Name,
+            },
+            new()
+            {
+                m_Name = "Global Illumination",
+                m_Category = ProfilerCategory.Scripts.Name,
+            },
+            new()
+            {
+                m_Name = "UI",
+                m_Description = string.Format(ChartModelBuilder.k_LocalizedTooltipFormat, "UI") + L10n.Tr(" Includes UI systems such as UI Toolkit and Canvas (if applicable).", null),
+                m_Category = ProfilerCategory.Scripts.Name,
+            },
+            new()
+            {
+                m_Name = "Others",
+                m_Category = ProfilerCategory.Scripts.Name,
+            },
+        };
+
+        [NonSerialized]
+        string m_LastThreadName = "";
+
+        protected override List<ProfilerCounterData> CollectDefaultChartCounters()
+        {
+            return new List<ProfilerCounterData>(k_LegacyAreaCounterNames);
+        }
+
+        internal override void OnEnable()
+        {
+            base.OnEnable();
+
+            m_TimelineGUI = new ProfilerTimelineGUI();
+            m_TimelineGUI.OnEnable(this, ProfilerWindow, false);
+            // safety guarding against event registration leaks due to an imbalance of OnEnable/OnDisable Calls, by deregistering first
+            m_TimelineGUI.viewTypeChanged -= CPUViewTypeChanged;
+            m_TimelineGUI.viewTypeChanged += CPUViewTypeChanged;
+            m_TimelineGUI.selectionChanged -= SetSelectionWithoutIntegrityChecksOnSelectionChangeInDetailedView;
+            m_TimelineGUI.selectionChanged += SetSelectionWithoutIntegrityChecksOnSelectionChangeInDetailedView;
+
+            FrameDataHierarchyView.viewTypeChanged -= CPUViewTypeChanged;
+            FrameDataHierarchyView.viewTypeChanged += CPUViewTypeChanged;
+
+            TryRestoringSelection();
+            UpdateSelectionHighlightLabel();
+        }
+
+        internal override void OnDisable()
+        {
+            base.OnDisable();
+            if (m_TimelineGUI != null)
+            {
+                m_TimelineGUI.viewTypeChanged -= CPUViewTypeChanged;
+                FrameDataHierarchyView.viewTypeChanged -= CPUViewTypeChanged;
+                m_TimelineGUI.selectionChanged -= SetSelectionWithoutIntegrityChecksOnSelectionChangeInDetailedView;
+            }
+        }
+
+        HybridLegacyDetailsViewController m_DetailsViewController = null;
+
+        public override ProfilerModuleViewController CreateDetailsViewController()
+        {
+            m_DetailsViewController = new HybridLegacyDetailsViewController(ProfilerWindow, this, m_ViewType);
+            return m_DetailsViewController;
+        }
+
+        protected void CPUViewTypeChanged(ProfilerViewType newViewType)
+        {
+            m_DetailsViewController.SetViewType(newViewType);
+
+            base.CPUOrGPUViewTypeChanged(newViewType);
+        }
+
+
+        internal override void Clear()
+        {
+            base.Clear();
+            m_TimelineGUI?.Clear();
+        }
+
+        internal override void Update()
+        {
+            // Disable chart overlay for inverted mode as it is not supported.
+            var hasCPUOverlay = false;
+            if (m_ViewType != ProfilerViewType.InvertedHierarchy)
+            {
+                var selectedName = ProfilerDriver.selectedPropertyPath;
+                var selectedModule = ProfilerWindow.selectedModule;
+                hasCPUOverlay = selectedName != string.Empty && Equals(selectedModule);
+            }
+            ChartModelBuilder.HasOverlay = hasCPUOverlay;
+
+            base.Update();
+
+            // Update warning message based on GPU module state
+            string currentMessage = ChartModelBuilder.Model.WarningMsg;
+            var gpuModule = ProfilerWindow.GetProfilerModuleByType<GPUProfilerModule>();
+            if (gpuModule.active)
+            {
+                ChartViewController.SetWarningIconVisible(true, Content.gpuModulePerformanceWarning);
+            }
+            else
+            {
+                ChartViewController.SetWarningIconVisible(false, null);
+            }
+
+            // Update selected marker overlay
+            UpdateSelectedMarkerOverlay();
+        }
+
+        public override void DrawToolbar(Rect position)
+        {
+            if (m_ViewType == ProfilerViewType.TimelineV2)
+            {
+                using (var iter = fetchData ? new ProfilerFrameDataIterator() : null)
+                {
+                    int threadCount = fetchData ? iter.GetThreadCount(CurrentFrameIndex) : 0;
+                    iter?.SetRoot(CurrentFrameIndex, 0);
+
+                    EditorGUILayout.BeginHorizontal(EditorStyles.toolbar);
+
+                    m_TimelineGUI.DrawToolbar(iter, ref updateViewLive, ProfilerViewType.TimelineV2);
+
+                    EditorGUILayout.EndHorizontal();
+                }
+            }
+        }
+
+        public override void DrawDetailsView(Rect position)
+        {
+            if (m_TimelineGUI != null && m_ViewType == ProfilerViewType.Timeline)
+            {
+                CurrentFrameIndex = (int)ProfilerWindow.selectedFrameIndex;
+                m_TimelineGUI.DoGUI(CurrentFrameIndex, position, fetchData, ref updateViewLive);
+            }
+            else if (m_ViewType != ProfilerViewType.TimelineV2)
+            {
+                base.DrawDetailsView(position);
+            }
+        }
+
+        internal override void Rebuild()
+        {
+            base.Rebuild();
+            m_TimelineGUI.ReInitialize();
+        }
+
+        protected override HierarchyFrameDataView.ViewModes GetFilteringMode()
+        {
+            return (((int)ViewOptions & (int)ProfilerViewFilteringOptions.CollapseEditorBoundarySamples) != 0) ? HierarchyFrameDataView.ViewModes.HideEditorOnlySamples : HierarchyFrameDataView.ViewModes.Default;
+        }
+
+        internal override void SetOption(ProfilerViewFilteringOptions option, bool on)
+        {
+            base.SetOption(option, on);
+            m_TimelineGUI?.ReInitialize();
+        }
+
+        protected override void ToggleOption(ProfilerViewFilteringOptions option)
+        {
+            base.ToggleOption(option);
+            m_TimelineGUI?.ReInitialize();
+        }
+
+        // Used for testing
+        internal override void GetSelectedSampleIdsForCurrentFrameAndView(ref List<int> ids)
+        {
+            if (ViewType == ProfilerViewType.Timeline)
+            {
+                ids.Clear();
+                if (selection != null)
+                {
+                    m_TimelineGUI.GetSelectedSampleIdsForCurrentFrameAndView(ref ids);
+                }
+            }
+            else
+            {
+                base.GetSelectedSampleIdsForCurrentFrameAndView(ref ids);
+            }
+        }
+
+        protected override void FrameThread(int threadIndex)
+        {
+            base.FrameThread(threadIndex);
+            if (ViewType == ProfilerViewType.Timeline)
+            {
+                m_TimelineGUI.FrameThread(threadIndex);
+            }
+        }
+
+        protected override void ApplySelection(bool viewChanged, bool frameSelection)
+        {
+            if (ViewType == ProfilerViewType.Timeline)
+            {
+                if (selection != null)
+                {
+                    using (k_ApplyValidSelectionMarker.Auto())
+                    {
+                        var threadIndex = GetThreadIndexInCurrentFrameToApplySelectionFromAnotherFrame(selection);
+                        m_TimelineGUI.SetSelection(selection, threadIndex, frameSelection);
+                    }
+                }
+                else
+                {
+                    using (k_ApplySelectionClearMarker.Auto())
+                    {
+                        m_TimelineGUI.ClearSelection();
+                    }
+                }
+            }
+            else
+            {
+                base.ApplySelection(viewChanged, frameSelection);
+            }
+        }
+
+        static readonly ProfilerMarker k_SetSelectedPropertyPathMarker = new ProfilerMarker($"{nameof(CPUProfilerModule)}.{nameof(SetSelectedPropertyPath)} Apply Selection");
+        static readonly ProfilerMarker k_SetSelectedPropertyPathUpdateChartsMarker = new ProfilerMarker($"{nameof(CPUProfilerModule)}.{nameof(SetSelectedPropertyPath)} Update Charts");
+        static readonly ProfilerMarker k_ClearSelectedPropertyPathMarker = new ProfilerMarker($"{nameof(CPUProfilerModule)}.{nameof(ClearSelectedPropertyPath)} Apply Clear");
+        static readonly ProfilerMarker k_ClearSelectedPropertyPathUpdateChartsMarker = new ProfilerMarker($"{nameof(CPUProfilerModule)}.{nameof(ClearSelectedPropertyPath)} Update Charts");
+
+        protected override void SetSelectedPropertyPath(string path, string threadName)
+        {
+            if (ProfilerDriver.selectedPropertyPath != path)
+            {
+                using (k_SetSelectedPropertyPathMarker.Auto())
+                {
+                    ProfilerDriver.selectedPropertyPath = path;
+                }
+                using (k_SetSelectedPropertyPathUpdateChartsMarker.Auto())
+                {
+                    Update();
+                    UpdateSelectionHighlightLabel();
+                    m_LastThreadName = threadName;
+                }
+            }
+            else if (threadName != m_LastThreadName)
+            {
+                m_LastThreadName = threadName;
+                UpdateSelectionHighlightLabel();
+            }
+        }
+
+        protected override void ClearSelectedPropertyPath()
+        {
+            if (ProfilerDriver.selectedPropertyPath != string.Empty)
+            {
+                using (k_ClearSelectedPropertyPathMarker.Auto())
+                {
+                    ProfilerDriver.selectedPropertyPath = string.Empty;
+                }
+                using (k_ClearSelectedPropertyPathUpdateChartsMarker.Auto())
+                {
+                    Update();
+                    UpdateSelectionHighlightLabel();
+                    m_LastThreadName = string.Empty;
+                }
+            }
+            else if (string.Empty != m_LastThreadName)
+            {
+                m_LastThreadName = string.Empty;
+                UpdateSelectionHighlightLabel();
+            }
+        }
+
+        void UpdateSelectionHighlightLabel()
+        {
+            if (selection != null)
+            {
+                // TODO: Callstack tooltips are currently disabled - see SelectedMarkerOverlayWidget.cs
+                /*
+                System.Text.StringBuilder sampleStack = new System.Text.StringBuilder();
+                if (selection.markerPathDepth > 0)
+                {
+                    var markerNamePath = selection.markerNamePath;
+                    for (int i = selection.markerPathDepth - 1; i >= 0; i--)
+                    {
+                        sampleStack.AppendFormat("\n{0}", markerNamePath[i]);
+                    }
+                }*/
+                if (selection.threadName == k_MainThreadName)
+                {
+                    selectionHighlightLabel = new GUIContent(
+                        string.Format(Content.selectionHighlightLabelBaseText.text, selection.sampleDisplayName),
+                        ""); //string.Format(Content.selectionHighlightLabelBaseText.tooltip, sampleStack));
+                }
+                else
+                {
+                    selectionHighlightLabel = new GUIContent(
+                        string.Format(Content.selectionHighlightNonMainThreadLabelBaseText.text, selection.sampleDisplayName, selection.threadName),
+                        ""); //string.Format(Content.selectionHighlightNonMainThreadLabelBaseText.tooltip, sampleStack, selection.threadName));
+                }
+            }
+            else
+                selectionHighlightLabel = GUIContent.none;
+
+            // Update immediately, else the repaint will miss
+            UpdateSelectedMarkerOverlay();
+        }
+
+        void UpdateSelectedMarkerOverlay()
+        {
+            // InvertedHierarchy currently doesn't support selecting specific markers
+            if (m_ViewType != ProfilerViewType.InvertedHierarchy && selection != null && selectionHighlightLabel != null)
+            {
+                ChartViewController?.SetSelectedMarkerOverlay(selectionHighlightLabel.text, selectionHighlightLabel.tooltip);
+            }
+            else
+            {
+                ChartViewController?.ClearSelectedMarkerOverlay();
+            }
+        }
+
+        protected override int FindMarkerPathAndRawSampleIndexToFirstMatchingSampleInCurrentView(int frameIndex, int threadIndex, string sampleName, out List<int> markerIdPath, string markerNamePath = null)
+        {
+            if (ViewType == ProfilerViewType.Timeline)
+            {
+                markerIdPath = new List<int>();
+                return FindMarkerPathAndRawSampleIndexToFirstMatchingSampleInCurrentView(frameIndex, threadIndex, ref sampleName, ref markerIdPath, markerNamePath, FrameDataView.invalidMarkerId);
+            }
+            return base.FindMarkerPathAndRawSampleIndexToFirstMatchingSampleInCurrentView(frameIndex, threadIndex, sampleName, out markerIdPath, markerNamePath);
+        }
+
+        protected override int FindMarkerPathAndRawSampleIndexToFirstMatchingSampleInCurrentView(int frameIndex, int threadIndex, ref string sampleName, ref List<int> markerIdPath, int sampleMarkerId)
+        {
+            if (ViewType == ProfilerViewType.Timeline)
+            {
+                Debug.Assert(sampleMarkerId != FrameDataView.invalidMarkerId);
+                return FindMarkerPathAndRawSampleIndexToFirstMatchingSampleInCurrentView(frameIndex, threadIndex, ref sampleName, ref markerIdPath, null, sampleMarkerId);
+            }
+            return base.FindMarkerPathAndRawSampleIndexToFirstMatchingSampleInCurrentView(frameIndex, threadIndex, ref sampleName, ref markerIdPath, sampleMarkerId);
+        }
+
+        int FindMarkerPathAndRawSampleIndexToFirstMatchingSampleInCurrentView(int frameIndex, int threadIndex, ref string sampleName, ref List<int> markerIdPath, string markerNamePath = null, int sampleMarkerId = FrameDataView.invalidMarkerId)
+        {
+            using (var frameData = new RawFrameDataView(frameIndex, threadIndex))
+            {
+                List<int> tempMarkerIdPath = null;
+                if (markerIdPath != null && markerIdPath.Count > 0)
+                    tempMarkerIdPath = markerIdPath;
+
+                var foundSampleIndex = RawFrameDataView.invalidSampleIndex;
+                var sampleIndexPath = new List<int>();
+
+                if (sampleMarkerId == FrameDataView.invalidMarkerId)
+                    sampleMarkerId = frameData.GetMarkerId(sampleName);
+
+                int pathLength = 0;
+                string lastSampleInPath = null;
+                Func<int, int, RawFrameDataView, bool> sampleIdFitsMarkerPathIndex = null;
+
+                if (tempMarkerIdPath != null && tempMarkerIdPath.Count > 0)
+                {
+                    pathLength = tempMarkerIdPath.Count;
+                }
+                else if (!string.IsNullOrEmpty(markerNamePath))
+                {
+                    var path = markerNamePath.Split('/');
+                    if (path != null && path.Length > 0)
+                    {
+                        pathLength = path.Length;
+                        using (var iterator = new RawFrameDataView(frameIndex, threadIndex))
+                        {
+                            tempMarkerIdPath = new List<int>(pathLength);
+                            for (int i = 0; i < pathLength; i++)
+                            {
+                                tempMarkerIdPath.Add(iterator.GetMarkerId(path[i]));
+                            }
+                        }
+                        sampleIdFitsMarkerPathIndex = (sampleIndex, markerPathIndex, iterator) =>
+                        {
+                            return tempMarkerIdPath[markerPathIndex] == FrameDataView.invalidMarkerId && GetItemName(iterator, sampleIndex) == path[markerPathIndex];
+                        };
+                    }
+                }
+
+                if (pathLength > 0)
+                {
+                    var enclosingScopeSampleIndex = RawFrameDataView.invalidSampleIndex;
+                    if (sampleIndexPath.Capacity < pathLength)
+                        sampleIndexPath.Capacity = pathLength + 1; // +1 for the presumably often case of the searched sample being part of the path or in the last scope of it
+
+                    enclosingScopeSampleIndex = ProfilerTimelineGUI.FindNextSampleThroughMarkerPath(
+                        frameData, this, tempMarkerIdPath, pathLength, ref lastSampleInPath, ref sampleIndexPath,
+                        sampleIdFitsMarkerPathIndex: sampleIdFitsMarkerPathIndex);
+
+                    if (enclosingScopeSampleIndex == RawFrameDataView.invalidSampleIndex)
+                    {
+                        //enclosing scope not found
+                        return RawFrameDataView.invalidSampleIndex;
+                    }
+                    foundSampleIndex = FindFirstMatchingRawSampleIndexInScopeRecursively(frameData, ref sampleIndexPath, sampleName, sampleMarkerId);
+                    while (foundSampleIndex == RawFrameDataView.invalidSampleIndex && enclosingScopeSampleIndex != RawFrameDataView.invalidSampleIndex)
+                    {
+                        // sample wasn't found in the current scope, find the next scope ...
+                        enclosingScopeSampleIndex = ProfilerTimelineGUI.FindNextSampleThroughMarkerPath(
+                            frameData, this, tempMarkerIdPath, pathLength, ref lastSampleInPath, ref sampleIndexPath,
+                            sampleIdFitsMarkerPathIndex: sampleIdFitsMarkerPathIndex);
+
+                        if (enclosingScopeSampleIndex == RawFrameDataView.invalidSampleIndex)
+                            return RawFrameDataView.invalidSampleIndex;
+                        // ... and search there
+                        foundSampleIndex = FindFirstMatchingRawSampleIndexInScopeRecursively(frameData, ref sampleIndexPath, sampleName, sampleMarkerId);
+                    }
+                }
+                else
+                {
+                    if (sampleMarkerId == FrameDataView.invalidMarkerId)
+                        foundSampleIndex = FindFirstMatchingRawSampleIndexInScopeRecursively(frameData, ref sampleIndexPath, sampleName);
+                    else
+                        foundSampleIndex = FindFirstMatchingRawSampleIndexInScopeRecursively(frameData, ref sampleIndexPath, null, sampleMarkerId);
+                }
+
+                if (foundSampleIndex != RawFrameDataView.invalidSampleIndex)
+                {
+                    if (string.IsNullOrEmpty(sampleName))
+                        sampleName = GetItemName(frameData, foundSampleIndex);
+                    if (markerIdPath == null)
+                        markerIdPath = new List<int>(sampleIndexPath.Count);
+                    // populate marker id path with missing markers
+                    for (int i = markerIdPath.Count; i < sampleIndexPath.Count; i++)
+                    {
+                        markerIdPath.Add(frameData.GetSampleMarkerId(sampleIndexPath[i]));
+                    }
+                }
+                return foundSampleIndex;
+            }
+        }
+
+        struct RawSampleIterationInfo { public int sampleIndex;  public int lastSampleIndexInScope; }
+
+        int FindFirstMatchingRawSampleIndexInScopeRecursively(RawFrameDataView frameData, ref List<int> sampleIndexPath, string sampleName, int sampleMarkerId = FrameDataView.invalidMarkerId)
+        {
+            if (sampleMarkerId == FrameDataView.invalidMarkerId)
+                sampleMarkerId = frameData.GetMarkerId(sampleName);
+            var firstIndex = sampleIndexPath != null && sampleIndexPath.Count > 0 ? sampleIndexPath[sampleIndexPath.Count - 1] : 0;
+            var lastSampleInSearchScope = firstIndex == 0 ? frameData.sampleCount - 1 : firstIndex + frameData.GetSampleChildrenCountRecursive(firstIndex);
+
+            // Check if the enclosing scope matches the searched sample
+            if (sampleIndexPath != null && sampleIndexPath.Count > 0 && (sampleMarkerId == FrameDataView.invalidMarkerId && GetItemName(frameData, firstIndex) == sampleName || frameData.GetSampleMarkerId(firstIndex) == sampleMarkerId))
+            {
+                return firstIndex;
+            }
+
+            var samplePathAndLastSampleInScope = new List<RawSampleIterationInfo>() {};
+            for (int i = firstIndex; i <= lastSampleInSearchScope; i++)
+            {
+                samplePathAndLastSampleInScope.Add(new RawSampleIterationInfo { sampleIndex = i, lastSampleIndexInScope = i + frameData.GetSampleChildrenCountRecursive(i) });
+                if (sampleMarkerId == FrameDataView.invalidMarkerId && (sampleName != null && GetItemName(frameData, i) == sampleName) || frameData.GetSampleMarkerId(i) == sampleMarkerId)
+                {
+                    // ignore the first sample if it's the enclosing sample (which is already in the list)
+                    for (int j = sampleIndexPath.Count > 0 ? 1 : 0; j < samplePathAndLastSampleInScope.Count; j++)
+                    {
+                        // ignore the first sample if it's either the thread root sample.
+                        // we can't always assume that there is a thread root sample, as the data may be mal formed, but we need to check if this is one by checking the name
+                        if (j == 0 && frameData.GetSampleName(samplePathAndLastSampleInScope[j].sampleIndex) == frameData.threadName)
+                            continue;
+                        sampleIndexPath.Add(samplePathAndLastSampleInScope[j].sampleIndex);
+                    }
+                    return i;
+                }
+                while (samplePathAndLastSampleInScope.Count > 0 && i + 1 > samplePathAndLastSampleInScope[samplePathAndLastSampleInScope.Count - 1].lastSampleIndexInScope)
+                {
+                    samplePathAndLastSampleInScope.RemoveAt(samplePathAndLastSampleInScope.Count - 1);
+                }
+            }
+            return RawFrameDataView.invalidSampleIndex;
+        }
+
+        internal override ChartModelBuilder CreateChartModelBuilder()
+        {
+            var builder = base.CreateChartModelBuilder();
+            builder.Model.WarningMsg = Content.gpuModulePerformanceWarning;
+            return builder;
+        }
+
+        internal override ChartViewController CreateChartViewController()
+        {
+            var chartView = base.CreateChartViewController();
+            chartView.SeriesEnabledStateChanged = OnChartSeriesToggled;
+            return chartView;
+        }
+
+        private protected override void ApplyActiveState()
+        {
+            // Opening/closing CPU chart should not set the CPU area as that would set Profiler.enabled.
+            Update();
+            ChartViewController.SetActiveState(active);
+        }
+
+        void OnChartSeriesToggled(bool wasToggled)
+        {
+            if (wasToggled)
+            {
+                int firstEmptyFrame = firstFrameIndexWithHistoryOffset;
+                int firstFrame = Mathf.Max(ProfilerDriver.firstFrameIndex, firstEmptyFrame);
+                int frameCount = ProfilerUserSettings.frameCount;
+                ChartModelBuilder.ComputeChartScaleValue(firstEmptyFrame, firstFrame, frameCount);
+            }
+        }
+ 
+        public override float GetZeroSampleThresholdMs()
+        {
+            return 0.01f; // < 0.01ms displays as 0.00ms
+        }
+
+        public override int GetZeroSampleTimeColumn()
+        {
+            return HierarchyFrameDataView.columnTotalTime;
+        }
+
+        public override int GetGCAllocColumn()
+        {
+            return HierarchyFrameDataView.columnGcMemory;
+        }
+    }
+}

@@ -1,0 +1,117 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+using System;
+using UnityEngine.Bindings;
+using UnityEngine.Scripting;
+using System.Runtime.InteropServices;
+
+namespace UnityEditor.VersionControl
+{
+    [NativeHeader("Editor/Src/VersionControl/VCConfigField.h")]
+    [NativeHeader("Editor/Src/VersionControl/VC_bindings.h")]
+    [UsedByNativeCode]
+    [StructLayout(LayoutKind.Sequential)]
+    public class ConfigField
+    {
+        // The bindings generator will set the instance pointer in this field
+        IntPtr m_Self;
+
+        internal ConfigField() {}
+
+#pragma warning disable UA5000 // The Avoid Finalizer Analyzer produces compile errors for any new finalizers. This pre-existing finalizer declaration has been suppressed, but should be rewritten if possible.
+        ~ConfigField()
+        {
+            Dispose();
+        }
+#pragma warning restore UA5000
+
+        public void Dispose()
+        {
+            Destroy(m_Self);
+            m_Self = IntPtr.Zero;
+        }
+
+        [FreeFunction("VersionControlBindings::ConfigField::Destroy", IsThreadSafe = true)]
+        static extern void Destroy(IntPtr configField);
+
+        public extern string name { get; }
+        public extern string label { get; }
+        public extern string description { get; }
+
+        public extern bool isRequired
+        {
+            [NativeMethod("IsRequired")]
+            get;
+        }
+
+        public extern bool isPassword
+        {
+            [NativeMethod("IsPassword")]
+            get;
+        }
+
+        internal static class BindingsMarshaller
+        {
+            public static IntPtr ConvertToNative(ConfigField configField) => configField.m_Self;
+            public static ConfigField ConvertToManaged(IntPtr ptr) => new ConfigField { m_Self = ptr };
+        }
+    }
+
+    [NativeHeader("Editor/Src/VersionControl/VCPlugin.h")]
+    [UsedByNativeCode]
+    [StructLayout(LayoutKind.Sequential)]
+    public class Plugin
+    {
+        // The bindings generator will set the instance pointer in this field
+        IntPtr m_Self;
+
+        private Plugin(IntPtr self)
+        {
+            m_Self = self;
+        }
+
+        internal Plugin() {}
+
+#pragma warning disable UA5000 // The Avoid Finalizer Analyzer produces compile errors for any new finalizers. This pre-existing finalizer declaration has been suppressed, but should be rewritten if possible.
+        ~Plugin()
+        {
+            Dispose();
+        }
+#pragma warning restore UA5000
+
+        public void Dispose()
+        {
+            Destroy(m_Self);
+            m_Self = IntPtr.Zero;
+        }
+
+        [FreeFunction("VersionControlBindings::Plugin::Destroy", IsThreadSafe = true)]
+        static extern void Destroy(IntPtr plugin);
+
+        static public extern Plugin[] availablePlugins
+        {
+            [FreeFunction("VersionControlBindings::Plugin::GetAvailablePlugins")]
+            get;
+        }
+
+        public extern string name { get; }
+        public ConfigField[] configFields
+        {
+            get
+            {
+                return GetConfigFields(m_Self);
+            }
+        }
+
+        [FreeFunction("VersionControlBindings::Plugin::GetConfigFields")]
+        static extern ConfigField[] GetConfigFields(IntPtr plugin);
+
+        internal static class BindingsMarshaller
+        {
+            public static IntPtr ConvertToNative(Plugin plugin) => plugin.m_Self;
+            public static Plugin ConvertToManaged(IntPtr ptr) => new Plugin(ptr);
+        }
+    }
+}

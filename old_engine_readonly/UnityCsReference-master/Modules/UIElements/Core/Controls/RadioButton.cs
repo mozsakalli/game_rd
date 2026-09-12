@@ -1,0 +1,193 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+#pragma warning disable UAL0015,UAL0018,UAL0019,UAL0020,UAL0021 // AutoStaticsCleanup usage analysis: UIToolkitFramework not yet converted
+using System;
+using System.Diagnostics;
+
+namespace UnityEngine.UIElements
+{
+    /// <summary>
+    /// A control that allows users to select a single option inside a <see cref="RadioButtonGroup"/>. For more information, refer to [[wiki:UIE-uxml-element-RadioButton|UXML element RadioButton]].
+    /// </summary>
+    [UxmlElement(libraryPath = "Controls")]
+    [Icon("UIToolkit/Icons/RadioButton.png")]
+    public partial class RadioButton : BaseBoolField, IGroupBoxOption
+    {
+        /// <summary>
+        /// USS class name for RadioButton elements.
+        /// </summary>
+        /// <remarks>
+        /// Unity adds this USS class to every instance of the RadioButton element. Any styling applied to
+        /// this class affects every RadioButton located beside, or below the stylesheet in the visual tree.
+        /// </remarks>
+        public new static readonly string ussClassName = "unity-radio-button";
+        internal new static readonly UniqueStyleString ussClassNameUnique = new(ussClassName);
+
+        /// <summary>
+        /// USS class name for Labels in RadioButton elements.
+        /// </summary>
+        /// <remarks>
+        /// Unity adds this USS class to the <see cref="Label"/> sub-element of the <see cref="RadioButton"/> if the RadioButton has a Label.
+        /// </remarks>
+        public new static readonly string labelUssClassName = ussClassName + "__label";
+        internal new static readonly UniqueStyleString labelUssClassNameUnique= new(labelUssClassName);
+
+        /// <summary>
+        /// USS class name of input elements in RadioButton elements.
+        /// </summary>
+        /// <remarks>
+        /// Unity adds this USS class to the input sub-element of the <see cref="RadioButton"/>. The input sub-element provides
+        /// responses to the manipulator.
+        /// </remarks>
+        public new static readonly string inputUssClassName = ussClassName + "__input";
+        internal new static readonly UniqueStyleString inputUssClassNameUnique = new(inputUssClassName);
+
+        /// <summary>
+        /// USS class name of checkmark background in RadioButton elements.
+        /// </summary>
+        /// <remarks>
+        /// Unity adds this USS class to the checkmark background sub-element of the <see cref="RadioButton"/>.
+        /// </remarks>
+        public static readonly string checkmarkBackgroundUssClassName = ussClassName + "__checkmark-background";
+        internal static readonly UniqueStyleString checkmarkBackgroundUssClassNameUnique = new(checkmarkBackgroundUssClassName);
+
+        /// <summary>
+        /// USS class name of checkmark in RadioButton elements.
+        /// </summary>
+        /// <remarks>
+        /// Unity adds this USS class to the checkmark sub-element of the <see cref="RadioButton"/>.
+        /// </remarks>
+        public static readonly string checkmarkUssClassName = ussClassName + "__checkmark";
+        internal static readonly UniqueStyleString checkmarkUssClassNameUnique = new(checkmarkUssClassName);
+
+        /// <summary>
+        /// USS class name of Text elements in RadioButton elements.
+        /// </summary>
+        /// <remarks>
+        /// Unity adds this USS class to Text sub-elements of the <see cref="RadioButton"/>.
+        /// </remarks>
+        public static readonly string textUssClassName = ussClassName + "__text";
+        internal static readonly UniqueStyleString textUssClassNameUnique = new(textUssClassName);
+
+        VisualElement m_CheckmarkBackground;
+
+        public override bool value
+        {
+            get => base.value;
+            set
+            {
+                if (base.value != value)
+                {
+                    base.value = value;
+                    UpdateCheckmark();
+
+                    if (value)
+                    {
+                        this.OnOptionSelected();
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Creates a <see cref="RadioButton"/> with no label.
+        /// </summary>
+        public RadioButton()
+            : this(null) {}
+
+        /// <summary>
+        /// Creates a <see cref="RadioButton"/> with a Label and a default manipulator.
+        /// </summary>
+        /// <remarks>
+        /// The default manipulator makes it possible to activate the RadioButton with a left mouse click.
+        /// </remarks>
+        /// <param name="label">The Label text.</param>
+        public RadioButton(string label)
+            : base(label)
+        {
+            AddToClassList(ussClassNameUnique);
+
+            visualInput.AddToClassList(inputUssClassNameUnique);
+            labelElement.AddToClassList(labelUssClassNameUnique);
+
+            // Reorder checkmark hierarchy to add a background.
+            m_CheckMark.RemoveFromHierarchy();
+            m_CheckmarkBackground = new VisualElement() { pickingMode = PickingMode.Ignore };
+            m_CheckmarkBackground.Add(m_CheckMark);
+            m_CheckmarkBackground.AddToClassList(checkmarkBackgroundUssClassNameUnique);
+            m_CheckMark.AddToClassList(checkmarkUssClassNameUnique);
+            visualInput.Add(m_CheckmarkBackground);
+            UpdateCheckmark();
+
+            RegisterCallback<AttachToPanelEvent>(OnOptionAttachToPanel);
+            RegisterCallback<DetachFromPanelEvent>(OnOptionDetachFromPanel);
+        }
+
+        void OnOptionAttachToPanel(AttachToPanelEvent evt)
+        {
+            this.RegisterGroupBoxOption();
+        }
+
+        void OnOptionDetachFromPanel(DetachFromPanelEvent evt)
+        {
+            this.UnregisterGroupBoxOption();
+        }
+
+        protected override void InitLabel()
+        {
+            base.InitLabel();
+            m_Label.AddToClassList(textUssClassNameUnique);
+        }
+
+        protected override void ToggleValue()
+        {
+            // Radio button active value does not toggle off once checked.
+            if (!value)
+            {
+                value = true;
+            }
+        }
+
+        /// <undoc/>
+        [Obsolete("[UI Toolkit] Please set the value property instead.", false)]
+        public void SetSelected(bool selected)
+        {
+            ((IGroupBoxOption)this).SetSelected(selected);
+        }
+
+        void IGroupBoxOption.SetSelected(bool selected)
+        {
+            // We're using value here and not SetValueWithoutNotify, to allow users to receive events when this gets
+            // changed from other options. Checks in the setter and the group manager will prevent infinite loops.
+            value = selected;
+        }
+
+        public override void SetValueWithoutNotify(bool newValue)
+        {
+            base.SetValueWithoutNotify(newValue);
+            UpdateCheckmark();
+        }
+
+        void UpdateCheckmark()
+        {
+            m_CheckMark.style.display = value ? DisplayStyle.Flex : DisplayStyle.None;
+        }
+
+        protected override void UpdateMixedValueContent()
+        {
+            base.UpdateMixedValueContent();
+            if (showMixedValue)
+            {
+                m_CheckmarkBackground.RemoveFromHierarchy();
+            }
+            else
+            {
+                m_CheckmarkBackground.Add(m_CheckMark);
+                visualInput.Add(m_CheckmarkBackground);
+            }
+        }
+    }
+}
+#pragma warning restore UAL0015,UAL0018,UAL0019,UAL0020,UAL0021

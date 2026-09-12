@@ -1,0 +1,237 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+#pragma warning disable UAL0015,UAL0018,UAL0019,UAL0020,UAL0021 // AutoStaticsCleanup usage analysis: HeadlessRuntime not yet converted
+using System;
+using System.Collections.Generic;
+using System.IO;
+using Unity.PlayMode.Editor;
+using UnityEditor;
+using UnityEditor.Build.Profile;
+using UnityEditor.Multiplayer.Internal;
+using UnityEditor.UIElements;
+using UnityEngine;
+using UnityEngine.UIElements;
+
+namespace Unity.Multiplayer.PlayMode.Editor;
+
+internal class LocalPlayerInstanceStatusElement : VisualElement
+{
+    internal const string k_InstanceViewClass = "instance-view";
+    internal const string k_InstanceIconName = "instance-icon";
+    internal const string k_InstanceRoleTagsContentName = "instance-role-tags-content";
+    internal const string k_InstanceContainerName = "instance-container";
+    internal const string k_StatusContainerName = "status-container";
+    internal const string k_LogInfoIcon = "LogInfoIcon";
+    internal const string k_LogWarningIcon = "LogWarningIcon";
+    internal const string k_LogErrorIcon = "LogErrorIcon";
+    internal const string k_WarnIcon = "WarnIcon";
+
+    private Label m_ConnectedLabel;
+    private FreeRunningStatusElement m_FreeRunningElement;
+    private ReuseBuildElement m_ReuseBuildElement;
+
+    internal Label LogInfoText;
+    internal Label LogWarningText;
+    internal Label LogErrorText;
+    internal TextField IpAddress;
+    internal TextField Port;
+    internal Button IpCopyButton;
+    internal Button PortCopyButton;
+    internal UnityPlayer Player;
+    internal TextField RunDevice;
+    internal Label RunDeviceName;
+
+    private Instance m_Instance;
+
+    internal LocalPlayerInstanceStatusElement(Instance instance, LocalPlayerController.InstanceSettings settings, LocalPlayerController.UserSettings userSettings, SerializedProperty userSettingsProperty)
+    {
+        m_Instance = instance;
+
+        RegisterCallback<AttachToPanelEvent>(OnAttachToPanel);
+        RegisterCallback<DetachFromPanelEvent>(OnDetachFromPanel);
+
+        var warnIcon = new VisualElement() { name = k_WarnIcon };
+        warnIcon.AddToClassList("icon");
+        warnIcon.style.display = DisplayStyle.None;
+
+        var instanceContainer = new VisualElement() { name = k_InstanceContainerName };
+        instanceContainer.style.alignItems = Align.FlexStart;
+        instanceContainer.style.justifyContent = Justify.FlexStart;
+
+        var instanceNameContainer = new VisualElement();
+        instanceNameContainer.AddToClassList("instance-view-name-container");
+        instanceNameContainer.style.flexDirection = FlexDirection.Row;
+
+        var instanceRoleAndTagsContainer = new VisualElement() { name = k_InstanceRoleTagsContentName };
+        instanceRoleAndTagsContainer.AddToClassList("instance-role-tags-container");
+        instanceRoleAndTagsContainer.style.paddingTop = 3;
+
+        var instanceRunDeviceContainer = new VisualElement();
+        instanceRunDeviceContainer.AddToClassList("instance-run-device-container");
+        instanceRunDeviceContainer.style.display = DisplayStyle.None;
+
+        var instanceRunModeContainer = new VisualElement();
+        instanceRunModeContainer.AddToClassList("instance-content-runmode-container");
+
+        var instanceSimulatorContainer = new VisualElement();
+
+        var statusContainer = new VisualElement() { name = k_StatusContainerName };
+        statusContainer.style.alignItems = Align.FlexEnd;
+        statusContainer.style.justifyContent = Justify.FlexEnd;
+        statusContainer.style.alignSelf = Align.Stretch;
+
+        m_ConnectedLabel = new Label();
+        var logInfoIcon = new VisualElement() { name = k_LogInfoIcon };
+        logInfoIcon.AddToClassList("icon");
+        LogInfoText = new Label();
+        LogWarningText = new Label();
+        LogErrorText = new Label();
+        var logWarningIcon = new VisualElement() { name = k_LogWarningIcon };
+        logWarningIcon.AddToClassList("icon");
+        var logErrorIcon = new VisualElement() { name = k_LogErrorIcon };
+        logErrorIcon.AddToClassList("icon");
+
+        var freeRunButtonContainer = new VisualElement();
+        var statusContentContainer = new VisualElement();
+        var statusFocusBtnContainer = new VisualElement();
+        var statusRunDeviceContainer = new VisualElement();
+        var statusRunmodeContainer = new VisualElement();
+        statusContentContainer.AddToClassList("status-content-container");
+        statusContentContainer.style.flexDirection = FlexDirection.Row;
+        statusContainer.style.flexDirection = FlexDirection.Column;
+        statusContentContainer.Add(warnIcon);
+        statusContentContainer.Add(logInfoIcon);
+        statusContentContainer.Add(LogInfoText);
+        statusContentContainer.Add(logWarningIcon);
+        statusContentContainer.Add(LogWarningText);
+        statusContentContainer.Add(logErrorIcon);
+        statusContentContainer.Add(LogErrorText);
+
+        var roleLabel = new Label();
+        instanceRoleAndTagsContainer.Add(roleLabel);
+
+        logInfoIcon.style.display = DisplayStyle.None;
+        logWarningIcon.style.display = DisplayStyle.None;
+        logErrorIcon.style.display = DisplayStyle.None;
+        LogInfoText.style.display = DisplayStyle.None;
+        LogWarningText.style.display = DisplayStyle.None;
+        LogErrorText.style.display = DisplayStyle.None;
+        roleLabel.text = "no role";
+        if (settings.BuildProfile != null)
+            roleLabel.text = MultiplayerRolesSettings.instance
+                .GetMultiplayerRoleForBuildProfile(settings.BuildProfile).ToString();
+        if (InternalUtilities.IsAndroidBuildTarget(settings.BuildProfile))
+        {
+            RunDevice = new TextField() { isReadOnly = true, focusable = false };
+            RunDeviceName = new Label("Run Device");
+            RunDevice.SetEnabled(false);
+
+            if (userSettings.DeviceName == "")
+            {
+                RunDevice.SetValueWithoutNotify("No Device Selected");
+                warnIcon.style.display = DisplayStyle.Flex;
+                warnIcon.tooltip = "Select a device using the Configuration Window";
+            }
+            else
+            {
+                RunDevice.SetValueWithoutNotify(userSettings.DeviceName);
+                warnIcon.style.display = DisplayStyle.None;
+            }
+            RunDevice.tooltip = "Selected device the instance will run on";
+            RunDevice.AddToClassList("unity-base-field__aligned");
+            RunDevice.style.top = 15;
+            RunDevice.style.alignContent = Align.FlexEnd;
+            RunDevice.style.width = 200;
+            RunDeviceName.style.top = 5;
+            RunDeviceName.style.bottom = 5;
+            instanceRunDeviceContainer.Add(RunDeviceName);
+            statusRunDeviceContainer.Add(RunDevice);
+            instanceRunDeviceContainer.style.display = DisplayStyle.Flex;
+            instanceRunModeContainer.style.marginTop = 13;
+            statusRunmodeContainer.style.marginTop = 20;
+        }
+        else
+        {
+            statusRunmodeContainer.style.marginTop = 5;
+        }
+
+        m_FreeRunningElement = new FreeRunningStatusElement(instance);
+        m_FreeRunningElement.BindRunModeDropDownElement(
+            instanceRunModeContainer,
+            statusRunmodeContainer,
+            freeRunButtonContainer);
+        freeRunButtonContainer.style.marginTop = 5;
+
+        statusContainer.Add(statusFocusBtnContainer);
+        statusContainer.Add(statusRunDeviceContainer);
+        statusContainer.Add(statusRunmodeContainer);
+        statusContainer.Add(statusContentContainer);
+
+        instanceContainer.Add(instanceNameContainer);
+        instanceContainer.Add(instanceRoleAndTagsContainer);
+        instanceContainer.Add(instanceRunDeviceContainer);
+        instanceContainer.Add(instanceRunModeContainer);
+        instanceContainer.Add(instanceSimulatorContainer);
+
+        var parentContainer = new VisualElement();
+        parentContainer.Add(instanceContainer);
+        parentContainer.Add(statusContainer);
+        parentContainer.AddToClassList(k_InstanceViewClass);
+
+        Add(parentContainer);
+
+        // Add reuse build element
+        m_ReuseBuildElement = new ReuseBuildElement(instance, settings.BuildProfile, userSettingsProperty);
+        m_ReuseBuildElement.BindElements(this);
+
+        Add(freeRunButtonContainer);
+    }
+
+    private void OnAttachToPanel(AttachToPanelEvent evt)
+    {
+        ScenarioRunner.StatusChanged += UpdateInstanceStatus;
+        EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
+
+        m_ReuseBuildElement?.OnAttachToPanel();
+
+        RefreshStatusUI();
+    }
+
+    private void OnDetachFromPanel(DetachFromPanelEvent evt)
+    {
+        ScenarioRunner.StatusChanged -= UpdateInstanceStatus;
+        EditorApplication.playModeStateChanged -= OnPlayModeStateChanged;
+
+        m_ReuseBuildElement?.OnDetachFromPanel();
+    }
+
+    void UpdateInstanceStatus(ScenarioStatusData scenarioStatus)
+    {
+        RefreshStatusUI();
+    }
+
+    internal void CopyTextToClipboard(string text)
+    {
+        // Copy the text field's value to clipboard
+        GUIUtility.systemCopyBuffer = text;
+    }
+
+    private void CleanUpStatus()
+    {
+        m_ConnectedLabel.text = string.Empty;
+    }
+
+    internal void RefreshStatusUI()
+    {
+        CleanUpStatus();
+        m_ReuseBuildElement?.UpdateButtonStates();
+    }
+
+    private void OnPlayModeStateChanged(PlayModeStateChange stateChange)
+    {
+        m_ReuseBuildElement?.UpdateButtonStates();
+    }
+}
+#pragma warning restore UAL0015,UAL0018,UAL0019,UAL0020,UAL0021

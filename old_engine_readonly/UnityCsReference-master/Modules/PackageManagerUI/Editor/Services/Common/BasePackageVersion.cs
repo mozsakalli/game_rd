@@ -1,0 +1,206 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+using System;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEditor.Scripting.ScriptCompilation;
+
+namespace UnityEditor.PackageManager.UI.Internal
+{
+    [Serializable]
+    internal abstract class BasePackageVersion : IPackageVersion, ISerializationCallbackReceiver
+    {
+        [SerializeField]
+        protected string m_Name;
+        public virtual string name => m_Name ?? string.Empty;
+
+        [SerializeField]
+        protected string m_DisplayName;
+        public virtual string displayName => m_DisplayName ?? string.Empty;
+
+        [SerializeField]
+        protected string m_Description;
+        public virtual string description => m_Description ?? string.Empty;
+
+        [SerializeField]
+        protected string m_MinimumUnityVersion;
+        public string minimumUnityVersion => m_MinimumUnityVersion ?? string.Empty;
+
+        [SerializeField]
+        protected string m_VersionString;
+        protected SemVersion? m_Version;
+        public virtual SemVersion? version => m_Version;
+
+        public virtual string versionInManifest => null;
+        public virtual bool isInvalidSemVerInManifest => false;
+
+        [SerializeField]
+        protected long m_PublishedDateTicks;
+        public DateTime? publishedDate => m_PublishedDateTicks == 0 ? null : new DateTime(m_PublishedDateTicks, DateTimeKind.Utc);
+
+        [SerializeField]
+        protected string m_PublishNotes;
+        public string localReleaseNotes => m_PublishNotes;
+
+        public virtual DependencyInfo[] dependencies => null;
+        public virtual DependencyInfo[] resolvedDependencies => null;
+        public virtual EntitlementsInfo entitlements => null;
+
+        public virtual IReadOnlyCollection<Asset> importedAssets => null;
+
+        [NonSerialized]
+        private IPackage m_Package;
+        public UI.IPackage package => m_Package;
+        IPackage IPackageVersion.package
+        {
+            get => m_Package;
+            set => m_Package = value;
+        }
+
+        [SerializeField]
+        protected PackageTag m_Tag;
+        public virtual bool HasTag(PackageTag tag)
+        {
+            return (m_Tag & tag) != 0;
+        }
+
+        // Analytics tags are different from the package tags we use.
+        // We need them to identify different situations that we don't necessarily have tags for
+        public string GetAnalyticsTags()
+        {
+            var tags = new List<string>();
+            if (m_Tag != PackageTag.None)
+                tags.Add(m_Tag.ToString());
+            if (m_Package.isDeprecated)
+                tags.Add("PackageDeprecation");
+            return string.Join(", ", tags);
+        }
+
+        public virtual RegistryType availableRegistry => RegistryType.None;
+
+        public virtual bool hasEntitlementsError => false;
+        public bool isEnterprise => entitlements is { licensingModel: EntitlementLicensingModel.Enterprise };
+
+        public virtual IReadOnlyCollection<UIError> errors => Array.Empty<UIError>();
+        public virtual IReadOnlyList<PackageSizeInfo> sizes => Array.Empty<PackageSizeInfo>();
+        public virtual IReadOnlyList<SemVersion> supportedVersions => Array.Empty<SemVersion>();
+        public virtual SemVersion? supportedVersion => null;
+        public virtual string deprecationMessage => null;
+        public virtual TrustAndSignature trustAndSignature => TrustAndSignature.NotApplicable;
+        public virtual bool meetsTrustPolicy => true;
+        public virtual string signatureOrgName => string.Empty;
+
+        public virtual bool isFromUnity => availableRegistry == RegistryType.UnityRegistry && !HasTag(PackageTag.InstalledFromPath);
+        public virtual bool isFromAssetStore => m_Package.product != null && !HasTag(PackageTag.InstalledFromPath);
+
+        public abstract string uniqueId { get; }
+        public abstract string packageId { get; }
+        public abstract string category { get; }
+        public abstract AuthorInfo author { get; }
+        public abstract bool isInstalled { get; }
+        public abstract bool isFullyFetched { get; }
+        public abstract bool isDirectDependency { get; }
+        public abstract string localPath { get; }
+        public abstract string versionString { get; }
+        public abstract long uploadId { get; }
+
+        public bool IsDifferentVersionThanRequested
+            => !string.IsNullOrEmpty(versionInManifest) && !HasTag(PackageTag.Git | PackageTag.Local | PackageTag.Tarball | PackageTag.Custom) &&
+                versionInManifest != versionString;
+
+        // Request but overridden could happen because other packages/features depend on this version of the package,
+        // or because of bundled packages in the editor or editor manifest versions that require a specific version of a package
+        // Here is the list of bundled packages: https://github.cds.internal.unity3d.com/unity/neutron/tree/main/Packages
+        public bool IsRequestedButOverriddenVersion
+            => !string.IsNullOrEmpty(versionString) && !isInstalled &&
+                versionString == m_Package?.versions.primary.versionInManifest;
+
+        public virtual string GetDescriptor(bool isFirstLetterCapitalized = false)
+        {
+            return isFirstLetterCapitalized ? L10n.Tr("Package", null) : L10n.Tr("package", null);
+        }
+
+        public virtual void OnBeforeSerialize()
+        {
+            // Do nothing
+        }
+
+        public virtual void OnAfterDeserialize()
+        {
+            SemVersionParser.TryParse(m_VersionString, out m_Version);
+        }
+
+        public virtual bool MatchesSearchText(string searchText, SearchTextParams searchParams = SearchTextParams.All)
+        {
+            if (string.IsNullOrEmpty(searchText))
+                return true;
+
+            if (searchParams.HasFlag(SearchTextParams.TechnicalName) &&
+                name.Contains(searchText, StringComparison.CurrentCultureIgnoreCase))
+                return true;
+
+            if (searchParams.HasFlag(SearchTextParams.Description) &&
+                !string.IsNullOrEmpty(description) && description.Contains(searchText, StringComparison.CurrentCultureIgnoreCase))
+                return true;
+
+            if (searchParams.HasFlag(SearchTextParams.DisplayName) &&
+                !string.IsNullOrEmpty(displayName) && displayName.Contains(searchText, StringComparison.CurrentCultureIgnoreCase))
+                return true;
+
+            if (searchParams.HasFlag(SearchTextParams.VersionRelated) && version != null)
+            {
+                var prerelease = searchText.StartsWith('-') ? searchText.Substring(1) : searchText;
+                if (version.Value.Prerelease.Contains(prerelease, StringComparison.CurrentCultureIgnoreCase))
+                    return true;
+                if (version?.StripTag().StartsWith(searchText, StringComparison.CurrentCultureIgnoreCase) == true)
+                    return true;
+            }
+
+            // searching for pre-release, experimental, or release tags if search text matches, case-insensitive
+            if (searchParams.HasFlag(SearchTextParams.TagKeyword))
+            {
+                const string prereleaseSearchText = "Pre";
+                const string experimentalSearchText = "Experimental";
+                if (HasTag(PackageTag.PreRelease) &&
+                    prereleaseSearchText.Contains(searchText, StringComparison.CurrentCultureIgnoreCase))
+                    return true;
+                if (HasTag(PackageTag.Experimental) &&
+                    experimentalSearchText.Contains(searchText, StringComparison.CurrentCultureIgnoreCase))
+                    return true;
+                if (HasTag(PackageTag.Release) &&
+                    PackageTag.Release.ToString().Contains(searchText, StringComparison.CurrentCultureIgnoreCase))
+                    return true;
+            }
+
+            if (searchParams.HasFlag(SearchTextParams.Categories) &&
+                !string.IsNullOrEmpty(category))
+            {
+                var words = searchText.Split(new[] { ' ' }, StringSplitOptions.RemoveEmptyEntries);
+                var categories =  category.Split('/');
+                if (words.AllMatches(word => word.Length >= 2 && Array.Exists(categories, c => c.StartsWith(word, StringComparison.CurrentCultureIgnoreCase))))
+                    return true;
+            }
+
+            if (searchParams.HasFlag(SearchTextParams.Author))
+            {
+                var authorName = isFromUnity ? L10n.Tr("Unity Technologies", null) : author?.name;
+                if (!string.IsNullOrEmpty(authorName) &&
+                    authorName.Contains(searchText, StringComparison.CurrentCultureIgnoreCase))
+                    return true;
+            }
+
+            if (searchParams.HasFlag(SearchTextParams.SignatureOrgName))
+            {
+                var signatureOrg = (trustAndSignature == TrustAndSignature.FullTrustUnitySignature || trustAndSignature == TrustAndSignature.FullTrustBuiltInPackage)
+                    ? L10n.Tr("Unity Technologies", null) : signatureOrgName;
+                if (!string.IsNullOrEmpty(signatureOrg) &&
+                    signatureOrg.Contains(searchText, StringComparison.CurrentCultureIgnoreCase))
+                    return true;
+            }
+
+            return false;
+        }
+    }
+}

@@ -1,0 +1,396 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+#pragma warning disable UAL0015,UAL0018,UAL0019,UAL0020,UAL0021 // AutoStaticsCleanup usage analysis: SceneTooling not yet converted
+using System;
+using System.Collections.Generic;
+using UnityEngine;
+using UnityEngine.UIElements;
+using Unity.Scripting.LifecycleManagement;
+
+namespace UnityEditor.Overlays
+{
+    sealed class OverlayDragger : MouseManipulator
+    {
+        sealed class DockingOperation : IDisposable
+        {
+            [NoAutoStaticsCleanup] // Fixed type-priority lookup table, never reassigned; safe to persist across reload.
+            static readonly Type[] s_PickingPriority =
+            {
+                typeof(DynamicPanelDropZone),
+                typeof(ToolbarDropZone),
+                typeof(OverlayGhostDropZone),
+                typeof(OverlayDropZone),
+                typeof(OverlayContainerInsertDropZone),
+                typeof(OverlayContainerDropZone),
+            };
+
+            const string k_OverlayDraggedState = "unity-overlay--dragged";
+
+            readonly OverlayInsertIndicator m_InsertIndicator;
+            readonly List<OverlayDropZoneBase> m_DropZones = new(32);
+            readonly List<VisualElement> m_PickingBuffer = new();
+            readonly List<OverlayDropZoneBase> m_DropZoneBuffer = new();
+            readonly Overlay m_TargetOverlay;
+            readonly OverlayContainer m_OriginContainer;
+            readonly OverlayGhostDropZone m_OriginGhostDropZone;
+            readonly VisualElement m_CanvasRoot;
+            readonly OverlayCanvas m_Canvas;
+            OverlayDropZoneBase m_Hovered;
+
+            public DockingOperation(OverlayCanvas canvas, Overlay targetOverlay)
+            {
+                m_Canvas = canvas;
+                #pragma warning disable UAL0015 // this side effect does not outlive the current call (global trigger / lazily-loaded asset re-fetched on next access); a stale reference is harmlessly replaced
+                m_InsertIndicator = new OverlayInsertIndicator(canvas.rootVisualElement);
+                #pragma warning restore UAL0015
+                m_OriginContainer = targetOverlay.container;
+                m_OriginContainer.GetOverlayIndex(targetOverlay, out OverlayContainerSection section, out var index);
+                m_TargetOverlay = targetOverlay;
+                m_CanvasRoot = canvas.rootVisualElement;
+                #pragma warning disable UAL0015 // rebuilt/resubscribed wholesale on the next reload via this object's own lifecycle; a stale value in the interim is never observed
+                targetOverlay.rootVisualElement.AddToClassList(k_OverlayDraggedState);
+                #pragma warning restore UAL0015
+
+                if (!targetOverlay.floating)
+                {
+                    m_OriginGhostDropZone = OverlayGhostDropZone.Create(targetOverlay);
+                    m_DropZones.Add(m_OriginGhostDropZone);
+                }
+
+                //Collect dropzones
+                if (canvas.dockArea is not null)
+                    m_DropZones.AddRange(canvas.dockArea.GetDropZones());
+
+                foreach (var overlay in canvas.overlays)
+                {
+                    m_DropZones.Add(overlay.insertBeforeDropZone);
+                    m_DropZones.Add(overlay.insertAfterDropZone);
+                }
+
+                foreach (var container in canvas.containers)
+                    m_DropZones.AddRange(container.GetDropZones());
+
+                foreach (var dropZone in m_DropZones)
+                {
+                    dropZone.Setup(m_InsertIndicator, m_OriginContainer, section);
+                    dropZone.Activate(m_TargetOverlay);
+                }
+            }
+
+            public void UpdateHover(OverlayDropZoneBase hovered)
+            {
+                if (m_Hovered == hovered)
+                    return;
+
+                if (m_Hovered != null)
+                    m_Hovered.EndHover();
+
+                m_Hovered = hovered;
+
+                // Remove dropzone if we have a different container
+                if ((m_Hovered == null || m_Hovered.targetContainer != m_OriginContainer)
+                    && m_OriginGhostDropZone != null
+                    && !(m_OriginGhostDropZone.targetContainer is ToolbarOverlayContainer)
+                    && !(m_OriginGhostDropZone.targetContainer is DynamicPanelOverlayContainer))
+                {
+                    m_OriginGhostDropZone.RemoveFromHierarchy();
+                    foreach (var dropZone in m_DropZones)
+                    {
+                        if (dropZone.targetContainer == m_OriginContainer)
+                            dropZone.Activate(m_TargetOverlay);
+                    }
+                }
+
+                if (m_Hovered != null)
+                    m_Hovered.BeginHover();
+
+                foreach (var dropZone in m_DropZones)
+                    dropZone.UpdateHover(hovered);
+            }
+
+            public OverlayDropZoneBase GetOverlayDropZoneAtPosition(Vector2 mousePosition)
+            {
+                //get list of items under mouse
+                m_PickingBuffer.Clear();
+                m_DropZoneBuffer.Clear();
+                m_CanvasRoot.panel.PickAll(mousePosition, m_PickingBuffer);
+
+                foreach (var element in m_PickingBuffer)
+                    if (element is OverlayDropZoneBase dropZone && dropZone.CanAcceptTarget(m_TargetOverlay))
+                        m_DropZoneBuffer.Add(dropZone);
+
+                if (m_DropZoneBuffer.Count == 0)
+                    return GetBackupDropzone(mousePosition);
+
+                //Sort by priority
+                m_DropZoneBuffer.Sort((a, b) => Array.IndexOf(s_PickingPriority, a.GetType()).CompareTo(Array.IndexOf(s_PickingPriority, b.GetType())));
+
+                return m_DropZoneBuffer[0];
+            }
+
+            OverlayDropZoneBase GetBackupDropzone(Vector2 mousePosition)
+            {
+                switch (m_Canvas.mode)
+                {
+                    case OverlayCanvasMode.MainToolbar: return OverlayUtilities.FindNearestValidDockZoneHorizontally(m_DropZones, m_TargetOverlay, mousePosition);
+                    default: return null;
+                }
+            }
+
+            public void Dispose()
+            {
+                m_TargetOverlay.rootVisualElement.RemoveFromClassList(k_OverlayDraggedState);
+
+                m_Hovered?.EndHover();
+
+                foreach (var dropZone in m_DropZones)
+                {
+                    dropZone.Deactivate(m_TargetOverlay);
+                    dropZone.Cleanup();
+                }
+
+                m_OriginGhostDropZone?.RemoveFromHierarchy();
+                m_InsertIndicator.RemoveFromHierarchy();
+            }
+        }
+
+
+        bool m_Active;
+        internal bool active => m_Active;
+        bool m_WasFloating;
+        OverlayContainer m_StartContainer;
+        Vector2 m_InitialLayoutPosition;
+        Vector2 m_StartMousePosition;
+        Vector2 m_MouseOffsetFromCorner;
+        readonly Overlay m_Overlay;
+        int m_InitialIndex;
+        OverlayContainerSection m_InitialSection;
+        DockingOperation m_DockOperation;
+
+        OverlayCanvas canvas => m_Overlay.canvas;
+        FloatingOverlayContainer floatingContainer => canvas.floatingContainer;
+
+        public OverlayDragger(Overlay overlay)
+        {
+            m_Overlay = overlay;
+            activators.Add(new ManipulatorActivationFilter { button = MouseButton.LeftMouse });
+            m_Active = false;
+        }
+
+        protected override void RegisterCallbacksOnTarget()
+        {
+            target.RegisterCallback<MouseDownEvent>(OnMouseDown);
+            target.RegisterCallback<MouseUpEvent>(OnMouseUp);
+            target.RegisterCallback<KeyDownEvent>(OnKeyDown);
+            target.RegisterCallback<PointerCaptureOutEvent>(OnPointerCaptureOut);
+        }
+
+        protected override void UnregisterCallbacksFromTarget()
+        {
+            target.UnregisterCallback<MouseDownEvent>(OnMouseDown);
+            target.UnregisterCallback<MouseMoveEvent>(OnMouseMove);
+            target.UnregisterCallback<MouseUpEvent>(OnMouseUp);
+            target.UnregisterCallback<KeyDownEvent>(OnKeyDown);
+            target.UnregisterCallback<PointerCaptureOutEvent>(OnPointerCaptureOut);
+        }
+
+        bool IsInDraggableArea(Vector2 mousePosition)
+        {
+            return target.worldBound.Contains(mousePosition);
+        }
+
+        void OnMouseDown(MouseDownEvent e)
+        {
+            if (m_Active)
+            {
+                e.StopImmediatePropagation();
+                return;
+            }
+
+            if (!IsInDraggableArea(e.mousePosition) || !CanStartManipulation(e))
+                return;
+
+            //Directly set to active before changing anything
+            m_Active = true;
+
+            m_WasFloating = m_Overlay.floating;
+            m_StartContainer = m_Overlay.container;
+            m_DockOperation = new DockingOperation(canvas, m_Overlay);
+
+            m_StartMousePosition = OverlayUtilities.ClampPositionToRect(e.mousePosition, canvas.rootVisualElement.worldBound);
+            var dragger = m_Overlay.rootVisualElement.Q(Overlay.k_DraggerName);
+
+            m_InitialLayoutPosition = floatingContainer.WorldToLocal(m_Overlay.rootVisualElement.worldBound.position);
+            m_MouseOffsetFromCorner = m_StartMousePosition - m_Overlay.rootVisualElement.worldBound.position;
+
+            //if docked, convert to floating
+            if (!m_Overlay.floating)
+            {
+                m_Overlay.container.GetOverlayIndex(m_Overlay, out m_InitialSection, out m_InitialIndex);
+
+                //Ensure that we don't change layout until we move away from the current container
+                m_Overlay.tempTargetContainer = m_Overlay.container;
+
+                m_Overlay.Undock();
+                m_Overlay.floatingPosition = m_InitialLayoutPosition;
+                m_Overlay.UpdateAbsolutePosition();
+            }
+
+            m_Overlay.BringToFront();
+
+            UpdateLayout(e.mousePosition);
+
+            target.RegisterCallback<MouseMoveEvent>(OnMouseMove, TrickleDown.TrickleDown);
+            target.CaptureMouse();
+            e.StopPropagation();
+        }
+
+        bool UpdateLayout(Vector2 mousePosition)
+        {
+            var constrainedMousePosition = OverlayUtilities.ClampPositionToRect(mousePosition, canvas.rootVisualElement.worldBound);
+
+            var dropZone = m_DockOperation.GetOverlayDropZoneAtPosition(constrainedMousePosition);
+
+            var targetContainer = dropZone != null ? dropZone.targetContainer : null;
+
+            bool delayPositionUpdate = false;
+            if (m_Overlay.tempTargetContainer != targetContainer)
+            {
+                var prevLayout = m_Overlay.activeLayout;
+                m_Overlay.tempTargetContainer = targetContainer;
+                m_Overlay.RebuildContent(false);
+                if (m_Overlay.activeLayout != prevLayout)
+                    delayPositionUpdate = true;
+            }
+
+            return delayPositionUpdate;
+        }
+
+        void OnMouseMove(MouseMoveEvent e)
+        {
+            if (!m_Active)
+                return;
+
+            var constrainedMousePosition = OverlayUtilities.ClampPositionToRect(e.mousePosition, canvas.rootVisualElement.worldBound);
+            var dropZone = m_DockOperation.GetOverlayDropZoneAtPosition(constrainedMousePosition);
+
+            bool delayPositionUpdate = UpdateLayout(e.mousePosition);
+
+            var targetPosition = floatingContainer.WorldToLocal(constrainedMousePosition - OverlayUtilities.ClampPositionToRect(m_MouseOffsetFromCorner, target.rect));
+
+            if (delayPositionUpdate)
+                m_Overlay.rootVisualElement.RegisterCallback<GeometryChangedEvent, Vector2>(DelayedPositionUpdate, targetPosition);
+            else
+#pragma warning disable CS0618 // Type or member is obsolete
+                m_Overlay.rootVisualElement.transform.position = ClampRectToCanvas(targetPosition);
+#pragma warning restore CS0618 // Type or member is obsolete
+
+            m_DockOperation.UpdateHover(dropZone);
+
+            e.StopPropagation();
+        }
+
+        Vector2 ClampRectToCanvas(Vector2 targetPos)
+        {
+            return OverlayUtilities.EnsureOverlayWithinCanvas(targetPos, m_Overlay, canvas);
+        }
+
+        void DelayedPositionUpdate(GeometryChangedEvent evt, Vector2 targetPosition)
+        {
+#pragma warning disable CS0618 // Type or member is obsolete
+            m_Overlay.rootVisualElement.transform.position = ClampRectToCanvas(targetPosition);
+#pragma warning restore CS0618 // Type or member is obsolete
+            m_Overlay.rootVisualElement.UnregisterCallback<GeometryChangedEvent, Vector2>(DelayedPositionUpdate);
+        }
+
+        void OnMouseUp(MouseUpEvent e)
+        {
+            if (!m_Active)
+                return;
+
+            if (e.button != (int)MouseButton.RightMouse && !CanStopManipulation(e))
+                return;
+
+            e.StopPropagation();
+
+            Vector2 constrainedMousePosition = OverlayUtilities.ClampPositionToRect(e.mousePosition, canvas.rootVisualElement.worldBound);
+            var dropZone = m_DockOperation.GetOverlayDropZoneAtPosition(constrainedMousePosition);
+
+            if (dropZone != null)
+            {
+                if (dropZone is OverlayGhostDropZone)
+                {
+                    CancelDrag();
+                    return;
+                }
+
+                m_Active = false;
+                m_Overlay.container?.RemoveOverlay(m_Overlay);
+#pragma warning disable CS0618 // Type or member is obsolete
+                m_Overlay.rootVisualElement.transform.position = Vector2.zero;
+#pragma warning restore CS0618 // Type or member is obsolete
+                dropZone.DropOverlay(m_Overlay);
+            }
+
+            if (m_Overlay.floating)
+            {
+                m_Active = false;
+#pragma warning disable CS0618 // Type or member is obsolete
+                var pos = m_Overlay.rootVisualElement.transform.position;
+#pragma warning restore CS0618 // Type or member is obsolete
+                m_Overlay.floatingPosition = new Vector2(pos.x, pos.y);
+            }
+
+            OnDragEnd();
+        }
+
+        void OnPointerCaptureOut(PointerCaptureOutEvent evt)
+        {
+            if (!m_Active)
+                return;
+            CancelDrag();
+        }
+
+        void OnKeyDown(KeyDownEvent evt)
+        {
+            if (m_Active && evt.keyCode == KeyCode.Escape)
+            {
+                CancelDrag();
+                evt.StopPropagation();
+            }
+        }
+
+        void CancelDrag()
+        {
+            if (m_WasFloating)
+            {
+#pragma warning disable CS0618 // Type or member is obsolete
+                m_Overlay.rootVisualElement.transform.position = m_InitialLayoutPosition;
+#pragma warning restore CS0618 // Type or member is obsolete
+            }
+            else
+            {
+                m_Overlay.DockAt(m_StartContainer, m_InitialSection, m_InitialIndex);
+            }
+
+            OnDragEnd();
+            m_Overlay.RebuildContent(false);
+        }
+
+        void OnDragEnd()
+        {
+            m_Active = false;
+            target.ReleaseMouse();
+
+            target.UnregisterCallback<MouseMoveEvent>(OnMouseMove);
+            m_Overlay.rootVisualElement.UnregisterCallback<GeometryChangedEvent, Vector2>(DelayedPositionUpdate); //Ensure we kill any delayed position update that was still in process
+
+            m_Overlay.tempTargetContainer = null;
+            m_DockOperation.Dispose();
+            m_DockOperation = null;
+        }
+    }
+}
+#pragma warning restore UAL0015,UAL0018,UAL0019,UAL0020,UAL0021

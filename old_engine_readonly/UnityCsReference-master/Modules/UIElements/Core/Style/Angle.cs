@@ -1,0 +1,383 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+using Unity.Scripting.LifecycleManagement;
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
+using UnityEngine.UIElements.StyleSheets;
+
+namespace UnityEngine.UIElements
+{
+    /// <summary>
+    /// Unit of measurement used to express the value of an <see cref="Angle"/>.
+    /// </summary>
+    public enum AngleUnit
+    {
+        /// <summary>
+        /// Interprets an angle as degrees.
+        /// </summary>
+        Degree,
+        /// <summary>
+        /// Interprets the measurement of an angle in gradians. One full circle is 400 gradians
+        /// </summary>
+        Gradian,
+        /// <summary>
+        /// Interprets the measurement of an angle in radians. One full circle is 2Pi radians which approximates to 6.2832 radians
+        /// </summary>
+        Radian,
+        /// <summary>
+        /// Interprets the measurement of an angle, expressed as a number of turns. One full circle is one turn.
+        /// </summary>
+        Turn,
+    }
+
+    /// <summary>
+    /// Represents an angle value.
+    /// </summary>
+    [Serializable, StructLayout(LayoutKind.Sequential)]
+    public partial struct Angle : IEquatable<Angle>
+    {
+        // Extension of the AngleUnit to include keywords that can be used with StyleAngle
+        private enum Unit
+        {
+            Degree = AngleUnit.Degree,
+            Gradian = AngleUnit.Gradian,
+            Radian = AngleUnit.Radian,
+            Turn = AngleUnit.Turn,
+            None
+        }
+
+        [NoAutoStaticsCleanup]
+        readonly static Dictionary<string, AngleUnit> s_AngleUnitLookup = new(StringComparer.OrdinalIgnoreCase)
+        {
+            {"deg", AngleUnit.Degree },
+            {"rad", AngleUnit.Radian },
+            {"grad", AngleUnit.Gradian },
+            {"turn", AngleUnit.Turn }
+        };
+
+        /// <summary>
+        /// Creates an <see cref="Angle"/> from degrees.
+        /// </summary>
+        /// <returns>The created angle.</returns>
+        public static Angle Degrees(float value)
+        {
+            return new Angle(value, AngleUnit.Degree);
+        }
+
+        /// <summary>
+        /// Creates an <see cref="Angle"/> from gradians
+        /// </summary>
+        /// <returns>The created angle.</returns>
+        public static Angle Gradians(float value)
+        {
+            return new Angle(value, AngleUnit.Gradian);
+        }
+
+        /// <summary>
+        /// Creates an <see cref="Angle"/> from radians
+        /// </summary>
+        /// <returns>The created angle.</returns>
+        public static Angle Radians(float value)
+        {
+            return new Angle(value, AngleUnit.Radian);
+        }
+
+        /// <summary>
+        /// Creates an <see cref="Angle"/> from turns
+        /// </summary>
+        /// <returns>The created angle.</returns>
+        public static Angle Turns(float value)
+        {
+            return new Angle(value, AngleUnit.Turn);
+        }
+
+        internal static Angle None()
+        {
+            return new Angle(0f, Unit.None);
+        }
+
+        /// <summary>
+        /// The angle value.
+        /// </summary>
+        /// <remarks>
+        /// Positive values represent a clockwise rotation. Negative values represent counterclockwise rotation.
+        /// </remarks>
+        public float value
+        {
+            get => m_Value;
+            set => m_Value = value;
+        }
+
+        /// <summary>
+        /// The unit of the value property.
+        /// </summary>
+        public AngleUnit unit
+        {
+            get => (AngleUnit)m_Unit;
+            set => m_Unit = (Unit)value;
+        }
+
+        internal bool IsNone() => m_Unit == Unit.None;
+
+        /// <summary>
+        /// Creates an Angle from a float and an optionnal <see cref="AngleUnit"/>.
+        /// </summary>
+        /// <remarks>
+        /// <see cref="AngleUnit.Degree"/> is the default unit.
+        /// </remarks>
+        public Angle(float value) : this(value, Unit.Degree)
+        {}
+
+        /// <summary>
+        /// Creates an Angle from a float and an optionnal <see cref="AngleUnit"/>.
+        /// </summary>
+        /// <remarks>
+        /// <see cref="AngleUnit.Degree"/> is the default unit.
+        /// </remarks>
+        public Angle(float value, AngleUnit unit) : this(value, (Unit)unit)
+        {}
+
+        private Angle(float value, Unit unit)
+        {
+            m_Value = value;
+            m_Unit = unit;
+        }
+
+        [SerializeField]
+        private float m_Value;
+        [SerializeField]
+        private Unit m_Unit;
+
+        /// <summary>
+        /// Returns the value of the angle, expressed in degrees.
+        /// </summary>
+        public float ToDegrees()
+        {
+            switch (m_Unit)
+            {
+                case Unit.Degree:
+                    return m_Value;
+                case Unit.Gradian:
+                    return m_Value * 360 / 400;
+                case Unit.Radian:
+                    return m_Value * 180 / Mathf.PI;
+                case Unit.Turn:
+                    return m_Value * 360;
+                case Unit.None:
+                    return 0;
+            }
+            return 0;
+        }
+
+        /// <summary>
+        /// Returns the value of the angle, expressed in gradians.
+        /// </summary>
+        public float ToGradians()
+        {
+            switch (m_Unit)
+            {
+                case Unit.Degree:
+                    return m_Value * 10 / 9;
+                case Unit.Gradian:
+                    return m_Value;
+                case Unit.Radian:
+                    return (m_Value * 200) / Mathf.PI;
+                case Unit.Turn:
+                    return m_Value * 400;
+                case Unit.None:
+                    return 0;
+            }
+            return 0;
+        }
+
+        /// <summary>
+        /// Returns the value of the angle, expressed in radians.
+        /// </summary>
+        public float ToRadians()
+        {
+            switch (m_Unit)
+            {
+                case Unit.Degree:
+                    return m_Value * Mathf.PI / 180;
+                case Unit.Gradian:
+                    return m_Value * Mathf.PI / 200;
+                case Unit.Radian:
+                    return m_Value;
+                case Unit.Turn:
+                    return m_Value * Mathf.PI * 2;
+                case Unit.None:
+                    return 0;
+            }
+            return 0;
+        }
+
+        /// <summary>
+        /// Returns the value of the angle, expressed in turns.
+        /// </summary>
+        public float ToTurns()
+        {
+            switch (m_Unit)
+            {
+                case Unit.Degree:
+                    return m_Value / 360;
+                case Unit.Gradian:
+                    return m_Value / 400;
+                case Unit.Radian:
+                    return m_Value / (Mathf.PI * 2);
+                case Unit.Turn:
+                    return m_Value;
+                case Unit.None:
+                    return 0;
+            }
+            return 0;
+        }
+
+        internal void ConvertTo(AngleUnit newUnit)
+        {
+            m_Value = newUnit switch
+            {
+                AngleUnit.Degree => ToDegrees(),
+                AngleUnit.Turn => ToTurns(),
+                AngleUnit.Radian => ToRadians(),
+                AngleUnit.Gradian => ToGradians(),
+                _ => throw new NotImplementedException()
+            };
+
+            m_Unit = (Unit)newUnit;
+        }
+
+        /// <undoc/>
+        public static implicit operator Angle(float value)
+        {
+            return new Angle(value, AngleUnit.Degree);
+        }
+
+        /// <undoc/>
+        public static bool operator==(Angle lhs, Angle rhs)
+        {
+            return lhs.m_Value == rhs.m_Value && lhs.m_Unit == rhs.m_Unit;
+        }
+
+        /// <undoc/>
+        public static bool operator!=(Angle lhs, Angle rhs)
+        {
+            return !(lhs == rhs);
+        }
+
+        /// <undoc/>
+        public bool Equals(Angle other)
+        {
+            return other == this;
+        }
+
+        /// <undoc/>
+        public override bool Equals(object obj)
+        {
+            return obj is Angle other && Equals(other);
+        }
+
+        public override int GetHashCode()
+        {
+            unchecked
+            {
+                return (m_Value.GetHashCode() * 397) ^ (int)m_Unit;
+            }
+        }
+
+        public override string ToString()
+        {
+            var valueStr = value.ToString(CultureInfo.InvariantCulture.NumberFormat);
+            var unitStr = string.Empty;
+            switch (m_Unit)
+            {
+                case Unit.Degree:
+                    if (!Mathf.Approximately(0, value))
+                        unitStr = "deg";
+                    break;
+                case Unit.Gradian:
+                    unitStr = "grad";
+                    break;
+                case Unit.Radian:
+                    unitStr = "rad";
+                    break;
+                case Unit.Turn:
+                    unitStr = "turn";
+                    break;
+                case Unit.None:
+                    valueStr = "";
+                    unitStr = "none";
+                    break;
+            }
+            return $"{valueStr}{unitStr}";
+        }
+
+        internal static bool TryParseString(string str, out Angle angle)
+        {
+            angle = default;
+
+            if (string.IsNullOrEmpty(str))
+                return false;
+
+            var s = str.AsSpan().Trim();
+
+            if (s.Equals("none", StringComparison.OrdinalIgnoreCase))
+            {
+                angle = None();
+                return true;
+            }
+
+            // Find unit index
+            int digitEndIndex = 0;
+            int unitIndex = -1;
+            for (int i = 0; i < s.Length; i++)
+            {
+                var c = s[i];
+                if (char.IsNumber(c) || c == '.' || c == '-')
+                {
+                    ++digitEndIndex;
+                }
+                else if (char.IsLetter(c))
+                {
+                    unitIndex = i;
+                    break;
+                }
+                else
+                {
+                    // Invalid format
+                    return false;
+                }
+            }
+
+            var floatStr = s.Slice(0, digitEndIndex);
+            var unitStr = unitIndex > 0 ? s.Slice(unitIndex, s.Length - unitIndex).ToString() : "deg";
+
+            // Note: ideally we would not specify NumberStyle settings, but there is no API that allows
+            // it while also defining which culture to use. The value used here is the right default for float
+            // (looking at source code from Mono & CoreCLR)
+            if (StylePropertyUtil.TryParseFloat(floatStr, out var v))
+                angle.value = v;
+
+            if (s_AngleUnitLookup.TryGetValue(unitStr, out var angleUnit))
+            {
+                angle.unit = angleUnit;
+            }
+            else if (unitStr.Equals("none", StringComparison.OrdinalIgnoreCase))
+            {
+                angle.unit = AngleUnit.Degree;
+                angle.value = 0;
+            }
+            else
+            {
+                // Incorrect unit
+                return false;
+            }
+
+            return true;
+        }
+    }
+}

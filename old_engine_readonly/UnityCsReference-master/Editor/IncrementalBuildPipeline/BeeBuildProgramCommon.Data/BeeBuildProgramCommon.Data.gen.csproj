@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project>
+  <PropertyGroup>
+    <BaseIntermediateOutputPath>../../../artifacts/BeeBuildProgramCommon.Data.dll</BaseIntermediateOutputPath>
+  </PropertyGroup>
+  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+  <PropertyGroup>
+    <AssemblyName>BeeBuildProgramCommon.Data</AssemblyName>
+    <TargetFramework>netstandard2.1</TargetFramework>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <AllowUnsafeBlocks>false</AllowUnsafeBlocks>
+    <EnableDefaultItems>false</EnableDefaultItems>
+    <LangVersion>14.0</LangVersion>
+    <NoWarn>1701</NoWarn>
+    <Nullable>disable</Nullable>
+    <EnableUnsafeBinaryFormatterSerialization>false</EnableUnsafeBinaryFormatterSerialization>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <Deterministic>true</Deterministic>
+    <RootNamespace>BeeBuildProgramCommon.Data</RootNamespace>
+    <ImportDirectoryBuildTargets>false</ImportDirectoryBuildTargets>
+    <ImportDirectoryBuildProps>false</ImportDirectoryBuildProps>
+    <ImportDirectoryPackagesProps>false</ImportDirectoryPackagesProps>
+  </PropertyGroup>
+  <PropertyGroup>
+    <HomeDir Condition="'$(HOME.Length)' != '0'">$(HOME)</HomeDir>
+    <HomeDir Condition="'$(USERPROFILE.Length)' != '0'">$(USERPROFILE)</HomeDir>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Data.cs" />
+  </ItemGroup>
+  <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
+  <ItemGroup>
+    <Analyzer Include="/tmp/uitoolkit_gen_w2d3uxnn/Unity.UIToolkit.SourceGenerator.dll" />
+  </ItemGroup>
+</Project>

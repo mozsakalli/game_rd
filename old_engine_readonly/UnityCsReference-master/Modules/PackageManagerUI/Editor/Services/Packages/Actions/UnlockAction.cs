@@ -1,0 +1,45 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+using System.Collections.Generic;
+
+namespace UnityEditor.PackageManager.UI.Internal;
+
+internal class UnlockAction : PackageAction
+{
+    private readonly IPageManager m_PageManager;
+    public UnlockAction(IPageManager pageManager)
+    {
+        m_PageManager = pageManager;
+    }
+
+    protected override bool TriggerActionImplementation(IReadOnlyCollection<IPackage> packages)
+    {
+        var packageUniqueIds = packages.SelectToNewArray(p => p.uniqueId);
+        m_PageManager.activePage.SetUserUnlockedState(packageUniqueIds, true);
+        PackageManagerWindowAnalytics.SendEvent("unlock", packageIds: packageUniqueIds);
+        return true;
+    }
+
+    protected override bool TriggerActionImplementation(IPackageVersion version)
+    {
+        m_PageManager.activePage.SetUserUnlockedState(new string[1] { version.package.uniqueId }, true);
+        PackageManagerWindowAnalytics.SendEvent("unlock", version.package.uniqueId);
+        return true;
+    }
+
+    public override bool IsVisible(IPackageVersion version) => m_PageManager.activePage.visualStates.Get(version?.package?.uniqueId)?.isLocked == true;
+
+    public override string GetTooltip(IPackageVersion version, bool isInProgress)
+    {
+        return L10n.Tr("Unlock to make changes", null);
+    }
+
+    public override string GetText(IPackageVersion version, bool isInProgress)
+    {
+        return L10n.Tr("Unlock", null);
+    }
+
+    public override bool IsInProgress(IPackageVersion version) => false;
+}

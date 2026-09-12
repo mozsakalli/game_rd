@@ -1,0 +1,22 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- DigitoyEditor: gercek editor uygulamasi (exe). Motoru referanslar; bir
+       PROJE klasoru acar (Projects/Sandbox gibi), sahneyi doc olarak yukler,
+       Ctrl+S = kaydet + full reload. Oyun kodu Assets/**/*.cs'ten derlenip
+       collectible ALC ile yuklenecek (Editor/ klasoru editor assembly'sine). -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <AssemblyName>DigitoyEditor</AssemblyName>
+    <DefineConstants>$(DefineConstants);DE_EDITOR</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\engine\managed\DigitoyEngine.csproj" />
+  </ItemGroup>
+
+</Project>

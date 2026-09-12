@@ -1,0 +1,99 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+using System;
+using UnityEngine;
+using UnityEngine.Bindings;
+using UnityEngineInternal;
+using Unity.Collections.LowLevel.Unsafe;
+
+namespace UnityEngineInternal.Input
+{
+    [NativeHeader("Modules/Input/Private/InputModuleBindings.h")]
+    [NativeHeader("Modules/Input/Private/InputInternal.h")]
+    internal partial class NativeInputSystem
+    {
+        internal static extern bool hasDeviceDiscoveredCallback { set; }
+
+        [NativeProperty(IsThreadSafe = true)]
+        public static extern double currentTime { get; }
+
+        [NativeProperty(IsThreadSafe = true)]
+        public static extern double currentTimeOffsetToRealtimeSinceStartup { get; }
+
+        [FreeFunction("AllocateInputDeviceId")]
+        public static extern int AllocateDeviceId();
+
+        // C# doesn't allow taking the address of a value type because of pinning requirements for the heap.
+        // And our bindings generator doesn't support overloading. So ugly code following here...
+        public static unsafe void QueueInputEvent<TInputEvent>(ref TInputEvent inputEvent)
+            where TInputEvent : struct
+        {
+            QueueInputEvent((IntPtr)UnsafeUtility.AddressOf<TInputEvent>(ref inputEvent));
+        }
+
+        [NativeMethod(IsThreadSafe = true)]
+        public static extern void QueueInputEvent(IntPtr inputEvent);
+
+        public static extern long IOCTL(int deviceId, int code, IntPtr data, int sizeInBytes);
+
+        /// <summary>
+        /// Sets the frequency at which platforms that poll input devices in the background do so.
+        /// </summary>
+        /// <param name="hertz">
+        /// Frequency in hertz. Must be zero or positive. Both ends of that range carry meaning:
+        /// zero disables polling, and <see cref="float.PositiveInfinity"/> polls continuously,
+        /// which leaves the polling thread nothing to wait on and so occupies a core. A negative
+        /// or NaN frequency is rejected and leaves the current frequency in place.
+        /// </param>
+        public static extern void SetPollingFrequency(float hertz);
+
+        /// <summary>
+        /// Returns the frequency at which platforms that poll input devices in the background do so.
+        /// </summary>
+        /// <returns>Frequency in hertz. Defaults to the frequency suggested by the platform.</returns>
+        public static extern float GetPollingFrequency();
+
+        public static extern void Update(NativeInputUpdateType updateType);
+
+        /// <summary>
+        /// Sets the bitmask of <see cref="NativeInputUpdateType"/> values that should ripple
+        /// through the native PlayerLoop hooks to managed callbacks. Bits clear -> the
+        /// corresponding hook is a no-op (no managed callback fires for that update type).
+        /// Thread-safe; intended to be called when consumer configuration changes (rare).
+        /// Default at module init is all known update types enabled.
+        /// </summary>
+        [NativeMethod(IsThreadSafe = true)]
+        public static extern void SetActiveUpdateMask(NativeInputUpdateType mask);
+
+        internal static extern ulong GetBackgroundEventBufferSize();
+
+        /// <summary>
+        /// Allows creation of input devices from events.
+        /// Used by input simulation package on Windows, where we can send the simulated events.
+        /// Input simulation package doesn't create input devices, thus we must ask backend to created those when required.
+        /// By default, such behavior is disabled.
+        /// </summary>
+        [NativeProperty("AllowInputDeviceCreationFromEvents")]
+        internal static extern bool allowInputDeviceCreationFromEvents { get; set; }
+
+        /// <summary>
+        /// If this option is set to true, scrollWheel delta values will always be returned within a range of [-1, 1]
+        /// regardless of the platform.
+        /// If false, scrollWheel delta values will try to respect platform-specific values ranges.
+        /// (For instance, on the Windows platform the scrollWheel delta values range would be [-120, 120].)
+        /// </summary>
+        [NativeProperty("NormalizeScrollWheelDelta")]
+        internal static extern bool normalizeScrollWheelDelta { get; set; }
+
+        internal static extern float GetScrollWheelDeltaPerTick();
+
+        /// <summary>
+        /// This returns wheather the BuildSettings property UseMouseEvents is set to true or false.
+        /// If true the MouseEvents script will be called to fire MonoBehavior events for certain mouse events.
+        /// If false, the backend logic and firing those MonoBehavior events will be stopped, which will reduce the performance overhead
+        /// </summary>
+        internal static extern bool useImplicitMouseEventScriptCallbacks { get; }
+    }
+}

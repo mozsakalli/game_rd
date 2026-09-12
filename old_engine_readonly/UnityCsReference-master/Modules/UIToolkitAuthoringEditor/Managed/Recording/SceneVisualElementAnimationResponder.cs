@@ -1,0 +1,218 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+using System;
+using UnityEditor;
+using UnityEditor.AnimationWindowBuiltin;
+using UnityEditor.SceneManagement;
+using UnityEditor.UIElements;
+using UnityEngine;
+using UnityEngine.UIElements;
+using UnityObject = UnityEngine.Object;
+
+namespace Unity.UIToolkit.Editor
+{
+
+    internal sealed class SceneVisualElementAnimationResponder : IAnimationWindowResponder
+    {
+        public bool OnSelectionChange(AnimationWindow window, UnityObject selectedObject, out IAnimationWindowSelectionItem newSelection)
+        {
+            newSelection = null;
+
+            if (!UIToolkitProjectSettings.s_EnablePanelRendererAnimationAtBoot)
+                return false;
+
+            // A bare UIAnimationClip asset (Project-window selection, or double-click via
+            // UIAnimationClipAssetOpener) edits the clip directly, independent of any stage or scene element.
+            if (selectedObject is UIAnimationClip clipAsset)
+                return TryEditClipAsset(window, clipAsset, out newSelection);
+
+            bool inStage = StageUtility.GetCurrentStage() is VisualElementEditingStage;
+
+            if (selectedObject is VisualElementSelection visualElementSelection)
+                return TryEditVisualElement(window, visualElementSelection.Element, inStage, out newSelection);
+
+            // A USS rule edits one shared clip across every element it matches in the staging panel.
+            if (inStage && selectedObject is StyleRuleSelection styleRuleSelection)
+                return TryEditStyleRule(window, styleRuleSelection.StyleRule, out newSelection);
+
+            // Stage has no scene Component for the panel-wide / Animator route to target.
+            if (inStage)
+                return false;
+
+            if (selectedObject is VisualTreeAssetSelection visualTreeAssetSelection)
+                return TryEditPanelRoot(window, visualTreeAssetSelection.PanelComponent, out newSelection);
+
+            return false;
+        }
+
+        static bool TryEditClipAsset(AnimationWindow window, UIAnimationClip uiClip, out IAnimationWindowSelectionItem newSelection)
+        {
+            // If the window is already animating this clip through a live element or style rule (that
+            // target is the current selection), keep it: opening the clip asset must not downgrade a
+            // full element-context session to the element-less asset view.
+            if (window.selection is UIToolkitAnimationSelectionItemBase liveTarget
+                && liveTarget is not UIAnimationClipAssetSelectionItem
+                && liveTarget.uiAnimationClip == uiClip)
+            {
+                liveTarget.Synchronize();
+                newSelection = liveTarget;
+                return true;
+            }
+
+            // Reuse the existing selection when it already targets this asset so its playhead state
+            // survives the ControllerChanged refresh.
+            if (window.selection is UIAnimationClipAssetSelectionItem existing && existing.IsCompatibleWith(uiClip))
+            {
+                existing.Synchronize();
+                newSelection = existing;
+                return true;
+            }
+
+            newSelection = UIAnimationClipAssetSelectionItem.Create(window, uiClip);
+            return true;
+        }
+
+        static bool TryEditVisualElement(AnimationWindow window, VisualElement element, bool inStage, out IAnimationWindowSelectionItem newSelection)
+        {
+            newSelection = null;
+
+            if (element == null)
+                return false;
+
+            // Per-element UIAnimationClip takes priority: if the element (or one of its
+            // ancestors) has unityAnimationClip set, the Animation Window edits that clip
+            // through the VE-native pipeline rather than walking up to the panel's Animator.
+            var clipOwner = VisualElementAnimationClipUtility.FindClipOwner(element);
+            if (clipOwner != null)
+            {
+                // In stage there is no PanelRenderer; the per-element pipeline is GameObject-free.
+                var panelRenderer = inStage ? null : VisualElementAnimationClipUtility.FindPanelRenderer(clipOwner);
+                if (inStage || panelRenderer != null)
+                    return TryEditPerElementClip(window, panelRenderer, clipOwner, clipOwner.resolvedStyle.unityAnimationClip, out newSelection);
+            }
+
+            // In stage there is no PanelRenderer / Animator chain - surface per-element clip
+            // onboarding directly on the selected element so the AnimationWindow's Create call-to-action stays available.
+            if (inStage)
+            {
+                newSelection = VisualElementAnimationSelectionItem.Create(window, null, element, null);
+                return true;
+            }
+
+            var rootElement = element.GetFirstAncestorOfType<IPanelComponentRootElement>();
+            if (rootElement == null)
+                return false;
+
+            // When an Animator is in the parent chain, fall back to the standard
+            // Animator-based workflow (current behavior).
+            if (TryEditPanelRoot(window, rootElement.panelComponent, out newSelection))
+                return true;
+
+            // No clip and no Animator: offer per-element clip onboarding (CreateNewClip
+            // will save a new UIAnimationClip and assign it to the element's style).
+            if (rootElement.panelComponent is PanelRenderer pr)
+            {
+                newSelection = VisualElementAnimationSelectionItem.Create(window, pr, element, null);
+                return true;
+            }
+
+            return false;
+        }
+
+        static bool TryEditPerElementClip(
+            AnimationWindow window,
+            PanelRenderer panelRenderer,
+            VisualElement clipOwner,
+            UIAnimationClip uiClip,
+            out IAnimationWindowSelectionItem newSelection)
+        {
+            // If the existing selection already targets the same clip owner, reuse it so
+            // the controller's preview state is preserved. Synchronize() will pick up the
+            // current resolved clips if they changed under us.
+            if (window.selection is VisualElementAnimationSelectionItem existing && existing.clipOwner == clipOwner)
+            {
+                existing.Synchronize();
+                newSelection = existing;
+                return true;
+            }
+
+            var item = VisualElementAnimationSelectionItem.Create(window, panelRenderer, clipOwner, uiClip);
+            // Create seeds only the active clip; Synchronize fills in the element's full clip list for the dropdown.
+            item.Synchronize();
+            newSelection = item;
+            return true;
+        }
+
+        static bool TryEditStyleRule(AnimationWindow window, StyleRule rule, out IAnimationWindowSelectionItem newSelection)
+        {
+            newSelection = null;
+
+            if (rule == null || rule.styleSheet == null)
+                return false;
+
+            // Reuse the existing selection when it targets the same rule so the controller's preview
+            // state is preserved across the ControllerChanged refresh; Synchronize picks up the
+            // current resolved clip if it changed under us.
+            if (window.selection is StyleRuleAnimationSelectionItem existing && ReferenceEquals(existing.rule, rule))
+            {
+                existing.Synchronize();
+                newSelection = existing;
+                return true;
+            }
+
+            newSelection = StyleRuleAnimationSelectionItem.Create(window, rule.styleSheet, rule);
+            return true;
+        }
+
+        static bool TryEditPanelRoot(AnimationWindow window, IPanelComponent panelComponent, out IAnimationWindowSelectionItem newSelection)
+        {
+            newSelection = null;
+
+            if (panelComponent == null)
+                return false;
+
+            var gameObject = panelComponent.gameObject;
+            if (gameObject == null)
+                return false;
+
+            var animationPlayer = AnimationWindowSelectionItem.GetClosestAnimationPlayerComponentInParents(gameObject.transform);
+            if (animationPlayer == null)
+                return false;
+
+            if (ShouldUpdateSelection(window.selection, animationPlayer))
+            {
+                newSelection = GameObjectSelectionItem.Create(window, gameObject);
+                return true;
+            }
+
+            newSelection = window.selection;
+            return true;
+        }
+
+        static bool ShouldUpdateSelection(IAnimationWindowSelectionItem selection, Component animationPlayer)
+        {
+            if (selection is not GameObjectSelectionItem)
+                return true;
+
+            if (animationPlayer != selection.animationPlayer)
+                return true;
+
+            if (selection.clip == null)
+                return true;
+
+            if (selection.rootGameObject != null)
+            {
+                var allClips = selection.GetClips();
+                foreach (var x in allClips)
+                {
+                    if (x != null && x == selection.clip)
+                        return true;
+                }
+            }
+
+            return false;
+        }
+    }
+}

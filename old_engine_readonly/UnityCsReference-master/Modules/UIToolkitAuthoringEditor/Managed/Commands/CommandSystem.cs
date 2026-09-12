@@ -1,0 +1,435 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+using System;
+using System.Collections.Generic;
+using UnityEditor;
+using UnityEngine;
+using UnityEngine.Assertions;
+using UnityEngine.Bindings;
+using UnityEngine.Pool;
+using UnityEngine.UIElements;
+
+namespace Unity.UIToolkit.Editor;
+
+/// <summary>
+/// Manages command execution, handler registration, and command grouping.
+/// Supports handler registration on specific command types or category-based handler registration
+/// for grouping commands by functionality without reflection overhead.
+/// Commands are always executed immediately when enqueued. Command groups provide undo scoping:
+/// they deduplicate undo object recording and defer dirty marking until the outermost group closes.
+/// A command executed outside of a group runs in an implicit single-command group, so group observers
+/// are notified of the modified objects even for standalone commands.
+/// </summary>
+[VisibleToOtherModules("UnityEditor.UIBuilderModule")]
+internal sealed class CommandSystem
+{
+    public delegate void CommandHandler(in CommandContext context);
+
+    public delegate void GroupBeganHandler(string undoName);
+    public delegate void GroupEndedHandler(in GroupEndedContext context);
+
+    // Pre-filtered to only include single-bit flags (excludes None and composite values)
+    static readonly CommandCategory[] s_IndividualFlags = BuildIndividualFlags();
+
+    readonly Dictionary<Type, List<CommandHandler>> m_Handlers = new();
+    readonly Dictionary<CommandCategory, List<CommandHandler>> m_CategoryHandlers = new();
+
+    HashSet<UnityEngine.Object> m_ActiveGroupUndoObjects;
+    string m_OutermostGroupUndoName;
+    int m_CommandGroupDepth;
+
+    /// <summary>
+    /// Raised when the outermost command group opens. Nested groups do not raise this event.
+    /// The undo name passed to the outermost <see cref="BeginGroup"/> / <see cref="BeginCommandGroup"/> is provided.
+    /// Listeners can use this signal to begin batching expensive operations across the group's commands.
+    /// </summary>
+    public event GroupBeganHandler GroupBegan;
+
+    /// <summary>
+    /// Raised after the outermost command group closes and dirty marking has been applied.
+    /// Nested groups do not raise this event. A <see cref="GroupEndedContext"/> is provided carrying the
+    /// outermost group's undo name and the set of objects recorded for undo across all of the group's
+    /// commands, so listeners can react to exactly which objects were modified.
+    /// Listeners can use this signal to flush any batched work started in <see cref="GroupBegan"/>.
+    /// </summary>
+    public event GroupEndedHandler GroupEnded;
+
+    const int k_MaxScopePoolSize = 4;
+    readonly Stack<CommandGroupScope> m_ScopePool = new();
+
+    /// <summary>
+    /// Registers a handler to receive command execution results for a specific command type.
+    /// The handler will only be invoked for the exact type specified. For grouping multiple command types,
+    /// use RegisterHandlerForCategory instead.
+    /// </summary>
+    /// <typeparam name="TCommand">The exact type of command to handle.</typeparam>
+    /// <param name="handler">The handler callback to invoke when the command is executed.</param>
+    /// <returns>True if the handler was registered; false if it was already registered.</returns>
+    public bool RegisterHandler<TCommand>(CommandHandler handler)
+        where TCommand : Command
+    {
+        Assert.IsNotNull(handler, "Handler cannot be null");
+
+        var commandType = typeof(TCommand);
+        if (!m_Handlers.TryGetValue(commandType, out var handlerList))
+        {
+            handlerList = new List<CommandHandler>();
+            m_Handlers[commandType] = handlerList;
+        }
+
+        if (handlerList.Contains(handler))
+            return false;
+
+        handlerList.Add(handler);
+        return true;
+    }
+
+    /// <summary>
+    /// Unregisters a previously registered handler.
+    /// </summary>
+    /// <typeparam name="TCommand">The type of command to stop handling.</typeparam>
+    /// <param name="handler">The handler callback to remove.</param>
+    /// <returns>True if the handler was removed; false if it was not registered.</returns>
+    public bool UnregisterHandler<TCommand>(CommandHandler handler)
+        where TCommand : Command
+    {
+        Assert.IsNotNull(handler, "Handler cannot be null");
+
+        var commandType = typeof(TCommand);
+        if (!m_Handlers.TryGetValue(commandType, out var handlerList))
+            return false;
+
+        if (!handlerList.Remove(handler))
+            return false;
+
+        if (handlerList.Count == 0)
+            m_Handlers.Remove(commandType);
+
+        return true;
+    }
+
+    /// <summary>
+    /// Registers a handler to receive command execution results for specific category flags.
+    /// This provides an alternative to type-based registration that avoids reflection overhead.
+    /// Commands must override the Category property to be associated with a category.
+    /// The handler will be invoked for any command whose category has ANY overlapping flags with the specified category.
+    /// If multiple flags are specified, the handler is registered once for each individual flag.
+    /// </summary>
+    /// <param name="category">The category flags to handle. Can be a combination of flags using bitwise OR.</param>
+    /// <param name="handler">The handler callback to invoke when commands with matching categories are executed.</param>
+    /// <returns>True if the handler was registered for at least one flag; false if it was already registered for all flags.</returns>
+    public bool RegisterHandlerForCategory(CommandCategory category, CommandHandler handler)
+    {
+        Assert.IsTrue(category != CommandCategory.None, "Category cannot be None");
+        Assert.IsNotNull(handler, "Handler cannot be null");
+
+        var registered = false;
+        for (var i = 0; i < s_IndividualFlags.Length; i++)
+        {
+            var flag = s_IndividualFlags[i];
+            if ((category & flag) == 0)
+                continue;
+
+            if (!m_CategoryHandlers.TryGetValue(flag, out var handlerList))
+            {
+                handlerList = new List<CommandHandler>();
+                m_CategoryHandlers[flag] = handlerList;
+            }
+
+            if (handlerList.Contains(handler))
+                continue;
+
+            handlerList.Add(handler);
+            registered = true;
+        }
+
+        return registered;
+    }
+
+    /// <summary>
+    /// Unregisters a previously registered category handler.
+    /// If multiple flags were specified during registration, the handler is removed from each individual flag.
+    /// </summary>
+    /// <param name="category">The category flags to stop handling.</param>
+    /// <param name="handler">The handler callback to remove.</param>
+    /// <returns>True if the handler was removed from at least one flag; false if it was not registered for any flag.</returns>
+    public bool UnregisterHandlerForCategory(CommandCategory category, CommandHandler handler)
+    {
+        Assert.IsTrue(category != CommandCategory.None, "Category cannot be None");
+        Assert.IsNotNull(handler, "Handler cannot be null");
+
+        var removed = false;
+        for (var i = 0; i < s_IndividualFlags.Length; i++)
+        {
+            var flag = s_IndividualFlags[i];
+            if ((category & flag) == 0)
+                continue;
+
+            if (!m_CategoryHandlers.TryGetValue(flag, out var handlerList))
+                continue;
+
+            if (!handlerList.Remove(handler))
+                continue;
+
+            if (handlerList.Count == 0)
+                m_CategoryHandlers.Remove(flag);
+
+            removed = true;
+        }
+
+        return removed;
+    }
+
+    /// <summary>
+    /// Executes a command immediately and returns the resulting <see cref="CommandContext"/>.
+    /// Commands always execute within a command group: when already inside a group, the command
+    /// participates in it; otherwise an implicit group scoped to the command's <see cref="Command.UndoName"/>
+    /// is created around this execution. This guarantees group observers (<see cref="GroupBegan"/> /
+    /// <see cref="GroupEnded"/>) are notified of the modified objects even for a single command.
+    /// The command system acquires a reference to the command for the duration of execution and releases
+    /// it afterward. The caller retains ownership and is responsible for disposing the command.
+    /// </summary>
+    /// <param name="command">The command to execute.</param>
+    /// <returns>The <see cref="CommandContext"/> describing the executed command and its final status.</returns>
+    public CommandContext Execute(Command command)
+    {
+        Assert.IsNotNull(command, "Command cannot be null");
+        command.Acquire();
+
+        if (m_CommandGroupDepth > 0)
+            return ExecuteCommandAndInvokeHandlers(command);
+
+        // Wrap standalone commands in an implicit group so group observers still receive a notification.
+        BeginCommandGroup(command.UndoName);
+        try
+        {
+            return ExecuteCommandAndInvokeHandlers(command);
+        }
+        finally
+        {
+            EndCommandGroup();
+        }
+    }
+
+    /// <summary>
+    /// Begins a new command group. Commands enqueued while the group is active will use the group's
+    /// shared undo context for deduplication. Dirty marking is deferred until the outermost group is disposed.
+    /// </summary>
+    /// <param name="undoName">The undo name for the group. For nested groups, the outermost group's name is used.</param>
+    /// <returns>An IDisposable that, when disposed, ends the command group.</returns>
+    public IDisposable BeginGroup(string undoName)
+    {
+        BeginCommandGroup(undoName);
+        var scope = m_ScopePool.Count > 0 ? m_ScopePool.Pop() : new CommandGroupScope(this);
+        scope.m_Disposed = false;
+        return scope;
+    }
+
+    /// <summary>
+    /// Begins a new command group. Commands enqueued while the group is active will use the group's
+    /// shared undo context for deduplication. Dirty marking is deferred until the outermost group closes.
+    /// </summary>
+    /// <param name="undoName">The undo name for the group. For nested groups, the outermost group's name is used.</param>
+    internal void BeginCommandGroup(string undoName)
+    {
+        Assert.IsFalse(string.IsNullOrEmpty(undoName), "Undo name is required for command groups");
+
+        var isOutermost = m_CommandGroupDepth == 0;
+        if (isOutermost)
+        {
+            if (m_ActiveGroupUndoObjects == null)
+                m_ActiveGroupUndoObjects = new HashSet<UnityEngine.Object>();
+            else
+                m_ActiveGroupUndoObjects.Clear();
+
+            m_OutermostGroupUndoName = undoName;
+        }
+
+        m_CommandGroupDepth++;
+
+        if (isOutermost)
+            GroupBegan?.Invoke(undoName);
+    }
+
+    /// <summary>
+    /// Ends the current command group. When the outermost group closes, all tracked objects are marked dirty.
+    /// </summary>
+    internal void EndCommandGroup()
+    {
+        Assert.IsTrue(m_CommandGroupDepth > 0, "EndCommandGroup called without a matching BeginCommandGroup");
+
+        m_CommandGroupDepth--;
+
+        if (m_CommandGroupDepth != 0)
+            return;
+
+        // Detach the group's undo set before running anything that can execute user code. The depth is already
+        // back to 0, so both the dirty marking below (MarkVisualTreeAssetAsChanged pumps every panel's live
+        // reload system) and the GroupEnded observers (which may execute a nested command) can re-enter
+        // BeginCommandGroup — which would Clear() the very set we are iterating and about to hand out.
+        var undoObjects = m_ActiveGroupUndoObjects;
+        m_ActiveGroupUndoObjects = null;
+
+        var outermostUndoName = m_OutermostGroupUndoName;
+        m_OutermostGroupUndoName = null;
+
+        if (undoObjects is { Count: > 0 })
+        {
+            foreach (var obj in undoObjects)
+                SetDirty(obj);
+        }
+
+        // Notify observers with the objects modified across the whole group before releasing the set.
+        var groupEndedContext = new GroupEndedContext(outermostUndoName, undoObjects);
+        GroupEnded?.Invoke(in groupEndedContext);
+
+        // Recycle the set for the next outermost group, unless a re-entrant group already installed its own.
+        if (m_ActiveGroupUndoObjects == null)
+        {
+            undoObjects?.Clear();
+            m_ActiveGroupUndoObjects = undoObjects;
+        }
+    }
+
+    CommandContext ExecuteCommandAndInvokeHandlers(Command command)
+    {
+        if (!command.Validate())
+        {
+            var failedContext = new CommandContext(command, command.Source, CommandExecutionStatus.ValidationFailed);
+            try
+            {
+                InvokeHandlers(command, failedContext);
+            }
+            finally
+            {
+                command.Release();
+            }
+            return failedContext;
+        }
+
+        // Execute always runs inside a command group (an implicit one is created for standalone commands),
+        // so the group's shared undo set is used for deduplication and dirty marking is deferred to
+        // EndCommandGroup.
+        try
+        {
+            var prepareContext = new PrepareContext(m_ActiveGroupUndoObjects, m_OutermostGroupUndoName);
+            command.Prepare(in prepareContext);
+
+            CommandExecutionStatus status;
+            try
+            {
+                status = command.Execute();
+            }
+            catch (Exception ex)
+            {
+                Debug.LogException(ex);
+                status = CommandExecutionStatus.ExecutionFailed;
+            }
+
+            var context = new CommandContext(command, command.Source, status);
+            InvokeHandlers(command, context);
+            return context;
+        }
+        finally
+        {
+            command.Release();
+        }
+    }
+
+    void InvokeHandlers(Command command, CommandContext context)
+    {
+        using var snapshotHandle = ListPool<CommandHandler>.Get(out var handlerSnapshot);
+
+        var commandCategory = command.Category;
+        HashSet<CommandHandler> invokedHandlers = null;
+
+        try
+        {
+            if (commandCategory != CommandCategory.None)
+            {
+                for (var i = 0; i < s_IndividualFlags.Length; i++)
+                {
+                    var flag = s_IndividualFlags[i];
+                    if ((commandCategory & flag) == 0)
+                        continue;
+
+                    if (!m_CategoryHandlers.TryGetValue(flag, out var handlerList))
+                        continue;
+
+                    invokedHandlers ??= HashSetPool<CommandHandler>.Get();
+                    handlerSnapshot.AddRange(handlerList);
+                    for (var j = 0; j < handlerSnapshot.Count; j++)
+                    {
+                        var categoryHandler = handlerSnapshot[j];
+                        if (invokedHandlers.Add(categoryHandler))
+                            categoryHandler.Invoke(in context);
+                    }
+
+                    handlerSnapshot.Clear();
+                }
+            }
+
+            var commandType = command.GetType();
+            if (!m_Handlers.TryGetValue(commandType, out var typeHandlerList))
+                return;
+
+            handlerSnapshot.AddRange(typeHandlerList);
+            for (var i = 0; i < handlerSnapshot.Count; i++)
+            {
+                var typeHandler = handlerSnapshot[i];
+                if (invokedHandlers == null || invokedHandlers.Add(typeHandler))
+                    typeHandler.Invoke(in context);
+            }
+        }
+        finally
+        {
+            if (invokedHandlers != null)
+                HashSetPool<CommandHandler>.Release(invokedHandlers);
+        }
+    }
+
+    static void SetDirty(UnityEngine.Object obj)
+    {
+        if (obj == null)
+            return;
+
+        EditorUtility.SetDirty(obj);
+        switch (obj)
+        {
+            case VisualTreeAsset vta:
+                UIElementsUtility.MarkVisualTreeAssetAsChanged(vta);
+                break;
+            case StyleSheet ss:
+                UIElementsUtility.MarkStyleSheetAsChanged(ss);
+                break;
+        }
+    }
+
+    static CommandCategory[] BuildIndividualFlags()
+    {
+        var allValues = (CommandCategory[])Enum.GetValues(typeof(CommandCategory));
+        var flags = new List<CommandCategory>();
+        for (var i = 0; i < allValues.Length; i++)
+        {
+            var value = (int)allValues[i];
+            if (value > 0 && (value & (value - 1)) == 0)
+                flags.Add(allValues[i]);
+        }
+        return flags.ToArray();
+    }
+
+    sealed class CommandGroupScope(CommandSystem commandSystem) : IDisposable
+    {
+        internal bool m_Disposed;
+        public void Dispose()
+        {
+            if (m_Disposed) return;
+            m_Disposed = true;
+            commandSystem.EndCommandGroup();
+            if (commandSystem.m_ScopePool.Count < k_MaxScopePoolSize)
+                commandSystem.m_ScopePool.Push(this);
+        }
+    }
+}

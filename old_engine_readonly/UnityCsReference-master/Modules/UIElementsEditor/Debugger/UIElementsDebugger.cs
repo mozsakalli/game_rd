@@ -1,0 +1,1674 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+#pragma warning disable UAL0015,UAL0018,UAL0019,UAL0020,UAL0021 // AutoStaticsCleanup usage analysis: UIToolkitFramework not yet converted
+using System;
+using System.Collections.Generic;
+using System.Text;
+using UnityEditor.ShortcutManagement;
+using UnityEditor.UIElements.Text;
+using UnityEngine;
+using UnityEngine.UIElements;
+using UnityEngine.UIElements.Layout;
+using UnityEngine.UIElements.UIR;
+using static UnityEngine.UIElements.DragEventsProcessor;
+using TextElement = UnityEngine.UIElements.TextElement;
+
+namespace UnityEditor.UIElements.Debugger
+{
+    internal class DebuggerSelection
+    {
+        private VisualElement m_Element;
+        private IPanelDebug m_PanelDebug;
+
+        public VisualElement element
+        {
+            get { return m_Element; }
+            set
+            {
+                if (m_Element != value)
+                {
+                    m_Element = value;
+                    onSelectedElementChanged.Invoke(m_Element);
+                }
+            }
+        }
+
+        public IPanelDebug panelDebug
+        {
+            get { return m_PanelDebug; }
+            set
+            {
+                if (m_PanelDebug != value)
+                {
+                    m_PanelDebug = value;
+                    m_Element = null;
+                    onSelectedElementChanged.Invoke(null);
+                    onPanelDebugChanged.Invoke(m_PanelDebug);
+                }
+            }
+        }
+
+        public IPanel panel
+        {
+            get { return panelDebug?.panel; }
+        }
+
+        public VisualElement visualTree
+        {
+            get { return panel?.visualTree; }
+        }
+
+        public Action<IPanelDebug> onPanelDebugChanged;
+        public Action<VisualElement> onSelectedElementChanged;
+    }
+
+    [Serializable]
+    internal class DebuggerContext
+    {
+        [SerializeField]
+        private int m_SelectedElementIndex = -1;
+        private bool m_PickElement = false;
+
+        [SerializeField]
+        private bool m_ShowLayoutBound = false;
+
+        [SerializeField]
+        private bool m_ShowRepaintOverlay = false;
+
+
+        [SerializeField]
+        private bool m_BreakBatches = false;
+
+        [SerializeField]
+        private bool m_ShowWireframe = false;
+
+        [SerializeField]
+        private bool m_ShowTextureAtlasViewer = false;
+
+        [SerializeField]
+        private TextInfoOverlay.DisplayOption m_ShowTextMetrics = TextInfoOverlay.DisplayOption.None;
+
+
+
+        public DebuggerSelection selection { get; } = new DebuggerSelection();
+        public VisualElement selectedElement => selection.element;
+        public IPanelDebug panelDebug => selection.panelDebug;
+
+        public event Action onStateChange;
+
+        public int selectedElementIndex
+        {
+            get { return m_SelectedElementIndex; }
+            set
+            {
+                if (m_SelectedElementIndex == value)
+                    return;
+                m_SelectedElementIndex = value;
+                onStateChange?.Invoke();
+            }
+        }
+
+        public bool pickElement
+        {
+            get { return m_PickElement; }
+            set
+            {
+                if (m_PickElement == value)
+                    return;
+                m_PickElement = value;
+                onStateChange?.Invoke();
+            }
+        }
+
+        public bool showLayoutBound
+        {
+            get { return m_ShowLayoutBound; }
+            set
+            {
+                if (m_ShowLayoutBound == value)
+                    return;
+                m_ShowLayoutBound = value;
+                onStateChange?.Invoke();
+            }
+        }
+
+        public bool showRepaintOverlay
+        {
+            get { return m_ShowRepaintOverlay; }
+            set
+            {
+                if (m_ShowRepaintOverlay == value)
+                    return;
+                m_ShowRepaintOverlay = value;
+                onStateChange?.Invoke();
+            }
+        }
+
+        public bool breakBatches
+        {
+            get { return m_BreakBatches; }
+            set
+            {
+                if (m_BreakBatches == value)
+                    return;
+                m_BreakBatches = value;
+                onStateChange?.Invoke();
+            }
+        }
+
+        public bool showWireframe
+        {
+            get { return m_ShowWireframe; }
+            set
+            {
+                if (m_ShowWireframe == value)
+                    return;
+                m_ShowWireframe = value;
+                onStateChange?.Invoke();
+            }
+        }
+
+        public bool showTextureAtlasViewer
+        {
+            get { return m_ShowTextureAtlasViewer; }
+            set
+            {
+                if (m_ShowTextureAtlasViewer == value)
+                    return;
+                m_ShowTextureAtlasViewer = value;
+                onStateChange?.Invoke();
+            }
+        }
+
+        public TextInfoOverlay.DisplayOption showTextMetrics
+        {
+            get { return m_ShowTextMetrics; }
+            set
+            {
+                if (m_ShowTextMetrics == value)
+                    return;
+                m_ShowTextMetrics = value;
+                onStateChange?.Invoke();
+            }
+        }
+    }
+
+    internal class UIElementsDebugger : EditorWindow, IHasCustomMenu
+    {
+        #pragma warning disable UAL0015 // this side effect does not outlive the current call (global trigger / lazily-loaded asset re-fetched on next access); a stale reference is harmlessly replaced
+        internal UIElementsDebugger() { }
+        #pragma warning restore UAL0015
+
+        public const string k_WindowPath = "Window/UI Toolkit/Debugger";
+        public static readonly string WindowName = L10n.Tr("UI Toolkit Debugger", null);
+        public static readonly string OpenWindowCommand = nameof(OpenUIElementsDebugger);
+
+        [SerializeField]
+        private UIElementsDebuggerImpl m_DebuggerImpl;
+
+        // Used in tests.
+        internal UIElementsDebuggerImpl debuggerImpl => m_DebuggerImpl;
+
+        [SerializeField]
+        private DebuggerContext m_DebuggerContext;
+
+        // Used in tests.
+        internal DebuggerContext debuggerContext => m_DebuggerContext;
+
+        [MenuItem(k_WindowPath, false, 3010, false, secondaryPriority = 3)]
+        [MenuItem("Window/Analysis/UI Toolkit Debugger", false, 12)]
+        private static void OpenUIElementsDebugger()
+        {
+            if (CommandService.Exists(OpenWindowCommand))
+                CommandService.Execute(OpenWindowCommand, CommandHint.Menu);
+            else
+            {
+                OpenAndInspectWindow(null);
+            }
+        }
+
+        [Shortcut(k_WindowPath, KeyCode.F5, ShortcutModifiers.Action)]
+        private static void DebugWindowShortcut()
+        {
+            if (CommandService.Exists(OpenWindowCommand))
+                CommandService.Execute(OpenWindowCommand, CommandHint.Shortcut, EditorWindow.focusedWindow);
+            else
+            {
+                OpenAndInspectWindow(EditorWindow.focusedWindow);
+            }
+        }
+
+        public static void OpenAndInspectWindow(EditorWindow window)
+        {
+            var debuggerWindow = CreateDebuggerWindow();
+            debuggerWindow.Show();
+
+            if (TextureAtlasViewer.UIElementsDebugger == null)
+            {
+                TextureAtlasViewer.UIElementsDebugger = debuggerWindow;
+            }
+
+            debuggerWindow.ScheduleWindowToDebug(window);
+        }
+
+        private static UIElementsDebugger CreateDebuggerWindow()
+        {
+            var window = CreateInstance<UIElementsDebugger>();
+            window.titleContent = EditorGUIUtility.TextContent(WindowName);
+            return window;
+        }
+
+        EditorWindow editorWindowScheduledToBeDebugged;
+        private void ScheduleWindowToDebug(EditorWindow window)
+        {
+            if (window == null)
+                return;
+
+            if (m_DebuggerImpl == null)
+            {
+                //Before CreateGUI, defer the callback registration
+                editorWindowScheduledToBeDebugged = window;
+            }
+            else
+            {
+                m_DebuggerImpl.ScheduleWindowToDebug(window);
+            }
+        }
+
+        public void OnEnable()
+        {
+            if (m_DebuggerContext == null)
+                m_DebuggerContext = new DebuggerContext();
+        }
+
+        public void CreateGUI()
+        {
+            if (m_DebuggerImpl == null)
+                m_DebuggerImpl = new UIElementsDebuggerImpl();
+
+            m_DebuggerImpl.Initialize(this, rootVisualElement, m_DebuggerContext);
+
+            if(editorWindowScheduledToBeDebugged)
+                m_DebuggerImpl.ScheduleWindowToDebug(editorWindowScheduledToBeDebugged);
+        }
+
+        public void OnDisable()
+        {
+            m_DebuggerImpl.OnDisable();
+        }
+
+        public void OnFocus()
+        {
+            m_DebuggerImpl.OnFocus();
+        }
+
+        protected internal void ScrollToSelection()
+        {
+            m_DebuggerImpl.ScrollToSelection();
+        }
+
+        void IHasCustomMenu.AddItemsToMenu(GenericMenu menu)
+        {
+            menu.AddItem(EditorGUIUtility.TrTextContent("Enable Low Level Debugger"), UIToolkitProjectSettings.EnableLowLevelDebugger, () =>
+            {
+                UIToolkitProjectSettings.EnableLowLevelDebugger = !UIToolkitProjectSettings.EnableLowLevelDebugger;
+            });
+        }
+    }
+
+    [Serializable]
+    internal class UIElementsDebuggerImpl : PanelDebugger, IGlobalPanelDebugger
+    {
+        const string k_DefaultStyleSheetPath = "UIPackageResources/StyleSheets/UIElementsDebugger/UIElementsDebugger.uss";
+        const string k_DefaultDarkStyleSheetPath = "UIPackageResources/StyleSheets/UIElementsDebugger/UIElementsDebuggerDark.uss";
+        const string k_DefaultLightStyleSheetPath = "UIPackageResources/StyleSheets/UIElementsDebugger/UIElementsDebuggerLight.uss";
+
+        private VisualElement m_Root;
+        private ToolbarToggle m_PickToggle;
+        private ToolbarToggle m_ShowLayoutToggle;
+        private ToolbarToggle m_RepaintOverlayToggle;
+        private ToolbarToggle m_BreakBatchesToggle;
+        private ToolbarToggle m_ShowWireframeToggle;
+        private ToolbarButton m_TextureAtlasViewerButton;
+        private ToolbarButton m_CaptureElementButton;
+        private EnumField m_ShowTextMetrics;
+
+        private DebuggerTreeView m_TreeViewContainer;
+        private StylesDebugger m_StylesDebuggerContainer;
+        ScrollView m_ScrollView;
+
+        private DebuggerContext m_Context;
+        private RepaintOverlayPainter m_RepaintOverlay;
+        private HighlightOverlayPainter m_PickOverlay;
+        private LayoutOverlayPainter m_LayoutOverlay;
+        private WireframeOverlayPainter m_WireframeOverlay;
+        private TextInfoOverlay m_TextInfoOverlay;
+
+        public void Initialize(EditorWindow debuggerWindow, VisualElement root, DebuggerContext context)
+        {
+            base.Initialize(debuggerWindow);
+
+            m_Root = root;
+            m_Context = context;
+            m_Context.onStateChange += OnContextChange;
+
+            m_Root.disablePlayModeTint = true;
+            var sheet = EditorGUIUtility.Load(k_DefaultStyleSheetPath) as StyleSheet;
+            m_Root.styleSheets.Add(sheet);
+
+            StyleSheet colorSheet;
+            if (EditorGUIUtility.isProSkin)
+                colorSheet = EditorGUIUtility.Load(k_DefaultDarkStyleSheetPath) as StyleSheet;
+            else
+                colorSheet = EditorGUIUtility.Load(k_DefaultLightStyleSheetPath) as StyleSheet;
+
+            m_Root.styleSheets.Add(colorSheet);
+
+            m_Root.Add(m_Toolbar);
+
+            m_PickToggle = new ToolbarToggle { name = "pickToggle" };
+            m_PickToggle.text = "Pick Element";
+            m_PickToggle.RegisterValueChangedCallback(e =>
+            {
+                m_Context.pickElement = e.newValue;
+
+                // On OSX, as focus-follow-mouse is not supported,
+                // we explicitly focus the EditorWindow when enabling picking
+                if (Application.platform == RuntimePlatform.OSXEditor)
+                {
+                    Panel p = m_Context.selection.panel as Panel;
+                    if (p != null)
+                    {
+                        TryFocusCorrespondingWindow(p.ownerObject);
+                    }
+                    else
+                    {
+                        List<Panel> panels = GetPanels();
+
+                        if (panels.Count > 0)
+                        {
+                            TryFocusCorrespondingWindow(panels[0].ownerObject);
+                        }
+                    }
+                }
+            });
+
+            m_Toolbar.Add(m_PickToggle);
+
+            m_ShowLayoutToggle = new ToolbarToggle { name = "layoutToggle" };
+            m_ShowLayoutToggle.text = "Show Layout";
+            m_ShowLayoutToggle.RegisterValueChangedCallback(e => { m_Context.showLayoutBound = e.newValue; });
+
+            m_Toolbar.Add(m_ShowLayoutToggle);
+
+            m_ShowTextMetrics = new EnumField { name = "showTextMetrics" };
+            m_ShowTextMetrics.Q<TextElement>().text = "Text Overlays";
+
+            // Update USS classes so it looks like other ToolbarToggles
+            m_ShowTextMetrics.AddToClassList(ToolbarToggle.ussClassName);
+            m_ShowTextMetrics.Q<VisualElement>(classes: EnumField.inputUssClassName).AddToClassList(Toggle.inputUssClassName);
+            m_ShowTextMetrics.Q<VisualElement>(classes: EnumField.inputUssClassName).RemoveFromClassList(EnumField.inputUssClassName);
+            m_ShowTextMetrics.Q<TextElement>().RemoveFromClassList(EnumField.textUssClassName);
+            m_ShowTextMetrics.Q<TextElement>().AddToClassList(Toggle.textUssClassName);
+            m_ShowTextMetrics.Init(TextInfoOverlay.DisplayOption.None);
+            m_ShowTextMetrics.Q<TextElement>().text = "Text Overlays";
+
+            m_ShowTextMetrics.RegisterValueChangedCallback(e =>
+            {
+                m_Context.showTextMetrics = (TextInfoOverlay.DisplayOption)e.newValue;
+                m_TextInfoOverlay.displayOption = (TextInfoOverlay.DisplayOption)e.newValue;
+                m_ShowTextMetrics.Q<TextElement>().text = "Text Overlays";
+            });
+            m_Toolbar.Add(m_ShowTextMetrics);
+
+            if (Unsupported.IsDeveloperMode())
+            {
+                m_RepaintOverlayToggle = new ToolbarToggle { name = "repaintOverlayToggle", text = "Repaint Overlay" };
+                m_RepaintOverlayToggle.RegisterValueChangedCallback(e => m_Context.showRepaintOverlay = e.newValue);
+                m_Toolbar.Add(m_RepaintOverlayToggle);
+            }
+
+            if (Unsupported.IsDeveloperMode())
+            {
+                m_BreakBatchesToggle = new ToolbarToggle { name = "breakBatchesToggle", text = "Break Batches", tooltip = "Useful when taking captures with RenderDoc" };
+                m_BreakBatchesToggle.RegisterValueChangedCallback(e => { m_Context.breakBatches = e.newValue; });
+                m_Toolbar.Add(m_BreakBatchesToggle);
+            }
+
+            if (Unsupported.IsDeveloperBuild())
+            {
+                m_ShowWireframeToggle = new ToolbarToggle { name = "showWireframeToggle", text = "Show Wireframe" };
+                m_ShowWireframeToggle.RegisterValueChangedCallback(e => { m_Context.showWireframe = e.newValue; });
+                m_Toolbar.Add(m_ShowWireframeToggle);
+            }
+
+            m_TextureAtlasViewerButton = new ToolbarButton { name = "textureAtlasViewerButton", text = "Texture Atlas Viewer" };
+            m_TextureAtlasViewerButton.clicked += () => { TextureAtlasViewerWindow.ShowWindow(); };
+            m_TextureAtlasViewerButton.style.flexShrink = 0;
+            m_Toolbar.Add(m_TextureAtlasViewerButton);
+
+            m_CaptureElementButton = new ToolbarButton { name = "captureElementButton", text = "Capture to PNG" };
+            m_CaptureElementButton.clicked += CaptureSelectedElement;
+            m_CaptureElementButton.style.flexShrink = 0;
+            m_Toolbar.Add(m_CaptureElementButton);
+
+            var splitter = new TwoPaneSplitView(0, 300, TwoPaneSplitViewOrientation.Horizontal);
+            m_Root.Add(splitter);
+
+            m_TreeViewContainer = new DebuggerTreeView(m_Context.selection, SelectElement);
+            splitter.Add(m_TreeViewContainer);
+
+
+
+            m_ScrollView = new ScrollView();
+            m_ScrollView.Add(m_StylesDebuggerContainer = new StylesDebugger(m_Context.selection));
+
+            m_ScrollView.Add(new TextDebugger(m_Context.selection));
+            m_ScrollView.Add(new LayoutDebuggerTab(m_Context.selection));
+            m_ScrollView.Add(new LayoutDiagnosticsTab(m_Context.selection));
+            m_ScrollView.Add(new RenderDataDebuggerTab(m_Context.selection));
+            m_ScrollView.Add(new PanelTab(m_Context.selection, ()=>GetRepaintUpdater(context.selection.panel) ));
+
+            splitter.Add(m_ScrollView);
+
+
+            DebuggerEventDispatchUtilities.s_GlobalPanelDebug = this;
+
+            m_RepaintOverlay = new RepaintOverlayPainter();
+            m_PickOverlay = new HighlightOverlayPainter();
+            m_LayoutOverlay = new LayoutOverlayPainter();
+            m_WireframeOverlay = new WireframeOverlayPainter();
+            m_TextInfoOverlay = new TextInfoOverlay(m_Context.selection);
+
+            OnContextChange();
+
+            EditorApplication.update += EditorUpdate;
+
+            UIToolkitProjectSettings.onEnableLowLevelDebuggerChanged += (_) =>Refresh();
+        }
+
+        internal abstract class DebuggerFoldout : Foldout
+        {
+            DebuggerSelection m_DebuggerSelection;
+            protected VisualElement m_SelectedElement;
+            private readonly bool m_IsLowLevel;
+
+
+            public DebuggerFoldout(string name, DebuggerSelection debuggerSelection, bool isLowLevel) :base()
+            {
+                text = name;
+                viewDataKey = name;
+                m_IsLowLevel = isLowLevel;
+
+                m_DebuggerSelection = debuggerSelection;
+
+                m_DebuggerSelection.onSelectedElementChanged += element => selectedElement = element;
+                selectedElement = m_DebuggerSelection.element;
+
+                // Only react to this foldout's own expansion. ChangeEvent<bool> bubbles, so a
+                // nested Toggle/Foldout in the content (e.g. the group/details foldouts built by
+                // LayoutDiagnosticsTab) would otherwise reach this callback, trigger a full Refresh()
+                // that rebuilds the content, and immediately collapse the child the user just clicked.
+                this.RegisterValueChangedCallback(e => { if (e.target == this) RefreshIfNeeded(); });
+                this.value = false;
+                UpdateVisiblity();
+            }
+
+            protected VisualElement selectedElement
+            {
+                get
+                {
+                    return m_SelectedElement;
+                }
+                set
+                {
+                    if (m_SelectedElement == value)
+                        return;
+
+
+                    m_SelectedElement = value;
+                    this.RefreshIfNeeded();
+                }
+            }
+
+            public void RefreshIfNeeded()
+            {
+                if (IsActive())
+                    Refresh();
+            }
+
+            bool IsActive()
+            {
+                UpdateVisiblity();
+                return value && style.display != DisplayStyle.None;
+            }
+
+            protected virtual void UpdateVisiblity()
+            {
+                style.display = (m_SelectedElement != null) && (!m_IsLowLevel || UIToolkitProjectSettings.EnableLowLevelDebugger) ? DisplayStyle.Flex : DisplayStyle.None;
+            }
+
+            protected abstract void Refresh();
+        }
+
+        internal class LayoutDebuggerTab : DebuggerFoldout
+        {
+            TextField m_layout;
+            TextField m_isManual;
+            TextField m_cache;
+            Button m_ClearMeasurementCacheButton;
+
+            public LayoutDebuggerTab(DebuggerSelection debuggerSelection) : base("Layout", debuggerSelection, true)
+            {
+                Add(m_layout = new TextField("Layout") { isReadOnly = true, multiline = true });
+                Add(m_isManual = new TextField("Is Manual") { isReadOnly = true });
+                Add(m_cache = new TextField("Cache") { isReadOnly = true, multiline = true });
+                Add(m_ClearMeasurementCacheButton = new Button(OnClearMeasurementCacheClicked) { text = "Clear Measurement Cache" });
+            }
+
+            void OnClearMeasurementCacheClicked()
+            {
+                if (selectedElement == null || selectedElement.layoutNode.IsUndefined)
+                    return;
+                selectedElement.layoutNode.Cache.ClearCachedMeasurements();
+                selectedElement.layoutNode.MarkDirty();
+                Refresh();
+            }
+
+            protected override void Refresh()
+            {
+                var canClearCache = selectedElement != null && !selectedElement.layoutNode.IsUndefined;
+                m_ClearMeasurementCacheButton.SetEnabled(canClearCache);
+
+                if (selectedElement == null)
+                {
+                    m_layout.text = "No Element selected";
+                    m_isManual.text = "";
+                    m_cache.text = "";
+                }
+                else
+                {
+                    unsafe
+                    {
+                        var layout = selectedElement.layoutNode.Layout;
+                        m_layout.text = $"Overflow: {layout.HadOverflow}\n" +
+                                        $"ComputedFlexBasis: {layout.ComputedFlexBasis}\n" +
+                                        $"ComputedFlexBasisGeneration: {layout.ComputedFlexBasisGeneration}\n" +
+                                        $"LastPointScaleFactor: {layout.LastPointScaleFactor}\n" +
+                                        $"Measured: {layout.MeasuredDimensions[0]}, {layout.MeasuredDimensions[1]}\n";
+
+                        var cache = selectedElement.layoutNode.Cache;
+                        m_cache.text = cache.ToString();
+                    }
+
+                    m_isManual.text = $"{selectedElement.isLayoutManual}";
+
+                }
+
+            }
+        }
+
+        internal class RenderDataDebuggerTab : DebuggerFoldout
+        {
+            TextField m_ClippingRect;
+            TextField m_ClippingRectMinusGroup;
+            TextField m_ClippingRectIsInfinite;
+            TextField m_LocalFlipsWinding;
+            TextField m_WorldFlipsWinding;
+            TextField m_ClipMethod;
+            TextField m_ChildrenStencilRef;
+            TextField m_ChildrenMaskDepth;
+            public RenderDataDebuggerTab(DebuggerSelection debuggerSelection) : base("RenderData", debuggerSelection, true)
+            {
+                Add(m_ClippingRect = new("Clipping Rect") { isReadOnly = true });
+                Add(m_ClippingRectMinusGroup = new("Clipping Rect Minus Group") { isReadOnly = true });
+                Add(m_ClippingRectIsInfinite = new("Clipping Rect Is Infinite") { isReadOnly = true });
+                Add(m_LocalFlipsWinding = new("Local Flips Winding") { isReadOnly = true });
+                Add(m_WorldFlipsWinding = new("World Flips Winding") { isReadOnly = true });
+                Add(m_ClipMethod = new("Clip Method") { isReadOnly = true });
+                Add(m_ChildrenStencilRef = new("Children Stencil Ref") { isReadOnly = true });
+                Add(m_ChildrenMaskDepth = new("Children Mask Depth") { isReadOnly = true });
+            }
+
+            protected override void Refresh()
+            {
+                if (selectedElement != null &&  selectedElement.renderData != null)
+                {
+                    var data = selectedElement.renderData;
+                    m_ClippingRect.text = data.clippingRect.ToString();
+                    m_ClippingRectMinusGroup.text = data.clippingRectMinusGroup.ToString();
+                    m_ClippingRectIsInfinite.text = data.clippingRectIsInfinite.ToString();
+                    m_LocalFlipsWinding.text = data.localFlipsWinding.ToString();
+                    m_WorldFlipsWinding.text = data.worldFlipsWinding.ToString();
+                    m_ClipMethod.text = data.clipMethod.ToString();
+                    m_ChildrenStencilRef.text = data.childrenStencilRef.ToString();
+                    m_ChildrenMaskDepth.text = data.childrenMaskDepth.ToString();
+
+                }
+                else
+                {
+                    m_ClippingRect.text = "";
+                    m_ClippingRectMinusGroup.text = "";
+                    m_ClippingRectIsInfinite.text = "";
+                    m_LocalFlipsWinding.text = "";
+                    m_WorldFlipsWinding.text = "";
+                    m_ClipMethod.text = "";
+                    m_ChildrenStencilRef.text = "";
+                    m_ChildrenMaskDepth.text = "";
+                }
+
+            }
+        }
+
+        internal class PanelTab : DebuggerFoldout
+        {
+            readonly TextField nameField;
+            readonly TextField scale;
+            readonly ObjectField panelSettings;
+            readonly TextField m_totalVisualElements;
+            readonly TextField cacheSummary;
+
+
+            //For stats:
+            readonly Func<UIRRepaintUpdater> m_getRepaintUpdater;
+            readonly TextField m_ElementsAdded;
+            readonly TextField m_ElemenstsRemoved;
+            readonly TextField m_MeshAllocated;
+            readonly TextField m_MeshAllocUpdated;
+            readonly TextField m_ClipUpdateRoots;
+            readonly TextField m_ClipUpdateTotal;
+            readonly TextField m_OpacitiyUpdateRoots;
+            readonly TextField m_OpacityUpdateTotal;
+            readonly TextField m_OpacityIDUpdate;
+            readonly TextField m_XFormUpdateRoots;
+            readonly TextField m_XformUpdateTotal;
+            readonly TextField m_XformedByBone;
+            readonly TextField m_XformedBySkipping;
+            readonly TextField m_XformedByNudging;
+            readonly TextField m_XformedByRepaint;
+            readonly TextField m_VisualUpdateRoots;
+            readonly TextField m_VisualUpdateTotal;
+            readonly TextField m_VisualUpdateFlats;
+            readonly TextField m_DirtyProcesed;
+            readonly TextField m_GroupXFormUpdates;
+
+            readonly TextField m_FrameIndex;
+            readonly TextField m_CommandCount;
+            readonly TextField m_SkipCmdCounts;
+            readonly TextField m_DrawCommands;
+            readonly TextField m_DisableCommands;
+            readonly TextField m_DrawRanges;
+            readonly TextField m_DrawRangeCalls;
+            readonly TextField m_MaterialSets;
+            readonly TextField m_StencilChanges;
+            readonly TextField m_ImmediateDraws;
+            readonly TextField m_TotalTriangles;
+
+            public PanelTab(DebuggerSelection debuggerSelection, Func<UIRRepaintUpdater> getRepaintUpdater ) : base("Panel", debuggerSelection, true )
+            {
+                Add(nameField = new TextField("Owner Name") { isReadOnly = true });
+                #pragma warning disable UAL0015 // this side effect does not outlive the current call (global trigger / lazily-loaded asset re-fetched on next access); a stale reference is harmlessly replaced
+                Add(panelSettings = new ObjectField("Owner/Panel Settings") { allowSceneObjects = false});
+                #pragma warning restore UAL0015
+                Add(scale = new TextField("Scale") { isReadOnly = true });
+                Add(m_totalVisualElements = new TextField("Total Visual Elements") { isReadOnly = true });
+                Add(cacheSummary = new TextField("Cache Summary") { isReadOnly = true, multiline = true });
+
+                m_getRepaintUpdater = getRepaintUpdater;
+                Foldout RenderStatsFoldout = new Foldout(){text ="Visual Updater Statistics"};
+                RenderStatsFoldout.Add(m_ElementsAdded = new("Elements added") { isReadOnly = true });
+                RenderStatsFoldout.Add(m_ElemenstsRemoved = new("Elements removed") { isReadOnly = true });
+                RenderStatsFoldout.Add(m_MeshAllocated = new("Mesh allocs allocated") { isReadOnly = true });
+                RenderStatsFoldout.Add(m_MeshAllocUpdated = new("Mesh allocs updated") { isReadOnly = true });
+                RenderStatsFoldout.Add(m_ClipUpdateRoots = new("Clip update roots") { isReadOnly = true });
+                RenderStatsFoldout.Add(m_ClipUpdateTotal = new("Clip update total") { isReadOnly = true });
+                RenderStatsFoldout.Add(m_OpacitiyUpdateRoots = new("Opacity update roots") { isReadOnly = true });
+                RenderStatsFoldout.Add(m_OpacityUpdateTotal = new("Opacity update total") { isReadOnly = true });
+                RenderStatsFoldout.Add(m_OpacityIDUpdate = new("Opacity ID update") { isReadOnly = true });
+                RenderStatsFoldout.Add(m_XFormUpdateRoots = new("Xform update roots") { isReadOnly = true });
+                RenderStatsFoldout.Add(m_XformUpdateTotal = new("Xform update total") { isReadOnly = true });
+                RenderStatsFoldout.Add(m_XformedByBone = new("Xformed by bone") { isReadOnly = true });
+                RenderStatsFoldout.Add(m_XformedBySkipping = new("Xformed by skipping") { isReadOnly = true });
+                RenderStatsFoldout.Add(m_XformedByNudging = new("Xformed by nudging") { isReadOnly = true });
+                RenderStatsFoldout.Add(m_XformedByRepaint = new("Xformed by repaint") { isReadOnly = true });
+                RenderStatsFoldout.Add(m_VisualUpdateRoots = new("Visual update roots") { isReadOnly = true });
+                RenderStatsFoldout.Add(m_VisualUpdateTotal = new("Visual update total") { isReadOnly = true });
+                RenderStatsFoldout.Add(m_VisualUpdateFlats = new("Visual update flats") { isReadOnly = true });
+                RenderStatsFoldout.Add(m_DirtyProcesed = new("Dirty processed") { isReadOnly = true });
+                RenderStatsFoldout.Add(m_GroupXFormUpdates = new("Group-xform updates") { isReadOnly = true });
+
+                RenderStatsFoldout.Add(m_FrameIndex = new("Frame index") { isReadOnly = true });
+                RenderStatsFoldout.Add(m_CommandCount = new("Command count") { isReadOnly = true });
+                RenderStatsFoldout.Add(m_SkipCmdCounts = new("Skip cmd counts") { isReadOnly = true });
+                RenderStatsFoldout.Add(m_DrawCommands = new("Draw commands") { isReadOnly = true });
+                RenderStatsFoldout.Add(m_DisableCommands = new("Disable commands") { isReadOnly = true });
+                RenderStatsFoldout.Add(m_DrawRanges = new("Draw ranges") { isReadOnly = true });
+                RenderStatsFoldout.Add(m_DrawRangeCalls = new("Draw range calls") { isReadOnly = true });
+                RenderStatsFoldout.Add(m_MaterialSets = new("Material sets") { isReadOnly = true });
+                RenderStatsFoldout.Add(m_StencilChanges = new("Stencil changes") { isReadOnly = true });
+                RenderStatsFoldout.Add(m_ImmediateDraws = new("Immediate draws") { isReadOnly = true });
+                RenderStatsFoldout.Add(m_TotalTriangles = new("Total triangles") { isReadOnly = true });
+                Add(RenderStatsFoldout);
+            }
+
+            protected override void Refresh()
+            {
+                if (selectedElement != null)
+                {
+                    var panel = selectedElement.elementPanel;
+                    nameField.text = panel.ownerObject.name;
+                    scale.text = $" scale: { panel.scale}, pixelPerPoint {panel.pixelsPerPoint}, scaledPixelPerPoint {panel.scaledPixelsPerPoint}";
+                    panelSettings.value = panel.ownerObject;
+                    m_totalVisualElements.text = $" { panel.visualTree.Query<VisualElement>().ToList().Count.ToString()}, {panel.visualTree.Query<VisualElement>().Where(e => e.resolvedStyle.display != DisplayStyle.None).ToList().Count.ToString()} diplayNone";
+
+                    cacheSummary.text = string.Join(", ", CollectCache(panel.visualTree));
+
+                    //Stats :
+                    var treeManager = m_getRepaintUpdater().renderTreeManager;
+                    bool realDevice = treeManager.device as UIRenderDevice != null;
+                    ChainBuilderStats stats = treeManager.statsByRef;
+
+                    m_ElementsAdded.text = stats.elementsAdded.ToString();
+                    m_ElemenstsRemoved.text = stats.elementsRemoved.ToString();
+                    m_MeshAllocated.text = stats.newMeshAllocations.ToString();
+                    m_MeshAllocUpdated.text = stats.updatedMeshAllocations.ToString();
+                    m_ClipUpdateRoots.text = stats.recursiveClipUpdates.ToString();
+                    m_ClipUpdateTotal.text = stats.recursiveClipUpdatesExpanded.ToString();
+                    m_OpacitiyUpdateRoots.text = stats.recursiveOpacityUpdates.ToString();
+                    m_OpacityUpdateTotal.text = stats.recursiveOpacityUpdatesExpanded.ToString();
+                    m_OpacityIDUpdate.text = stats.opacityIdUpdates.ToString();
+                    m_XFormUpdateRoots.text = stats.recursiveTransformUpdates.ToString();
+                    m_XformUpdateTotal.text = stats.recursiveTransformUpdatesExpanded.ToString();
+                    m_XformedByBone.text = stats.boneTransformed.ToString();
+                    m_XformedBySkipping.text = stats.skipTransformed.ToString();
+                    m_XformedByNudging.text = stats.nudgeTransformed.ToString();
+                    m_XformedByRepaint.text = stats.visualUpdateTransformed.ToString();
+                    m_VisualUpdateRoots.text = stats.recursiveVisualUpdates.ToString();
+                    m_VisualUpdateTotal.text = stats.recursiveVisualUpdatesExpanded.ToString();
+                    m_VisualUpdateFlats.text = stats.nonRecursiveVisualUpdates.ToString();
+                    m_DirtyProcesed.text = stats.dirtyProcessed.ToString();
+                    m_GroupXFormUpdates.text = stats.groupTransformElementsChanged.ToString();
+
+                    if (realDevice)
+                    {
+                        var drawStats = (treeManager.device as UIRenderDevice).GatherDrawStatistics();
+                        m_FrameIndex.text = drawStats.currentFrameIndex.ToString();
+                        m_CommandCount.text = drawStats.commandCount.ToString();
+                        m_SkipCmdCounts.text = drawStats.skippedCommandCount.ToString();
+                        m_DrawCommands.text = drawStats.drawCommandCount.ToString();
+                        m_DisableCommands.text = drawStats.disableCommandCount.ToString();
+                        m_DrawRanges.text = drawStats.drawRangeCount.ToString();
+                        m_DrawRangeCalls.text = drawStats.drawRangeCallCount.ToString();
+                        m_MaterialSets.text = drawStats.materialSetCount.ToString();
+                        m_StencilChanges.text = drawStats.stencilRefChanges.ToString();
+                        m_ImmediateDraws.text = drawStats.immediateDraws.ToString();
+                        m_TotalTriangles.text = (drawStats.totalIndices / 3).ToString();
+                    }
+                    else
+                    {
+
+                        m_FrameIndex.style.display = DisplayStyle.None;
+                        m_CommandCount.style.display = DisplayStyle.None;
+                        m_SkipCmdCounts.style.display = DisplayStyle.None;
+                        m_DrawCommands.style.display = DisplayStyle.None;
+                        m_DisableCommands.style.display = DisplayStyle.None;
+                        m_DrawRanges.style.display = DisplayStyle.None;
+                        m_DrawRangeCalls.style.display = DisplayStyle.None;
+                        m_MaterialSets.style.display = DisplayStyle.None;
+                        m_StencilChanges.style.display = DisplayStyle.None;
+                        m_ImmediateDraws.style.display = DisplayStyle.None;
+                        m_TotalTriangles.style.display = DisplayStyle.None;
+                    }
+
+                }
+            }
+
+            int[] CollectCache(VisualElement element)
+            {
+                var array = new int[18];
+                element.Query<VisualElement>().ForEach((v) =>
+                {
+                    array[v.layoutNode.Cache.MeasurementCacheCount()]++;
+                });
+
+                return array;
+            }
+
+
+        }
+
+
+
+
+        internal class TextDebugger : DebuggerFoldout
+        {
+
+            TextField m_GenerationSettings;
+            ObjectField m_fontAsset;
+            ObjectField m_textSettings;
+            TextField m_CacheInfo;
+            TextField m_UnicodeResult;
+            TextField m_SizeInfo;
+            TextField m_CursorInfo;
+            TextField m_LogicalToVisualInfo;
+            Foldout m_GlyphMetricsFoldout;
+            TextField m_GlyphMetricsText;
+            Foldout m_LineInfoFoldout;
+            TextField m_LineInfoText;
+            Foldout m_WordInfoFoldout;
+            TextField m_WordInfoText;
+            Foldout m_LinkInfoFoldout;
+            TextField m_LinkInfoText;
+
+            public TextDebugger(DebuggerSelection debuggerSelection):base("Text", debuggerSelection, true)
+            {
+
+
+                Add(m_GenerationSettings = new TextField("Generation Settings") { isReadOnly = true, multiline = true });
+
+                #pragma warning disable UAL0015 // this side effect does not outlive the current call (global trigger / lazily-loaded asset re-fetched on next access); a stale reference is harmlessly replaced
+                Add(m_fontAsset = new ObjectField("Font Asset") { allowSceneObjects = false });
+                #pragma warning restore UAL0015
+
+                Add(m_textSettings = new ObjectField("Text Settings") { allowSceneObjects = false, pseudoStates = PseudoStates.Disabled });
+                Add(m_CacheInfo = new TextField("Measurement Info") { isReadOnly = true, multiline = true });
+                Add(m_UnicodeResult = new TextField("Unicode Input") { isReadOnly = true, multiline = true, style = { whiteSpace = WhiteSpace.Normal } });
+                Add(m_SizeInfo = new TextField("Size Info") { isReadOnly = true, multiline = true, style = { whiteSpace = WhiteSpace.Normal } });
+                Add(m_CursorInfo = new TextField("Cursor Info") { isReadOnly = true });
+                Add(m_LogicalToVisualInfo = new TextField("Logical ↔ Visual indices") { isReadOnly = true, multiline = true, style = { whiteSpace = WhiteSpace.Normal } });
+
+                m_GlyphMetricsFoldout = new Foldout { text = "Glyph metrics", value = false };
+                m_GlyphMetricsText = new TextField { isReadOnly = true, multiline = true, style = { whiteSpace = WhiteSpace.Normal } };
+                m_GlyphMetricsFoldout.Add(m_GlyphMetricsText);
+                m_GlyphMetricsFoldout.RegisterValueChangedCallback(evt => { if (evt.newValue) RefreshGlyphMetrics(); });
+                Add(m_GlyphMetricsFoldout);
+
+                m_LineInfoFoldout = new Foldout { text = "Line info", value = false };
+                m_LineInfoText = new TextField { isReadOnly = true, multiline = true, style = { whiteSpace = WhiteSpace.Normal } };
+                m_LineInfoFoldout.Add(m_LineInfoText);
+                m_LineInfoFoldout.RegisterValueChangedCallback(evt => { if (evt.newValue) RefreshLineInfo(); });
+                Add(m_LineInfoFoldout);
+
+                m_WordInfoFoldout = new Foldout { text = "Word info", value = false };
+                m_WordInfoText = new TextField { isReadOnly = true, multiline = true, style = { whiteSpace = WhiteSpace.Normal } };
+                m_WordInfoFoldout.Add(m_WordInfoText);
+                m_WordInfoFoldout.RegisterValueChangedCallback(evt => { if (evt.newValue) RefreshWordInfo(); });
+                Add(m_WordInfoFoldout);
+
+                m_LinkInfoFoldout = new Foldout { text = "Link info", value = false };
+                m_LinkInfoText = new TextField { isReadOnly = true, multiline = true, style = { whiteSpace = WhiteSpace.Normal } };
+                m_LinkInfoFoldout.Add(m_LinkInfoText);
+                m_LinkInfoFoldout.RegisterValueChangedCallback(evt => { if (evt.newValue) RefreshLinkInfo(); });
+                Add(m_LinkInfoFoldout);
+            }
+
+            void RefreshGlyphMetrics()
+            {
+                var textElement = m_SelectedElement as TextElement;
+                if (textElement == null)
+                {
+                    m_GlyphMetricsText.value = "";
+                    return;
+                }
+                var handle = textElement.uitkTextHandle;
+                m_GlyphMetricsText.value = BuildGlyphMetricsString(handle);
+            }
+
+            void RefreshLineInfo()
+            {
+                var textElement = m_SelectedElement as TextElement;
+                if (textElement == null)
+                {
+                    m_LineInfoText.value = "";
+                    return;
+                }
+                m_LineInfoText.value = BuildLineInfoString(textElement.uitkTextHandle);
+            }
+
+            void RefreshWordInfo()
+            {
+                var textElement = m_SelectedElement as TextElement;
+                if (textElement == null)
+                {
+                    m_WordInfoText.value = "";
+                    return;
+                }
+                m_WordInfoText.value = BuildWordInfoString(textElement.uitkTextHandle);
+            }
+
+            void RefreshLinkInfo()
+            {
+                var textElement = m_SelectedElement as TextElement;
+                if (textElement == null)
+                {
+                    m_LinkInfoText.value = "";
+                    return;
+                }
+                m_LinkInfoText.value = BuildLinkInfoString(textElement.uitkTextHandle);
+            }
+
+
+            protected override void Refresh()
+            {
+
+                var textElement = m_SelectedElement as TextElement;
+                if (textElement == null)
+                {
+                    if (m_SelectedElement == null)
+                        m_GenerationSettings.text = "No Element selected";
+                    else if(textElement == null)
+                        m_GenerationSettings.text = "No Text Element selected";
+
+                    m_fontAsset.value = null;
+                    m_textSettings.value = null;
+                    m_CacheInfo.text = null;
+                    m_UnicodeResult.text = null;
+                    m_SizeInfo.text = null;
+                    m_LogicalToVisualInfo.text = null;
+                    m_GlyphMetricsText.value = "";
+                    m_LineInfoText.value = "";
+                    m_WordInfoText.value = "";
+                    m_LinkInfoText.value = "";
+                }
+                else if (textElement.uitkTextHandle.IsAdvancedTextEnabledForElement())
+                {
+                    var handle = textElement.uitkTextHandle;
+                    if (handle.ConvertUssToNativeTextGenerationSettings())
+                    {
+                        var settings = handle.nativeSettings;
+                        m_GenerationSettings.text = settings.ToString();
+                    }
+                    else
+                    {
+                        m_GenerationSettings.text = "Failed to get Text Generation Settings";
+                    }
+
+                    var textSettings = TextUtilities.GetTextSettingsFrom(textElement);
+                    m_fontAsset.value = textElement.cachedFontAsset ?? textSettings?.GetFontAsset();
+                    m_textSettings.value = textSettings;
+                    m_CacheInfo.text = handle.ATGMeasuredWidth.HasValue ? $"Measured:{handle.ATGMeasuredWidth} Rounded:{handle.ATGRoundedWidth} PixelPerPoint:{handle.LastPixelPerPoint}" : "No cache";
+                    m_UnicodeResult.text = StringToHex(textElement.text);
+                    m_SizeInfo.text = $"input:{textElement.text.Length} chars:{handle.GetTextElementCount()} glyphs:{handle.GetGlyphCount()}";
+                    m_CursorInfo.text = textElement.isSelectable ? $"Cursor:{textElement.selectingManipulator.cursorIndex} Selection:{textElement.selectingManipulator.selectIndex}" : "Not Selectable";
+                    m_LogicalToVisualInfo.text = BuildLogicalToVisualMapping(handle);
+                    if (m_GlyphMetricsFoldout.value)
+                        RefreshGlyphMetrics();
+                    if (m_LineInfoFoldout.value)
+                        RefreshLineInfo();
+                    if (m_WordInfoFoldout.value)
+                        RefreshWordInfo();
+                    if (m_LinkInfoFoldout.value)
+                        RefreshLinkInfo();
+                }
+                else
+                {
+                    var handle = textElement.uitkTextHandle;
+                    if (handle.ConvertUssToTextGenerationSettings(true))
+                    {
+                        var settings = UnityEngine.TextCore.Text.TextHandle.settings;
+                        m_GenerationSettings.text = settings.ToString();
+
+                        m_fontAsset.value = settings.fontAsset;
+                        m_textSettings.value = settings.textSettings;
+
+                    }
+                    else
+                    {
+                        m_GenerationSettings.text = "Failed to get Text Generation Settings";
+                        m_fontAsset.value = null;
+                        m_textSettings.value = null;
+                    }
+
+                    m_CacheInfo.text = handle.MeasuredWidth.HasValue ? $"Measured:{handle.MeasuredWidth} Rounded:{handle.RoundedWidth} PixelPerPoint:{handle.LastPixelPerPoint}" : "No cache";
+
+                    m_UnicodeResult.text = StringToHex(textElement.text);
+
+                    m_SizeInfo.text = $"input:{textElement.text.Length} chars:{handle.GetTextElementCount()} glyphs:{handle.GetGlyphCount()}";
+
+                    m_CursorInfo.text = textElement.isSelectable ? $"Cursor:{textElement.selectingManipulator.cursorIndex} Selection:{textElement.selectingManipulator.selectIndex}" : "Not Selectable";
+
+                    m_LogicalToVisualInfo.text = BuildLogicalToVisualMapping(handle);
+                    if (m_GlyphMetricsFoldout.value)
+                        RefreshGlyphMetrics();
+                    if (m_LineInfoFoldout.value)
+                        RefreshLineInfo();
+                    if (m_WordInfoFoldout.value)
+                        RefreshWordInfo();
+                    if (m_LinkInfoFoldout.value)
+                        RefreshLinkInfo();
+                }
+
+            }
+
+            static string BuildLineInfoString(UITKTextHandle handle)
+            {
+                int lineCount = handle.GetLineCount();
+                if (lineCount <= 0)
+                    return "No lines.";
+                var sb = new StringBuilder();
+                for (int i = 0; i < lineCount; i++)
+                {
+                    var li = handle.GetLineInfo(i);
+                    sb.AppendFormat("Line {0}: ascender={1:F2} baseline={2:F2} descender={3:F2} extents=[{4:F2},{5:F2}]-[{6:F2},{7:F2}] firstChar={8} lastChar={9} charCount={10}",
+                        i, li.ascender, li.baseline, li.descender,
+                        li.lineExtents.min.x, li.lineExtents.min.y, li.lineExtents.max.x, li.lineExtents.max.y,
+                        li.firstCharacterIndex, li.lastCharacterIndex, li.characterCount);
+                    sb.AppendLine();
+                }
+                return sb.ToString();
+            }
+
+            static string BuildWordInfoString(UITKTextHandle handle)
+            {
+                int wordCount = handle.GetWordCount();
+                if (wordCount <= 0)
+                    return "No words.";
+                var sb = new StringBuilder();
+                for (int i = 0; i < wordCount; i++)
+                {
+                    var wi = handle.GetWordInfo(i);
+                    sb.AppendFormat("Word {0}: firstChar={1} lastChar={2} charCount={3}", i, wi.firstCharacterIndex, wi.lastCharacterIndex, wi.characterCount);
+                    sb.AppendLine();
+                }
+                return sb.ToString();
+            }
+
+            static string BuildLinkInfoString(UITKTextHandle handle)
+            {
+                int linkCount = handle.GetLinkCount();
+                if (linkCount <= 0)
+                    return "No links.";
+                var rects = handle.GetLinkRects();
+                var sb = new StringBuilder();
+                for (int i = 0; i < linkCount; i++)
+                {
+                    sb.AppendFormat("Link {0}: rect={1}", i, i < (rects?.Length ?? 0) ? rects[i].ToString() : "(n/a)");
+                    sb.AppendLine();
+                }
+                return sb.ToString();
+            }
+
+            static string BuildGlyphMetricsString(UITKTextHandle handle)
+            {
+                int count = handle.GetTextElementCount();
+                if (count <= 0)
+                    return "";
+                var sb = new StringBuilder();
+                const int maxGlyphs = 256;
+                int n = Math.Min(count, maxGlyphs);
+                for (int i = 0; i < n; i++)
+                {
+                    try
+                    {
+                        var m = handle.GetScaledCharacterMetrics(i);
+                        sb.AppendFormat(" [{0}] origin={1:F2} xAdvance={2:F2} topLeft=({3:F2},{4:F2}) bottomLeft=({5:F2},{6:F2}) ascent={7:F2} base={8:F2} descent={9:F2} line={10} vis={11}",
+                            i, m.origin, m.xAdvance, m.topLeft.x, m.topLeft.y, m.bottomLeft.x, m.bottomLeft.y,
+                            m.ascentline, m.baseline, m.descentline, m.lineNumber, m.isVisible);
+                        sb.AppendLine();
+                    }
+                    catch (System.Exception ex)
+                    {
+                        sb.AppendFormat(" [{0}] error: {1}", i, ex.Message).AppendLine();
+                    }
+                }
+                if (count > maxGlyphs)
+                    sb.AppendFormat(" ... ({0} total, showing first {1})", count, maxGlyphs);
+                return sb.ToString();
+            }
+
+            static string BuildLogicalToVisualMapping(UITKTextHandle handle)
+            {
+                int count = handle.GetTextElementCount();
+                if (count <= 0)
+                    return "";
+                var sb = new StringBuilder();
+                sb.Append("Logical → Visual: ");
+                for (int i = 0; i < Math.Min(count, 32); i++)
+                {
+                    if (i > 0) sb.Append(", ");
+                    sb.Append(i).Append("→").Append(handle.LogicalToGlyphIndex(i));
+                }
+                if (count > 32)
+                    sb.Append(" ...");
+                sb.AppendLine();
+                sb.Append("Visual → Logical: ");
+                int glyphCount = handle.GetGlyphCount();
+                for (int g = 0; g < Math.Min(glyphCount, 32); g++)
+                {
+                    if (g > 0) sb.Append(", ");
+                    sb.Append(g).Append("→").Append(handle.GlyphIndexToLogicalIndex(g));
+                }
+                if (glyphCount > 32)
+                    sb.Append(" ...");
+                return sb.ToString();
+            }
+
+            private string StringToHex(string hexstring)
+            {
+                if( string.IsNullOrEmpty(hexstring))
+                    return string.Empty;
+
+                StringBuilder sb = new StringBuilder();
+                for(int i =0; i<hexstring.Length; i++)
+                {
+                    var t = hexstring[i];
+                    sb.Append("U").Append(Convert.ToInt32(t).ToString("X4"));
+
+                    if (i < hexstring.Length - 1)
+                        sb.Append(", ");
+                }
+                return sb.ToString();
+            }
+        }
+
+        public new void OnDisable()
+        {
+            base.OnDisable();
+
+            EditorApplication.update -= EditorUpdate;
+
+            if (DebuggerEventDispatchUtilities.s_GlobalPanelDebug == this)
+                DebuggerEventDispatchUtilities.s_GlobalPanelDebug = null;
+
+            UIToolkitProjectSettings.onEnableLowLevelDebuggerChanged -= (_) => Refresh();
+        }
+
+        public override void EditorUpdate()
+        {
+            base.EditorUpdate();
+
+            (panelDebug?.debuggerOverlayPanel as Panel)?.UpdateAnimations();
+        }
+
+        public void OnFocus()
+        {
+            // Avoid taking focus in case of another debugger picking on this one
+            var globalPanelDebugger = DebuggerEventDispatchUtilities.s_GlobalPanelDebug as UIElementsDebuggerImpl;
+            if (globalPanelDebugger == null || (globalPanelDebugger.m_Context != null && !globalPanelDebugger.m_Context.pickElement))
+                DebuggerEventDispatchUtilities.s_GlobalPanelDebug = this;
+        }
+
+        public override void Refresh()
+        {
+            if (!m_Context.pickElement)
+            {
+                var selectedElement = m_Context.selectedElement;
+                m_TreeViewContainer.RebuildTree(panelDebug);
+
+                //we should not lose the selection when the tree has changed.
+                if (selectedElement != m_Context.selectedElement)
+                {
+                    if (m_Context.selectedElement == null && selectedElement.panel == panelDebug.panel)
+                        SelectElement(selectedElement);
+                }
+
+                m_StylesDebuggerContainer?.RefreshStylePropertyDebugger();
+                m_DebuggerWindow.Repaint();
+
+                foreach( var child in m_ScrollView.Children())
+                {
+                    if (child is DebuggerFoldout foldout)
+                    {
+                        foldout.RefreshIfNeeded();
+                    }
+                }
+            }
+
+            panelDebug?.MarkDebugContainerDirtyRepaint();
+        }
+
+        void OnContextChange()
+        {
+            // Sync the toolbar
+            m_PickToggle.SetValueWithoutNotify(m_Context.pickElement);
+            m_ShowLayoutToggle.SetValueWithoutNotify(m_Context.showLayoutBound);
+            m_RepaintOverlayToggle?.SetValueWithoutNotify(m_Context.showRepaintOverlay);
+            m_BreakBatchesToggle?.SetValueWithoutNotify(m_Context.breakBatches);
+            m_ShowWireframeToggle?.SetValueWithoutNotify(m_Context.showWireframe);
+            m_ShowTextMetrics?.SetValueWithoutNotify( m_Context.showTextMetrics);
+
+            ApplyToPanel(m_Context);
+
+            panelDebug?.MarkDirtyRepaint();
+            panelDebug?.MarkDebugContainerDirtyRepaint();
+        }
+
+        void OnGenerateVisualContent(MeshGenerationContext mgc)
+        {
+            if (m_Context.pickElement)
+                m_PickOverlay.Draw(mgc);
+            else
+            {
+                m_TreeViewContainer.DrawOverlay(mgc);
+                m_StylesDebuggerContainer?.RefreshBoxModelView(mgc);
+
+                if (m_Context.showRepaintOverlay)
+                    m_RepaintOverlay.Draw(mgc);
+            }
+
+            if (m_Context.showLayoutBound)
+                DrawLayoutBounds(mgc);
+            if (m_Context.showWireframe)
+                DrawWireframe(mgc);
+            if(m_Context.showTextMetrics != TextInfoOverlay.DisplayOption.None)
+                m_TextInfoOverlay.Draw(mgc, m_Context.showTextMetrics);
+        }
+
+        public override void OnVersionChanged(VisualElement ve, VersionChangeType changeTypeFlag)
+        {
+            if ((changeTypeFlag & VersionChangeType.Repaint) == VersionChangeType.Repaint && m_Context.showRepaintOverlay)
+            {
+                var visible = ve.resolvedStyle.visibility == Visibility.Visible &&
+                    ve.resolvedStyle.opacity > UIRUtility.k_Epsilon;
+                if (panel != null && ve != panel.visualTree && visible)
+                    m_RepaintOverlay.AddOverlay(ve, panelDebug?.debugContainer);
+            }
+
+            if ((changeTypeFlag & VersionChangeType.Hierarchy) == VersionChangeType.Hierarchy)
+                m_TreeViewContainer.hierarchyHasChanged = true;
+
+            if ((changeTypeFlag & VersionChangeType.StyleSheet) == VersionChangeType.StyleSheet
+                && (changeTypeFlag & VersionChangeType.Styles) == 0
+                && ve == m_Context.selectedElement)
+                m_StylesDebuggerContainer.UpdateMatches();
+
+            (panelDebug as PanelDebug)?.UpdateOverlayPanelSize();
+        }
+
+        static UIRRepaintUpdater GetRepaintUpdater(IPanel panel)
+        {
+            return (panel as BaseVisualElementPanel)?.GetUpdater(VisualTreeUpdatePhase.Repaint) as UIRRepaintUpdater;
+        }
+
+        static void ResetPanel(DebuggerContext context)
+        {
+            var updater = GetRepaintUpdater(context.selection.panel);
+            if (updater != null)
+            {
+                updater.drawStats = false;
+                updater.breakBatches = false;
+            }
+        }
+
+        static void ApplyToPanel(DebuggerContext context)
+        {
+            var updater = GetRepaintUpdater(context.selection.panel);
+            if (updater != null)
+            {
+                updater.breakBatches = context.breakBatches;
+            }
+        }
+
+        protected override void OnSelectPanelDebug(IPanelDebug pdbg)
+        {
+            m_RepaintOverlay.ClearOverlay();
+
+            ResetPanel(m_Context);
+
+            m_TreeViewContainer.hierarchyHasChanged = true;
+            if (m_Context.panelDebug?.debugContainer != null)
+                m_Context.panelDebug.debugContainer.generateVisualContent -= OnGenerateVisualContent;
+
+            m_Context.selection.panelDebug = pdbg;
+
+            if (panelDebug?.debugContainer != null)
+                panelDebug.debugContainer.generateVisualContent += OnGenerateVisualContent;
+
+            ApplyToPanel(m_Context);
+
+            Refresh();
+        }
+
+        protected override void OnRestorePanelSelection()
+        {
+            var restoredElement = panel.FindVisualElementByIndex(m_Context.selectedElementIndex);
+            SelectElement(restoredElement);
+        }
+
+        protected override bool ValidateDebuggerConnection(IPanel panelConnection)
+        {
+            if (panelConnection is RuntimePanel)
+                return true;
+
+            EditorPanel p = m_Root.panel as EditorPanel;
+            var debuggers = p.panelDebug.GetAttachedDebuggers();
+
+            foreach (var dbg in debuggers)
+            {
+                var uielementsDbg = dbg as UIElementsDebuggerImpl;
+                if (uielementsDbg != null && uielementsDbg.panel == p && uielementsDbg.m_Root.panel == panelConnection)
+                {
+                    // Avoid spamming the console if picking
+                    if (!m_Context.pickElement)
+                        Debug.LogWarning("Cross UI Toolkit debugger debugging is not supported");
+                    return false;
+                }
+            }
+
+            return true;
+        }
+
+        public bool InterceptEvent(IPanel p, EventBase ev)
+        {
+            if (m_Context == null)
+                return false;
+
+            if (!m_Context.pickElement)
+                return false;
+
+            var evtBase = ev as EventBase;
+            var evtType = evtBase.eventTypeId;
+            var target = evtBase.elementTarget;
+
+            // Ignore events on detached elements
+            if (p == null)
+                return false;
+
+            if (evtType == NavigationCancelEvent.TypeId())
+            {
+                StopPicking();
+                return true;
+            }
+
+            if (((BaseVisualElementPanel)p).ownerObject is HostView hostView && hostView.actualView is PlayModeView playModeView)
+            {
+                // RuntimePanels won't receive MouseOverEvent when arriving from GameView editor panel, so listen for
+                // MouseMoveEvent instead, but still intercept other events going to the game view window.
+                if (evtType != MouseMoveEvent.TypeId() && evtType != MouseDownEvent.TypeId())
+                    return false;
+
+                if (evtType == MouseMoveEvent.TypeId())
+                {
+                    var mousePosition = (evtBase.imguiEvent.mousePosition - playModeView.viewPadding) * playModeView.viewMouseScale;
+                    var mouseDelta = evtBase.imguiEvent.delta * playModeView.viewMouseScale;
+
+                    if (SelectTopElementFromRuntimePanel(mousePosition, mouseDelta, playModeView.targetSize, playModeView.targetDisplay))
+                        return true;
+
+                    // If no RuntimePanel catches it, select GameView editor panel and let interception fall through.
+                    if (m_Context.selectedElement != target)
+                    {
+                        OnPickMouseOver(target, p);
+                    }
+                }
+            }
+
+            // Only intercept mouse clicks, MouseOverEvent and MouseEnterWindow
+            if (evtType != MouseDownEvent.TypeId() && evtType != MouseOverEvent.TypeId() && evtType != MouseEnterWindowEvent.TypeId())
+                return false;
+
+            if (evtType == MouseDownEvent.TypeId())
+            {
+                if ((ev as MouseDownEvent)?.button == (int)MouseButton.LeftMouse)
+                    StopPicking();
+
+                return true;
+            }
+
+            // Ignore these events if on this debugger
+            if (p != m_Root.panel)
+            {
+                if (evtType == MouseOverEvent.TypeId())
+                {
+                    OnPickMouseOver(target, p);
+                }
+                else if (evtType == MouseEnterWindowEvent.TypeId())
+                {
+                    // Focus window while picking an element
+                    var mouseOverView = GUIView.mouseOverView;
+                    if (mouseOverView != null)
+                        mouseOverView.Focus();
+                }
+            }
+
+            return false;
+        }
+
+        public void OnContextClick(IPanel p, ContextClickEvent ev)
+        {
+            if (m_Context.pickElement)
+                return;
+
+            // Ignore events on detached elements and on panels that are not the selected one
+            if (p == null || p != panel)
+                return;
+
+            var evtBase = ev as EventBase;
+            var target = evtBase.elementTarget;
+            var targetIsImguiContainer = target is IMGUIContainer;
+
+            if (target != null)
+            {
+                // If right clicking on the root IMGUIContainer try to select the root container instead
+                if (targetIsImguiContainer && target == p.visualTree[0])
+                {
+                    // Pick the root container
+                    var root = p.GetRootVisualElement();
+                    if (root != null && root.childCount > 0 && root.worldBound.Contains(ev.mousePosition))
+                    {
+                        target = root;
+                        targetIsImguiContainer = false;
+                    }
+                }
+
+                if (!targetIsImguiContainer)
+                {
+                    ShowInspectMenu(target);
+                }
+            }
+        }
+
+        protected internal void ScrollToSelection()
+        {
+            m_TreeViewContainer.ScrollToSelection();
+        }
+
+        private void ShowInspectMenu(VisualElement ve)
+        {
+            var menu = new GenericMenu();
+            menu.AddItem(EditorGUIUtility.TrTextContent("Inspect Element"), false, InspectElement, ve);
+            menu.ShowAsContext();
+        }
+
+        private void InspectElement(object inspectElement)
+        {
+            VisualElement ve = inspectElement as VisualElement;
+            SelectPanelToDebug(ve.panel);
+
+            // Rebuild tree view on new panel or the selection will fail
+            m_TreeViewContainer.RebuildTree(panelDebug);
+            SelectElement(ve);
+        }
+
+        private void OnPickMouseOver(VisualElement ve, IPanel p)
+        {
+            m_PickOverlay.ClearOverlay();
+            m_PickOverlay.AddOverlay(ve);
+
+            SelectPanelToDebug(p);
+
+            if (panelDebug != null)
+            {
+                panelDebug?.MarkDirtyRepaint();
+                this.m_Root.MarkDirtyRepaint();
+                panelDebug?.MarkDebugContainerDirtyRepaint();
+
+                m_TreeViewContainer.RebuildTree(panelDebug);
+                SelectElement(ve);
+            }
+        }
+
+        private void StopPicking()
+        {
+            m_Context.pickElement = false;
+            m_PickOverlay.ClearOverlay();
+
+            m_DebuggerWindow.Focus();
+            (m_DebuggerWindow as UIElementsDebugger)?.ScrollToSelection();
+        }
+
+        private void SelectElement(VisualElement ve)
+        {
+            if (m_Context.selectedElement != ve)
+            {
+                if (ve != null)
+                    SelectPanelToDebug(ve.panel);
+
+                m_Context.selection.element = ve;
+                m_Context.selectedElementIndex = panel.FindVisualElementIndex(ve);
+            }
+        }
+
+        private void CaptureSelectedElement()
+        {
+            var element = m_Context.selectedElement;
+            if (element == null)
+            {
+                EditorUtility.DisplayDialog("Capture to PNG", "Select an element in the hierarchy to capture.", "OK");
+                return;
+            }
+
+            var defaultName = string.IsNullOrEmpty(element.name) ? element.GetType().Name : element.name;
+            var path = EditorUtility.SaveFilePanel("Capture VisualElement to PNG", "", defaultName, "png");
+            if (string.IsNullOrEmpty(path))
+                return;
+
+            element.CaptureToPNG(path);
+        }
+
+        private Camera[] m_AllCameras = Array.Empty<Camera>();
+        private bool SelectTopElementFromRuntimePanel(Vector2 mousePosition, Vector2 mouseDelta, Vector2 targetSize, int targetDisplay)
+        {
+            // Try picking element in screen-space runtime panels, from closest to deepest
+            var panels = UIElementsRuntimeUtility.GetSortedScreenOverlayPlayerPanels();
+            for (var i = panels.Count - 1; i >= 0; i--)
+            {
+                var runtimePanel = panels[i];
+
+                if (runtimePanel.targetDisplay != targetDisplay ||
+                    !runtimePanel.ScreenToPanel(mousePosition, mouseDelta, out var panelPosition))
+                    continue;
+
+                var pickedElement = runtimePanel.Pick(panelPosition, PointerId.mousePointerId);
+                if (pickedElement == null)
+                    continue;
+
+                if (m_Context.selectedElement != pickedElement)
+                    OnPickMouseOver(pickedElement, runtimePanel);
+                return true;
+            }
+
+            // Try world-space picking. Since Physics.Raycast doesn't work outside of Play mode, we can't use the same
+            // algorithms as the DefaultEventSystem for finding the closest element in world-space. The following code
+            // picks the closest element but, contrary to gameplay logic, it will pick through any non-UI 3D obstacle.
+
+            Array.Resize(ref m_AllCameras, Camera.allCamerasCount);
+            Camera.GetAllCameras(m_AllCameras);
+            Array.Sort(m_AllCameras, (a, b) => a.depth.CompareTo(b.depth));
+
+            var screenPositionInCameraCoordinates = new Vector2(mousePosition.x, targetSize.y - mousePosition.y);
+
+            // Try picking from cameras, from closest to deepest
+            for (var iCamera = m_AllCameras.Length-1; iCamera >= 0; iCamera--)
+            {
+                var camera = m_AllCameras[iCamera];
+                if (camera.targetDisplay != targetDisplay)
+                    continue;
+
+                // Temporarily make the camera behave like it would in a normal Update method
+                // Take the camera viewport into account by recomputing the pixelRect from the rect and targetSize.
+                var oldPixelRect = camera.pixelRect;
+                var oldCameraRect = camera.rect;
+                var newPixelRect = new Rect(oldCameraRect.position * targetSize, oldCameraRect.size * targetSize);
+                if (!newPixelRect.Contains(screenPositionInCameraCoordinates))
+                    continue;
+
+                camera.pixelRect = newPixelRect;
+                Ray worldRay = camera.ScreenPointToRay(screenPositionInCameraCoordinates);
+                camera.pixelRect = oldPixelRect;
+
+                VisualElement pickedElement = null;
+                float bestDistanceSoFar = Mathf.Infinity;
+
+                foreach (var baseRuntimePanel in UIElementsRuntimeUtility.GetWorldSpacePlayerPanels())
+                {
+                    if (baseRuntimePanel is not RuntimePanel runtimePanel || runtimePanel.targetDisplay != targetDisplay)
+                        continue;
+
+                    foreach (var panelComponent in runtimePanel.panelComponents)
+                    {
+                        if (panelComponent == null) // The panelComponent might have been expliclty disposed.
+                            continue;
+
+                        // We don't account for PanelInputConfiguration settings, but we do only want visible content.
+                        if ((camera.cullingMask & (1 << panelComponent.gameObject.layer)) == 0)
+                            continue;
+
+                        var candidate = WorldSpaceInput.Pick3D(panelComponent, worldRay, out float distance);
+                        if (candidate != null && (pickedElement == null || distance < bestDistanceSoFar))
+                        {
+                            pickedElement = candidate;
+                            bestDistanceSoFar = distance;
+                        }
+                    }
+
+                    if (pickedElement == null)
+                        continue;
+
+                    if (m_Context.selectedElement != pickedElement)
+                        OnPickMouseOver(pickedElement, runtimePanel);
+                    return true;
+                }
+            }
+
+            return false;
+        }
+
+        private void DrawLayoutBounds(MeshGenerationContext mgc)
+        {
+            m_LayoutOverlay.ClearOverlay();
+            m_LayoutOverlay.selectedElement = m_Context.selectedElement;
+            AddLayoutBoundOverlayRecursive(visualTree);
+
+            m_LayoutOverlay.Draw(mgc);
+        }
+
+        private void AddLayoutBoundOverlayRecursive(VisualElement ve)
+        {
+            m_LayoutOverlay.AddOverlay(ve);
+
+            int count = ve.hierarchy.childCount;
+            for (int i = 0; i < count; i++)
+            {
+                var child = ve.hierarchy[i];
+                AddLayoutBoundOverlayRecursive(child);
+            }
+        }
+
+        private void DrawWireframe(MeshGenerationContext mgc)
+        {
+            m_WireframeOverlay.ClearOverlay();
+            m_WireframeOverlay.selectedElement = m_Context.selectedElement;
+            AddWireframeOverlayRecursive(visualTree);
+
+            m_WireframeOverlay.Draw(mgc);
+        }
+
+        private void AddWireframeOverlayRecursive(VisualElement ve)
+        {
+            m_WireframeOverlay.AddOverlay(ve);
+
+            int count = ve.hierarchy.childCount;
+            for (int i = 0; i < count; i++)
+            {
+                var child = ve.hierarchy[i];
+                AddWireframeOverlayRecursive(child);
+            }
+        }
+
+
+    }
+}
+#pragma warning restore UAL0015,UAL0018,UAL0019,UAL0020,UAL0021

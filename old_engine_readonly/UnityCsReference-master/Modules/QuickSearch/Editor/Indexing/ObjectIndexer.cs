@@ -1,0 +1,904 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+#pragma warning disable UAL0015,UAL0018,UAL0019,UAL0020,UAL0021 // AutoStaticsCleanup usage analysis: Search not yet converted
+//#define DEBUG_INDEXING
+
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using Unity.Profiling;
+using Unity.Scripting.LifecycleManagement;
+using UnityEditor.Search.Providers;
+using UnityEngine;
+using Object = UnityEngine.Object;
+
+namespace UnityEditor.Search
+{
+    internal enum FilePattern
+    {
+        Extension,
+        Folder,
+        File
+    }
+
+    [Flags]
+    enum PropertyWithPrefixIndexing
+    {
+        None = 0,
+        NoPrefix = 1,
+        WithPrefix = 1 << 1,
+
+        All = NoPrefix | WithPrefix
+    }
+
+    static class PropertyWithPrefixIndexingExtensions
+    {
+        public static bool HasAny(this PropertyWithPrefixIndexing options, PropertyWithPrefixIndexing value)
+        {
+            return (options & value) != 0;
+        }
+    }
+
+    /// <summary>
+    /// Specialized <see cref="SearchIndexer"/> used to index Unity Assets. See <see cref="AssetIndexer"/> for a specialized SearchIndexer used to index simple assets and
+    /// see <see cref="SceneIndexer"/> for an indexer used to index scene and prefabs.
+    /// </summary>
+    public abstract partial class ObjectIndexer : SearchIndexer
+    {
+        static readonly ProfilerMarker k_IndexWordMarker = new($"{nameof(ObjectIndexer)}.{nameof(IndexWord)}");
+        static readonly ProfilerMarker k_IndexObjectMarker = new($"{nameof(ObjectIndexer)}.{nameof(IndexObject)}");
+        static readonly ProfilerMarker k_IndexPropertiesMarker = new($"{nameof(ObjectIndexer)}.{nameof(IndexProperties)}");
+        static readonly ProfilerMarker k_IndexPropertyMarker = new($"{nameof(ObjectIndexer)}.{nameof(IndexProperty)}");
+        static readonly ProfilerMarker k_IndexSerializedPropertyMarker = new($"{nameof(ObjectIndexer)}.IndexSerializedProperty");
+        static readonly ProfilerMarker k_IndexPropertyComponentsMarker = new($"{nameof(ObjectIndexer)}.IndexPropertyComponents");
+        static readonly ProfilerMarker k_IndexPropertyStringComponentsMarker = new($"{nameof(ObjectIndexer)}.{nameof(IndexPropertyStringComponents)}");
+        static readonly ProfilerMarker k_LogPropertyMarker = new($"{nameof(ObjectIndexer)}.{nameof(LogProperty)}");
+        static readonly ProfilerMarker k_IndexCustomPropertiesMarker = new($"{nameof(ObjectIndexer)}.{nameof(IndexCustomProperties)}");
+        static readonly ProfilerMarker k_AddReferenceMarker = new($"{nameof(ObjectIndexer)}.{nameof(AddReference)}");
+        static readonly ProfilerMarker k_AddObjectReferenceMarker = new($"{nameof(ObjectIndexer)}.AddObjectReference");
+
+        // Define a list of patterns that will automatically skip path entries if they start with it.
+        readonly static string[] BuiltInTransientFilePatterns = new[]
+        {
+            "~",
+            "##ignore",
+            "InitTestScene"
+        };
+
+        List<string> m_FlagsPool = new List<string>();
+        internal SearchDatabase.Settings settings { get; private set; }
+        internal bool indexHiddenProperties { get; set; } = true;
+
+        private HashSet<string> m_IgnoredProperties;
+
+        internal HashSet<string> ignoredProperties
+        {
+            get
+            {
+                if (m_IgnoredProperties == null)
+                {
+                    #pragma warning disable UAC2001 // Avoid Linq
+                    m_IgnoredProperties = new HashSet<string>(SearchSettings.ignoredProperties.Split(new char[] { ';', '\n' },
+#pragma warning restore UAC2001
+                                            StringSplitOptions.RemoveEmptyEntries).Select(t =>
+                    {
+                        if (t.StartsWith("m_"))
+                            t = t.Substring(2);
+                        return t.ToLowerInvariant();
+                    }));
+                }
+                return m_IgnoredProperties;
+            }
+        }
+
+        internal ObjectIndexer(string name, SearchDatabase.Settings settings)
+            : this(name, settings, new LMDBIndexStorage(FileUtil.GetUniqueTempPathInProject()))
+        {}
+
+        internal ObjectIndexer(string name, SearchDatabase.Settings settings, ISearchIndexerStorage storage)
+            : base(name, storage)
+        {
+            this.settings = settings;
+            this.storage.ExtraSearchWordHandler = ExtraSearchWord;
+        }
+
+        /// <summary>
+        /// Run a search query in the index.
+        /// </summary>
+        /// <param name="searchQuery">Search query to look out for. If if matches any of the indexed variations a result will be returned.</param>
+        /// <param name="context">The search context on which the query is applied.</param>
+        /// <param name="provider">The provider that initiated the search.</param>
+        /// <param name="maxScore">Maximum score of any matched Search Result. See <see cref="SearchResult.score"/>.</param>
+        /// <param name="patternMatchLimit">Maximum number of matched Search Result that can be returned. See <see cref="SearchResult"/>.</param>
+        /// <returns>Returns a collection of Search Result matching the query.</returns>
+        public override IEnumerable<SearchResult> Search(string searchQuery, SearchContext context, SearchProvider provider, int maxScore = int.MaxValue, int patternMatchLimit = 2999)
+        {
+            if (settings.options.disabled)
+                return Array.Empty<SearchResult>();
+            return base.Search(searchQuery, context, provider, maxScore, patternMatchLimit);
+        }
+
+        internal override IEnumerable<SearchResult> SearchTerm(string name, in object value, SearchIndexOperator op, bool exclude, SearchResultCollection subset = null)
+        {
+            var lowerCaseName = name?.ToLowerInvariant();
+            if (value is string s)
+                return base.SearchTerm(lowerCaseName, s.ToLowerInvariant(), op, exclude, subset);
+            return base.SearchTerm(lowerCaseName, in value, op, exclude, subset);
+        }
+
+        IEnumerable<SearchResult> ExtraSearchWord(string word, SearchIndexOperator op, SearchResultCollection subset)
+        {
+            //using (new DebugTimer($"Search word {word}, {op}, {subset?.Count}"))
+            {
+                if (SearchSettings.findProviderIndexHelper)
+                {
+                    var baseScore = settings.baseScore;
+                    var options = FindOptions.Words | FindOptions.Glob | FindOptions.Regex | FindOptions.FileName;
+                    if (m_DoFuzzyMatch)
+                        options |= FindOptions.Fuzzy;
+
+                    #pragma warning disable UAC2001 // Avoid Linq
+                    var documents = subset != null ? subset.Select(r => GetDocument(r.index)) : GetDocuments(ignoreNulls: true);
+#pragma warning restore UAC2001
+                    foreach (var r in FindProvider.SearchWord(false, word, options, documents))
+                    {
+                        var documentIndex = FindDocumentIndex(r.id);
+                        if (documentIndex != invalidDocumentIndex)
+                            yield return new SearchResult(r.id, documentIndex, baseScore + r.score + 5);
+                    }
+                }
+            }
+        }
+
+        static bool ShouldIgnorePattern(in string pattern, in string path)
+        {
+            var filename = Utils.GetFileName(path);
+            return filename.StartsWith(pattern, StringComparison.Ordinal) || filename.EndsWith(pattern, StringComparison.Ordinal);
+        }
+
+        /// <summary>
+        /// Called when the index is built to see if a specified document needs to be indexed. See <see cref="SearchIndexer.skipEntryHandler"/>
+        /// </summary>
+        /// <param name="path">Path of a document</param>
+        /// <param name="checkRoots"></param>
+        /// <returns>Returns true if the document doesn't need to be indexed.</returns>
+        public override bool SkipEntry(string path, bool checkRoots = false)
+        {
+            if (string.IsNullOrEmpty(path))
+                return true;
+
+            // Skip files with ~ in their file path and built-in transient files
+            if (Array.Exists(BuiltInTransientFilePatterns, pattern => ShouldIgnorePattern(pattern, path)))
+                return true;
+
+            if (checkRoots)
+            {
+                #pragma warning disable UAC2006 // Avoid Linq
+                if (!GetRoots().Any(r => path.StartsWith(r, StringComparison.OrdinalIgnoreCase)))
+#pragma warning restore UAC2006
+                    return true;
+            }
+
+            var ext = Path.GetExtension(path);
+
+            // Exclude some file extensions by default
+            if (ext.Equals(".meta", StringComparison.Ordinal) ||
+                ext.Equals(".index", StringComparison.Ordinal))
+                return true;
+
+            if (settings.includes?.Length > 0 || settings.excludes?.Length > 0)
+            {
+                var dir = Path.GetDirectoryName(path).Replace("\\", "/");
+
+                if (settings.includes?.Length > 0 && !Array.Exists(settings.includes, pattern => PatternChecks(pattern, ext, dir, path)))
+                    return true;
+
+                if (settings.excludes?.Length > 0 && Array.Exists(settings.excludes, pattern => PatternChecks(pattern, ext, dir, path)))
+                    return true;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        ///  Get all this indexer root paths.
+        /// </summary>
+        /// <returns>Returns a list of root paths.</returns>
+        internal abstract IEnumerable<string> GetRoots();
+
+        /// <summary>
+        /// Get all documents that would be indexed.
+        /// </summary>
+        /// <returns>Returns a list of file paths.</returns>
+        internal abstract List<string> GetDependencies();
+
+        /// <summary>
+        /// Compute the hash of a specific document id. Generally a file path.
+        /// </summary>
+        /// <param name="id">Document id.</param>
+        /// <returns>Returns the hash of this document id.</returns>
+        internal abstract Hash128 GetDocumentHash(string id);
+
+        /// <summary>
+        /// Function to override in a concrete SearchIndexer to index the content of a document.
+        /// </summary>
+        /// <param name="id">Path of the document to index.</param>
+        /// <param name="checkIfDocumentExists">Check if the document actually exists.</param>
+        public abstract override void IndexDocument(string id, bool checkIfDocumentExists);
+
+        /// <summary>
+        /// Split a word into multiple components.
+        /// </summary>
+        /// <param name="documentIndex">Document where the indexed word was found.</param>
+        /// <param name="word">Word to add to the index.</param>
+        public void IndexWordComponents(int documentIndex, in string word)
+        {
+            int scoreModifier = 0;
+            foreach (var c in SearchUtils.SplitEntryComponents(word, SearchUtils.entrySeparators))
+                IndexWord(documentIndex, c, scoreModifier: scoreModifier++);
+        }
+
+        /// <summary>
+        /// Split a value into multiple components.
+        /// </summary>
+        /// <param name="documentIndex">Document where the indexed word was found.</param>
+        /// <param name="name">Key used to retrieve the value. See <see cref="SearchIndexer.AddProperty"/></param>
+        /// <param name="value">Value to add to the index.</param>
+        public void IndexPropertyComponents(int documentIndex, string name, string value)
+        {
+            using var _ = k_IndexPropertyComponentsMarker.Auto();
+            int scoreModifier = 0;
+            double number = 0;
+            name = name.ToLowerInvariant();
+            value = value.ToLowerInvariant();
+            foreach (var c in SearchUtils.SplitEntryComponents(value, SearchUtils.entrySeparators))
+            {
+                var score = settings.baseScore + scoreModifier++;
+                if (Utils.TryParse(c, out number))
+                {
+                    AddNumber(name, number, score, documentIndex);
+                }
+                else
+                {
+                    AddProperty(name, c, score, documentIndex, saveKeyword: false);
+                }
+            }
+            AddProperty(name, value, settings.baseScore - 5, documentIndex, saveKeyword: false);
+        }
+
+        /// <summary>
+        /// Splits a string into multiple words that will be indexed.
+        /// It works with paths and UpperCamelCase strings.
+        /// </summary>
+        /// <param name="entry">The string to be split.</param>
+        /// <param name="documentIndex">The document index that will index that entry.</param>
+        /// <returns>The entry components.</returns>
+        public virtual IEnumerable<string> GetEntryComponents(in string entry, int documentIndex)
+        {
+            return SearchUtils.SplitFileEntryComponents(entry, SearchUtils.entrySeparators);
+        }
+
+        [Obsolete("IndexWord with variations and exact match is no longer supported. Variations are handled internally. Exact match is handled when filtering. Use IndexWord(int documentIndex, string word, int scoreModifier) instead.")]
+        /// <summary>
+        /// Add a new word coming from a specific document to the index. The word will be added with multiple variations allowing partial search. See <see cref="SearchIndexer.AddWord"/>.
+        /// </summary>
+        /// <param name="word">Word to add to the index.</param>
+        /// <param name="documentIndex">Document where the indexed word was found.</param>
+        /// <param name="maxVariations">Maximum number of variations to compute. Cannot be higher than the length of the word.</param>
+        /// <param name="exact">If true, we will store also an exact match entry for this word.</param>
+        /// <param name="scoreModifier">Modified to apply to the base score for a specific word.</param>
+        public void IndexWord(int documentIndex, in string word, int maxVariations, bool exact, int scoreModifier = 0)
+        {
+            IndexWord(documentIndex, word, scoreModifier);
+        }
+
+        [Obsolete("IndexWord with exact match is no longer supported. Exact match is handled when filtering. Use IndexWord(int documentIndex, string word, int scoreModifier) instead.")]
+        internal void IndexWord(int documentIndex, in string word, int minVariations, int maxVariations, bool exact, int scoreModifier = 0)
+        {
+            IndexWord(documentIndex, word, scoreModifier);;
+        }
+
+        [Obsolete("IndexWord with exact match is no longer supported. Exact match is handled when filtering. Use IndexWord(int documentIndex, string word, int scoreModifier) instead.")]
+        /// <summary>
+        /// Add a new word coming from a specific document to the index. The word will be added with multiple variations allowing partial search. See <see cref="SearchIndexer.AddWord"/>.
+        /// </summary>
+        /// <param name="word">Word to add to the index.</param>
+        /// <param name="documentIndex">Document where the indexed word was found.</param>
+        /// <param name="exact">If true, we will store also an exact match entry for this word.</param>
+        /// <param name="scoreModifier">Modified to apply to the base score for a specific word.</param>
+        public void IndexWord(int documentIndex, in string word, bool exact = false, int scoreModifier = 0)
+        {
+            IndexWord(documentIndex, word, word.Length, exact, scoreModifier: scoreModifier);
+        }
+
+        /// <summary>
+        /// Add a new word coming from a specific document to the index. See <see cref="SearchIndexer.AddWord"/>.
+        /// </summary>
+        /// <param name="word">Word to add to the index.</param>
+        /// <param name="documentIndex">Document where the indexed word was found.</param>
+        public void IndexWord(int documentIndex, string word)
+        {
+            IndexWord(documentIndex, word, 0);
+        }
+
+        /// <summary>
+        /// Add a new word coming from a specific document to the index. See <see cref="SearchIndexer.AddWord"/>.
+        /// </summary>
+        /// <param name="word">Word to add to the index.</param>
+        /// <param name="documentIndex">Document where the indexed word was found.</param>
+        /// <param name="scoreModifier">Modified to apply to the base score for a specific word.</param>
+        public void IndexWord(int documentIndex, string word, int scoreModifier)
+        {
+            using var _ = k_IndexWordMarker.Auto();
+            var lword = word.ToLowerInvariant();
+            var modifiedScore = settings.baseScore + scoreModifier;
+            AddWord(lword, modifiedScore, documentIndex);
+        }
+
+        /// <summary>
+        /// Add a property value to the index. A property is specified with a key and a string value. See <see cref="SearchIndexer.AddProperty"/>.
+        /// </summary>
+        /// <param name="name">Key used to retrieve the value. See <see cref="SearchIndexer.AddProperty"/></param>
+        /// <param name="value">Value to add to the index.</param>
+        /// <param name="documentIndex">Document where the indexed word was found.</param>
+        /// <param name="saveKeyword">Define if we store this key in the keyword registry of the index. See <see cref="SearchIndexer.GetKeywords"/>.</param>
+        public void IndexProperty(int documentIndex, string name, string value, bool saveKeyword)
+        {
+            IndexProperty(documentIndex, name, value, saveKeyword, settings.baseScore);
+        }
+
+        internal void IndexProperty(int documentIndex, string name, string value, bool saveKeyword, int score)
+        {
+            using var _ = k_IndexPropertyMarker.Auto();
+            if (string.IsNullOrEmpty(value))
+                return;
+            name = name.ToLowerInvariant();
+            var valueLower = value.ToLowerInvariant();
+            AddProperty(name, valueLower, score, documentIndex, saveKeyword: saveKeyword);
+        }
+
+        [Obsolete("IndexProperty with variations is no longer supported. Variations are handled automatically internally. Please use IndexProperty(int documentIndex, string name, string value, bool saveKeyword)")]
+        /// <summary>
+        /// Add a property value to the index. A property is specified with a key and a string value. The value will be stored with multiple variations. See <see cref="SearchIndexer.AddProperty"/>.
+        /// </summary>
+        /// <param name="name">Key used to retrieve the value. See <see cref="SearchIndexer.AddProperty"/></param>
+        /// <param name="value">Value to add to the index.</param>
+        /// <param name="documentIndex">Document where the indexed word was found.</param>
+        /// <param name="saveKeyword">Define if we store this key in the keyword registry of the index. See <see cref="SearchIndexer.GetKeywords"/>.</param>
+        /// <param name="exact">If exact is true, only the exact match of the value will be stored in the index (not the variations).</param>
+        public void IndexProperty(int documentIndex, string name, string value, bool saveKeyword, bool exact)
+        {
+            IndexProperty(documentIndex, name, value, saveKeyword);
+        }
+
+        /// <summary>
+        /// Add a property value to the index. A property is specified with a key and a string value. See <see cref="SearchIndexer.AddProperty"/>.
+        /// </summary>
+        /// <param name="value">Value to add to the index.</param>
+        /// <param name="propertyName">Name of the property that will be used as the key to the index entry.</param>
+        /// <param name="documentIndex">Document where the indexed word was found.</param>
+        /// <remarks>This overload automatically adds a keyword with TPropertyOwner information.</remarks>
+        public void IndexProperty<TProperty, TPropertyOwner>(int documentIndex, string propertyName, string value)
+        {
+            IndexProperty<TProperty, TPropertyOwner>(documentIndex, propertyName, value, false);
+        }
+
+        /// <summary>
+        /// Add a property value to the index. A property is specified with a key and a string value. See <see cref="SearchIndexer.AddProperty"/>.
+        /// </summary>
+        /// <param name="value">Value to add to the index.</param>
+        /// <param name="propertyName">Name of the property that will be used as the key to the index entry.</param>
+        /// <param name="documentIndex">Document where the indexed word was found.</param>
+        /// <param name="saveKeyword">Define if we store this key in the keyword registry of the index. See <see cref="SearchIndexer.GetKeywords"/>.</param>
+        /// <remarks>This overload automatically adds a keyword with TPropertyOwner information.</remarks>
+        public void IndexProperty<TProperty, TPropertyOwner>(int documentIndex, string propertyName, string value, bool saveKeyword)
+        {
+            IndexProperty<TProperty, TPropertyOwner>(documentIndex, propertyName, value, saveKeyword, propertyName, propertyName);
+        }
+
+        [Obsolete("IndexProperty with variations is no longer supported. Variations are handled automatically internally. Please use IndexProperty(int documentIndex, string name, string value, bool saveKeyword)")]
+        public void IndexProperty<TProperty, TPropertyOwner>(int documentIndex, string name, string value, bool saveKeyword, bool exact)
+        {
+            IndexProperty<TProperty, TPropertyOwner>(documentIndex, name, value, saveKeyword);
+        }
+
+        internal void IndexProperty<TProperty, TPropertyOwner>(int documentIndex, string propertyName, string value, bool saveKeyword, string keywordLabel, string keywordHelp)
+        {
+            if (string.IsNullOrEmpty(value))
+                return;
+            propertyName = propertyName.ToLowerInvariant();
+            var valueLower = value.ToLowerInvariant();
+            AddProperty(propertyName, valueLower, settings.baseScore, documentIndex, saveKeyword: saveKeyword);
+            MapProperty(documentIndex, propertyName, keywordLabel, keywordHelp, typeof(TProperty).AssemblyQualifiedName, typeof(TPropertyOwner).AssemblyQualifiedName, removeNestedKeys: true);
+        }
+
+        [Obsolete("IndexProperty with variations is no longer supported. Variations are handled automatically internally. Please use IndexProperty(int documentIndex, string name, string value, bool saveKeyword, string keywordLabel, string keywordHelp)")]
+        internal void IndexProperty<TProperty, TPropertyOwner>(int documentIndex, string name, string value, bool saveKeyword, bool exact, string keywordLabel, string keywordHelp)
+        {
+            IndexProperty<TProperty, TPropertyOwner>(documentIndex, name, value, saveKeyword, keywordLabel, keywordHelp);
+        }
+
+        /// <summary>
+        /// Add a key-number value pair to the index. The key won't be added with variations. See <see cref="SearchIndexer.AddNumber"/>.
+        /// </summary>
+        /// <param name="name">Key used to retrieve the value.</param>
+        /// <param name="number">Number value to store in the index.</param>
+        /// <param name="documentIndex">Document where the indexed value was found.</param>
+        public void IndexNumber(int documentIndex, string name, double number)
+        {
+            IndexNumber(documentIndex, name, number, settings.baseScore);
+        }
+
+        internal void IndexNumber(int documentIndex, string name, double number, int score)
+        {
+            name = name.ToLowerInvariant();
+            AddNumber(name, number, score, documentIndex);
+        }
+
+        internal static FilePattern GetFilePattern(string pattern)
+        {
+            if (!string.IsNullOrEmpty(pattern))
+            {
+                if (pattern[0] == '.')
+                    return FilePattern.Extension;
+                if (pattern[pattern.Length - 1] == '/')
+                    return FilePattern.Folder;
+            }
+            return FilePattern.File;
+        }
+
+        private bool PatternChecks(string pattern, string ext, string dir, string filePath)
+        {
+            var filePattern = GetFilePattern(pattern);
+
+            switch (filePattern)
+            {
+                case FilePattern.Extension:
+                    return ext.Equals(pattern, StringComparison.OrdinalIgnoreCase);
+                case FilePattern.Folder:
+                    var icDir = pattern.Substring(0, pattern.Length - 1);
+                    return dir.IndexOf(icDir, StringComparison.OrdinalIgnoreCase) != -1;
+                case FilePattern.File:
+                    return filePath.IndexOf(pattern, StringComparison.OrdinalIgnoreCase) != -1;
+            }
+
+            return false;
+        }
+
+        /// <summary>
+        /// Index all the properties of an object.
+        /// </summary>
+        /// <param name="obj">Object to index.</param>
+        /// <param name="documentIndex">Document where the indexed object was found.</param>
+        /// <param name="dependencies">Index dependencies.</param>
+        protected void IndexObject(int documentIndex, Object obj, bool dependencies = false)
+        {
+            IndexObject(documentIndex, obj, dependencies, recursive: false);
+        }
+
+        internal void IndexObject(int documentIndex, Object obj, bool dependencies, bool recursive)
+        {
+            using var _ = k_IndexObjectMarker.Auto();
+            using (var so = new SerializedObject(obj))
+            {
+                var p = so.GetIterator();
+                const int maxDepth = 1;
+                IndexProperties(documentIndex, p, recursive, maxDepth);
+            }
+        }
+
+        private bool ShouldIndexChildren(SerializedProperty p, bool recursive)
+        {
+            if (p.depth > 2 && !recursive)
+                return false;
+
+            if ((p.isArray || p.isFixedBuffer) && !recursive)
+                return false;
+
+            switch (p.propertyType)
+            {
+                case SerializedPropertyType.Generic:
+                    switch (p.type)
+                    {
+                        case "SerializedProperties":
+                        case "VFXPropertySheetSerializedBase":
+                        case "ComputeShaderCompilationContext":
+                        case "vector":
+                            return false;
+                    }
+                    break;
+                case SerializedPropertyType.Vector2:
+                case SerializedPropertyType.Vector3:
+                case SerializedPropertyType.Vector4:
+                case SerializedPropertyType.Rect:
+                case SerializedPropertyType.ArraySize:
+                case SerializedPropertyType.Character:
+                case SerializedPropertyType.AnimationCurve:
+                case SerializedPropertyType.Bounds:
+                case SerializedPropertyType.Gradient:
+                case SerializedPropertyType.Quaternion:
+                case SerializedPropertyType.ExposedReference:
+                case SerializedPropertyType.FixedBufferSize:
+                case SerializedPropertyType.Vector2Int:
+                case SerializedPropertyType.Vector3Int:
+                case SerializedPropertyType.RectInt:
+                case SerializedPropertyType.BoundsInt:
+                case SerializedPropertyType.ManagedReference:
+                case SerializedPropertyType.Hash128:
+                case SerializedPropertyType.RenderingLayerMask:
+                    return false;
+            }
+
+            return p.hasVisibleChildren;
+        }
+
+        internal static string GetFieldName(string propertyName)
+        {
+            return propertyName.Replace("m_", "").Replace(" ", "").ToLowerInvariant();
+        }
+
+        [AutoStaticsCleanupOnCodeReload]
+        static Func<SerializedProperty, bool> s_IndexAllPropertiesFunc = p => true;
+
+        internal void IndexProperties(int documentIndex, in SerializedProperty p, bool recursive, int maxDepth)
+        {
+            IndexProperties(documentIndex, p, recursive, maxDepth, s_IndexAllPropertiesFunc);
+        }
+
+        internal bool IsIndexableProperty(SerializedProperty prop, out string fieldName)
+        {
+            fieldName = "";
+            if (!IsIndexableProperty(prop.propertyType) || prop.propertyPath[prop.propertyPath.Length - 1] == ']')
+                return false;
+            fieldName = GetFieldName(prop.displayName);
+            return !ignoredProperties.Contains(fieldName) && !ignoredProperties.Contains(prop.type);
+        }
+
+        internal static bool IsIndexableProperty(in SerializedPropertyType type)
+        {
+            switch (type)
+            {
+                // Unsupported property types:
+                case SerializedPropertyType.Generic:
+                case SerializedPropertyType.Bounds:
+                case SerializedPropertyType.BoundsInt:
+                case SerializedPropertyType.Rect:
+                case SerializedPropertyType.RectInt:
+                case SerializedPropertyType.Vector2Int:
+                case SerializedPropertyType.Vector3Int:
+                case SerializedPropertyType.LayerMask:
+                case SerializedPropertyType.AnimationCurve:
+                case SerializedPropertyType.Gradient:
+                case SerializedPropertyType.ExposedReference:
+                case SerializedPropertyType.ManagedReference:
+                case SerializedPropertyType.FixedBufferSize:
+                    return false;
+                default:
+                    return true;
+            }
+        }
+
+        internal void IndexProperties(int documentIndex, in SerializedProperty p, bool recursive, int maxDepth, Func<SerializedProperty, bool> shouldContinueIterating)
+        {
+            using var _ = k_IndexPropertiesMarker.Auto();
+            string componentPrefix = null;
+            if (p.serializedObject?.targetObject is Component c)
+                componentPrefix = c.GetType().Name + ".";
+            var next = indexHiddenProperties ? p.Next(true) : p.NextVisible(true);
+            while (next)
+            {
+                IndexPropertyIfIndexable(documentIndex, componentPrefix, p, maxDepth, PropertyWithPrefixIndexing.All);
+                var shouldIndexChildren = ShouldIndexChildren(p, recursive);
+                next = shouldContinueIterating(p) && (indexHiddenProperties ? p.Next(shouldIndexChildren) : p.NextVisible(shouldIndexChildren));
+            }
+        }
+
+        internal void IndexPropertyIfIndexable(int documentIndex, in string propertyPrefix, in SerializedProperty p, int maxDepth, PropertyWithPrefixIndexing indexingOptions = PropertyWithPrefixIndexing.NoPrefix)
+        {
+            var indexWithPrefix = indexingOptions.HasAny(PropertyWithPrefixIndexing.WithPrefix) && !string.IsNullOrEmpty(propertyPrefix);
+            if (IsIndexableProperty(p, out var fieldName))
+            {
+                if (indexingOptions.HasAny(PropertyWithPrefixIndexing.NoPrefix))
+                    IndexProperty(documentIndex, "", fieldName, p, maxDepth, indexWithPrefix ? SearchPropositionGenerationOptions.HideInQueryBuilderMode : SearchPropositionGenerationOptions.None);
+
+                if (indexWithPrefix)
+                    IndexProperty(documentIndex, GetFieldName(propertyPrefix), fieldName, p, maxDepth, SearchPropositionGenerationOptions.None);
+            }
+        }
+
+        internal void IndexProperty(in int documentIndex, in string propertyPrefix, string fieldName, in SerializedProperty p, int maxDepth, SearchPropositionGenerationOptions propositionGenerationOptions)
+        {
+            using var _ = k_IndexSerializedPropertyMarker.Auto();
+            fieldName = string.IsNullOrEmpty(propertyPrefix) ? fieldName : propertyPrefix + fieldName;
+            if (p.depth <= 1 && p.isArray && p.propertyType != SerializedPropertyType.String)
+            {
+                IndexNumber(documentIndex, fieldName, p.arraySize);
+                LogProperty(documentIndex, fieldName, p, propositionGenerationOptions, p.arraySize);
+            }
+
+            if (p.depth > maxDepth)
+                return;
+
+            switch (p.propertyType)
+            {
+                case SerializedPropertyType.ArraySize:
+                case SerializedPropertyType.Character:
+                case SerializedPropertyType.Integer:
+                    IndexNumber(documentIndex, fieldName, (double)p.intValue);
+                    var managedType = p.GetManagedType();
+                    if (managedType?.IsEnum == true)
+                    {
+                        IndexEnum(documentIndex, fieldName, p, propositionGenerationOptions);
+                    }
+                    else if (managedType == typeof(bool))
+                    {
+                        var boolStringValue = p.intValue == 0 ? "false" : "true";
+                        IndexProperty(documentIndex, fieldName, boolStringValue, saveKeyword: false);
+                        LogProperty(documentIndex, fieldName, p, propositionGenerationOptions, boolStringValue);
+                    }
+                    else
+                        LogProperty(documentIndex, fieldName, p, propositionGenerationOptions, p.intValue);
+                    break;
+                case SerializedPropertyType.Boolean:
+                    IndexProperty(documentIndex, fieldName, p.boolValue.ToString(), saveKeyword: false);
+                    LogProperty(documentIndex, fieldName, p, propositionGenerationOptions, p.boolValue);
+                    break;
+                case SerializedPropertyType.Float:
+                    IndexNumber(documentIndex, fieldName, (double)p.floatValue);
+                    LogProperty(documentIndex, fieldName, p, propositionGenerationOptions, p.floatValue);
+                    break;
+                case SerializedPropertyType.String:
+                    IndexPropertyStringComponents(documentIndex, fieldName, p.stringValue);
+                    LogProperty(documentIndex, fieldName, p, propositionGenerationOptions, p.stringValue);
+                    break;
+                case SerializedPropertyType.Enum:
+                    IndexEnum(documentIndex, fieldName, p, propositionGenerationOptions);
+                    break;
+                case SerializedPropertyType.Color:
+                    IndexerExtensions.IndexColor(fieldName, p.colorValue, this, documentIndex);
+                    LogProperty(documentIndex, fieldName, p, propositionGenerationOptions, p.colorValue);
+                    break;
+                case SerializedPropertyType.Vector2:
+                    IndexerExtensions.IndexVector(fieldName, p.vector2Value, this, documentIndex);
+                    LogProperty(documentIndex, fieldName, p, propositionGenerationOptions, p.vector2Value);
+                    break;
+                case SerializedPropertyType.Vector3:
+                    IndexerExtensions.IndexVector(fieldName, p.vector3Value, this, documentIndex);
+                    LogProperty(documentIndex, fieldName, p, propositionGenerationOptions, p.vector3Value);
+                    break;
+                case SerializedPropertyType.Vector4:
+                    IndexerExtensions.IndexVector(fieldName, p.vector4Value, this, documentIndex);
+                    LogProperty(documentIndex, fieldName, p, propositionGenerationOptions, p.vector4Value);
+                    break;
+                case SerializedPropertyType.Quaternion:
+                    IndexerExtensions.IndexVector(fieldName, p.quaternionValue.eulerAngles, this, documentIndex);
+                    LogProperty(documentIndex, fieldName, p, propositionGenerationOptions, p.quaternionValue.eulerAngles);
+                    break;
+                case SerializedPropertyType.ObjectReference:
+                    AddReference(documentIndex, fieldName, p.objectReferenceValue);
+                    LogProperty(documentIndex, fieldName, p, propositionGenerationOptions, p.objectReferenceValue);
+                    break;
+                case SerializedPropertyType.Hash128:
+                    IndexProperty(documentIndex, fieldName, p.hash128Value.ToString(), saveKeyword: true);
+                    LogProperty(documentIndex, fieldName, p, propositionGenerationOptions, p.hash128Value);
+                    break;
+                case SerializedPropertyType.GUID:
+                    IndexProperty(documentIndex, fieldName, p.guidValue.ToString(), saveKeyword: true);
+                    LogProperty(documentIndex, fieldName, p, propositionGenerationOptions, p.guidValue);
+                    break;
+                case SerializedPropertyType.EntityId:
+                    IndexProperty(documentIndex, fieldName, p.entityIdValue.ToString(), saveKeyword: true);
+                    LogProperty(documentIndex, fieldName, p, propositionGenerationOptions, p.entityIdValue);
+                    break;
+                case SerializedPropertyType.LoadableObjectId:
+                    var loadableObj = UnityEditor.LoadableObjectIdEditorUtility.LoadableObjectIdToObject(p.loadableObjectIdValue);
+                    AddReference(documentIndex, fieldName, loadableObj);
+                    LogProperty(documentIndex, fieldName, p, propositionGenerationOptions, loadableObj);
+                    break;
+                case SerializedPropertyType.LoadableSceneId:
+                    var sceneAsset = LoadableSceneIdEditorUtility.LoadableSceneIdToScene(p.loadableSceneIdValue);
+                    AddReference(documentIndex, fieldName, sceneAsset);
+                    LogProperty(documentIndex, fieldName, p, propositionGenerationOptions, sceneAsset);
+                    break;
+            }
+        }
+
+        void IndexEnum(in int documentIndex, in string fieldName, in SerializedProperty p, SearchPropositionGenerationOptions propositionGenerationOptions)
+        {
+            m_FlagsPool.Clear();
+            m_FlagsPool.AddRange(SearchUtils.GetEnumFlags(p));
+            if (m_FlagsPool.Count == 0)
+                return;
+            if (m_FlagsPool.Count > 1)
+            {
+                foreach (var f in m_FlagsPool)
+                {
+                    IndexProperty(documentIndex, fieldName, f, saveKeyword: true);
+                }
+            }
+
+            // Add the complete Flag list:
+            var flagValue = m_FlagsPool.Count == 1 ? m_FlagsPool[0] : string.Join(",", m_FlagsPool);
+            IndexProperty(documentIndex, fieldName, flagValue, saveKeyword: true);
+            LogProperty(documentIndex, fieldName, p, propositionGenerationOptions, flagValue);
+        }
+
+        void IndexPropertyStringComponents(in int documentIndex, string fieldName, string sv)
+        {
+            using var _ = k_IndexPropertyStringComponentsMarker.Auto();
+            if (string.IsNullOrEmpty(sv) || sv.Length > 64)
+                return;
+
+            sv = sv.ToLowerInvariant();
+            fieldName = fieldName.ToLowerInvariant();
+            float f = 0;
+            if (Utils.TryParse(sv, out f ))
+            {
+                AddNumber(fieldName, f, settings.baseScore, documentIndex);
+            }
+            else if (Utils.TryParseRange(sv, out var range))
+            {
+                AddNumber(fieldName, range.min, settings.baseScore, documentIndex);
+                AddNumber(fieldName, range.max, settings.baseScore, documentIndex);
+            }
+            else
+            {
+                AddProperty(fieldName, sv, documentIndex, saveKeyword: false);
+            }
+        }
+
+        void LogProperty(int documentIndex, in string fieldName, in SerializedProperty p, SearchPropositionGenerationOptions propositionGenerationOptions = SearchPropositionGenerationOptions.None, object value = null)
+        {
+            using var _ = k_LogPropertyMarker.Auto();
+            var propertyType = SearchUtils.GetPropertyManagedTypeString(p);
+            if (propertyType != null)
+                MapProperty(documentIndex, fieldName, p.displayName, p.tooltip, propertyType, p.serializedObject?.targetObject?.GetType().AssemblyQualifiedName, propositionGenerationOptions, removeNestedKeys: true);
+        }
+
+        internal void AddReference(int documentIndex, string assetPath, bool saveKeyword = false)
+        {
+            // Called when using AssetDatabase.GetDependencies from document.
+
+            using var _ = k_AddReferenceMarker.Auto();
+            if (string.IsNullOrEmpty(assetPath))
+                return;
+
+            IndexProperty(documentIndex, "ref", assetPath, saveKeyword);
+            var assetInstanceID = Utils.GetMainAssetEntityId(assetPath);
+            var gid = GlobalObjectId.GetGlobalObjectIdSlow((EntityId)assetInstanceID);
+            if (gid.identifierType != 0)
+                IndexProperty(documentIndex, "ref", gid.ToString(), saveKeyword);
+        }
+
+        internal void AddReference(int documentIndex, string propertyName, Object objRef, in string label = null, in Type ownerPropertyType = null)
+        {
+            // Called when indexing a property reference of document
+            using var _ = k_AddObjectReferenceMarker.Auto();
+            if (!objRef)
+            {
+                if (settings.options.properties)
+                    IndexProperty(documentIndex, propertyName, "none", saveKeyword: false);
+                return;
+            }
+
+            var assetPath = SearchUtils.GetObjectPath(objRef);
+            if (string.IsNullOrEmpty(assetPath))
+                return;
+
+            IndexProperty(documentIndex, propertyName, assetPath, saveKeyword: false);
+
+            var gid = GlobalObjectId.GetGlobalObjectIdSlow(objRef);
+            if (gid.identifierType != 0)
+            {
+                var gidStr = gid.ToString();
+                IndexProperty(documentIndex, propertyName, gidStr, saveKeyword: false);
+                IndexProperty(documentIndex, "ref", gidStr, saveKeyword: false);
+            }
+
+            if (AssetDatabase.IsSubAsset(objRef))
+            {
+                var mainInstanceId = AssetDatabase.GetMainAssetEntityId(assetPath);
+                var mainGid = GlobalObjectId.GetGlobalObjectIdSlow(mainInstanceId);
+                if (mainGid.identifierType != 0)
+                {
+                    IndexProperty(documentIndex, "ref", mainGid.ToString(), saveKeyword: false);
+                }
+            }
+
+            if (settings.options.dependencies)
+            {
+                IndexProperty(documentIndex, "ref", assetPath, saveKeyword: false);
+            }
+
+
+            if (settings.options.properties && label != null && ownerPropertyType != null)
+            {
+                 MapProperty(documentIndex, propertyName, label, null, objRef.GetType().AssemblyQualifiedName, ownerPropertyType.AssemblyQualifiedName);
+            }
+        }
+
+        /// <summary>
+        /// Call all the registered custom indexer for a specific object. See <see cref="CustomObjectIndexerAttribute"/>.
+        /// </summary>
+        /// <param name="documentId">Document index.</param>
+        /// <param name="documentIndex">Document where the indexed object was found.</param>
+        /// <param name="obj">Object to index.</param>
+        internal void IndexCustomProperties(string documentId, int documentIndex, Object obj)
+        {
+            using var _ = k_IndexCustomPropertiesMarker.Auto();
+            using (var so = new SerializedObject(obj))
+            {
+                CallCustomIndexers(documentId, documentIndex, obj, so);
+            }
+        }
+
+        /// <summary>
+        /// Call all the registered custom indexer for an object of a specific type. See <see cref="CustomObjectIndexerAttribute"/>.
+        /// </summary>
+        /// <param name="documentId">Document id.</param>
+        /// <param name="obj">Object to index.</param>
+        /// <param name="documentIndex">Document where the indexed object was found.</param>
+        /// <param name="so">SerializedObject representation of obj.</param>
+        /// <param name="multiLevel">If true, calls all the indexer that would fit the type of the object (all assignable type). If false only check for an indexer registered for the exact type of the Object.</param>
+        private void CallCustomIndexers(string documentId, int documentIndex, Object obj, SerializedObject so, bool multiLevel = true)
+        {
+            var objectType = obj.GetType();
+            List<CustomIndexerHandler> customIndexers;
+            if (!multiLevel)
+            {
+                if (!CustomIndexers.TryGetValue(objectType, out customIndexers))
+                    return;
+            }
+            else
+            {
+                customIndexers = new List<CustomIndexerHandler>();
+                foreach (var indexerType in CustomIndexers.types)
+                {
+                    if (indexerType.IsAssignableFrom(objectType))
+                        customIndexers.AddRange(CustomIndexers.GetHandlers(indexerType));
+                }
+            }
+
+            var indexerTarget = new CustomObjectIndexerTarget
+            {
+                id = documentId,
+                documentIndex = documentIndex,
+                target = obj,
+                serializedObject = so,
+                targetType = objectType
+            };
+
+            foreach (var customIndexer in customIndexers)
+            {
+                try
+                {
+                    customIndexer(indexerTarget, this);
+                }
+                catch(System.Exception e)
+                {
+                    Debug.LogError($"Error while using custom asset indexer: {e}");
+                }
+            }
+        }
+
+        /// <summary>
+        /// Checks if we have a custom indexer for the specified type.
+        /// </summary>
+        /// <param name="type">Type to lookup</param>
+        /// <param name="multiLevel">Check for subtypes too.</param>
+        /// <returns>True if a custom indexer exists, otherwise false is returned.</returns>
+        internal bool HasCustomIndexers(Type type, bool multiLevel = true)
+        {
+            return CustomIndexers.HasCustomIndexers(type, multiLevel);
+        }
+
+        private protected override void OnFinish()
+        {
+            IndexerExtensions.ClearIndexerCaches(this);
+        }
+    }
+}
+#pragma warning restore UAL0015,UAL0018,UAL0019,UAL0020,UAL0021

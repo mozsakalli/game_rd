@@ -1,0 +1,1443 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+using Unity.Scripting.LifecycleManagement;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Runtime.InteropServices;
+using Unity.Collections.LowLevel.Unsafe;
+using Unity.Properties;
+using UnityEngine.Bindings;
+using UnityEngine.TextCore.Text;
+using UnityEngine.UIElements.StyleSheets;
+
+namespace UnityEngine.UIElements
+{
+    internal class StyleValueCollection
+    {
+        internal List<StyleValue> m_Values = new List<StyleValue>();
+
+        public StyleLength GetStyleLength(StylePropertyId id)
+        {
+            var inline = new StyleValue();
+            if (TryGetStyleValue(id, ref inline))
+                return new StyleLength(inline.length, inline.keyword);
+            return StyleKeyword.Null;
+        }
+
+        public StyleFloat GetStyleFloat(StylePropertyId id)
+        {
+            var inline = new StyleValue();
+            if (TryGetStyleValue(id, ref inline))
+                return new StyleFloat(inline.number, inline.keyword);
+            return StyleKeyword.Null;
+        }
+
+        public StyleInt GetStyleInt(StylePropertyId id)
+        {
+            var inline = new StyleValue();
+            if (TryGetStyleValue(id, ref inline))
+                return new StyleInt((int)inline.number, inline.keyword);
+            return StyleKeyword.Null;
+        }
+
+        public StyleColor GetStyleColor(StylePropertyId id)
+        {
+            var inline = new StyleValue();
+            if (TryGetStyleValue(id, ref inline))
+                return new StyleColor(inline.color, inline.keyword);
+            return StyleKeyword.Null;
+        }
+
+        public StyleBackgroundPosition GetStyleBackgroundPosition(StylePropertyId id)
+        {
+            var inline = new StyleValue();
+            if (TryGetStyleValue(id, ref inline))
+                return new StyleBackgroundPosition(inline.position);
+            return StyleKeyword.Null;
+        }
+
+        public StyleBackgroundRepeat GetStyleBackgroundRepeat(StylePropertyId id)
+        {
+            var inline = new StyleValue();
+            if (TryGetStyleValue(id, ref inline))
+                return new StyleBackgroundRepeat(inline.repeat);
+            return StyleKeyword.Null;
+        }
+
+        // public StyleTextAutoSize GetStyleTextAutoSize(StylePropertyId id)
+        // {
+        //     var inline = new StyleValue();
+        //     if (TryGetStyleValue(id, ref inline))
+        //     {
+        //         // ReadTextAutoSize parses the composite value starting at index 0.
+        //         return new StyleTextAutoSize(inline., inline.keyword);
+        //     }
+        //     return StyleKeyword.Null;
+        // }
+
+        public StyleRatio GetStyleRatio(StylePropertyId id)
+        {
+            var inline = new StyleValue();
+            if (TryGetStyleValue(id, ref inline))
+                return new StyleRatio(inline.number);
+            return StyleKeyword.Null;
+        }
+
+        // CSS Grid. GridLine is carried as its raw sign-encoded int in StyleValue.number.
+        public StyleGridLine GetStyleGridLine(StylePropertyId id)
+        {
+            var inline = new StyleValue();
+            if (TryGetStyleValue(id, ref inline))
+                return new StyleGridLine(GridLine.FromRawValue((int)inline.number));
+            return StyleKeyword.Null;
+        }
+
+        public bool TryGetStyleValue(StylePropertyId id, ref StyleValue value)
+        {
+            value.id = StylePropertyId.Unknown;
+            foreach (var inlineStyle in m_Values)
+            {
+                if (inlineStyle.id == id)
+                {
+                    value = inlineStyle;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        public void SetStyleValue(StyleValue value)
+        {
+            for (int i = 0; i < m_Values.Count; i++)
+            {
+                if (m_Values[i].id == value.id)
+                {
+                    if (value.keyword == StyleKeyword.Null)
+                    {
+                        m_Values.RemoveAt(i);
+                    }
+                    else
+                    {
+                        m_Values[i] = value;
+                    }
+                    return;
+                }
+            }
+
+            m_Values.Add(value);
+        }
+    }
+
+    [VisibleToOtherModules("UnityEditor.UIToolkitAuthoringModule")]
+    internal partial class InlineStyleAccess : StyleValueCollection
+    {
+        [AutoStaticsCleanupOnCodeReload]
+        private static StylePropertyReader s_StylePropertyReader = new StylePropertyReader();
+
+        private List<StyleValueManaged> m_ValuesManaged;
+        private VisualElement ve { get; set; }
+
+        private bool m_HasInlineCursor;
+        private StyleCursor m_InlineCursor;
+
+        private bool m_HasInlineTextShadow;
+        private StyleTextShadow m_InlineTextShadow;
+
+        private bool m_HasInlineTextAutoSize;
+        private StyleTextAutoSize m_InlineTextAutoSize;
+
+        private bool m_HasInlineTransformOrigin;
+        private StyleTransformOrigin m_InlineTransformOrigin;
+
+        private bool m_HasInlineTranslate;
+        private StyleTranslate m_InlineTranslateOperation;
+
+        private bool m_HasInlineRotate;
+        private StyleRotate m_InlineRotateOperation;
+
+        private bool m_HasInlineScale;
+        private StyleScale m_InlineScale;
+
+        private bool m_HasInlineCurvature;
+        private StyleCurvature m_InlineCurvature;
+
+        private bool m_HasInlineBackgroundSize;
+        public StyleBackgroundSize m_InlineBackgroundSize;
+
+        private InlineRule m_InlineRule;
+        public InlineRule inlineRule => m_InlineRule;
+
+        [VisibleToOtherModules("UnityEditor.UIToolkitAuthoringModule")]
+        internal struct InlineRule
+        {
+            public StyleSheet sheet;
+            public StyleRule rule;
+            public StyleProperty[] properties => rule?.properties;
+        }
+
+        public InlineStyleAccess(VisualElement ve)
+        {
+            this.ve = ve;
+        }
+
+        public void SetInlineRule(StyleSheet sheet, StyleRule rule, StyleVariableContext variableContext = null)
+        {
+            if (m_InlineRule.sheet && m_InlineRule.rule != null)
+                ve.elementPanel?.liveReloadSystem.StopStyleSheetAssetTracking(m_InlineRule.sheet);
+
+            m_InlineRule.sheet = sheet;
+            m_InlineRule.rule = rule;
+            if (m_InlineRule.sheet && m_InlineRule.rule != null)
+                ve.elementPanel?.liveReloadSystem.StartStyleSheetAssetTracking(m_InlineRule.sheet);
+
+            ApplyInlineStyles(ref ve.computedStyle, variableContext);
+        }
+
+        public bool IsValueSet(StylePropertyId id)
+        {
+            foreach (var sv in m_Values)
+            {
+                if (sv.id == id)
+                    return true;
+            }
+
+            if (m_ValuesManaged != null)
+            {
+                foreach (var sv in m_ValuesManaged)
+                {
+                    if (sv.id == id)
+                        return true;
+                }
+            }
+
+            switch (id)
+            {
+                case StylePropertyId.Cursor:
+                    return m_HasInlineCursor;
+                case StylePropertyId.TextShadow:
+                    return m_HasInlineTextShadow;
+                case StylePropertyId.UnityTextAutoSize:
+                    return m_HasInlineTextAutoSize;
+                case StylePropertyId.TransformOrigin:
+                    return m_HasInlineTransformOrigin;
+                case StylePropertyId.Translate:
+                    return m_HasInlineTranslate;
+                case StylePropertyId.Rotate:
+                    return m_HasInlineRotate;
+                case StylePropertyId.Scale:
+                    return m_HasInlineScale;
+                case StylePropertyId.BackgroundSize:
+                    return m_HasInlineBackgroundSize;
+                case StylePropertyId.UnityCurvature:
+                    return m_HasInlineCurvature;
+                default:
+                    return false;
+            }
+        }
+
+        public void ApplyInlineStyles(ref ComputedStyle computedStyle, StyleVariableContext variableContext)
+        {
+            // Apply inline rule coming from UXML if any
+            var parent = ve.hierarchy.parent;
+            ref var parentStyle = ref parent?.computedStyle != null ? ref parent.computedStyle : ref InitialStyle.Get();
+
+            if (m_InlineRule.sheet != null)
+            {
+                ve.variableContext = variableContext;
+                s_StylePropertyReader.SetInlineContext(m_InlineRule.sheet, m_InlineRule.rule.properties, variableContext);
+                computedStyle.ApplyProperties(s_StylePropertyReader, ref parentStyle);
+            }
+
+            // Apply values coming from IStyle if any
+            foreach (var sv in m_Values)
+            {
+                computedStyle.ApplyStyleValue(sv, ref parentStyle);
+            }
+
+            if (m_ValuesManaged != null)
+            {
+                foreach (var sv in m_ValuesManaged)
+                {
+                    computedStyle.ApplyStyleValueManaged(sv, ref parentStyle);
+                }
+            }
+
+            if (ve.style.cursor.keyword != StyleKeyword.Null)
+            {
+                computedStyle.ApplyStyleCursor(ve.style.cursor.value);
+            }
+
+            if (ve.style.textShadow.keyword != StyleKeyword.Null)
+            {
+                computedStyle.ApplyStyleTextShadow(ve.style.textShadow.value);
+            }
+
+            if (ve.style.unityTextAutoSize.keyword != StyleKeyword.Null)
+            {
+                computedStyle.ApplyStyleTextAutoSize(ve.style.unityTextAutoSize.value);
+            }
+
+            if (m_HasInlineTransformOrigin)
+            {
+                computedStyle.ApplyStyleTransformOrigin(ve.style.transformOrigin.value);
+            }
+
+            if (m_HasInlineTranslate)
+            {
+                computedStyle.ApplyStyleTranslate(ve.style.translate.value);
+            }
+
+            if (m_HasInlineScale)
+            {
+                computedStyle.ApplyStyleScale(ve.style.scale.value);
+            }
+
+            if (m_HasInlineRotate)
+            {
+                computedStyle.ApplyStyleRotate(ve.style.rotate.value);
+            }
+
+            if (m_HasInlineBackgroundSize)
+            {
+                computedStyle.ApplyStyleBackgroundSize(ve.style.backgroundSize.value);
+            }
+
+            if (m_HasInlineCurvature)
+            {
+                computedStyle.ApplyStyleCurvature(ve.style.unityCurvature.value);
+            }
+        }
+
+        StyleCursor IStyle.cursor
+        {
+            get
+            {
+                var inlineCursor = new StyleCursor();
+                if (TryGetInlineCursor(ref inlineCursor))
+                    return inlineCursor;
+                return StyleKeyword.Null;
+            }
+            set
+            {
+                if (SetInlineCursor(value))
+                {
+                    ve.IncrementVersion(StylePropertyUtil.s_PropertyToChangeType[(int)StylePropertyId.Cursor]);
+                }
+            }
+        }
+
+        StyleTextShadow IStyle.textShadow
+        {
+            get
+            {
+                var inlineTextShadow = new StyleTextShadow();
+                if (TryGetInlineTextShadow(ref inlineTextShadow))
+                    return inlineTextShadow;
+                return StyleKeyword.Null;
+            }
+            set
+            {
+                if (SetInlineTextShadow(value))
+                {
+                    ve.IncrementVersion(StylePropertyUtil.s_PropertyToChangeType[(int)StylePropertyId.TextShadow]);
+                }
+            }
+        }
+
+        StyleTextAutoSize IStyle.unityTextAutoSize
+        {
+            get
+            {
+                var inlineTextAutoSize = new StyleTextAutoSize();
+                if (TryGetInlineTextAutoSize(ref inlineTextAutoSize))
+                    return inlineTextAutoSize;
+                return StyleKeyword.Null;
+            }
+            set
+            {
+                if (SetInlineTextAutoSize(value))
+                {
+                    ve.IncrementVersion(StylePropertyUtil.s_PropertyToChangeType[(int)StylePropertyId.UnityTextAutoSize]);
+                }
+            }
+        }
+
+        StyleBackgroundSize IStyle.backgroundSize
+        {
+            get
+            {
+                var inlineBackgroundSize = new StyleBackgroundSize();
+                if (TryGetInlineBackgroundSize(ref inlineBackgroundSize))
+                    return inlineBackgroundSize;
+                return StyleKeyword.Null;
+            }
+            set
+            {
+                if (SetInlineBackgroundSize(value))
+                {
+                    ve.IncrementVersion(StylePropertyUtil.s_PropertyToChangeType[(int)StylePropertyId.BackgroundSize]);
+                }
+            }
+        }
+
+        private StyleList<T> GetStyleList<T>(StylePropertyId id)
+        {
+            var inline = new StyleValueManaged();
+            if (TryGetStyleValueManaged(id, ref inline))
+            {
+                return new StyleList<T>(inline.value as List<T>, inline.keyword);
+            }
+            return StyleKeyword.Null;
+        }
+
+        private void SetStyleValueManaged(StyleValueManaged value)
+        {
+            if (m_ValuesManaged == null)
+                m_ValuesManaged = new List<StyleValueManaged>();
+
+            for (int i = 0; i < m_ValuesManaged.Count; i++)
+            {
+                if (m_ValuesManaged[i].id == value.id)
+                {
+                    if (value.keyword == StyleKeyword.Null)
+                    {
+                        m_ValuesManaged.RemoveAt(i);
+                    }
+                    else
+                    {
+                        m_ValuesManaged[i] = value;
+                    }
+                    return;
+                }
+            }
+
+            m_ValuesManaged.Add(value);
+        }
+
+        private bool TryGetStyleValueManaged(StylePropertyId id, ref StyleValueManaged value)
+        {
+            value.id = StylePropertyId.Unknown;
+            if (m_ValuesManaged == null)
+                return false;
+
+            foreach (var inlineStyle in m_ValuesManaged)
+            {
+                if (inlineStyle.id == id)
+                {
+                    value = inlineStyle;
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        StyleTransformOrigin IStyle.transformOrigin
+        {
+            get
+            {
+                var inlineTransformOrigin = new StyleTransformOrigin();
+                if (TryGetInlineTransformOrigin(ref inlineTransformOrigin))
+                    return inlineTransformOrigin;
+                return StyleKeyword.Null;
+            }
+            set
+            {
+                if (SetInlineTransformOrigin(value))
+                {
+                    ve.IncrementVersion(StylePropertyUtil.s_PropertyToChangeType[(int)StylePropertyId.TransformOrigin]);
+                }
+            }
+        }
+
+        StyleTranslate IStyle.translate
+        {
+            get
+            {
+                var inlineTranslate = new StyleTranslate();
+                if (TryGetInlineTranslate(ref inlineTranslate))
+                    return inlineTranslate;
+                return StyleKeyword.Null;
+            }
+            set
+            {
+                if (SetInlineTranslate(value))
+                {
+                    ve.IncrementVersion(StylePropertyUtil.s_PropertyToChangeType[(int)StylePropertyId.Translate]);
+                }
+            }
+        }
+
+        StyleRotate IStyle.rotate
+        {
+            get
+            {
+                var inlineRotate = new StyleRotate();
+                if (TryGetInlineRotate(ref inlineRotate))
+                    return inlineRotate;
+                return StyleKeyword.Null;
+            }
+            set
+            {
+                if (SetInlineRotate(value))
+                {
+                    ve.IncrementVersion(StylePropertyUtil.s_PropertyToChangeType[(int)StylePropertyId.Rotate]);
+                }
+            }
+        }
+
+        StyleCurvature IStyle.unityCurvature
+        {
+            get
+            {
+                var inlineCurvature = new StyleCurvature();
+                if (TryGetInlineCurvature(ref inlineCurvature))
+                    return inlineCurvature;
+                return StyleKeyword.Null;
+            }
+            set
+            {
+                if (SetInlineCurvature(value))
+                {
+                    ve.IncrementVersion(StylePropertyUtil.s_PropertyToChangeType[(int)StylePropertyId.UnityCurvature]);
+                }
+            }
+        }
+
+        StyleScale IStyle.scale
+        {
+            get
+            {
+                var inlineScale = new StyleScale();
+                if (TryGetInlineScale(ref inlineScale))
+                    return inlineScale;
+                return StyleKeyword.Null;
+            }
+            set
+            {
+                // The layout need to be regenerated because the TextNative requires the scale to mesure it's size to be pixel perfect.
+                if (SetInlineScale(value))
+                {
+                    ve.IncrementVersion(StylePropertyUtil.s_PropertyToChangeType[(int)StylePropertyId.Scale]);
+                }
+            }
+        }
+
+        private bool SetStyleValue(StylePropertyId id, StyleBackgroundPosition inlineValue)
+        {
+            var sv = new StyleValue();
+            if (TryGetStyleValue(id, ref sv))
+            {
+                if (sv.position == inlineValue.value && sv.keyword == inlineValue.keyword)
+                    return false;
+            }
+            else if (inlineValue.keyword == StyleKeyword.Null)
+            {
+                return false;
+            }
+
+            sv.id = id;
+            sv.keyword = inlineValue.keyword;
+            sv.position = inlineValue.value;
+
+            SetStyleValue(sv);
+
+            if (inlineValue.keyword == StyleKeyword.Null)
+                return RemoveInlineStyle(id);
+
+            ApplyStyleValue(sv);
+            return true;
+        }
+
+        private bool SetStyleValue(StylePropertyId id, StyleBackgroundRepeat inlineValue)
+        {
+            var sv = new StyleValue();
+            if (TryGetStyleValue(id, ref sv))
+            {
+                if (sv.repeat == inlineValue.value && sv.keyword == inlineValue.keyword)
+                    return false;
+            }
+            else if (inlineValue.keyword == StyleKeyword.Null)
+            {
+                return false;
+            }
+
+            sv.id = id;
+            sv.keyword = inlineValue.keyword;
+            sv.repeat = inlineValue.value;
+
+            SetStyleValue(sv);
+
+            if (inlineValue.keyword == StyleKeyword.Null)
+                return RemoveInlineStyle(id);
+
+            ApplyStyleValue(sv);
+            return true;
+        }
+
+        private bool SetStyleValue(StylePropertyId id, StyleLength inlineValue)
+        {
+            var sv = new StyleValue();
+            if (TryGetStyleValue(id, ref sv))
+            {
+                if (sv.length == inlineValue.ToLength() && sv.keyword == inlineValue.keyword)
+                    return false;
+            }
+            else if (inlineValue.keyword == StyleKeyword.Null)
+            {
+                return false;
+            }
+
+            sv.id = id;
+            sv.keyword = inlineValue.keyword;
+            sv.length = inlineValue.ToLength();
+
+            SetStyleValue(sv);
+
+            if (inlineValue.keyword == StyleKeyword.Null)
+                return RemoveInlineStyle(id);
+
+            ApplyStyleValue(sv);
+            return true;
+        }
+
+        private bool SetStyleValue(StylePropertyId id, StyleFloat inlineValue)
+        {
+            var sv = new StyleValue();
+            if (TryGetStyleValue(id, ref sv))
+            {
+                if (sv.number == inlineValue.value && sv.keyword == inlineValue.keyword)
+                    return false;
+            }
+            else if (inlineValue.keyword == StyleKeyword.Null)
+            {
+                return false;
+            }
+
+            sv.id = id;
+            sv.keyword = inlineValue.keyword;
+            sv.number = inlineValue.value;
+
+            SetStyleValue(sv);
+
+            if (inlineValue.keyword == StyleKeyword.Null)
+                return RemoveInlineStyle(id);
+
+            ApplyStyleValue(sv);
+            return true;
+        }
+
+        private bool SetStyleValue(StylePropertyId id, StyleInt inlineValue)
+        {
+            var sv = new StyleValue();
+            if (TryGetStyleValue(id, ref sv))
+            {
+                if (sv.number == inlineValue.value && sv.keyword == inlineValue.keyword)
+                    return false;
+            }
+            else if (inlineValue.keyword == StyleKeyword.Null)
+            {
+                return false;
+            }
+
+            sv.id = id;
+            sv.keyword = inlineValue.keyword;
+            sv.number = inlineValue.value;
+
+            SetStyleValue(sv);
+
+            if (inlineValue.keyword == StyleKeyword.Null)
+                return RemoveInlineStyle(id);
+
+            ApplyStyleValue(sv);
+            return true;
+        }
+
+        private bool SetStyleValue(StylePropertyId id, StyleColor inlineValue)
+        {
+            var sv = new StyleValue();
+            if (TryGetStyleValue(id, ref sv))
+            {
+                if (sv.color == inlineValue.value && sv.keyword == inlineValue.keyword)
+                    return false;
+            }
+            else if (inlineValue.keyword == StyleKeyword.Null)
+            {
+                return false;
+            }
+
+            sv.id = id;
+            sv.keyword = inlineValue.keyword;
+            sv.color = inlineValue.value;
+
+            SetStyleValue(sv);
+
+            if (inlineValue.keyword == StyleKeyword.Null)
+                return RemoveInlineStyle(id);
+
+            ApplyStyleValue(sv);
+            return true;
+        }
+
+        private bool SetStyleValue<T>(StylePropertyId id, StyleEnum<T> inlineValue) where T : struct, IConvertible
+        {
+            var sv = new StyleValue();
+            int intValue = UnsafeUtility.EnumToInt(inlineValue.value);
+            if (TryGetStyleValue(id, ref sv))
+            {
+                if (sv.number == intValue && sv.keyword == inlineValue.keyword)
+                    return false;
+            }
+            else if (inlineValue.keyword == StyleKeyword.Null)
+            {
+                return false;
+            }
+
+            sv.id = id;
+            sv.keyword = inlineValue.keyword;
+            sv.number = intValue;
+
+            SetStyleValue(sv);
+
+            if (inlineValue.keyword == StyleKeyword.Null)
+                return RemoveInlineStyle(id);
+
+            ApplyStyleValue(sv);
+            return true;
+        }
+
+        private bool SetStyleValue<T>(StylePropertyId id, StyleList<T> inlineValue)
+        {
+            var sv = new StyleValueManaged();
+            if (TryGetStyleValueManaged(id, ref sv))
+            {
+                if (sv.keyword == inlineValue.keyword)
+                {
+                    if (sv.value == null && inlineValue.value == null)
+                        return false;
+
+#pragma warning disable UAC2014 // Avoid Linq
+                    if (sv.value is List<T> list && inlineValue.value != null && list.SequenceEqual(inlineValue.value))
+#pragma warning restore UAC2014
+                        return false;
+                }
+            }
+            else if (inlineValue.keyword == StyleKeyword.Null)
+            {
+                return false;
+            }
+
+            sv.id = id;
+            sv.keyword = inlineValue.keyword;
+            if (inlineValue.value != null)
+            {
+                if (sv.value == null)
+                {
+                    sv.value = new List<T>(inlineValue.value);
+                }
+                else
+                {
+                    var list = (List<T>)sv.value;
+                    list.Clear();
+                    list.AddRange(inlineValue.value);
+                }
+            }
+            else
+            {
+                sv.value = null;
+            }
+
+            SetStyleValueManaged(sv);
+
+            if (inlineValue.keyword == StyleKeyword.Null)
+                return RemoveInlineStyle(id);
+
+            ApplyStyleValue(sv);
+            return true;
+        }
+
+
+        private bool SetStyleValue(StylePropertyId id, StyleGridLine inlineValue)
+        {
+            var raw = inlineValue.value.rawValue;
+            var sv = new StyleValue();
+            if (TryGetStyleValue(id, ref sv))
+            {
+                if (sv.number == raw && sv.keyword == inlineValue.keyword)
+                    return false;
+            }
+            else if (inlineValue.keyword == StyleKeyword.Null)
+            {
+                return false;
+            }
+
+            sv.id = id;
+            sv.keyword = inlineValue.keyword;
+            sv.number = raw;
+
+            SetStyleValue(sv);
+
+            if (inlineValue.keyword == StyleKeyword.Null)
+                return RemoveInlineStyle(id);
+
+            ApplyStyleValue(sv);
+            return true;
+        }
+
+        private bool SetStyleValue(StylePropertyId id, StyleRatio inlineValue)
+        {
+            var sv = new StyleValue();
+            if (TryGetStyleValue(id, ref sv))
+            {
+                if (sv.number == inlineValue.value && sv.keyword == inlineValue.keyword)
+                    return false;
+            }
+            else if (inlineValue.keyword == StyleKeyword.Null)
+            {
+                return false;
+            }
+
+            sv.id = id;
+            sv.keyword = inlineValue.keyword;
+            sv.number = inlineValue.value;
+
+            SetStyleValue(sv);
+
+            if (inlineValue.keyword == StyleKeyword.Null)
+                return RemoveInlineStyle(id);
+
+            ApplyStyleValue(sv);
+            return true;
+        }
+
+        private bool SetInlineCursor(StyleCursor inlineValue)
+        {
+            var styleCursor = new StyleCursor();
+            if (TryGetInlineCursor(ref styleCursor))
+            {
+                if (styleCursor.value == inlineValue.value && styleCursor.keyword == inlineValue.keyword)
+                    return false;
+            }
+            else if (inlineValue.keyword == StyleKeyword.Null)
+            {
+                return false;
+            }
+
+            styleCursor.value = inlineValue.value;
+            styleCursor.keyword = inlineValue.keyword;
+
+            if (inlineValue.keyword == StyleKeyword.Null)
+            {
+                m_HasInlineCursor = false;
+                return RemoveInlineStyle(StylePropertyId.Cursor);
+            }
+
+            m_InlineCursor = styleCursor;
+            m_HasInlineCursor = true;
+            ApplyStyleCursor(styleCursor);
+
+            return true;
+        }
+
+        // Shared skeleton for inline properties whose transitions are handled by non-generated code.
+        // Starts a transition when one is configured for the property (cancelling any stale animation
+        // otherwise). Returns false when the value should instead be applied directly.
+        private bool TryStartInlineTransition(StylePropertyId id, out ComputedTransitionProperty transition)
+        {
+            ComputedTransitionUtils.UpdateComputedTransitions(ref ve.computedStyle, out var computedTransitions);
+
+            if (computedTransitions.Length > 0 && ve.styleInitialized &&
+                computedTransitions.GetTransitionProperty(id, out transition))
+            {
+                return true;
+            }
+
+            // In case there were older animations running, cancel them.
+            ve.styleAnimation.CancelAnimation(id);
+            transition = default;
+            return false;
+        }
+
+        private void ApplyStyleCursor(StyleCursor cursor)
+        {
+            if (TryStartInlineTransition(StylePropertyId.Cursor, out var t) &&
+                ComputedStyle.StartAnimationInlineCursor(ve, ref ve.computedStyle, cursor, t.durationMs, t.delayMs, t.easingCurve))
+            {
+                return;
+            }
+
+            ve.computedStyle.ApplyStyleCursor(cursor.value);
+
+            // The transition path doesn't push to the cursor manager: the animated value changes lazily
+            // and is picked up by the next pointer event (matching USS cursor transitions). Only the
+            // immediate apply updates the live cursor while the element is under the pointer.
+            if (ve.elementPanel?.GetTopElementUnderPointer(PointerId.mousePointerId) == ve)
+                ve.elementPanel.cursorManager.SetCursor(cursor.value);
+        }
+
+        private bool SetInlineTextShadow(StyleTextShadow inlineValue)
+        {
+            var styleTextShadow = new StyleTextShadow();
+            if (TryGetInlineTextShadow(ref styleTextShadow))
+            {
+                if (styleTextShadow.value == inlineValue.value && styleTextShadow.keyword == inlineValue.keyword)
+                    return false;
+            }
+            else if (inlineValue.keyword == StyleKeyword.Null)
+            {
+                return false;
+            }
+
+            styleTextShadow.value = inlineValue.value;
+            styleTextShadow.keyword = inlineValue.keyword;
+
+            if (inlineValue.keyword == StyleKeyword.Null)
+            {
+                m_HasInlineTextShadow = false;
+                return RemoveInlineStyle(StylePropertyId.TextShadow);
+            }
+
+            m_InlineTextShadow = styleTextShadow;
+            m_HasInlineTextShadow = true;
+            ApplyStyleTextShadow(styleTextShadow);
+
+            return true;
+        }
+
+        private void ApplyStyleTextShadow(StyleTextShadow textShadow)
+        {
+            if (TryStartInlineTransition(StylePropertyId.TextShadow, out var t) &&
+                ComputedStyle.StartAnimationInlineTextShadow(ve, ref ve.computedStyle, textShadow, t.durationMs, t.delayMs, t.easingCurve))
+            {
+                return;
+            }
+
+            ve.computedStyle.ApplyStyleTextShadow(textShadow.value);
+        }
+
+        private bool SetInlineTextAutoSize(StyleTextAutoSize inlineValue)
+        {
+            var styleTextAutoSize = new StyleTextAutoSize();
+            if (TryGetInlineTextAutoSize(ref styleTextAutoSize))
+            {
+                if (styleTextAutoSize.value == inlineValue.value && styleTextAutoSize.keyword == inlineValue.keyword)
+                    return false;
+            }
+            else if (inlineValue.keyword == StyleKeyword.Null)
+            {
+                return false;
+            }
+
+            styleTextAutoSize.value = inlineValue.value;
+            styleTextAutoSize.keyword = inlineValue.keyword;
+
+            if (inlineValue.keyword == StyleKeyword.Null)
+            {
+                m_HasInlineTextAutoSize = false;
+                return RemoveInlineStyle(StylePropertyId.UnityTextAutoSize);
+            }
+
+            m_InlineTextAutoSize = styleTextAutoSize;
+            m_HasInlineTextAutoSize = true;
+            ApplyStyleTextAutoSize(styleTextAutoSize);
+
+            return true;
+        }
+
+        private void ApplyStyleTextAutoSize(StyleTextAutoSize textAutoSize)
+        {
+                ve.computedStyle.ApplyStyleTextAutoSize(textAutoSize.value);
+        }
+
+        private bool SetInlineTransformOrigin(StyleTransformOrigin inlineValue)
+        {
+            var styleTransformOrigin = new StyleTransformOrigin();
+            if (TryGetInlineTransformOrigin(ref styleTransformOrigin))
+            {
+                if (styleTransformOrigin.value == inlineValue.value && styleTransformOrigin.keyword == inlineValue.keyword)
+                    return false;
+            }
+            else if (inlineValue.keyword == StyleKeyword.Null)
+            {
+                return false;
+            }
+
+
+            if (inlineValue.keyword == StyleKeyword.Null)
+            {
+                m_HasInlineTransformOrigin = false;
+                return RemoveInlineStyle(StylePropertyId.TransformOrigin);
+            }
+
+            m_InlineTransformOrigin = inlineValue;
+            m_HasInlineTransformOrigin = true;
+            ApplyStyleTransformOrigin(inlineValue);
+
+            return true;
+        }
+
+        private void ApplyStyleTransformOrigin(StyleTransformOrigin transformOrigin)
+        {
+            if (TryStartInlineTransition(StylePropertyId.TransformOrigin, out var t) &&
+                ComputedStyle.StartAnimationInlineTransformOrigin(ve, ref ve.computedStyle, transformOrigin, t.durationMs, t.delayMs, t.easingCurve))
+            {
+                return;
+            }
+
+            ve.computedStyle.ApplyStyleTransformOrigin(transformOrigin.value);
+        }
+
+        private bool SetInlineTranslate(StyleTranslate inlineValue)
+        {
+            var styleTranslate = new StyleTranslate();
+            if (TryGetInlineTranslate(ref styleTranslate))
+            {
+                if (styleTranslate.value == inlineValue.value && styleTranslate.keyword == inlineValue.keyword)
+                    return false;
+            }
+            else if (inlineValue.keyword == StyleKeyword.Null)
+            {
+                return false;
+            }
+
+
+            if (inlineValue.keyword == StyleKeyword.Null)
+            {
+                m_HasInlineTranslate = false;
+                return RemoveInlineStyle(StylePropertyId.Translate);
+            }
+
+            m_InlineTranslateOperation = inlineValue;
+            m_HasInlineTranslate = true;
+            ApplyStyleTranslate(inlineValue);
+
+            return true;
+        }
+
+        private void ApplyStyleTranslate(StyleTranslate translate)
+        {
+            if (TryStartInlineTransition(StylePropertyId.Translate, out var t) &&
+                ComputedStyle.StartAnimationInlineTranslate(ve, ref ve.computedStyle, translate, t.durationMs, t.delayMs, t.easingCurve))
+            {
+                return;
+            }
+
+            ve.computedStyle.ApplyStyleTranslate(translate.value);
+        }
+
+        private bool SetInlineScale(StyleScale inlineValue)
+        {
+            var styleScale = new StyleScale();
+            if (TryGetInlineScale(ref styleScale))
+            {
+                if (styleScale.value == inlineValue.value && styleScale.keyword == inlineValue.keyword)
+                    return false;
+            }
+            else if (inlineValue.keyword == StyleKeyword.Null)
+            {
+                return false;
+            }
+
+            if (inlineValue.keyword == StyleKeyword.Null)
+            {
+
+                m_HasInlineScale = false;
+                return RemoveInlineStyle(StylePropertyId.Scale);
+            }
+
+            m_InlineScale = inlineValue;
+            m_HasInlineScale = true;
+            ApplyStyleScale(inlineValue);
+
+            return true;
+        }
+
+        private void ApplyStyleScale(StyleScale scale)
+        {
+            if (TryStartInlineTransition(StylePropertyId.Scale, out var t) &&
+                ComputedStyle.StartAnimationInlineScale(ve, ref ve.computedStyle, scale, t.durationMs, t.delayMs, t.easingCurve))
+            {
+                return;
+            }
+
+            ve.computedStyle.ApplyStyleScale(scale.value);
+        }
+
+        private bool SetInlineRotate(StyleRotate inlineValue)
+        {
+            var styleRotate = new StyleRotate();
+            if (TryGetInlineRotate(ref styleRotate))
+            {
+                if (styleRotate.value == inlineValue.value && styleRotate.keyword == inlineValue.keyword)
+                    return false;
+            }
+            else if (inlineValue.keyword == StyleKeyword.Null)
+            {
+                return false;
+            }
+
+
+            if (inlineValue.keyword == StyleKeyword.Null)
+            {
+                m_HasInlineRotate = false;
+                return RemoveInlineStyle(StylePropertyId.Rotate);
+            }
+
+            m_InlineRotateOperation = inlineValue;
+            m_HasInlineRotate = true;
+            ApplyStyleRotate(inlineValue);
+
+            return true;
+        }
+
+        private void ApplyStyleRotate(StyleRotate rotate)
+        {
+            if (TryStartInlineTransition(StylePropertyId.Rotate, out var t) &&
+                ComputedStyle.StartAnimationInlineRotate(ve, ref ve.computedStyle, rotate, t.durationMs, t.delayMs, t.easingCurve))
+            {
+                return;
+            }
+
+            ve.computedStyle.ApplyStyleRotate(rotate.value);
+        }
+
+        private bool SetInlineCurvature(StyleCurvature inlineValue)
+        {
+            var styleCurvature = new StyleCurvature();
+            if (TryGetInlineCurvature(ref styleCurvature))
+            {
+                if (styleCurvature.value == inlineValue.value && styleCurvature.keyword == inlineValue.keyword)
+                    return false;
+            }
+            else if (inlineValue.keyword == StyleKeyword.Null)
+            {
+                return false;
+            }
+
+            if (inlineValue.keyword == StyleKeyword.Null)
+            {
+                m_HasInlineCurvature = false;
+                return RemoveInlineStyle(StylePropertyId.UnityCurvature);
+            }
+
+            m_InlineCurvature = inlineValue;
+            m_HasInlineCurvature = true;
+            ApplyStyleCurvature(inlineValue);
+
+            return true;
+        }
+
+        private void ApplyStyleCurvature(StyleCurvature curvature)
+        {
+            // Curvature is non-animatable, so no inline transition handling (unlike rotate/scale).
+            ve.computedStyle.ApplyStyleCurvature(curvature.value);
+        }
+
+        private bool SetInlineBackgroundSize(StyleBackgroundSize inlineValue)
+        {
+            var styleBackgroundSize = new StyleBackgroundSize();
+            if (TryGetInlineBackgroundSize(ref styleBackgroundSize))
+            {
+                if (styleBackgroundSize.value == inlineValue.value && styleBackgroundSize.keyword == inlineValue.keyword)
+                    return false;
+            }
+            else if (inlineValue.keyword == StyleKeyword.Null)
+            {
+                return false;
+            }
+
+            if (inlineValue.keyword == StyleKeyword.Null)
+            {
+                m_HasInlineBackgroundSize = false;
+                return RemoveInlineStyle(StylePropertyId.BackgroundSize);
+            }
+
+            m_InlineBackgroundSize = inlineValue;
+            m_HasInlineBackgroundSize = true;
+            ApplyStyleBackgroundSize(inlineValue);
+
+            return true;
+        }
+
+        private void ApplyStyleBackgroundSize(StyleBackgroundSize backgroundSize)
+        {
+            if (TryStartInlineTransition(StylePropertyId.BackgroundSize, out var t) &&
+                ComputedStyle.StartAnimationInlineBackgroundSize(ve, ref ve.computedStyle, backgroundSize, t.durationMs, t.delayMs, t.easingCurve))
+            {
+                return;
+            }
+
+            ve.computedStyle.ApplyStyleBackgroundSize(backgroundSize.value);
+        }
+
+        private void ApplyStyleValue(StyleValue value)
+        {
+            var parent = ve.hierarchy.parent;
+            ref var parentStyle = ref parent?.computedStyle != null ? ref parent.computedStyle : ref InitialStyle.Get();
+            bool startedTransition = false;
+
+            if (StylePropertyUtil.IsAnimatable(value.id))
+            {
+                ComputedTransitionUtils.UpdateComputedTransitions(ref ve.computedStyle, out var computedTransitions);
+
+                if (computedTransitions.Length > 0 && ve.styleInitialized &&
+                    computedTransitions.GetTransitionProperty(value.id, out var t))
+                {
+                    startedTransition = ComputedStyle.StartAnimationInline(ve, value.id, ref ve.computedStyle,
+                        value, t.durationMs, t.delayMs, t.easingCurve);
+                }
+                else
+                {
+                    // In case there were older animations running, cancel them.
+                    ve.styleAnimation.CancelAnimation(value.id);
+                }
+            }
+
+            if (!startedTransition)
+            {
+                ve.computedStyle.ApplyStyleValue(value, ref parentStyle);
+            }
+        }
+
+        private void ApplyStyleValue(StyleValueManaged value)
+        {
+            var parent = ve.hierarchy.parent;
+            ref var parentStyle = ref parent?.computedStyle != null ? ref parent.computedStyle : ref InitialStyle.Get();
+            bool startedTransition = false;
+
+            if (StylePropertyUtil.IsAnimatable(value.id))
+            {
+                ComputedTransitionUtils.UpdateComputedTransitions(ref ve.computedStyle, out var computedTransitions);
+
+                if (computedTransitions.Length > 0 && ve.styleInitialized &&
+                    computedTransitions.GetTransitionProperty(value.id, out var t))
+                {
+                    startedTransition = ComputedStyle.StartAnimationInlineManaged(ve, value.id, ref ve.computedStyle,
+                        value, t.durationMs, t.delayMs, t.easingCurve);
+                }
+                else
+                {
+                    // In case there were older animations running, cancel them.
+                    ve.styleAnimation.CancelAnimation(value.id);
+                }
+            }
+
+            if (!startedTransition)
+            {
+                ve.computedStyle.ApplyStyleValueManaged(value, ref parentStyle);
+            }
+        }
+
+        //return true if another style was applied when removing the inlineStyle, false if notthing was applied
+        private bool RemoveInlineStyle(StylePropertyId id)
+        {
+            var rulesHash = ve.computedStyle.matchingRulesHash;
+            if (rulesHash == 0)
+            {
+                ApplyFromComputedStyle(id, ref InitialStyle.Get());
+                return true;
+            }
+
+            if (StyleCache.TryGetValue(rulesHash, out var baseComputedStyle))
+            {
+                ApplyFromComputedStyle(id, ref baseComputedStyle);
+                return true;
+            }
+
+            return false;
+        }
+
+        void IStyle.Clear(bool clearSourceAssetStyles)
+        {
+            VersionChangeType changes = 0;
+
+            foreach (var styleValue in m_Values)
+            {
+                if (RemoveInlineStyle(styleValue.id))
+                {
+                    changes |= StylePropertyUtil.s_PropertyToChangeType[(int)styleValue.id];
+                }
+            }
+
+            if (m_ValuesManaged != null)
+            {
+                foreach (var styleValue in m_ValuesManaged)
+                {
+                    if (RemoveInlineStyle(styleValue.id))
+                    {
+                        changes |= StylePropertyUtil.s_PropertyToChangeType[(int)styleValue.id];
+                    }
+                }
+            }
+
+            // Cancel animations for special field properties
+            if (SetInlineCursor(StyleKeyword.Null))
+                changes |= StylePropertyUtil.s_PropertyToChangeType[(int)StylePropertyId.Cursor];
+            if (SetInlineTextShadow(StyleKeyword.Null))
+                changes |= StylePropertyUtil.s_PropertyToChangeType[(int)StylePropertyId.TextShadow];
+            if (SetInlineTextAutoSize(StyleKeyword.Null))
+                changes |= StylePropertyUtil.s_PropertyToChangeType[(int)StylePropertyId.UnityTextAutoSize];
+            if (SetInlineTransformOrigin(StyleKeyword.Null))
+                changes |= StylePropertyUtil.s_PropertyToChangeType[(int)StylePropertyId.TransformOrigin];
+            if (SetInlineTranslate(StyleKeyword.Null))
+                changes |= StylePropertyUtil.s_PropertyToChangeType[(int)StylePropertyId.Translate];
+            if (SetInlineRotate(StyleKeyword.Null))
+                changes |= StylePropertyUtil.s_PropertyToChangeType[(int)StylePropertyId.Rotate];
+            if (SetInlineScale(StyleKeyword.Null))
+                changes |= StylePropertyUtil.s_PropertyToChangeType[(int)StylePropertyId.Scale];
+            if (SetInlineBackgroundSize(StyleKeyword.Null))
+                changes |= StylePropertyUtil.s_PropertyToChangeType[(int)StylePropertyId.BackgroundSize];
+            if (SetInlineCurvature(StyleKeyword.Null))
+                changes |= StylePropertyUtil.s_PropertyToChangeType[(int)StylePropertyId.UnityCurvature];
+
+            // Clear all inline style collections
+            m_Values.Clear();
+
+            if (m_ValuesManaged != null)
+                m_ValuesManaged.Clear();
+
+            if (changes != 0)
+                ve.IncrementVersion(changes);
+
+            if (clearSourceAssetStyles && inlineRule.sheet != null && inlineRule.rule != null)
+            {
+                ve.UpdateInlineRule(null, null);
+            }
+        }
+
+        private void ApplyFromComputedStyle(StylePropertyId id, ref ComputedStyle newStyle)
+        {
+            bool startedTransition = false;
+
+            if (StylePropertyUtil.IsAnimatable(id))
+            {
+                ComputedTransitionUtils.UpdateComputedTransitions(ref ve.computedStyle, out var computedTransitions);
+
+                if (computedTransitions.Length > 0 && ve.styleInitialized &&
+                    computedTransitions.GetTransitionProperty(id, out var t))
+                {
+                    startedTransition = ComputedStyle.StartAnimation(ve, id, ref ve.computedStyle, ref newStyle, t.durationMs, t.delayMs, t.easingCurve);
+                }
+                else
+                {
+                    // In case there were older animations running, cancel them.
+                    ve.styleAnimation.CancelAnimation(id);
+                }
+            }
+
+            if (!startedTransition)
+            {
+                ve.computedStyle.ApplyFromComputedStyle(id, ref newStyle);
+            }
+        }
+
+        public bool TryGetInlineCursor(ref StyleCursor value)
+        {
+            if (m_HasInlineCursor)
+            {
+                value = m_InlineCursor;
+                return true;
+            }
+            return false;
+        }
+
+        public bool TryGetInlineTextShadow(ref StyleTextShadow value)
+        {
+            if (m_HasInlineTextShadow)
+            {
+                value = m_InlineTextShadow;
+                return true;
+            }
+            return false;
+        }
+
+        public bool TryGetInlineTextAutoSize(ref StyleTextAutoSize value)
+        {
+            if (m_HasInlineTextAutoSize)
+            {
+                value = m_InlineTextAutoSize;
+                return true;
+            }
+            return false;
+        }
+
+        public bool TryGetInlineTransformOrigin(ref StyleTransformOrigin value)
+        {
+            if (m_HasInlineTransformOrigin)
+            {
+                value = m_InlineTransformOrigin;
+                return true;
+            }
+            return false;
+        }
+
+        public bool TryGetInlineTranslate(ref StyleTranslate value)
+        {
+            if (m_HasInlineTranslate)
+            {
+                value = m_InlineTranslateOperation;
+                return true;
+            }
+            return false;
+        }
+
+        public bool TryGetInlineRotate(ref StyleRotate value)
+        {
+            if (m_HasInlineRotate)
+            {
+                value = m_InlineRotateOperation;
+                return true;
+            }
+            return false;
+        }
+
+        public bool TryGetInlineCurvature(ref StyleCurvature value)
+        {
+            if (m_HasInlineCurvature)
+            {
+                value = m_InlineCurvature;
+                return true;
+            }
+            return false;
+        }
+
+        public bool TryGetInlineScale(ref StyleScale value)
+        {
+            if (m_HasInlineScale)
+            {
+                value = m_InlineScale;
+                return true;
+            }
+            return false;
+        }
+
+        public bool TryGetInlineBackgroundSize(ref StyleBackgroundSize value)
+        {
+            if (m_HasInlineBackgroundSize)
+            {
+                value = m_InlineBackgroundSize;
+                return true;
+            }
+            return false;
+        }
+
+        StyleEnum<ScaleMode> IStyle.unityBackgroundScaleMode
+        {
+            get
+            {
+                return new StyleEnum<ScaleMode>(BackgroundPropertyHelper.ResolveUnityBackgroundScaleMode(ve.style.backgroundPositionX.value,
+                    ve.style.backgroundPositionY.value, ve.style.backgroundRepeat.value, ve.style.backgroundSize.value, out _));
+            }
+
+            set
+            {
+                ve.style.backgroundPositionX = BackgroundPropertyHelper.ConvertScaleModeToBackgroundPosition(value.value);
+                ve.style.backgroundPositionY = BackgroundPropertyHelper.ConvertScaleModeToBackgroundPosition(value.value);
+                ve.style.backgroundRepeat = BackgroundPropertyHelper.ConvertScaleModeToBackgroundRepeat(value.value);
+                ve.style.backgroundSize = BackgroundPropertyHelper.ConvertScaleModeToBackgroundSize(value.value);
+            }
+        }
+    }
+}

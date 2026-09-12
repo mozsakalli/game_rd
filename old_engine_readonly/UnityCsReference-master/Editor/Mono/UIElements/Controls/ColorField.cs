@@ -1,0 +1,435 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+using System;
+using System.Diagnostics;
+using Unity.Properties;
+using UnityEngine;
+using UnityEngine.Bindings;
+using UnityEngine.UIElements;
+
+namespace UnityEditor.UIElements
+{
+    /// <summary>
+    /// Makes a field for selecting a color. For more information, refer to [[wiki:UIE-uxml-element-ColorField|UXML element ColorField]].
+    /// </summary>
+    [UxmlElement]
+    [Icon("UIToolkit/Icons/ColorField.png")]
+    public partial class ColorField : BaseField<Color>
+    {
+        internal static readonly BindingId showEyeDropperProperty = nameof(showEyeDropper);
+        internal static readonly BindingId showAlphaProperty = nameof(showAlpha);
+        internal static readonly BindingId hdrProperty = nameof(hdr);
+
+        /// <summary>
+        /// If true, the color picker will show the eyedropper control. If false, the color picker won't show the eyedropper control.
+        /// </summary>
+        [UxmlAttribute]
+        [CreateProperty]
+        public bool showEyeDropper
+        {
+            get => m_ShowEyeDropper;
+            set
+            {
+                var previous = m_ShowEyeDropper;
+                m_ShowEyeDropper = value;
+                if (m_EyeDropperElement != null)
+                    m_EyeDropperElement.style.display = m_ShowEyeDropper ? DisplayStyle.Flex : DisplayStyle.None;
+
+                if (previous != m_ShowEyeDropper)
+                    NotifyPropertyChanged(showEyeDropperProperty);
+            }
+        }
+
+        /// <summary>
+        /// If true, allows the user to set an alpha value for the color. If false, hides the alpha component.
+        /// </summary>
+        [UxmlAttribute]
+        [CreateProperty]
+        public bool showAlpha
+        {
+            get => m_ShowAlpha;
+            set
+            {
+                var previous = m_ShowAlpha;
+                m_ShowAlpha = value;
+                if (m_AlphaElement != null)
+                    m_AlphaElement.style.display = m_ShowAlpha ? DisplayStyle.Flex : DisplayStyle.None;
+                if (previous != m_ShowAlpha)
+                    NotifyPropertyChanged(showAlphaProperty);
+            }
+        }
+
+        /// <summary>
+        /// If true, treats the color as an HDR value. If false, treats the color as a standard LDR value.
+        /// </summary>
+        [UxmlAttribute]
+        [CreateProperty]
+        public bool hdr
+        {
+            get => m_HDR;
+            set
+            {
+                var previous = m_HDR;
+                m_HDR = value;
+                if (m_HDRLabel != null)
+                    m_HDRLabel.style.display = m_HDR ? DisplayStyle.Flex : DisplayStyle.None;
+                if (m_GradientContainer != null)
+                    m_GradientContainer.style.display = m_HDR ? DisplayStyle.Flex : DisplayStyle.None;
+                if (m_AlphaGradientContainer != null)
+                    m_AlphaGradientContainer.style.display = m_HDR ? DisplayStyle.Flex : DisplayStyle.None;
+                UpdateColorProperties(this.value);
+
+                if (previous != m_HDR)
+                    NotifyPropertyChanged(hdrProperty);
+            }
+        }
+
+        [VisibleToOtherModules("UnityEditor.UIBuilderModule", "UnityEditor.UIToolkitAuthoringModule")]
+        internal bool setAlphaIfTransparentWhenPicked;
+
+        bool m_ShowAlpha;
+        bool m_ShowEyeDropper;
+        bool m_HDR;
+        IVisualElementScheduledItem m_EyeDropperScheduler;
+
+        Label m_HDRLabel;
+        VisualElement m_ColorContainer;
+        VisualElement m_GradientContainer;
+        VisualElement m_LeftGradient;
+        VisualElement m_RightGradient;
+        VisualElement m_AlphaGradientContainer;
+        VisualElement m_LeftAlphaGradient;
+        VisualElement m_RightAlphaGradient;
+        VisualElement m_ColorElement;
+        ProgressBar m_AlphaElement;
+        VisualElement m_EyeDropperElement;
+
+        /// <summary>
+        /// USS class name of elements of this type.
+        /// </summary>
+        public new static readonly string ussClassName = "unity-color-field";
+
+        /// <summary>
+        /// USS class name of labels in elements of this type.
+        /// </summary>
+        public new static readonly string labelUssClassName = ussClassName + "__label";
+
+        /// <summary>
+        /// USS class name of input elements in elements of this type.
+        /// </summary>
+        public new static readonly string inputUssClassName = ussClassName + "__input";
+
+        /// <summary>
+        /// USS class name of color container elements in elements of this type.
+        /// </summary>
+        public static readonly string colorContainerUssClassName = ussClassName + "__color-container";
+
+        /// <summary>
+        /// USS class name of color elements in elements of this type.
+        /// </summary>
+        public static readonly string colorUssClassName = ussClassName + "__color";
+
+        /// <summary>
+        /// USS class name of color elements in elements of this type when showing mixed values.
+        /// </summary>
+        public static readonly string mixedValueColorUssClassName = colorUssClassName + "--mixed-value";
+
+        /// <summary>
+        /// USS class name of eyedropper elements in elements of this type.
+        /// </summary>
+        public static readonly string eyeDropperUssClassName = ussClassName + "__eyedropper";
+
+        /// <summary>
+        /// USS class name of hdr label elements in elements of this type.
+        /// </summary>
+        public static readonly string hdrLabelUssClassName = ussClassName + "__hdr";
+
+        /// <summary>
+        /// USS class name of gradient container elements in elements of this type.
+        /// </summary>
+        public static readonly string gradientContainerUssClassName = ussClassName + "__gradient-container";
+
+        [VisibleToOtherModules("UnityEditor.UIBuilderModule")]
+        internal static readonly string internalColorFieldName = "unity-internal-color-field";
+
+        /// <summary>
+        /// Initializes and returns an instance of ColorField.
+        /// </summary>
+        public ColorField()
+            : this(null) {}
+
+        /// <summary>
+        /// Initializes and returns an instance of ColorField.
+        /// </summary>
+        /// <param name="label">The text to use as a label.</param>
+        public ColorField(string label)
+            : base(label, null)
+        {
+            AddToClassList(ussClassName);
+            labelElement.AddToClassList(labelUssClassName);
+
+            m_ColorContainer = new VisualElement() { name = "unity-color-container" };
+            m_ColorElement = new VisualElement() { name = internalColorFieldName };
+            m_AlphaElement = new ProgressBar() { name = "unity-alpha-progress", title = string.Empty, lowValue = 0.0f, highValue = 100.0f };
+            m_HDRLabel = new Label("HDR") { name = "unity-hdr-label" };
+            m_EyeDropperElement = new VisualElement() { name = "unity-eyedropper" };
+
+            m_GradientContainer = new VisualElement() { name = "unity-gradient-container" };
+            m_LeftGradient = new VisualElement() { name = "unity-gradient-left" };
+            m_RightGradient = new VisualElement() { name = "unity-gradient-right" };
+
+            m_AlphaGradientContainer = new VisualElement() { name = "unity-alpha-gradient-container" };
+            m_LeftAlphaGradient = new VisualElement() { name = "unity-alpha-gradient-left" };
+            m_RightAlphaGradient = new VisualElement() { name = "unity-alpha-gradient-right" };
+            mixedValueLabel.name = "unity-mixed-value-label";
+
+            visualInput.AddToClassList(inputUssClassName);
+            m_ColorContainer.AddToClassList(colorContainerUssClassName);
+            m_ColorElement.AddToClassList(colorUssClassName);
+            m_HDRLabel.AddToClassList(hdrLabelUssClassName);
+            m_EyeDropperElement.AddToClassList(eyeDropperUssClassName);
+            m_GradientContainer.AddToClassList(gradientContainerUssClassName);
+            m_AlphaGradientContainer.AddToClassList(gradientContainerUssClassName);
+
+            m_GradientContainer.Add(m_LeftGradient);
+            m_GradientContainer.Add(new VisualElement()); // empty middle VisualElement
+            m_GradientContainer.Add(m_RightGradient);
+
+            m_AlphaGradientContainer.Add(m_LeftAlphaGradient);
+            m_AlphaGradientContainer.Add(new VisualElement()); // empty middle VisualElement
+            m_AlphaGradientContainer.Add(m_RightAlphaGradient);
+
+            m_ColorContainer.Add(m_ColorElement);
+            m_ColorContainer.Add(m_GradientContainer);
+            m_ColorContainer.Add(m_AlphaGradientContainer);
+            m_ColorContainer.Add(m_HDRLabel);
+            m_ColorContainer.Add(mixedValueLabel);
+            m_ColorContainer.Add(m_AlphaElement);
+
+            visualInput.Add(m_ColorContainer);
+            visualInput.Add(m_EyeDropperElement);
+
+            m_ColorContainer.RegisterCallback<AttachToPanelEvent>(OnAttach);
+            m_ColorContainer.RegisterCallback<PointerDownEvent>(OnColorFieldClicked);
+            visualInput.RegisterCallback<KeyDownEvent>(OnColorFieldKeyDown);
+            m_EyeDropperElement.RegisterCallback<PointerDownEvent>(OnEyeDropperClicked);
+            RegisterCallback<ExecuteCommandEvent>(OnCommandExecute);
+
+            m_ColorContainer.AddManipulator(new ContextualMenuManipulator(BuildContextualMenu));
+
+            labelElement.focusable = false;
+            showAlpha = true;
+            hdr = false;
+
+            mixedValueLabel.style.display = showMixedValue ? DisplayStyle.Flex : DisplayStyle.None;
+            mixedValueLabel.tabIndex = 0;
+            mixedValueLabel.focusable = false;
+            rawValue = new Color();
+        }
+
+        public override void SetValueWithoutNotify(Color newValue)
+        {
+            rawValue = newValue;
+            UpdateColorProperties(rawValue);
+            IncrementVersion(VersionChangeType.Repaint);
+        }
+
+        void BuildContextualMenu(ContextualMenuPopulateEvent evt)
+        {
+            evt.menu.AppendAction(
+                "Copy",
+                a => Clipboard.colorValue = value);
+
+            evt.menu.AppendAction(
+                "Paste",
+                a => value = Clipboard.colorValue,
+                Clipboard.hasColor
+                    ? DropdownMenuAction.Status.Normal
+                    : DropdownMenuAction.Status.Disabled);
+        }
+
+        void OnColorFieldClicked(PointerDownEvent evt)
+        {
+            if (evt.button == (int) MouseButton.LeftMouse)
+            {
+                ShowColorPicker();
+                evt.StopPropagation();
+            }
+        }
+
+        void ShowColorPicker()
+        {
+            ColorPicker.Show((c) =>
+                {
+                    showMixedValue = false;
+                    value = c;
+                },
+                value, m_ShowAlpha, m_HDR, setAlphaIfTransparentWhenPicked);
+        }
+
+        void OnColorFieldKeyDown(KeyDownEvent evt)
+        {
+            if (evt.keyCode is KeyCode.Space or KeyCode.KeypadEnter or KeyCode.Return)
+            {
+                ShowColorPicker();
+                evt.StopPropagation();
+            }
+        }
+
+        void OnEyeDropperClicked(PointerDownEvent evt)
+        {
+            if (EyeDropper.IsOpened || evt.button != (int)MouseButton.LeftMouse)
+                return;
+
+            EyeDropper.Start(OnEyeDropperColorSelected);
+            m_EyeDropperScheduler = schedule
+                .Execute(OnEyeDropperMove)
+                .Every(10)
+                .StartingIn(10)
+                .Until(ShouldStopWatchingEyeDropper);
+            evt.StopPropagation();
+        }
+
+        void OnEyeDropperMove(TimerState state)
+        {
+            if (!EyeDropper.IsOpened)
+                return;
+
+            var pickerColor = CorrectPickedColorAlpha(EyeDropper.GetPickedColor());
+            if (pickerColor != value)
+                UpdateColorProperties(pickerColor);
+        }
+
+        void OnEyeDropperColorSelected(Color pickedColor)
+        {
+            var newValue = CorrectPickedColorAlpha(pickedColor);
+            value = newValue;
+            UpdateColorProperties(value);
+        }
+
+        private Color CorrectPickedColorAlpha(Color pickedColor)
+        {
+            if (setAlphaIfTransparentWhenPicked && Mathf.Approximately(value.a, 0.0f))
+            {
+                pickedColor.a = 1.0f;
+            }
+            else
+            {
+                // Eyedropper color picking should not impact the previous color alpha.
+                pickedColor.a = value.a;
+            }
+
+            return pickedColor;
+        }
+
+        bool ShouldStopWatchingEyeDropper()
+        {
+            if (EyeDropper.IsOpened)
+                return false;
+
+            if (m_EyeDropperScheduler != null)
+            {
+                m_EyeDropperScheduler.Pause();
+                m_EyeDropperScheduler = null;
+            }
+
+            // Make sure the UI is updated with the final picked color.
+            // or if canceled, revert the UI to the original color as the value was never changed.
+            UpdateColorProperties(value);
+            return true;
+        }
+
+        void OnCommandExecute(ExecuteCommandEvent evt)
+        {
+            if (evt?.commandName == EventCommandNames.EyeDropperUpdate)
+            {
+                IncrementVersion(VersionChangeType.Repaint);
+                evt.StopPropagation();
+            }
+        }
+
+        void UpdateColorProperties(Color color)
+        {
+            if (panel == null || (showMixedValue && !EyeDropper.IsOpened))
+                return;
+
+            if (m_AlphaElement != null)
+                m_AlphaElement.value = color.a * 100.0f;
+
+            var colorWithoutAlpha = new Color(color.r, color.g, color.b);
+
+            if(Color.defaultColorNames.TryGetValue(colorWithoutAlpha, out var name))
+                m_ColorContainer.tooltip = $"{ObjectNames.CapitaliseFirstLetter(name)} {color.ToString()}";
+            else
+                m_ColorContainer.tooltip = color.ToString();
+
+            if (hdr)
+            {
+                colorWithoutAlpha = colorWithoutAlpha.gamma;
+                ColorMutator.DecomposeHdrColor(colorWithoutAlpha.linear, out var baseColor, out _);
+                Color gradientColor = ((Color)baseColor).gamma;
+
+                if (m_LeftGradient != null)
+                    m_LeftGradient.style.backgroundColor = gradientColor;
+                if (m_RightGradient != null)
+                    m_RightGradient.style.backgroundColor = gradientColor;
+
+                if (m_LeftAlphaGradient != null)
+                {
+                    var leftAlphaTex = ColorPicker.GetGradientTextureWithAlpha0To1();
+                    m_LeftAlphaGradient.style.backgroundImage = leftAlphaTex;
+                    m_LeftAlphaGradient.style.unityBackgroundImageTintColor = colorWithoutAlpha;
+                }
+
+                if (m_RightAlphaGradient != null)
+                {
+                    var rightAlphaTex = ColorPicker.GetGradientTextureWithAlpha1To0();
+                    m_RightAlphaGradient.style.backgroundImage = rightAlphaTex;
+                    m_RightAlphaGradient.style.unityBackgroundImageTintColor = colorWithoutAlpha;
+                }
+            }
+
+            if (m_ColorElement != null)
+                m_ColorElement.style.backgroundColor = colorWithoutAlpha;
+        }
+
+        void OnAttach(AttachToPanelEvent evt)
+        {
+            UpdateColorProperties(value);
+        }
+
+        protected override void UpdateMixedValueContent()
+        {
+            m_ColorElement.EnableInClassList(mixedValueColorUssClassName, showMixedValue);
+
+            mixedValueLabel.style.display          = DisplayStyle.None;
+            m_GradientContainer.style.display      = DisplayStyle.None;
+            m_AlphaGradientContainer.style.display = DisplayStyle.None;
+            m_AlphaElement.style.display           = DisplayStyle.None;
+            m_HDRLabel.style.display               = DisplayStyle.None;
+
+            if (showMixedValue)
+            {
+                mixedValueLabel.style.display = DisplayStyle.Flex;
+            }
+            else
+            {
+                if (hdr)
+                {
+                    m_GradientContainer.style.display      = DisplayStyle.Flex;
+                    m_AlphaGradientContainer.style.display = DisplayStyle.Flex;
+                    m_HDRLabel.style.display               = DisplayStyle.Flex;
+                }
+
+                if (showAlpha)
+                {
+                    m_AlphaElement.style.display = DisplayStyle.Flex;
+                }
+
+                UpdateColorProperties(value);
+            }
+        }
+    }
+}

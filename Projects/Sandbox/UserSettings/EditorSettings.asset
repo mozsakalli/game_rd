@@ -1,0 +1,5 @@
+type: EditorSettings
+fields:
+  lastScene: Assets/Scenes/Login.scene
+  hotReload: Instant
+  uiFontSize: 16

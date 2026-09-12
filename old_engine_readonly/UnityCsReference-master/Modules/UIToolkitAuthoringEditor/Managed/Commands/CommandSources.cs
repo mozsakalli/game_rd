@@ -1,0 +1,156 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+using System;
+using UnityEngine.Bindings;
+using Unity.Scripting.LifecycleManagement;
+
+namespace Unity.UIToolkit.Editor;
+
+/// <summary>
+/// Contains predefined command sources and categories for the UI Toolkit authoring system.
+/// </summary>
+[VisibleToOtherModules("UnityEditor.UIBuilderModule")]
+static class CommandSources
+{
+    /// <summary>
+    /// Represents the source of a command. Used to track where commands originate from.
+    /// </summary>
+    public class CommandSource
+    {
+    }
+
+    /// <summary>
+    /// Command source representing the Inspector window.
+    /// </summary>
+    [NoAutoStaticsCleanup] // immutable command-source singleton, safe to persist
+    public static readonly CommandSource Inspector = new();
+
+    /// <summary>
+    /// Command source representing the Hierarchy window.
+    /// </summary>
+    [NoAutoStaticsCleanup] // immutable command-source singleton, safe to persist
+    public static readonly CommandSource Hierarchy = new();
+
+    /// <summary>
+    /// Command source representing the StyleSheets window.
+    /// </summary>
+    [NoAutoStaticsCleanup] // immutable command-source singleton, safe to persist
+    public static readonly CommandSource StyleSheets = new();
+
+    /// <summary>
+    /// Command source representing the Viewport window.
+    /// </summary>
+    [NoAutoStaticsCleanup] // immutable command-source singleton, safe to persist
+    public static readonly CommandSource Viewport = new();
+
+    /// <summary>
+    /// Command source representing the Scene window.
+    /// </summary>
+    [NoAutoStaticsCleanup] // immutable command-source singleton, safe to persist
+    public static readonly CommandSource Scene = new();
+
+    /// <summary>
+    /// Command source representing the Uxml Preview window.
+    /// </summary>
+    [NoAutoStaticsCleanup] // immutable command-source singleton, safe to persist
+    public static readonly CommandSource UxmlPreview = new();
+
+    /// <summary>
+    /// Command source representing the Uss Preview window.
+    /// </summary>
+    [NoAutoStaticsCleanup] // immutable command-source singleton, safe to persist
+    public static readonly CommandSource UssPreview = new();
+
+    /// <summary>
+    /// Command source representing any menu (context menu, top bar menu, etc.)
+    /// </summary>
+    [NoAutoStaticsCleanup] // immutable command-source singleton, safe to persist
+    public static readonly CommandSource Menus = new();
+
+    /// <summary>
+    /// Command source representing a UI Stage instance.
+    /// </summary>
+    [NoAutoStaticsCleanup] // immutable command-source singleton, safe to persist
+    public static readonly CommandSource Stage = new();
+
+    /// <summary>
+    /// Command source representing a UI Builder instance.
+    /// </summary>
+    [NoAutoStaticsCleanup] // immutable command-source singleton, safe to persist
+    public static readonly CommandSource Builder = new();
+
+    /// <summary>
+    /// Command source representing the unified asset registry (e.g. a "Save All" driven centrally rather
+    /// than by a specific window).
+    /// </summary>
+    [NoAutoStaticsCleanup] // immutable command-source singleton, safe to persist
+    public static readonly CommandSource Registry = new();
+}
+
+/// <summary>
+/// Represents categories of commands. Commands can override the Category property
+/// to be associated with one or more categories, allowing handlers to register on categories
+/// instead of specific types. This avoids reflection overhead from type hierarchy walking.
+/// Multiple categories can be combined using bitwise OR (e.g., InlineRule | StyleSheetRule).
+/// </summary>
+[Flags]
+[VisibleToOtherModules("UnityEditor.UIBuilderModule")]
+internal enum CommandCategory
+{
+    /// <summary>
+    /// No category assigned.
+    /// </summary>
+    None = 0,
+
+    /// <summary>
+    /// Command category for styling related commands.
+    /// Commands in this category modify styles on a style sheet.
+    /// </summary>
+    Styling = 1 << 0,
+
+    /// <summary>
+    /// Command category for styling context related commands.
+    /// Commands in this category modify data that would change the set of selectors matching for a given element. For
+    /// example, adding or removing a style sheet, change the element's name, adding or removing a selector, etc.
+    /// </summary>
+    StylingContext = 1 << 1,
+
+    /// <summary>
+    /// Command category for Uxml Attributes related commands.
+    /// Commands in this category modify data on the UxmlSerializedData type for a given element.
+    /// </summary>
+    Attributes = 1 << 2,
+
+    /// <summary>
+    /// Command category for hierarchy related commands.
+    /// Commands in this category modify the visual tree of a VisualTreeAsset. For
+    /// example, adding or removing an element.
+    /// </summary>
+    Hierarchy = 1 << 3,
+
+    /// <summary>
+    /// Command category for highlight related commands.
+    /// Commands in this category either request or process highlight items.
+    /// </summary>
+    Highlight = 1 << 4,
+
+    /// <summary>
+    /// Command category for selection related commands.
+    /// Commands in this category either request or process selection.
+    /// </summary>
+    Selection = 1 << 5,
+
+    /// <summary>
+    /// Command category for variable related commands.
+    /// Commands in this category either request or process variable changes.
+    /// </summary>
+    Variables = 1 << 6,
+
+    /// <summary>
+    /// Command category for the save/discard lifecycle (pre/post save and pre/post discard).
+    /// Commands in this category either request or process saving or discarding a document.
+    /// </summary>
+    Save = 1 << 7,
+}

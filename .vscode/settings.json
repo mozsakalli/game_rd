@@ -1,0 +1,9 @@
+{
+    "files.associations": {
+        "*.scene": "yaml",
+        "*.prefab": "yaml",
+        "*.asset": "yaml",
+        "*.meta": "yaml"
+    },
+    "cmake.sourceDirectory": "C:/Work/digitoygames/game_rd/engine/native/glfw-master"
+}

@@ -1,0 +1,69 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+using System;
+using UnityEngine.Bindings;
+
+namespace UnityEngine
+{
+    [NativeHeader("Runtime/Export/Networking/Ping.bindings.h")]
+    public sealed partial class Ping
+    {
+        internal IntPtr m_Ptr;
+
+        public Ping(string address)
+        {
+            m_Ptr = Internal_Create(address);
+        }
+
+#pragma warning disable UA5000 // The Avoid Finalizer Analyzer produces compile errors for any new finalizers. This pre-existing finalizer declaration has been suppressed, but should be rewritten if possible.
+        ~Ping()
+        {
+            DestroyPing();
+        }
+#pragma warning restore UA5000
+
+        public void DestroyPing()
+        {
+            if (m_Ptr == IntPtr.Zero)
+            {
+                return;
+            }
+            Internal_Destroy(m_Ptr);
+            m_Ptr = IntPtr.Zero;
+        }
+
+        [FreeFunction("DestroyPing", IsThreadSafe = true)]
+        private static extern void Internal_Destroy(IntPtr ptr);
+        [FreeFunction("CreatePing")]
+        private static extern IntPtr Internal_Create(string address);
+
+        public bool isDone
+        {
+            get
+            {
+                if (m_Ptr == IntPtr.Zero)
+                    return false;
+
+                return Internal_IsDone();
+            }
+        }
+
+        [NativeName("GetIsDone")]
+        private extern bool Internal_IsDone();
+
+        public extern int time { get; }
+
+        public extern string ip
+        {
+            [NativeName("GetIP")]
+            get;
+        }
+        internal static class BindingsMarshaller
+        {
+            public static IntPtr ConvertToNative(Ping ping) => ping.m_Ptr;
+        }
+    }
+
+}

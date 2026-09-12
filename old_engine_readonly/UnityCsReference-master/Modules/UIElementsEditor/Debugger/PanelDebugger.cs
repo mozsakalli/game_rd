@@ -1,0 +1,446 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using UnityEditor;
+using UnityEngine;
+using UnityEngine.UIElements;
+using UnityEditor.UIElements;
+using UnityEngine.Serialization;
+
+using Toolbar = UnityEditor.UIElements.Toolbar;
+
+namespace UnityEditor.UIElements.Debugger
+{
+    internal interface IPanelChoice
+    {
+        Panel panel { get; }
+    }
+
+    internal class PanelChoice : IPanelChoice
+    {
+        public Panel panel { get; }
+
+        public PanelChoice(Panel p)
+        {
+            panel = p;
+        }
+
+        public override string ToString()
+        {
+            return panel.name ?? panel.visualTree.name;
+        }
+    }
+
+    [Serializable]
+    internal class PanelDebugger : IPanelDebugger
+    {
+        [SerializeField]
+        private string m_LastVisualTreeName;
+        [SerializeField]
+        private string m_LastOwnerObjectName;
+
+        protected EditorWindow m_DebuggerWindow;
+        private EditorWindow m_WindowToDebug;
+
+        private IPanelChoice m_SelectedPanel;
+        internal IPanelChoice selectedPanel => m_SelectedPanel;
+        protected VisualElement m_Toolbar;
+        protected ToolbarMenu m_PanelSelect;
+        private List<IPanelChoice> m_PanelChoices;
+        private IVisualElementScheduledItem m_ConnectWindowScheduledItem;
+        private IVisualElementScheduledItem m_RestoreSelectionScheduledItem;
+
+        [NonSerialized] private bool m_Initialized;
+
+        protected void TryFocusCorrespondingWindow(ScriptableObject panelOwner)
+        {
+            var hostView = panelOwner as HostView;
+            EditorWindow correspondingWindow = null;
+            // If it's a runtime panel, the owner is a PanelSettings and we need to focus the GameView
+            if (hostView == null && panelOwner is PanelSettings)
+            {
+                correspondingWindow = EditorWindow.GetWindowDontShow<GameView>();
+            }
+            else
+            {
+                correspondingWindow = hostView?.actualView;
+            }
+
+            if (correspondingWindow != null)
+                correspondingWindow.Focus();
+        }
+
+        public IPanelDebug panelDebug { get; set; }
+
+        protected IPanel panel
+        {
+            get { return panelDebug?.panel; }
+        }
+
+        protected VisualElement visualTree
+        {
+            get { return panelDebug?.visualTree; }
+        }
+
+        public void Initialize(EditorWindow debuggerWindow)
+        {
+            m_DebuggerWindow = debuggerWindow;
+
+            if (m_Toolbar == null)
+                m_Toolbar = new Toolbar();
+
+            // Register panel choice refresh on the toolbar so the event
+            // is received before the ToolbarPopup clickable handle it.
+            m_Toolbar.RegisterCallback<MouseDownEvent>((e) =>
+            {
+                if (e.target == m_PanelSelect)
+                    RefreshPanelChoices();
+            }, TrickleDown.TrickleDown);
+
+            m_PanelChoices = new List<IPanelChoice>();
+            m_PanelSelect = new ToolbarMenu() { name = "panelSelectPopup", variant = ToolbarMenu.Variant.Popup};
+            m_PanelSelect.text = "Select a panel";
+            m_PanelSelect.menu.allowDuplicateNames = true;
+
+            m_Toolbar.Insert(0, m_PanelSelect);
+
+            if (!string.IsNullOrEmpty(m_LastVisualTreeName))
+                m_RestoreSelectionScheduledItem = m_Toolbar.schedule.Execute(() => RestorePanelSelection(true)).Every(500);
+
+            m_Initialized = true;
+        }
+
+        public void OnDisable()
+        {
+            if (!m_Initialized)
+                return;
+
+            var lastTreeName = m_LastVisualTreeName;
+            var lastOwnerObjectName = m_LastOwnerObjectName;
+            panelDebug?.DetachDebugger(this);
+            SelectPanelToDebug((IPanelChoice)null);
+
+            m_LastVisualTreeName = lastTreeName;
+            m_LastOwnerObjectName = lastOwnerObjectName;
+        }
+
+        public void Disconnect()
+        {
+            var lastTreeName = m_LastVisualTreeName;
+            var lastOwnerObjectName = m_LastOwnerObjectName;
+            m_SelectedPanel = null;
+            SelectPanelToDebug((IPanelChoice)null);
+
+            m_LastVisualTreeName = lastTreeName;
+            m_LastOwnerObjectName = lastOwnerObjectName;
+        }
+
+        public void ScheduleWindowToDebug(EditorWindow window)
+        {
+            if (window != null)
+            {
+                Disconnect();
+                m_WindowToDebug = window;
+                m_ConnectWindowScheduledItem = m_Toolbar.schedule.Execute(TrySelectWindow).Every(500);
+            }
+        }
+
+        private void TrySelectWindow()
+        {
+            VisualElement root = null;
+
+            if (m_WindowToDebug is PlayModeView)
+            {
+                var runtimePanels = UIElementsRuntimeUtility.GetSortedScreenOverlayPlayerPanels();
+                if (runtimePanels != null && runtimePanels.Count > 0)
+                {
+                    root = runtimePanels[0].visualTree;
+                }
+            }
+
+            if (root == null)
+            {
+                root = m_WindowToDebug.rootVisualElement;
+            }
+
+
+            if (root == null)
+                return;
+
+            IPanel searchedPanel = root.panel;
+            SelectPanelToDebug(searchedPanel);
+
+            if (m_SelectedPanel != null)
+            {
+                m_WindowToDebug = null;
+                m_ConnectWindowScheduledItem.Pause();
+            }
+        }
+
+        public virtual void Refresh()
+        {}
+
+        public virtual void EditorUpdate()
+        {
+            // Do not attempt to restore the selection if we are waiting on a window to be selected or that this window is not ready, or that it has been disposed
+            if (m_WindowToDebug==null && m_DebuggerWindow != null && m_DebuggerWindow.m_IsPresented && !IsSelectedPanelValid())
+            {
+                RestorePanelSelection(false);
+            }
+        }
+
+        private bool IsSelectedPanelValid()
+        {
+            if (m_LastOwnerObjectName == null && m_LastVisualTreeName == null)
+                return m_SelectedPanel == null;
+            if (m_SelectedPanel == null || m_SelectedPanel.panel.disposed || m_SelectedPanel.panel.ownerObject == null)
+                return false;
+            return m_SelectedPanel.panel.ownerObject.name == m_LastOwnerObjectName ||
+                   m_SelectedPanel.ToString() == m_LastVisualTreeName;
+        }
+
+        private IPanelChoice RelocateLastSelectedPanel()
+        {
+            if (m_LastOwnerObjectName == null && m_LastVisualTreeName == null)
+                return null;
+
+            IPanelChoice matchingPanel = null;
+            IPanelChoice matchingName = null;
+            for (int i = 0; i < m_PanelChoices.Count; i++)
+            {
+                var vt = m_PanelChoices[i];
+                if (matchingPanel == null && vt.panel?.disposed == false && vt.panel.ownerObject != null &&
+                    vt.panel.ownerObject.name == m_LastOwnerObjectName)
+                {
+                    matchingPanel = vt;
+                }
+                if (matchingName == null && vt.ToString() == m_LastVisualTreeName)
+                {
+                    matchingName = vt;
+                }
+            }
+
+            return matchingPanel ?? matchingName;
+        }
+
+        protected virtual bool ValidateDebuggerConnection(IPanel panelConnection)
+        {
+            return true;
+        }
+
+        protected virtual void OnSelectPanelDebug(IPanelDebug pdbg) {}
+        protected virtual void OnRestorePanelSelection() {}
+
+        public List<Panel> GetPanels()
+        {
+            List<GUIView> guiViews = new List<GUIView>();
+            GUIViewDebuggerHelper.GetViews(guiViews);
+            var it = UIElementsUtility.GetPanelsIterator();
+
+            List<Panel> panels = new();
+            while (it.MoveNext())
+            {
+                // Skip this debugger window
+                #pragma warning disable UAC2001 // Avoid Linq
+                GUIView view = guiViews.FirstOrDefault(v => v.GetEntityId() == it.Current.Key);
+#pragma warning restore UAC2001
+                HostView hostView = view as HostView;
+                if (!m_DebuggerWindow.CanDebugView(hostView))
+                    continue;
+                var p = it.Current.Value;
+                panels.Add(p);
+            }
+
+            return panels;
+        }
+
+        protected virtual void PopulatePanelChoices(List<IPanelChoice> panelChoices)
+        {
+            List<Panel> panels = GetPanels();
+            foreach (var p in panels)
+            {
+                if(p != null && !p.disposed)
+                    panelChoices.Add(new PanelChoice(p));
+            }
+        }
+
+        private void RefreshPanelChoices()
+        {
+            m_PanelChoices.Clear();
+            PopulatePanelChoices(m_PanelChoices);
+
+            var menu = m_PanelSelect.menu;
+            menu.ClearItems();
+
+            foreach (var panelChoice in m_PanelChoices)
+            {
+                menu.AppendAction(panelChoice.ToString(), OnSelectPanel, DropdownMenuAction.AlwaysEnabled, panelChoice);
+            }
+        }
+
+        private void OnSelectPanel(DropdownMenuAction action)
+        {
+            m_RestoreSelectionScheduledItem?.Pause();
+
+            SelectPanelToDebug(action.userData as IPanelChoice);
+        }
+
+        private void RestorePanelSelection(bool clearSelectionIfNothingFound)
+        {
+            RefreshPanelChoices();
+            if (m_PanelChoices.Count > 0)
+            {
+                IPanelChoice match = RelocateLastSelectedPanel();
+                if (match != null || clearSelectionIfNothingFound)
+                    SelectPanelToDebug(match);
+
+                if (m_SelectedPanel != null)
+                    OnRestorePanelSelection();
+
+                m_RestoreSelectionScheduledItem?.Pause();
+            }
+        }
+
+        protected virtual void SelectPanelToDebug(IPanelChoice pc)
+        {
+            // Detach debugger from current panel
+            if (m_SelectedPanel != null)
+                m_SelectedPanel.panel.panelDebug.DetachDebugger(this);
+
+            string menuText = "";
+
+            if (pc != null && ValidateDebuggerConnection(pc.panel))
+            {
+                pc.panel.panelDebug.AttachDebugger(this);
+
+                m_SelectedPanel = pc;
+                m_LastVisualTreeName = pc.ToString();
+                m_LastOwnerObjectName = pc.panel.ownerObject.name;
+
+                OnSelectPanelDebug(panelDebug);
+                menuText = pc.ToString();
+            }
+            else
+            {
+                // No tree selected
+                m_SelectedPanel = null;
+                m_LastVisualTreeName = null;
+                m_LastOwnerObjectName = null;
+
+                OnSelectPanelDebug(null);
+                menuText = "Select a panel";
+            }
+
+            m_PanelSelect.text = menuText;
+        }
+
+        protected void SelectPanelToDebug(IPanel panel)
+        {
+            // Select new tree
+            if (m_SelectedPanel?.panel != panel)
+            {
+                SelectPanelToDebug((IPanelChoice)null);
+                RefreshPanelChoices();
+                for (int i = 0; i < m_PanelChoices.Count; i++)
+                {
+                    var pc = m_PanelChoices[i];
+                    if (pc.panel == panel)
+                    {
+                        SelectPanelToDebug((IPanelChoice)pc);
+                        break;
+                    }
+                }
+            }
+        }
+
+        public virtual void OnVersionChanged(VisualElement ve, VersionChangeType changeTypeFlag)
+        {}
+
+        public virtual bool InterceptEvent(EventBase ev)
+        {
+            return false;
+        }
+
+        public virtual void PostProcessEvent(EventBase ev)
+        {}
+    }
+
+    internal static class UIElementsDebuggerExtension
+    {
+        public static VisualElement GetRootVisualElement(this IPanel panel)
+        {
+            if (panel == null)
+                return null;
+
+            var visualTree = panel.visualTree;
+
+            // GUIView only has an IMGUIContainer and HostView the IMGUIContainer + root element
+            if (visualTree.childCount == 1)
+                return null;
+
+            return visualTree[1];
+        }
+
+        public static int FindVisualElementIndex(this IPanel panel, VisualElement ve)
+        {
+            if (panel == null)
+                return -1;
+
+            int index = 0;
+            var visualTree = panel.visualTree;
+            RecurseVisualElementIndex(visualTree, ve, ref index);
+
+            return index;
+        }
+
+        public static VisualElement FindVisualElementByIndex(this IPanel panel, int index)
+        {
+            if (panel == null || index < 0)
+                return null;
+
+            int startIndex = 0;
+            var visualTree = panel.visualTree;
+            return RecurseVisualElementByIndex(visualTree, index, ref startIndex);
+        }
+
+        private static bool RecurseVisualElementIndex(VisualElement root, VisualElement ve, ref int index)
+        {
+            if (root == ve)
+                return true;
+
+            int count = root.hierarchy.childCount;
+            for (int i = 0; i < count; i++)
+            {
+                var child = root.hierarchy[i];
+                ++index;
+                bool found = RecurseVisualElementIndex(child, ve, ref index);
+                if (found)
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static VisualElement RecurseVisualElementByIndex(VisualElement ve, int index, ref int currentIndex)
+        {
+            if (index == currentIndex)
+                return ve;
+
+            int count = ve.hierarchy.childCount;
+            for (int i = 0; i < count; i++)
+            {
+                var child = ve.hierarchy[i];
+                ++currentIndex;
+                var found = RecurseVisualElementByIndex(child, index, ref currentIndex);
+                if (found != null)
+                    return found;
+            }
+
+            return null;
+        }
+    }
+}

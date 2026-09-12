@@ -1,0 +1,121 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+using System;
+using System.Collections.Generic;
+using Unity.Scripting.LifecycleManagement;
+
+namespace UnityEngine
+{
+    internal partial class ShimManager
+    {
+        [AutoStaticsCleanupOnCodeReload]
+        internal static Action ActiveShimChanged;
+
+        [AutoStaticsCleanupOnCodeReload]
+        private static List<ScreenShimBase> s_ActiveScreenShim = new List<ScreenShimBase>(new [] { new ScreenShimBase() } );
+        [AutoStaticsCleanupOnCodeReload]
+        private static List<SystemInfoShimBase> s_ActiveSystemInfoShim = new List<SystemInfoShimBase>(new [] { new SystemInfoShimBase() } );
+        [AutoStaticsCleanupOnCodeReload]
+        private static List<ApplicationShimBase> s_ActiveApplicationShim = new List<ApplicationShimBase>(new [] { new ApplicationShimBase() } );
+
+        internal static ScreenShimBase screenShim => s_ActiveScreenShim[^1];
+        internal static SystemInfoShimBase systemInfoShim => s_ActiveSystemInfoShim[^1];
+        internal static ApplicationShimBase applicationShim => s_ActiveApplicationShim[^1];
+
+        internal static void UseShim(ScreenShimBase shim)
+        {
+            if (s_ActiveScreenShim[^1] == shim)
+            {
+                return;
+            }
+
+            RemoveShim(shim);
+            s_ActiveScreenShim.Add(shim);
+            ActiveShimChanged?.Invoke();
+        }
+
+        internal static void UseShim(SystemInfoShimBase shim)
+        {
+            if (s_ActiveSystemInfoShim[^1] == shim)
+            {
+                return;
+            }
+
+            RemoveShim(shim);
+            s_ActiveSystemInfoShim.Add(shim);
+            ActiveShimChanged?.Invoke();
+        }
+
+        internal static void UseShim(ApplicationShimBase shim)
+        {
+            if (s_ActiveApplicationShim[^1] == shim)
+            {
+                return;
+            }
+
+            RemoveShim(shim);
+            s_ActiveApplicationShim.Add(shim);
+            ActiveShimChanged?.Invoke();
+        }
+
+        internal static void RemoveShim(ScreenShimBase shim)
+        {
+            if (s_ActiveScreenShim.Contains(shim))
+            {
+                s_ActiveScreenShim.Remove(shim);
+                ActiveShimChanged?.Invoke();
+            }
+        }
+
+        internal static void RemoveShim(SystemInfoShimBase shim)
+        {
+            if (s_ActiveSystemInfoShim.Contains(shim))
+            {
+                s_ActiveSystemInfoShim.Remove(shim);
+                ActiveShimChanged?.Invoke();
+            }
+        }
+
+        internal static void RemoveShim(ApplicationShimBase shim)
+        {
+            if (s_ActiveApplicationShim.Contains(shim))
+            {
+                s_ActiveApplicationShim.Remove(shim);
+                ActiveShimChanged?.Invoke();
+            }
+        }
+
+        internal static bool IsShimActive(ScreenShimBase shim)
+        {
+            return s_ActiveScreenShim[^1] == shim;
+        }
+
+        internal static bool IsShimActive(SystemInfoShimBase shim)
+        {
+            return s_ActiveSystemInfoShim[^1] == shim;
+        }
+
+        internal static bool IsShimActive(ApplicationShimBase shim)
+        {
+            return s_ActiveApplicationShim[^1] == shim;
+        }
+
+        // For the following functions, only return true if shims besides the default are in the collection
+        internal static bool IsScreenShimActive()
+        {
+            return s_ActiveScreenShim.Count > 1;
+        }
+
+        internal static bool IsSystemInfoShimActive()
+        {
+            return s_ActiveSystemInfoShim.Count > 1;
+        }
+
+        internal static bool IsApplicationShimActive()
+        {
+            return s_ActiveApplicationShim.Count > 1;
+        }
+    }
+}

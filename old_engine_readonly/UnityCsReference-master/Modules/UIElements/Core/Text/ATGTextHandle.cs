@@ -1,0 +1,463 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+#pragma warning disable UAL0015,UAL0018,UAL0019,UAL0020,UAL0021 // AutoStaticsCleanup usage analysis: UIToolkitFramework not yet converted
+#pragma warning disable UAL0010,UAL0011,UAL0012,UAL0013,UAL0014 // AutoStaticsCleanup: UIToolkitFramework not yet converted
+using System;
+using System.Collections.Generic;
+using System.Runtime.CompilerServices;
+using Unity.Collections.LowLevel.Unsafe;
+using Unity.Scripting.LifecycleManagement;
+using UnityEngine.TextCore;
+using UnityEngine.TextCore.Text;
+
+namespace UnityEngine.UIElements
+{
+    internal partial class UITKTextHandle
+    {
+        internal ATGTextEventHandler m_ATGTextEventHandler;
+        bool uvsAreGenerated = false;
+
+        // Buffer for processed text that differs from TextElement.textBuffer
+        // (password-masked, placeholder, elided)
+        NativeTextBuffer m_ProcessedTextBuffer;
+
+#pragma warning disable UA5000 // Only finalizer-thread-safe work: the buffer is handed to the reclaimer and TextGenerationInfo.Destroy is thread-safe.
+        ~UITKTextHandle()
+        {
+            NativeTextBufferReclaimer.EnqueueForDisposal(ref m_ProcessedTextBuffer);
+            DestroyPermanentCachedGenerationInfo();
+        }
+#pragma warning restore UA5000
+
+        internal unsafe bool TryGetSourceTextPointer(out IntPtr ptr, out int length)
+        {
+            // Placeholder and password text need a processed buffer
+            if (m_TextElement.showPlaceholderText
+                || m_TextElement.edition.isPassword)
+            {
+                ptr = IntPtr.Zero;
+                length = 0;
+                return false;
+            }
+
+            ref var buffer = ref m_TextElement.textBuffer;
+            if (!buffer.isCreated || buffer.length == 0)
+            {
+                ptr = IntPtr.Zero;
+                length = 0;
+                return true;
+            }
+
+            ptr = (IntPtr)NativeArrayUnsafeUtility.GetUnsafeReadOnlyPtr(buffer.buffer);
+            length = buffer.length;
+            return true;
+        }
+
+        // UUM-90538: empty input fields need a zero-width space so they get a non-zero line height
+        void EnsureNonEmptyBufferForInputField()
+        {
+            if (nativeSettings.textBufferLength == 0 && m_TextElement.isInputField)
+            {
+                m_ProcessedTextBuffer.CopyFrom(TextElement.ZeroWidthSpace);
+                nativeSettings.SetTextBuffer(m_ProcessedTextBuffer.buffer, m_ProcessedTextBuffer.length);
+            }
+        }
+
+        void ComputeNativeTextSize(in string textToMeasure, float width, VisualElement.MeasureMode widthMode, float height, VisualElement.MeasureMode heightMode, float? fontsize = null)
+        {
+            if (!ConvertUssToNativeTextGenerationSettings(textToMeasure, fontsize))
+                return;
+
+            EnsureNonEmptyBufferForInputField();
+
+            if (widthMode == VisualElement.MeasureMode.Undefined || widthMode == VisualElement.MeasureMode.MinContent || float.IsNaN(width) || float.IsNegative(width))
+                nativeSettings.screenWidth = TextLib.k_unconstrainedScreenSize;
+            else
+                nativeSettings.screenWidth = (int)(width * 64.0f);
+
+            if (heightMode == VisualElement.MeasureMode.Undefined || heightMode == VisualElement.MeasureMode.MinContent || float.IsNaN(height) || float.IsNegative(height))
+                nativeSettings.screenHeight = TextLib.k_unconstrainedScreenSize;
+            else
+                nativeSettings.screenHeight = (int)(height * 64.0f);
+
+            nativeSettings.minContentMeasure = widthMode == VisualElement.MeasureMode.MinContent;
+
+            if (textGenerationInfo == IntPtr.Zero)
+            {
+                textGenerationInfo = TextGenerationInfo.Create(IsCachedPermanent);
+            }
+
+            pixelPreferedSize = textLib.MeasureText(nativeSettings, textGenerationInfo);
+        }
+
+        public (NativeTextInfo, bool) UpdateNative()
+        {
+            if (!ConvertUssToNativeTextGenerationSettings())
+                return (default, false);
+
+            // This needs to be set for each textElement because we might need to come back on the main thread and reuse the informations after.
+            // We clear it as soon as possible to avoid persistent native allocations.
+            if (textGenerationInfo == IntPtr.Zero)
+            {
+                textGenerationInfo = TextGenerationInfo.Create(IsCachedPermanent);
+            }
+
+            bool wasCached = false;
+            var textInfo = textLib.GenerateText(nativeSettings, textGenerationInfo, ref wasCached);
+            if (!wasCached)
+                uvsAreGenerated = false;
+
+            // If there are links, we need to generate the text again and cache it
+            if (m_TextElement.enableRichText)
+            {
+                SyncLinksFromNative();
+
+                if (m_Links is { Length: > 0 } && !IsCachedPermanentATG)
+                {
+                    m_TextElement.uitkTextHandle.CacheTextGenerationInfo();
+                    m_ATGTextEventHandler ??= new ATGTextEventHandler(m_TextElement);
+                    textInfo = textLib.GenerateText(nativeSettings, textGenerationInfo, ref wasCached);
+                }
+            }
+            else
+            {
+                m_Links = null;
+            }
+
+            m_IsElided = textInfo.isElided;
+            return (textInfo, true);
+        }
+
+        public void ShapeText()
+        {
+            if (!ConvertUssToNativeTextGenerationSettings())
+                return;
+
+            EnsureNonEmptyBufferForInputField();
+
+            if (textGenerationInfo == IntPtr.Zero)
+            {
+                textGenerationInfo = TextGenerationInfo.Create(IsCachedPermanent);
+            }
+
+            textLib.ShapeText(nativeSettings, textGenerationInfo);
+        }
+
+        public void ProcessMeshInfos(NativeTextInfo textInfo, ref List<List<List<int>>> textElementIndicesByMesh)
+        {
+            textLib.ProcessMeshInfos(textInfo, nativeSettings, ref textElementIndicesByMesh, uvsAreGenerated);
+            uvsAreGenerated = true;
+        }
+
+        public bool HasMissingGlyphs(NativeTextInfo textInfo, ref Dictionary<EntityId, HashSet<uint>> missingGlyphsPerFontAsset)
+        {
+            return textLib.HasMissingGlyphs(textInfo, ref missingGlyphsPerFontAsset);
+        }
+
+        private (bool, bool) hasLinkAndHyperlink()
+        {
+            bool hasLink = false;
+            bool hasHyperlink = false;
+
+            var links = m_Links;
+            if (links != null)
+            {
+                for (int i = 0; i < links.Length; i++)
+                {
+                    if (links[i].isHyperlink)
+                        hasHyperlink = true;
+                    else
+                        hasLink = true;
+
+                    if (hasLink && hasHyperlink)
+                        break;
+                }
+            }
+            return (hasLink, hasHyperlink);
+        }
+
+        // Test-only convenience: did the most recent rich-text parse expose an <a> (hyperlink) tag?
+        internal bool hasHyperlinkTag => hasLinkAndHyperlink().Item2;
+
+        // Needs to be called on the main thread
+        internal void UpdateATGTextEventHandler()
+        {
+            if (m_ATGTextEventHandler == null)
+                return;
+
+            var (hasLink, hasHyperlink) = hasLinkAndHyperlink();
+            if (hasLink)
+                m_ATGTextEventHandler.RegisterLinkTagCallbacks();
+            else
+                m_ATGTextEventHandler.UnRegisterLinkTagCallbacks();
+
+            if (hasHyperlink)
+                m_ATGTextEventHandler.RegisterHyperlinkCallbacks();
+            else
+                m_ATGTextEventHandler.UnRegisterHyperlinkCallbacks();
+        }
+
+        internal void EnsureIsReadyForJobs()
+        {
+            InitTextLib();
+            var fa = m_TextElement.cachedFontAsset;
+            var textSettings = TextUtilities.GetTextSettingsFrom(m_TextElement);
+
+            if (fa == null)
+                fa = textSettings.GetFontAsset();
+
+            if (fa == null)
+                return;
+
+            ref var style = ref m_TextElement.computedStyle;
+            if (style.unityEditorTextRenderingMode == EditorTextRenderingMode.Bitmap)
+            {
+                var effectiveFontsize = (int)Math.Round((style.fontSize) * GetPixelsPerPoint(), MidpointRounding.AwayFromZero);
+                nativeSettings.fontSize = effectiveFontsize * 64;
+                fa = GetCorrespondingBitmapFontAsset(fa, effectiveFontsize);
+            }
+            textSettings.UpdateNativeTextSettings();
+            fa.EnsureNativeFontAssetIsCreated();
+
+            // Pre-allocate on the main thread; jobs cannot allocate Persistent memory.
+            // Account for placeholder text which may be longer than the text buffer.
+            int preAllocLength = m_TextElement.textBuffer.length;
+            if (m_TextElement.showPlaceholderText)
+                preAllocLength = Math.Max(preAllocLength, m_TextElement.edition.placeholder?.Length ?? 0);
+
+            // Empty input fields get a ZWS injected during ShapeText; ensure capacity for it.
+            if (preAllocLength == 0 && m_TextElement.isInputField)
+                preAllocLength = 1;
+
+            // When the backing NativeArray is not created (element attached with empty
+            // text, or buffer disposed during a lifecycle transition) the direct-buffer
+            // path in ConvertUssToNativeTextGenerationSettings falls through and copies
+            // renderedTextString into m_ProcessedTextBuffer instead.  Pre-allocate
+            // enough for that text so the Job never triggers a Persistent allocation.
+            if (!m_TextElement.textBuffer.isCreated)
+                preAllocLength = Math.Max(preAllocLength, m_TextElement.renderedTextString?.Length ?? 0);
+
+            m_ProcessedTextBuffer.EnsureCapacity(preAllocLength);
+        }
+
+#nullable enable
+        internal bool ConvertUssToNativeTextGenerationSettings(string? textToMeasure = null, float? fontsize = null)
+        {
+            var scale = GetPixelsPerPoint();
+            ref var style = ref m_TextElement.computedStyle;
+            var textSettings = TextUtilities.GetTextSettingsFrom(m_TextElement);
+
+            nativeSettings.preProcessFlags = PreProcessFlags.None;
+            nativeSettings.minContentMeasure = false;
+
+            // A managed string is only required for an explicit measure request
+            string? text = textToMeasure;
+
+            var effectiveFontSize = (fontsize ?? style.fontSize) * scale;
+            nativeSettings.fontSize = (int)Math.Round(effectiveFontSize * 64.0f, MidpointRounding.AwayFromZero);
+            nativeSettings.bestFit = style.unityTextAutoSize.mode == TextAutoSizeMode.BestFit;
+            nativeSettings.maxFontSize = (int)(style.unityTextAutoSize.maxSize.value * 64.0f * scale);
+            nativeSettings.minFontSize = (int)(style.unityTextAutoSize.minSize.value * 64.0f * scale);
+
+            nativeSettings.wordWrapEnabled = style.whiteSpace == WhiteSpace.Normal || style.whiteSpace == WhiteSpace.PreWrap;
+            if (!m_TextElement.isInputField && (style.whiteSpace == WhiteSpace.NoWrap || style.whiteSpace == WhiteSpace.Normal))
+                nativeSettings.preProcessFlags |= PreProcessFlags.CollapseWhiteSpaces;
+            if (m_TextElement.parseEscapeSequences)
+                nativeSettings.preProcessFlags |= PreProcessFlags.ParseEscapeSequences;
+            nativeSettings.overflow = style.textOverflow.toTextCore(style.overflow, style.unityTextOverflowPosition);
+            nativeSettings.horizontalAlignment = TextGeneratorUtilities.GetHorizontalAlignment(style.unityTextAlign);
+            nativeSettings.verticalAlignment = TextGeneratorUtilities.GetVerticalAlignment(style.unityTextAlign);
+            nativeSettings.characterSpacing = (int)(style.letterSpacing.value * 64.0f);
+            nativeSettings.wordSpacing = (int)(style.wordSpacing.value * 64.0f);
+            nativeSettings.paragraphSpacing = (int)(style.unityParagraphSpacing.value * 64.0f);
+
+            nativeSettings.color = style.color;
+            nativeSettings.color *= m_TextElement.playModeTintColor;
+
+            nativeSettings.languageDirection = m_TextElement.localLanguageDirection.toTextCore();
+
+            //Bold is not part of the font style in css and in text native, but it is in textCore/Uitk
+            var sourcefontStyle = TextGeneratorUtilities.LegacyStyleToNewStyle(style.unityFontStyleAndWeight);
+            nativeSettings.fontStyle = sourcefontStyle & ~FontStyles.Bold;
+            //Backward compatibility with text core
+            nativeSettings.fontWeight = (sourcefontStyle & FontStyles.Bold) == FontStyles.Bold ? TextFontWeight.Bold : TextFontWeight.Regular;
+
+            // The screenRect in TextCore is not properly implemented with regards to the offset part, so zero it out for now and we will add it ourselves later
+            var size = m_TextElement.contentRect.size;
+
+            if (textGenerationInfo != IntPtr.Zero)
+            {
+                LayoutTextMeasureNative.GetTGIMeasuredWidths(textGenerationInfo, out var tgiMeasuredWidth, out var tgiRoundedWidth, out var tgiPixelsPerPoint);
+                if (tgiRoundedWidth != 0 && tgiPixelsPerPoint == scale)
+                {
+                    ATGMeasuredWidth = tgiMeasuredWidth;
+                    ATGRoundedWidth = tgiRoundedWidth;
+                    LastPixelPerPoint = scale;
+                }
+            }
+
+            // If the size is the last rounded size, we use the cached size before the rounding that was calculated
+            if (ATGMeasuredWidth.HasValue && Mathf.Abs(size.x - ATGRoundedWidth) < 0.01f && LastPixelPerPoint == scale)
+            {
+                size.x = ATGMeasuredWidth.Value;
+            }
+            else
+            {
+                //the size has change, we need to save that information
+                ATGRoundedWidth = size.x;
+                ATGMeasuredWidth = null;
+            }
+
+            // The Value should already be aligned (to the nearest pixel if the value is from the layout, to 1/64 pixels if
+            // it is from a previous text measurement) but the float representation might be inexact with some scale factor.
+            // Doing an extra round prevent problems unlike truncating.
+            nativeSettings.screenWidth = Mathf.RoundToInt(size.x * 64.0f * scale);
+            nativeSettings.screenHeight =  Mathf.RoundToInt(size.y * 64.0f * scale);
+
+            var fa = m_TextElement.cachedFontAsset;
+            if (fa == null)
+            {
+                fa = textSettings.GetFontAsset();
+            }
+
+            if (fa ==  null)
+                return false;
+
+            if (style.unityEditorTextRenderingMode == EditorTextRenderingMode.Bitmap)
+                fa = GetCorrespondingBitmapFontAsset(fa, (int)Math.Round(effectiveFontSize, MidpointRounding.AwayFromZero));
+
+            #pragma warning disable CS0618 // Type or member is obsolete
+            if (fa.atlasPopulationMode == AtlasPopulationMode.Static)
+            #pragma warning restore CS0618
+            {
+                Debug.LogError($"Advanced text system cannot render using static font asset {fa.faceInfo.familyName}. See <a href=\"https://docs.unity3d.com/Manual/ui-systems/migrate-static-font-assets.html\">migration guidance</a>.");
+                return false;
+            }
+
+            nativeSettings.vertexPadding = (int)(GetVertexPadding(fa) * 64.0f);
+            nativeSettings.fontAsset = fa.nativeFontAsset;
+            if (fa.nativeFontAsset == IntPtr.Zero)
+                return false;
+            nativeSettings.textSettings = textSettings.nativeTextSettings;
+            nativeSettings.disableAdvancedFontFeatures = m_TextElement.panel?.contextType == ContextType.Editor;
+            nativeSettings.richTextEnabled = m_TextElement.enableRichText;
+            nativeSettings.hoveredTag = (HoveredTag)m_HoveredTag;
+            nativeSettings.pixelsPerPointFixed64 = (int)Math.Round(GetPixelsPerPoint() * 64.0f);
+
+            if (text == null && TryGetSourceTextPointer(out IntPtr srcPtr, out int srcLen))
+            {
+                if (srcPtr != IntPtr.Zero)
+                {
+                    nativeSettings.SetTextBuffer(m_TextElement.textBuffer.buffer, m_TextElement.textBuffer.length);
+                }
+                else
+                {
+                    m_ProcessedTextBuffer.CopyFrom(string.Empty);
+                    nativeSettings.SetTextBuffer(m_ProcessedTextBuffer.buffer, m_ProcessedTextBuffer.length);
+                }
+                return true;
+            }
+
+            // Placeholder / password: build the masked or placeholder representation directly into the processed-text buffer
+            if (text == null && m_TextElement.TryGetProcessedRenderedText(ref m_ProcessedTextBuffer))
+            {
+                nativeSettings.SetTextBuffer(m_ProcessedTextBuffer.buffer, m_ProcessedTextBuffer.length);
+                return true;
+            }
+
+            // Explicit measured string (MeasureTextSize call): copy the managed string into the processed-text buffer.
+            m_ProcessedTextBuffer.CopyFrom(text ?? string.Empty);
+            nativeSettings.SetTextBuffer(m_ProcessedTextBuffer.buffer, m_ProcessedTextBuffer.length);
+            return true;
+        }
+
+        internal void SyncLinksFromNative()
+        {
+            if (textGenerationInfo == IntPtr.Zero)
+                return;
+
+            if (NativeRichTextParser.GetLinkCount(textGenerationInfo) == 0)
+            {
+                m_Links = null;
+                return;
+            }
+
+            var links = NativeRichTextParser.GetAllLinks(textGenerationInfo);
+            m_Links = (links != null && links.Length > 0) ? links : null;
+        }
+#nullable restore
+
+        internal void EnsureFontAssetsAreCreatedOnTheMainThread()
+        {
+            var fa = m_TextElement.cachedFontAsset;
+            if (fa == null)
+            {
+                var textSettings = TextUtilities.GetTextSettingsFrom(m_TextElement);
+                fa = textSettings.GetFontAsset();
+            }
+            fa.EnsureNativeFontAssetIsCreated();
+            ref var style = ref m_TextElement.computedStyle;
+
+            #pragma warning disable CS0618 // Type or member is obsolete
+            if (fa == null || fa.atlasPopulationMode == AtlasPopulationMode.Static || style.unityEditorTextRenderingMode != EditorTextRenderingMode.Bitmap)
+            #pragma warning restore CS0618
+                return;
+
+            var scale = GetPixelsPerPoint();
+            var effectiveFontsize = (int)Math.Round((style.fontSize) * scale, MidpointRounding.AwayFromZero);
+
+            GetCorrespondingBitmapFontAsset(fa, effectiveFontsize);
+            GenerateBitmapFallbackFontAssets(effectiveFontsize, TextCore.Text.TextGenerationSettings.IsEditorTextRenderingModeRaster());
+        }
+
+        FontAsset GetCorrespondingBitmapFontAsset(FontAsset fa, int effectiveFontsize)
+        {
+            if (fa == null)
+                return null;
+
+            if (TextCore.Text.TextGenerationSettings.IsEditorTextRenderingModeBitmap() && fa.IsEditorFont)
+                fa = GetBlurryFontAssetMapping(effectiveFontsize, fa, TextCore.Text.TextGenerationSettings.IsEditorTextRenderingModeRaster());
+
+            return fa;
+        }
+
+        internal override TextAsset GetICUAsset()
+        {
+            if (m_TextElement.panel is null)
+                throw new InvalidOperationException("Text cannot be processed on elements not in a panel");
+
+            if (m_TextElement.panel.contextType == ContextType.Editor)
+                return GetICUAssetStaticFalback();
+            TextAsset asset = null;
+            var panelSettings = ((BaseRuntimePanel)m_TextElement.panel).GetLinkedPanelSettings();
+            if (panelSettings)
+                asset = panelSettings.m_ICUDataAsset;
+
+            if (asset != null)
+                return asset;
+
+            asset = GetICUAssetStaticFalback();
+
+            if (asset != null)
+                return asset;
+
+            Debug.LogWarning("ICU Data not available: falling back to minimal text segmentation (basic line breaking rules only, emoji sequences may not render correctly). The data is automatically assigned to the PanelSettings in the editor if the advanced text option is enabled in the project settings. It will not be present on PanelSettings created at runtime, so make sure the build contains at least one PanelSettings asset to get full international text support.");
+            return null;
+        }
+
+        public override void RemoveFromPermanentCacheATG()
+        {
+            if (IsCachedPermanentATG)
+            {
+                m_ATGTextEventHandler?.UnRegisterHyperlinkCallbacks();
+            }
+            m_ProcessedTextBuffer.Dispose();
+            base.RemoveFromPermanentCacheATG();
+        }
+
+    }
+}
+#pragma warning restore UAL0010,UAL0011,UAL0012,UAL0013,UAL0014
+#pragma warning restore UAL0015,UAL0018,UAL0019,UAL0020,UAL0021

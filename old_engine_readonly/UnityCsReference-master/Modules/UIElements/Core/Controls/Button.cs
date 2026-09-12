@@ -1,0 +1,469 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+#pragma warning disable UAL0015,UAL0018,UAL0019,UAL0020,UAL0021 // AutoStaticsCleanup usage analysis: UIToolkitFramework not yet converted
+#pragma warning disable UAL0010,UAL0011,UAL0012,UAL0013,UAL0014 // AutoStaticsCleanup: UIToolkitFramework not yet converted
+using System;
+using Unity.Scripting.LifecycleManagement;
+using System.Runtime.CompilerServices;
+using Unity.Properties;
+using UnityEngine.Bindings;
+
+namespace UnityEngine.UIElements
+{
+    /// <summary>
+    /// Represents an interactive UI button element.
+    /// </summary>
+    /// <remarks>
+    /// A Button has a text label element that can respond to pointer and mouse events.
+    /// You can add an icon to pair it with the text by assigning a Background (Texture, RenderTexture, Sprite or Vector Image)
+    /// to the iconImage API or icon-image UXML property. Please note that by providing an icon image, this will
+    /// automatically update the Button's hierarchy to contain an <see cref="Image"/> and a text label element.
+    ///
+    /// By default, a single left mouse click activates the Button's <see cref="Clickable"/> property button.
+    /// To remove this activator, or add more activators, modify the <c>clickable.activators</c> property.
+    /// For details, see <see cref="ManipulatorActivationFilter"/>.
+    ///
+    /// To bind a Button's text value to the contents of a variable, set the <c>binding-path</c> property in the
+    /// UXML file, or the <c>bindingPath</c> property in the C# code, to a string that contains the variable name.
+    ///
+    /// For more information, refer to [[wiki:UIE-uxml-element-Button|UXML element Button]].
+    /// </remarks>
+    /// <example>
+    /// The following is a simple example of how to use a button. Using the clicked event to print a message to the console when the button is clicked.
+    /// <code source="../../../../Modules/UIElements/Tests/UIElementsExamples/Assets/Examples/Button_clicked.cs"/>
+    /// </example>
+    /// <remarks>
+    /// SA: [[Clickable]], [[Image]], [[ManipulatorActivationFilter]]
+    /// </remarks>
+    [UxmlElement(libraryPath = "Controls")]
+    [Icon("UIToolkit/Icons/Button.png")]
+    public partial class Button : TextElement
+    {
+        internal static readonly BindingId iconImageProperty = nameof(iconImage);
+
+        /// <summary>
+        /// USS class name of elements of this type.
+        /// </summary>
+        /// <remarks>
+        /// Unity adds this USS class to every instance of the Button element. Any styling applied to
+        /// this class affects every button located beside, or below the stylesheet in the visual tree.
+        /// </remarks>
+        public new static readonly string ussClassName = "unity-button";
+        [VisibleToOtherModules] internal new static readonly UniqueStyleString ussClassNameUnique = new(ussClassName);
+
+        /// <summary>
+        /// The USS class name for Button elements with an icon.
+        /// </summary>
+        /// <remarks>
+        /// Unity adds this USS class to an instance of the Button element if the instance's
+        /// <see cref="Button.iconImage"/> property contains a valid Texture. Any styling applied to this class
+        /// affects every button with an icon located beside, or below the stylesheet in the visual tree.
+        /// </remarks>
+        public static readonly string iconUssClassName = ussClassName + "--with-icon";
+        internal static readonly UniqueStyleString iconUssClassNameUnique = new(iconUssClassName);
+
+        /// <summary>
+        /// The USS class name for Button elements with an icon only, no text.
+        /// </summary>
+        /// <remarks>
+        /// Unity adds this USS class to an instance of the Button element if the instance's
+        /// <see cref="Button.iconImage"/> property contains a valid Texture and no text is set. Any styling applied to
+        /// this class affects every button with an icon located beside, or below the stylesheet in the visual tree.
+        /// </remarks>
+        public static readonly string iconOnlyUssClassName = ussClassName + "--with-icon-only";
+        internal static readonly UniqueStyleString iconOnlyUssClassNameUnique = new(iconOnlyUssClassName);
+
+        /// <summary>
+        /// The USS class name of the image element that will be used to display the icon texture.
+        /// </summary>
+        /// <remarks>
+        /// Unity adds this USS class to an instance of the Image element that will be used to display the
+        /// <see cref="Button.iconImage"/> property value. Any styling applied to this class will affect
+        /// image elements inside a Button that contains this class.
+        /// </remarks>
+        public static readonly string imageUSSClassName = ussClassName + "__image";
+        internal static readonly UniqueStyleString imageUssClassNameUnique = new(imageUSSClassName);
+
+        private Clickable m_Clickable;
+
+        /// <summary>
+        /// Clickable MouseManipulator for this Button.
+        /// </summary>
+        /// <remarks>
+        /// The default <see cref="Clickable"/> object provides a list of actions that are called using
+        /// one or more activation filters.
+        ///\\
+        ///\\
+        /// To add or remove activation triggers, modify [[MouseManipulator.activators|clickable.activators]].
+        /// An activation trigger can be any mouse button, pressed any number of times, with any modifier key.
+        /// </remarks>
+        /// <example>
+        /// <code lang="cs">
+        /// myButton.clickable.activators.Add(new ManipulatorActivationFilter(...))
+        /// </code>
+        /// </example>
+        /// <example>
+        /// <code lang="cs">myButton.clickable.activators.Clear()</code>
+        /// </example>
+        /// <remarks>
+        /// SA: [[ManipulatorActivationFilter]]
+        /// </remarks>
+        public Clickable clickable
+        {
+            get
+            {
+                return m_Clickable;
+            }
+            set
+            {
+                if (m_Clickable != null)
+                {
+                    if (m_Clickable.target == this)
+                        this.RemoveManipulator(m_Clickable);
+
+                    m_Clickable.clicked -= OnClickedForInsights;
+                }
+
+                m_Clickable = value;
+
+                if (m_Clickable != null)
+                {
+                    this.AddManipulator(m_Clickable);
+                    m_Clickable.clicked += OnClickedForInsights;
+                }
+            }
+        }
+
+        // Insights.Enabled must be evaluated at click time: insights are enabled
+        // asynchronously (after the remote configuration is fetched), so buttons
+        // created before that would otherwise never report clicks.
+        void OnClickedForInsights()
+        {
+            if (panel?.contextType == ContextType.Player && Insights.Enabled)
+                Insights.LogEvent(UI.InsightID.Button_Clicked, this);
+        }
+
+        /// <summary>
+        /// This method is obsolete. Use <see cref="Button.clicked"/> instead.
+        /// </summary>
+        [Obsolete("onClick is obsolete. Use clicked instead (UnityUpgradable) -> clicked", true)]
+        public event Action onClick
+        {
+            add
+            {
+                clicked += value;
+            }
+            remove
+            {
+                clicked -= value;
+            }
+        }
+
+        /// <summary>
+        /// Callback triggered when the button is clicked.
+        /// </summary>
+        /// <remarks>
+        /// This is a shortcut for modifying <seealso cref="Clickable.clicked"/>. It is provided as a convenience. When you add or remove actions from clicked, it adds or removes them from <c>Clickable.clicked</c> automatically.
+        /// </remarks>
+        /// <example>
+        /// The following example shows how to use the clicked event to print a message to the console when the button is clicked.
+        /// <code source="../../../../Modules/UIElements/Tests/UIElementsExamples/Assets/Examples/Button_clicked.cs"/>
+        /// </example>
+        public event Action clicked
+        {
+            add
+            {
+                if (m_Clickable == null)
+                {
+                    clickable = new Clickable(value);
+                }
+                else
+                {
+                    m_Clickable.clicked += value;
+                }
+            }
+            remove
+            {
+                if (m_Clickable != null)
+                {
+                    m_Clickable.clicked -= value;
+                }
+            }
+        }
+
+        // Used privately to help the serializer convert the Unity Object to the appropriate asset type.
+        [ImageFieldValueDecorator(displayName = "Icon Image")]
+        [UxmlAttribute("icon-image")]
+        [UxmlAttributeBindingPath(nameof(iconImage))]
+        Object iconImageReference
+        {
+            get => iconImage.GetSelectedImage();
+            set => iconImage = Background.FromObject(value);
+        }
+
+        // The element designed to hold the Button's text when an icon is preset (sibling of image).
+        TextElement m_TextElement;
+
+        // The element that will hold and render the icon within the button (sibling of text element).
+        Image m_ImageElement;
+        internal Image imageElement => m_ImageElement;
+
+        bool m_IconImageIsInline;
+        internal bool iconImageIsInline => m_IconImageIsInline;
+
+        // Holds the corresponding icon value of said type (Texture, Sprite, VectorImage).
+        Background m_IconImage;
+
+        /// <summary>
+        /// The Texture, Sprite, or VectorImage that will represent an icon within a Button element.
+        /// </summary>
+        [CreateProperty]
+        public Background iconImage
+        {
+            get => m_IconImage;
+            set
+            {
+                if (value.IsEmpty() && m_ImageElement == null || value == m_IconImage)
+                    return;
+
+                if (value.IsEmpty())
+                {
+                    m_IconImage = value;
+                    m_IconImageIsInline = false;
+
+                    // This will reset the hierarchy if no custom style is resolved
+                    ReadCustomProperties(customStyle);
+
+                    NotifyPropertyChanged(iconImageProperty);
+
+                    return;
+                }
+
+                m_IconImage = value;
+                m_IconImageIsInline = true;
+
+                UpdateImageElement(m_IconImage);
+
+                NotifyPropertyChanged(iconImageProperty);
+            }
+        }
+
+        private string m_Text = String.Empty;
+        public override string text
+        {
+            get => m_Text ?? string.Empty;
+            set
+            {
+                m_Text = value;
+                EnableInClassList(iconOnlyUssClassNameUnique, !m_IconImage.IsEmpty() && string.IsNullOrEmpty(text));
+
+                if (m_TextElement != null)
+                {
+                    // Make sure we clear the Button's text, otherwise it will show the same string twice
+                    base.text = String.Empty;
+
+                    if (m_TextElement.text == m_Text)
+                        return;
+
+                    m_TextElement.text = m_Text;
+                    return;
+                }
+
+                if (base.text == m_Text)
+                    return;
+
+                base.text = m_Text;
+            }
+        }
+
+        /// <summary>
+        /// Constructs a Button.
+        /// </summary>
+        public Button() : this(default, null)
+        {
+        }
+
+        /// <summary>
+        /// Constructs a button with a <see cref="Background"/> and an Action. The image definition will be used
+        /// to represent an icon while the Action is triggered when the button is clicked.
+        /// </summary>
+        /// <param name="iconImage">The image value that will be rendered as an icon.</param>
+        /// <param name="clickEvent">The action triggered when the button is clicked.</param>
+        /// <remarks>Action is the standard C# System.Action.</remarks>
+        public Button(Background iconImage, Action clickEvent = null) : this(clickEvent)
+        {
+            this.iconImage = iconImage;
+        }
+
+        /// <summary>
+        /// Constructs a button with an Action that is triggered when the button is clicked.
+        /// </summary>
+        /// <param name="clickEvent">The action triggered when the button is clicked.</param>
+        /// <remarks>
+        /// Action is the standard C# System.Action.
+        /// By default, a single left mouse click triggers the Action. To change the activator, modify <see cref="clickable"/>.
+        /// </remarks>
+        public Button(Action clickEvent)
+        {
+            AddToClassList(ussClassNameUnique);
+
+            // Click-once behaviour
+            clickable = new Clickable(clickEvent);
+            focusable = true;
+            tabIndex = 0;
+
+            Callbacks.OnNavigationSubmit.Register(this);
+            Callbacks.OnCustomStyleResolved.Register(this);
+        }
+
+        void OnCustomStyleResolved(CustomStyleResolvedEvent evt)
+        {
+            ReadCustomProperties(evt.customStyle);
+        }
+
+        private void ReadCustomProperties(ICustomStyle customStyleProvider)
+        {
+            if (!m_IconImageIsInline)
+            {
+                if (customStyleProvider.TryGetValue(Image.s_ImageProperty, out var textureValue))
+                {
+                    SetCustomProperty(Background.FromTexture2D(textureValue));
+                }
+                else if (customStyleProvider.TryGetValue(Image.s_SpriteProperty, out var spriteValue))
+                {
+                    SetCustomProperty(Background.FromSprite(spriteValue));
+                }
+                else if (customStyleProvider.TryGetValue(Image.s_VectorImageProperty, out var vectorImageValue))
+                {
+                    SetCustomProperty(Background.FromVectorImage(vectorImageValue));
+                }
+                // If the value is not inline and none of the custom style properties are resolved, unset the value.
+                else
+                {
+                    ClearProperty();
+                }
+            }
+        }
+
+        void SetCustomProperty(Background value)
+        {
+            Debug.Assert(!m_IconImageIsInline, "Expected icon image to not be inline when using set custom property");
+            if (m_ImageElement != null)
+            {
+                if (value.texture && value.texture == m_ImageElement.source)
+                    return;
+                if (value.sprite && value.sprite == m_ImageElement.source)
+                    return;
+                if (value.renderTexture && value.renderTexture == m_ImageElement.source)
+                    return;
+                if (value.vectorImage && value.vectorImage == m_ImageElement.source)
+                    return;
+            }
+
+            UpdateImageElement(value);
+
+            IncrementVersion(VersionChangeType.Layout | VersionChangeType.Repaint);
+            NotifyPropertyChanged(iconImageProperty);
+        }
+
+        private void ClearProperty()
+        {
+            if (m_IconImageIsInline)
+                return;
+
+            UpdateImageElement(null);
+        }
+
+        void UpdateImageElement(Background value)
+        {
+            if (value == null)
+            {
+                ResetButtonHierarchy();
+                return;
+            }
+
+            if (m_ImageElement == null)
+                UpdateButtonHierarchy();
+
+            // The image control will reset the other values to null
+            if (value.texture)
+                m_ImageElement.image = value.texture;
+            else if (value.sprite)
+                m_ImageElement.sprite = value.sprite;
+            else if (value.renderTexture)
+                m_ImageElement.image = value.renderTexture;
+            else
+                m_ImageElement.vectorImage = value.vectorImage;
+            EnableInClassList(iconOnlyUssClassNameUnique, string.IsNullOrEmpty(text));
+        }
+
+        private void OnNavigationSubmit(NavigationSubmitEvent evt)
+        {
+            clickable?.SimulateSingleClick(evt);
+            evt.StopPropagation();
+        }
+
+        private static readonly string NonEmptyString = " ";
+        protected internal override Vector2 DoMeasure(float desiredWidth, MeasureMode widthMode, float desiredHeight,
+            MeasureMode heightMode)
+        {
+            var textToMeasure = text;
+            if (string.IsNullOrEmpty(textToMeasure))
+            {
+                textToMeasure = NonEmptyString;
+            }
+            return MeasureTextSize(textToMeasure, desiredWidth, widthMode, desiredHeight, heightMode);
+        }
+
+        private void UpdateButtonHierarchy()
+        {
+            if (m_ImageElement == null)
+            {
+                m_ImageElement = new Image().WithClassList(imageUssClassNameUnique);
+                Add(m_ImageElement);
+                AddToClassList(iconUssClassNameUnique);
+            }
+
+            if (m_TextElement == null)
+            {
+                m_TextElement = new TextElement {text = text};
+                m_Text = text;
+                base.text = String.Empty;
+                Add(m_TextElement);
+            }
+        }
+
+        private void ResetButtonHierarchy()
+        {
+            if (m_ImageElement != null)
+            {
+                m_ImageElement.RemoveFromHierarchy();
+                m_ImageElement = null;
+                RemoveFromClassList(iconUssClassNameUnique);
+                RemoveFromClassList(iconOnlyUssClassNameUnique);
+            }
+
+            if (m_TextElement != null)
+            {
+                var restoredText = m_TextElement.text;
+                m_TextElement.RemoveFromHierarchy();
+                m_TextElement = null;
+                text = restoredText;
+            }
+        }
+
+        private static partial class Callbacks
+        {
+            [NoAutoStaticsCleanup]
+            public static readonly EventCallbackDefinition<Button> OnNavigationSubmit =
+                EventCallback.Create<NavigationSubmitEvent, Button>(static (e, self) => self.OnNavigationSubmit(e));
+            [NoAutoStaticsCleanup]
+            public static readonly EventCallbackDefinition<Button> OnCustomStyleResolved =
+                EventCallback.Create<CustomStyleResolvedEvent, Button>(static (e, self) => self.OnCustomStyleResolved(e));
+        }
+    }
+}
+#pragma warning restore UAL0010,UAL0011,UAL0012,UAL0013,UAL0014
+#pragma warning restore UAL0015,UAL0018,UAL0019,UAL0020,UAL0021

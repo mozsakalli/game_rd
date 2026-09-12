@@ -1,0 +1,110 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+using System;
+using UnityEngine;
+using UnityEngine.Bindings;
+using Object = UnityEngine.Object;
+
+namespace UnityEditor
+{
+    [NativeHeader("Editor/Mono/AssetDatabase/AssetPreview.bindings.h")]
+    [NativeHeader("Editor/Src/Utility/ObjectImages.h")]
+    public sealed class AssetPreview
+    {
+        private static readonly EntityId kSharedClientID = EntityId.None;
+
+        public static Texture2D GetAssetPreview(Object asset)
+        {
+            if (asset != null)
+                return GetAssetPreview(asset.GetEntityId());
+            return null;
+        }
+
+        internal static Texture2D GetAssetPreview(EntityId entityId)
+        {
+            return GetAssetPreview(entityId, kSharedClientID);
+        }
+
+        [FreeFunction("AssetPreviewBindings::GetAssetPreview")]
+        internal static extern Texture2D GetAssetPreview(EntityId entityId, EntityId clientID);
+
+        [FreeFunction("AssetPreviewBindings::HasAssetPreview")]
+        internal static extern bool HasAssetPreview(EntityId entityId, EntityId clientID);
+
+        internal static Texture2D GetAssetPreviewFromGUID(string guid)
+        {
+            return GetAssetPreviewFromGUID(guid, kSharedClientID);
+        }
+
+        [FreeFunction("AssetPreviewBindings::GetAssetPreviewFromGUID")]
+        internal static extern Texture2D GetAssetPreviewFromGUID(string guid, EntityId clientID);
+
+        [Obsolete("IsLoadingAssetPreview(int instanceID) is deprecated. Use IsLoadingAssetPreview(EntityId entityId) instead.", true)]
+        public static bool IsLoadingAssetPreview(int instanceID)
+        {
+            return IsLoadingAssetPreview(instanceID, kSharedClientID);
+        }
+
+        public static bool IsLoadingAssetPreview(EntityId entityId)
+        {
+            return IsLoadingAssetPreview(entityId, kSharedClientID);
+        }
+
+        [FreeFunction("AssetPreviewBindings::IsLoadingAssetPreview")]
+        internal static extern bool IsLoadingAssetPreview(EntityId entityId, EntityId clientID);
+
+        public static bool IsLoadingAssetPreviews()
+        {
+            return IsLoadingAssetPreviews(kSharedClientID);
+        }
+
+        [FreeFunction("AssetPreviewBindings::IsLoadingAssetPreviews")]
+        internal static extern bool IsLoadingAssetPreviews(EntityId clientID);
+
+        internal static bool HasAnyNewPreviewTexturesAvailable()
+        {
+            return HasAnyNewPreviewTexturesAvailable(kSharedClientID);
+        }
+
+        [FreeFunction("AssetPreviewBindings::HasAnyNewPreviewTexturesAvailable")]
+        internal static extern bool HasAnyNewPreviewTexturesAvailable(EntityId clientID);
+
+        public static void SetPreviewTextureCacheSize(int size)
+        {
+            SetPreviewTextureCacheSize(size, kSharedClientID);
+        }
+
+        [FreeFunction("AssetPreviewBindings::SetPreviewTextureCacheSize")]
+        internal static extern void SetPreviewTextureCacheSize(int size, EntityId clientID);
+
+        [FreeFunction("AssetPreviewBindings::ClearTemporaryAssetPreviews")]
+        internal static extern void ClearTemporaryAssetPreviews();
+
+        [FreeFunction("AssetPreviewBindings::DeletePreviewTextureManagerByID")]
+        internal static extern void DeletePreviewTextureManagerByID(EntityId clientID);
+
+        public static Texture2D GetMiniThumbnail(Object obj)
+        {
+            return (Texture2D)GetMiniThumbnailInternal(obj);
+        }
+
+        [FreeFunction("TextureForObject")]
+        private static extern Texture GetMiniThumbnailInternal(Object obj);
+
+        public static Texture2D GetMiniTypeThumbnail(Type type)
+        {
+            return GetMiniTypeThumbnailFromType(type);
+        }
+
+        [FreeFunction("AssetPreviewBindings::GetMiniTypeThumbnailFromObject")]
+        internal static extern Texture2D GetMiniTypeThumbnail(Object obj);
+
+        [FreeFunction("AssetPreviewBindings::GetMiniTypeThumbnailFromClassID")]
+        internal static extern Texture2D GetMiniTypeThumbnailFromClassID(int classID);
+
+        [FreeFunction("AssetPreviewBindings::GetMiniTypeThumbnailFromType")]
+        internal static extern Texture2D GetMiniTypeThumbnailFromType(Type managedType);
+    }
+}

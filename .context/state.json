@@ -1,0 +1,57 @@
+{
+    "goal": "Evolve the DigitoyEngine editor without breaking authored scene and prefab behavior.",
+    "constraints": [
+        "Preserve existing scene and prefab serialization compatibility.",
+        "Keep SceneDoc as authored state and live scenes as projections.",
+        "Do not introduce static caches that retain collectible game assemblies."
+    ],
+    "decisions": [
+        "Prefab instances are stored as deltas on disk and expanded into ordinary GoDoc nodes in memory.",
+        "Prefab-local object and component references are remapped through persistent local-to-scene IDs.",
+        "Editor structural mutations update the document and rebuild the live projection.",
+        "A tween that dies early (destroyed target or Cancel) wakes its Then() chain; TweenPool.Kill owns chain wake-up for all death paths.",
+        "Script changes compile in a background task with debounce; on failure the old game assembly keeps running."
+    ],
+    "facts": [
+        {
+            "claim": "Prefab expansion and collapse are implemented by the SceneDoc partial.",
+            "evidence": "engine/managed/Serialization/SceneDoc.Prefab.cs"
+        },
+        {
+            "claim": "The editor and engine currently target .NET 9.",
+            "evidence": "editor/DigitoyEditor.csproj; engine/managed/DigitoyEngine.csproj"
+        },
+        {
+            "claim": "Animation core is a zero-alloc scene-owned TweenPool plus MovieClip tracks with LUT easing; chained tweens survive early kills.",
+            "evidence": "engine/managed/Tween.cs; engine/managed/MovieClip.cs; editor/LifecycleTests.cs TweenChainSurvivesKill"
+        },
+        {
+            "claim": "AssetWatcher drives hot reload: debounced .cs rebuild via GameCode.CompileOnly plus per-extension asset patching.",
+            "evidence": "editor/AssetWatcher.cs; editor/GameCode.cs"
+        },
+        {
+            "claim": "GUI runs the Unity multi-pass model: a fresh Layout pass before every queued input event, then Repaint.",
+            "evidence": "engine/managed/Gui/GuiHost.cs"
+        },
+        {
+            "claim": "Editor lifecycle smoke tests run at startup in an isolated scene.",
+            "evidence": "editor/LifecycleTests.cs; lifecycle_out.txt"
+        }
+    ],
+    "hypotheses": [],
+    "openItems": [
+        "Prefab child removal, component diffs, and nested prefab behavior remain active areas.",
+        "Source generator for TypeCatalog/FieldSchema accessors (release/AOT) is designed but not built.",
+        "Atlas v2 debt: trim/rotate, in-place blit, Library persistence, build-phase strip."
+    ],
+    "validations": [
+        {
+            "command": "dotnet build editor -v q --nologo",
+            "result": "passed 2026-09-12 after tween chain fix"
+        },
+        {
+            "command": "editor startup lifecycle tests",
+            "result": "18 PASS, 0 FAIL (2026-09-12, includes TweenChainSurvivesKill)"
+        }
+    ]
+}

@@ -1,0 +1,12 @@
+[gamecode] yuklendi: Sandbox.Game (2 script)
+[lifecycle] 15 PASS, 0 FAIL
+[serialization] 12 PASS, 0 FAIL
+[play] hot reload modu: Instant
+[play] hot reload
+[play] hot reload
+[play] hot reload
+[play] hot reload
+[play] hot reload
+[play] hot reload
+[play] hot reload
+[play] hot reload

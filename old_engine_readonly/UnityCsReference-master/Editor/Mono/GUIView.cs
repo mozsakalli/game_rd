@@ -1,0 +1,396 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+using System;
+using Unity.Scripting.LifecycleManagement;
+using System.Runtime.InteropServices;
+using UnityEngine;
+using UnityEngine.Scripting;
+using UnityEngine.UIElements;
+using UnityEngine.Bindings;
+using FrameCapture = UnityEngine.Apple.FrameCapture;
+using FrameCaptureDestination = UnityEngine.Apple.FrameCaptureDestination;
+
+namespace UnityEditor
+{
+    // This is what we (not users) derive from to create various views. (Main Toolbar, etc.)
+    [StructLayout(LayoutKind.Sequential)]
+    internal partial class GUIView : View, IWindowModel
+    {
+        [AutoStaticsCleanupOnCodeReload]
+        internal static event Action<GUIView> positionChanged = null;
+
+        int m_DepthBufferBits = 0;
+        int m_AntiAliasing = 1;
+        bool m_ResetPanelRenderingOnAssetChange = true;
+        bool m_AutoRepaintOnSceneChange = false;
+        private IWindowBackend m_WindowBackend;
+
+        protected EventInterests m_EventInterests;
+
+        [VisibleToOtherModules("UnityEditor.BurstModule")]
+        internal bool SendEvent(Event e)
+        {
+            int depth = SavedGUIState.Internal_GetGUIDepth();
+            if (depth > 0)
+            {
+                SavedGUIState oldState = SavedGUIState.Create();
+                var retval = Internal_SendEvent(e);
+                oldState.ApplyAndForget();
+                return retval;
+            }
+
+            {
+                var retval = Internal_SendEvent(e);
+                return retval;
+            }
+        }
+
+        [RequiredByNativeCode]
+        internal static void SaveReentrantLayoutState()
+        {
+            SavedGUIState.PushReentrantLayoutState();
+        }
+
+        [RequiredByNativeCode]
+        internal static void RestoreReentrantLayoutState()
+        {
+            SavedGUIState.PopReentrantLayoutState();
+        }
+
+        // This callback function allows to peek at events before they
+        // are processed in order to clean any dangling state left after
+        // an event was unexpectedly used.
+        [AutoStaticsCleanupOnCodeReload]
+        internal static Action<EventType, KeyCode, EventModifiers> beforeEventProcessed;
+
+        // Instead of allocating a new Event object every time
+        // we reuse this instance and copy event data into it
+        [NoAutoStaticsCleanup] // reused Event buffer, no user references; safe to persist across reload
+        private static Event m_Event = new Event();
+
+        //This method uses the old way of resolving the panel but it should use the member data of the GUIView instead of being static
+        [RequiredByNativeCode]
+        internal static void ProcessEvent(EntityId entityId, IntPtr nativeEventPtr, out bool result)
+        {
+            result = false;
+            m_Event.CopyFromPtr(nativeEventPtr);
+
+            if (beforeEventProcessed != null)
+            {
+                beforeEventProcessed.Invoke(m_Event.type, m_Event.keyCode, m_Event.modifiers);
+            }
+
+            if (nativeEventPtr != IntPtr.Zero && UIElementsUtility.TryGetPanel(entityId, out Panel panel))
+            {
+
+                if (panel.ownerObject is IWindowModel windowModel)
+                {
+                    result = windowModel.windowBackend.ProcessEvent(m_Event);
+                }
+            }
+
+        }
+
+        // Call into C++ here to move the underlying NSViews around
+        internal override void SetWindow(ContainerWindow win)
+        {
+            ContainerWindow oldWindow = this.window;
+            base.SetWindow(win); // Sets this.window(m_Window) to win
+
+            try
+            {
+                bool isPlayModeView = false;
+                bool isVsyncEnabled = false;
+
+                if (this is HostView h)
+                {
+                    isPlayModeView = h.actualView is PlayModeView;
+                    if (h.actualView is IGameViewSizeMenuUser sizeView)
+                    {
+                        isVsyncEnabled = sizeView.vSyncEnabled;
+                    }
+                }
+
+                Internal_Init(ref nativeHandle, m_DepthBufferBits, m_AntiAliasing, isPlayModeView, isVsyncEnabled);
+            }
+            catch
+            {
+                parent?.RemoveChild(this);
+                throw;
+            }
+
+            if (!win)
+            {
+                // Tell the native GUIView that it no longer has a window attached.
+                Internal_UnsetWindow();
+            }
+            else
+            {
+                Internal_SetWindow(win);
+            }
+
+            Internal_SetAutoRepaint(m_AutoRepaintOnSceneChange);
+            Internal_SetPosition(windowPosition);
+            Internal_SetWantsMouseMove(m_EventInterests.wantsMouseMove);
+            Internal_SetWantsMouseEnterLeaveWindow(m_EventInterests.wantsMouseMove);
+
+            windowBackend?.SizeChanged();
+        }
+
+        internal void RecreateContext()
+        {
+            Internal_Recreate(m_DepthBufferBits, m_AntiAliasing);
+        }
+
+        Vector2 IWindowModel.size => windowPosition.size;
+        protected VisualElement visualTree => (VisualElement)(windowBackend?.visualTree);
+
+        public EventInterests eventInterests
+        {
+            get { return m_EventInterests; }
+            set
+            {
+                m_EventInterests = value;
+
+                windowBackend?.EventInterestsChanged();
+
+                Internal_SetWantsMouseMove(wantsMouseMove);
+                Internal_SetWantsMouseEnterLeaveWindow(wantsMouseEnterLeaveWindow);
+            }
+        }
+
+        Action IWindowModel.onGUIHandler => OldOnGUI;
+
+        public bool wantsMouseMove
+        {
+            get { return m_EventInterests.wantsMouseMove; }
+            set
+            {
+                m_EventInterests.wantsMouseMove = value;
+                windowBackend?.EventInterestsChanged();
+                Internal_SetWantsMouseMove(wantsMouseMove);
+            }
+        }
+
+        public bool wantsMouseEnterLeaveWindow
+        {
+            get { return m_EventInterests.wantsMouseEnterLeaveWindow; }
+            set
+            {
+                m_EventInterests.wantsMouseEnterLeaveWindow = value;
+                windowBackend?.EventInterestsChanged();
+                Internal_SetWantsMouseEnterLeaveWindow(wantsMouseEnterLeaveWindow);
+            }
+        }
+
+        public bool autoRepaintOnSceneChange
+        {
+            get { return m_AutoRepaintOnSceneChange; }
+            set { m_AutoRepaintOnSceneChange = value; Internal_SetAutoRepaint(m_AutoRepaintOnSceneChange); }
+        }
+
+        public int depthBufferBits
+        {
+            get { return m_DepthBufferBits; }
+            set { m_DepthBufferBits = value; }
+        }
+
+        public int antiAliasing
+        {
+            get { return m_AntiAliasing; }
+            set { m_AntiAliasing = value; }
+        }
+
+        [Obsolete("AA is not supported on GUIViews", false)]
+        public int antiAlias
+        {
+            get { return 1; }
+            set { throw new NotSupportedException("AA is not supported on GUIViews"); }
+        }
+
+        public bool resetPanelRenderingOnAssetChange
+        {
+            get => m_ResetPanelRenderingOnAssetChange;
+            set
+            {
+                if (m_ResetPanelRenderingOnAssetChange != value)
+                {
+                    m_ResetPanelRenderingOnAssetChange = value;
+                    windowBackend?.ResetPanelRenderingOnAssetChangeChanged();
+                }
+            }
+        }
+
+        internal IWindowBackend windowBackend
+        {
+            get { return m_WindowBackend; }
+            set
+            {
+                if (m_WindowBackend != null)
+                    m_WindowBackend.OnDestroy(this);
+
+                m_WindowBackend = value;
+                m_WindowBackend?.OnCreate(this);
+                // When the native side has triggered OnBackingScaleFactorChanged, it will not send it again even if we are adding view to a hostView.
+                // (Docking, domain reload)
+                // It also occurs that the event is sent when the backend is not yet set in the view
+                // lets trigger the sizeChanged and OnBackingScaleFactorChanged to remedy any scenario
+                windowBackend?.SizeChanged();
+            }
+        }
+
+        IWindowBackend IWindowModel.windowBackend
+        {
+            get { return windowBackend; }
+            set { windowBackend = value; }
+        }
+
+        protected virtual void OnEnable()
+        {
+            windowBackend = EditorWindowBackendManager.GetBackend(this);
+        }
+
+        protected virtual void OnDisable()
+        {
+            windowBackend = null;
+        }
+
+        internal void ValidateWindowBackendForCurrentView()
+        {
+            if (!EditorWindowBackendManager.IsBackendCompatible(windowBackend, this))
+            {
+                //We create a new compatible backend
+                windowBackend = EditorWindowBackendManager.GetBackend(this);
+            }
+        }
+
+        protected virtual void OldOnGUI() {}
+
+
+        protected virtual void OnBackingScaleFactorChanged()
+        {
+            windowBackend?.OnBackingScaleFactorChanged();
+        }
+
+        protected override void SetPosition(Rect newPos)
+        {
+            Rect oldWinPos = windowPosition;
+
+            base.SetPosition(newPos);
+            if (oldWinPos == windowPosition)
+            {
+                Internal_SetPosition(windowPosition);
+                return;
+            }
+
+            Internal_SetPosition(windowPosition);
+
+            windowBackend?.SizeChanged();
+
+            positionChanged?.Invoke(this);
+
+            Repaint();
+        }
+
+        protected override void OnDestroy()
+        {
+            Internal_Close();
+
+            base.OnDestroy();
+        }
+
+        [RequiredByNativeCode]
+        internal string GetViewName()
+        {
+            var hostView = this as HostView;
+            if (hostView != null && hostView.actualView != null)
+                return hostView.actualView.GetType().Name;
+
+            return GetType().Name;
+        }
+
+        [RequiredByNativeCode]
+        internal static string GetTypeNameOfMostSpecificActiveView()
+        {
+            var currentView = current;
+            if (currentView == null)
+                return string.Empty;
+
+            var hostView = currentView as HostView;
+            if (hostView != null && hostView.actualView != null)
+                return hostView.actualView.GetType().FullName;
+
+            return currentView.GetType().FullName;
+        }
+
+        public static void BeginOffsetArea(Rect screenRect, GUIContent content, GUIStyle style)
+        {
+            GUILayoutGroup g = EditorGUILayoutUtilityInternal.BeginLayoutArea(style, typeof(GUILayoutGroup));
+            switch (Event.current.type)
+            {
+                case EventType.Layout:
+                    g.resetCoords = false;
+                    g.minWidth = g.maxWidth = screenRect.width;
+                    g.minHeight = g.maxHeight = screenRect.height;
+                    g.rect = Rect.MinMaxRect(0, 0, g.rect.xMax, g.rect.yMax);
+                    break;
+            }
+            GUI.BeginGroup(screenRect, content, style);
+        }
+
+        public static void EndOffsetArea()
+        {
+            GUI.EndGroup();
+            GUILayoutUtility.EndLayoutGroup();
+        }
+
+        // we already have renderdoc integration done in GUIView but in cpp
+        // for metal we need a bit more convoluted logic and we can push more things to cs
+        internal void CaptureMetalScene()
+        {
+            if (FrameCapture.IsDestinationSupported(FrameCaptureDestination.DevTools))
+            {
+                FrameCapture.BeginCaptureToXcode();
+                RenderCurrentSceneForCapture();
+                FrameCapture.EndCapture();
+            }
+            else if (FrameCapture.IsDestinationSupported(FrameCaptureDestination.GPUTraceDocument))
+            {
+                string path = EditorUtility.SaveFilePanel("Save Metal GPU Capture", "", PlayerSettings.productName + ".gputrace", "gputrace");
+                if (System.String.IsNullOrEmpty(path))
+                    return;
+
+                FrameCapture.BeginCaptureToFile(path);
+                RenderCurrentSceneForCapture();
+                FrameCapture.EndCapture();
+
+                System.Console.WriteLine("Metal capture saved to " + path);
+                System.Diagnostics.Process.Start(System.IO.Path.GetDirectoryName(path));
+            }
+        }
+
+        [NoAutoStaticsCleanup] // this is readonly and initialized from a static method
+        static readonly Action<TextElement, VersionChangeType> k_QueryIncrementVersion = IncrementVersion;
+
+        static void IncrementVersion(TextElement te, VersionChangeType changeType)
+        {
+            te.IncrementVersion(changeType);
+        }
+
+        internal void IncrementVersionForUITKText(VersionChangeType changeType)
+        {
+            visualTree.Query<TextElement>().ForEach((te) => k_QueryIncrementVersion(te, changeType));
+        }
+
+        [RequiredByNativeCode]
+        private void SetActiveWindowAsPresented()
+        {
+            if ((this is HostView h) && h.actualView)
+            {
+                h.actualView.m_IsPresented = true;
+            }
+        }
+    }
+} //namespace

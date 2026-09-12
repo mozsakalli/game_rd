@@ -1,0 +1,75 @@
+{
+    "cases": [
+        {
+            "name": "prefab added-component override",
+            "task": "Prefab instance loading should apply added component overrides correctly.",
+            "activeFile": "engine/managed/Serialization/SceneDoc.Prefab.cs",
+            "expectedSymbols": [
+                "SceneDoc.ApplyOverrides"
+            ],
+            "requiredText": [
+                "called_by: DigitoyEngine.SceneDoc.ExpandInstance"
+            ],
+            "top": 10
+        },
+        {
+            "name": "script rebuild debounce",
+            "task": "Debounce script file changes and start a background game-code rebuild while keeping the old assembly on failure.",
+            "activeFile": "editor/AssetWatcher.cs",
+            "expectedSymbols": [
+                "AssetWatcher.RequestBuild"
+            ],
+            "requiredText": [
+                "DigitoyEditor.GameCode.CompileOnly",
+                "called_by: DigitoyEditor.AssetWatcher.Tick"
+            ],
+            "top": 10
+        },
+        {
+            "name": "hierarchy reorder",
+            "task": "Move a hierarchy game object before a sibling while preserving its world transform and undo order.",
+            "activeFile": "editor/EditorScene.cs",
+            "expectedSymbols": [
+                "EditorScene.MoveGameObject"
+            ],
+            "top": 10
+        },
+        {
+            "name": "tween frame update",
+            "task": "Advance tween slots each frame and handle delay, yoyo loops, callbacks, and chained tweens.",
+            "activeFile": "engine/managed/Tween.cs",
+            "expectedSymbols": [
+                "TweenPool.Tick"
+            ],
+            "requiredText": [
+                "DigitoyEngine.TweenPool.CaptureFrom",
+                "DigitoyEngine.Easing.Evaluate"
+            ],
+            "top": 10
+        },
+        {
+            "name": "asset deserialization",
+            "task": "Load YAML fields into an existing serializable asset object while ignoring scene references.",
+            "activeFile": "engine/managed/Serialization/ObjectSerializer.cs",
+            "expectedSymbols": [
+                "ObjectSerializer.LoadInto"
+            ],
+            "requiredText": [
+                "DigitoyEngine.ObjectSerializer.FromNode"
+            ],
+            "top": 10
+        },
+        {
+            "name": "GUI event passes",
+            "task": "Run a fresh layout pass before every queued input event and repaint the GUI afterward.",
+            "activeFile": "engine/managed/Gui/GuiHost.cs",
+            "expectedSymbols": [
+                "GuiHost.Frame"
+            ],
+            "requiredText": [
+                "DigitoyEngine.GuiHost.RunPass"
+            ],
+            "top": 10
+        }
+    ]
+}

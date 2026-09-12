@@ -1,0 +1,124 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+using System;
+using System.Runtime.CompilerServices;
+
+namespace UnityEngine
+{
+    public sealed partial class GeometryUtility
+    {
+        public static Plane[] CalculateFrustumPlanes(Camera camera)
+        {
+            Plane[] planes = new Plane[6];
+            CalculateFrustumPlanes(camera, planes.AsSpan());
+            return planes;
+        }
+
+        public static Plane[] CalculateFrustumPlanes(Matrix4x4 worldToProjectionMatrix)
+        {
+            Plane[] planes = new Plane[6];
+            CalculateFrustumPlanes(in worldToProjectionMatrix, planes.AsSpan());
+            return planes;
+        }
+
+        public static Plane[] CalculateFrustumPlanes(in Matrix4x4 worldToProjectionMatrix)
+        {
+            Plane[] planes = new Plane[6];
+            CalculateFrustumPlanes(in worldToProjectionMatrix, planes.AsSpan());
+            return planes;
+        }
+
+        public static void CalculateFrustumPlanes(Camera camera, Span<Plane> planes)
+        {
+            Matrix4x4 worldToProjectionMatrix = camera.projectionMatrix * camera.worldToCameraMatrix;
+            CalculateFrustumPlanes(in worldToProjectionMatrix, planes);
+        }
+
+        public static void CalculateFrustumPlanes(Camera camera, Plane[] planes)
+        {
+            Matrix4x4 worldToProjectionMatrix = camera.projectionMatrix * camera.worldToCameraMatrix;
+            CalculateFrustumPlanes(in worldToProjectionMatrix, planes.AsSpan());
+        }
+
+        public static void CalculateFrustumPlanes(Matrix4x4 worldToProjectionMatrix, Span<Plane> planes)
+        {
+            if (planes == null) throw new ArgumentNullException("planes");
+            if (planes.Length != 6) throw new ArgumentException("Planes array must be of length 6.", "planes");
+            Internal_ExtractPlanes(planes, in worldToProjectionMatrix);
+        }
+
+        public static void CalculateFrustumPlanes(in Matrix4x4 worldToProjectionMatrix, Span<Plane> planes)
+        {
+            if (planes == null) throw new ArgumentNullException("planes");
+            if (planes.Length != 6) throw new ArgumentException("Planes array must be of length 6.", "planes");
+            Internal_ExtractPlanes(planes, in worldToProjectionMatrix);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void CalculateFrustumPlanes(Matrix4x4 worldToProjectionMatrix, Plane[] planes) => CalculateFrustumPlanes(in worldToProjectionMatrix, planes.AsSpan());
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public static void CalculateFrustumPlanes(in Matrix4x4 worldToProjectionMatrix, Plane[] planes) => CalculateFrustumPlanes(in worldToProjectionMatrix, planes.AsSpan());
+
+        public static Bounds CalculateBounds(Vector3[] positions, Matrix4x4 transform)
+        {
+            if (positions == null) throw new ArgumentNullException("positions");
+            if (positions.Length == 0) throw new ArgumentException("Zero-sized array is not allowed.", "positions");
+            return Internal_CalculateBounds(positions, in transform);
+        }
+
+        public static Bounds CalculateBounds(Vector3[] positions, in Matrix4x4 transform)
+        {
+            if (positions == null) throw new ArgumentNullException("positions");
+            if (positions.Length == 0) throw new ArgumentException("Zero-sized array is not allowed.", "positions");
+            return Internal_CalculateBounds(positions, in transform);
+        }
+
+        // Creates a plane for a polygon that's defined by an array of vertices. Works for concave polygons, polygons containing colinear vertices as well as non-planar polygons.
+        // Returns false if it's not possible to determine a plane for the given vertices.
+        // This can happen for certain self-intersecting polygons or when all vertices are all aligned in a line or a single point.
+        public static bool TryCreatePlaneFromPolygon(Vector3[] vertices, out Plane plane)
+        {
+            if (vertices == null || vertices.Length < 3)
+            {
+                plane = new Plane(Vector3.up, 0);
+                return false;
+            }
+            if (vertices.Length == 3)
+            {
+                var v0 = vertices[0];
+                var v1 = vertices[1];
+                var v2 = vertices[2];
+                plane = new Plane(in v0, in v1, in v2);
+                return plane.normal.sqrMagnitude > 0;
+            }
+
+            Vector3 normal = Vector3.zero;
+            int prev_index = vertices.Length - 1;
+            Vector3 prev_vertex = vertices[prev_index];
+            for (int e = 0; e < vertices.Length; e++)
+            {
+                Vector3 curr_vertex = vertices[e];
+                normal.x = normal.x + ((prev_vertex.y - curr_vertex.y) * (prev_vertex.z + curr_vertex.z));
+                normal.y = normal.y + ((prev_vertex.z - curr_vertex.z) * (prev_vertex.x + curr_vertex.x));
+                normal.z = normal.z + ((prev_vertex.x - curr_vertex.x) * (prev_vertex.y + curr_vertex.y));
+
+                prev_vertex = curr_vertex;
+            }
+            normal.Normalize();
+
+            float d = 0;
+            for (int e = 0; e < vertices.Length; e++)
+            {
+                Vector3 curr_vertex = vertices[e];
+                d -= Vector3.Dot(in normal, in curr_vertex);
+            }
+            d /= vertices.Length;
+
+            plane = new Plane(in normal, d);
+            return plane.normal.sqrMagnitude > 0;
+        }
+    }
+}

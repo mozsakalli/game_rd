@@ -1,0 +1,6 @@
+type: CurveKey
+fields:
+  Time: 0
+  Value: 0
+  InTangent: 0
+  OutTangent: 0

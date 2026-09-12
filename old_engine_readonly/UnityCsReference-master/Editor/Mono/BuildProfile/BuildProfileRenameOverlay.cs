@@ -1,0 +1,91 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+using System;
+using UnityEngine;
+using UnityEngine.Bindings;
+using UnityEngine.UIElements;
+
+namespace UnityEditor.Build.Profile
+{
+    /// <summary>
+    /// Handles displaying tooltip view for renaming build profile
+    /// items with text field
+    /// </summary>
+    [VisibleToOtherModules("UnityEditor.BuildProfileModule")]
+    internal class BuildProfileRenameOverlay
+    {
+        static readonly string k_InvalidChars = BuildProfileModuleUtil.GetFilenameInvalidCharactersStr();
+        static readonly string k_ErrorMessage = string.Format(L10n.Tr("A file name can't contain any of the following characters:\t{0}", null), k_InvalidChars);
+        static readonly string k_ErrorMessageLength = string.Format(L10n.Tr("Build profile name is too long (maximum {0} bytes)", null), BuildProfileModuleUtil.k_MaxAssetFileNameLengthWithoutExtension);
+
+        TextField m_TextField;
+        Rect? m_ErrorRect = null;
+
+        Rect errorRect
+        {
+            get
+            {
+                if (m_ErrorRect == null)
+                    m_ErrorRect = GUIUtility.GUIToScreenRect(m_TextField.worldBound);
+
+                return m_ErrorRect.Value;
+            }
+        }
+
+        public BuildProfileRenameOverlay(TextField textField)
+        {
+            m_TextField = textField;
+        }
+
+        public void OnNameChanged(string previousValue, string newValue)
+        {
+            // It's fine to call show and close tooltip on multiple frames
+            // since it only opens if not opened before. Also it only closes if
+            // not closed before
+            if (HasInvalidCharacterIndex(newValue))
+            {
+                // We can't use the text field's tooltip property since it's displayed
+                // automatically on hover. So we use the TooltipView to display the
+                // error message (same way as the RenameOverlay used for assets)
+                TooltipView.Show(k_ErrorMessage, errorRect);
+
+                // The cursor should be kept in place when adding an invalid character
+                // cursorIndex is clamped to the current text length, so read it before reverting,
+                // while the length still includes the invalid char, that keeps an end-of-string
+                // cursorIndex from being clamped. The '- 1' then undoes the inserted char's advance for
+                // both end-of-string and middle edits (middle edits are never clamped either way).
+                var targetIndex = Mathf.Max(m_TextField.cursorIndex - 1, 0);
+                m_TextField.SetValueWithoutNotify(previousValue);
+                m_TextField.cursorIndex = targetIndex;
+                m_TextField.selectIndex = targetIndex;
+            }
+            else if (System.Text.Encoding.UTF8.GetByteCount(newValue) > BuildProfileModuleUtil.k_MaxAssetFileNameLengthWithoutExtension)
+            {
+                TooltipView.Show(k_ErrorMessageLength, errorRect);
+
+                // The cursor should be kept in place when adding too much
+                var targetIndex = Mathf.Max(m_TextField.cursorIndex - 1, 0);
+                m_TextField.SetValueWithoutNotify(previousValue);
+                m_TextField.cursorIndex = targetIndex;
+                m_TextField.selectIndex = targetIndex;
+            }
+            else
+            {
+                TooltipView.ForceClose();
+            }
+        }
+
+        public void OnRenameEnd()
+        {
+            // Make sure tooltip is closed
+            TooltipView.ForceClose();
+        }
+
+        bool HasInvalidCharacterIndex(string value)
+        {
+            return value.IndexOfAny(k_InvalidChars.ToCharArray()) >= 0;
+        }
+    }
+}

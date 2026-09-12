@@ -1,0 +1,311 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+#pragma warning disable UAL0015,UAL0018,UAL0019,UAL0020,UAL0021 // AutoStaticsCleanup usage analysis: Packman not yet converted
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using UnityEngine.UIElements;
+
+namespace UnityEditor.PackageManager.UI.Internal
+{
+    internal class PackageDetailsVersionHistoryItem : VisualElement
+    {
+        public IPackageVersion version => m_Version;
+        public bool expanded => versionHistoryItemToggle.value;
+        public PackageAction action { get; }
+
+        private IPackageVersion m_Version;
+        private readonly IPackageToolBarButton m_Button;
+        private readonly IPackageDatabase m_PackageDatabase;
+        private readonly IPackageOperationDispatcher m_OperationDispatcher;
+        private readonly IUpmCache m_UpmCache;
+        private readonly IPackageLinkFactory m_PackageLinkFactory;
+
+        private PackageDynamicTagLabel m_VersionHistoryItemTag;
+
+        public event Action<bool> onToggleChanged = delegate {};
+
+        public PackageDetailsVersionHistoryItem(IResourceLoader resourceLoader,
+            IPackageDatabase packageDatabase,
+            IPackageOperationDispatcher operationDispatcher,
+            IUpmCache upmCache,
+            IApplicationProxy applicationProxy,
+            IPackageLinkFactory packageLinkFactory,
+            IPackageVersion version,
+            bool expanded,
+            PackageAction action)
+        {
+            m_Version = version;
+            m_PackageDatabase = packageDatabase;
+            m_OperationDispatcher = operationDispatcher;
+            m_UpmCache = upmCache;
+            m_PackageLinkFactory = packageLinkFactory;
+
+            var root = resourceLoader.GetTemplate("DetailsTabs/PackageDetailsVersionHistoryItem.uxml");
+            Add(root);
+            m_Cache = new VisualElementCache(root);
+
+            m_VersionHistoryItemTag = new PackageDynamicTagLabel(true);
+            versionHistoryItemToggleLeftContainer.Insert(0, m_VersionHistoryItemTag);
+
+            var versionHistoryChangelogLink = m_PackageLinkFactory.CreateVersionHistoryChangelogLink(version);
+            if (versionHistoryChangelogLink?.isVisible == true)
+                versionHistoryItemChangeLogContainer.Add(new PackageLinkButton(applicationProxy, versionHistoryChangelogLink));
+
+            SetExpanded(expanded);
+            versionHistoryItemToggle.RegisterValueChangedCallback(evt =>
+            {
+                SetExpanded(evt.newValue);
+                onToggleChanged?.Invoke(evt.newValue);
+            });
+
+            this.action = action;
+            if (action != null)
+            {
+                m_Button = new PackageToolBarSimpleButton(action);
+                versionHistoryItemToggleRightContainer.Add(m_Button.element);
+            }
+            Refresh();
+        }
+
+        public void StopSpinner()
+        {
+            if (m_Version?.isFullyFetched == false)
+                versionHistoryItemToggleSpinner?.Stop();
+        }
+
+        private void Refresh()
+        {
+            var isVisible = m_Version != null;
+            UIUtils.SetElementDisplay(this, isVisible);
+            if (!isVisible)
+                return;
+
+            RefreshHeader();
+            RefreshContent();
+            m_Button?.Refresh(m_Version);
+        }
+
+        private void RefreshHeader()
+        {
+            versionHistoryItemToggle.text = m_Version?.versionString;
+            m_VersionHistoryItemTag.Refresh(m_Version);
+
+            RefreshState();
+        }
+
+        private void RefreshState()
+        {
+            versionHistoryItemState.text = string.Empty;
+            versionHistoryItemState.tooltip = string.Empty;
+
+            if (m_Version == null)
+                return;
+
+            var primary = m_Version.package.versions.primary;
+            if (m_Version == primary && m_Version.isInstalled)
+                versionHistoryItemState.text = m_Version.isDirectDependency ? L10n.Tr("Installed", null) : L10n.Tr("Installed as dependency", null);
+            else if (m_Version != primary && primary.versionInManifest == m_Version.versionString)
+                versionHistoryItemState.text = L10n.Tr("Requested", null);
+            else if (m_Version == m_Version.package.versions.recommended)
+            {
+                versionHistoryItemState.text = L10n.Tr("Recommended", null);
+                versionHistoryItemState.tooltip = L10n.Tr("Recommended for this Unity release", null);
+            }
+            else if (m_Version == m_Version.package.versions.latest)
+                versionHistoryItemState.text = L10n.Tr("Latest", null);
+        }
+
+        private void RefreshContent()
+        {
+            if (!versionHistoryItemToggle.value)
+                return;
+
+            var fullyFetched = m_Version.isFullyFetched;
+            UIUtils.SetElementDisplay(versionHistoryItemContainer, fullyFetched);
+            if (!fullyFetched)
+            {
+                // If version is not fully fetched, we need to fetch extra information, meanwhile we need to start a spinner and disable the UI
+                // We don't need to stop spinner since FetchExtraInfo raises a PackageVersionUpdated event,
+                // and PackageDetailsVersionTabs will be refresh because PackageDetails is refreshed.
+                SetEnabled(false);
+                versionHistoryItemToggleSpinner.Start();
+                m_OperationDispatcher.FetchExtraInfo(m_Version);
+                return;
+            }
+
+            RefreshDeprecatedVersionErrorInfoBox();
+            RefreshReleaseDate();
+            RefreshChangeLog();
+            RefreshDependencies();
+            RefreshMetaDataChanges();
+        }
+
+        private void RefreshDeprecatedVersionErrorInfoBox()
+        {
+            var showVersionDeprecation = m_Version.HasTag(PackageTag.Deprecated);
+            UIUtils.SetElementDisplay(deprecatedVersionErrorInfoBox, showVersionDeprecation);
+            if (showVersionDeprecation)
+                deprecatedVersionErrorInfoBox.text = L10n.Tr("This version is deprecated. ", null) + L10n.Tr(m_Version.deprecationMessage, null);
+        }
+
+        private void RefreshReleaseDate()
+        {
+            var releasedDate = m_Version.publishedDate?.ToString("MMMM dd, yyyy", CultureInfo.CreateSpecificCulture("en-US")) ?? string.Empty;
+            UIUtils.SetElementDisplay(versionHistoryItemReleaseContainer, !string.IsNullOrEmpty(releasedDate));
+            versionHistoryItemReleaseDate.text = releasedDate;
+        }
+
+        private void RefreshChangeLog()
+        {
+            UIUtils.SetElementDisplay(versionHistoryItemChangeLogTitle, false);
+            UIUtils.SetElementDisplay(versionHistoryItemChangeLogLabel, false);
+
+            var packageInfo = m_Version != null ? m_UpmCache.GetBestMatchPackageInfo(m_Version.name, m_Version.isInstalled, m_Version.versionString) : null;
+            var upmReserved = m_UpmCache.ParseUpmReserved(packageInfo);
+            var changeLog = upmReserved?.GetString("changelog");
+            var hasChangeLogInInfo = !string.IsNullOrEmpty(changeLog);
+            if (hasChangeLogInInfo)
+            {
+                versionHistoryItemChangeLogLabel.text = changeLog;
+                UIUtils.SetElementDisplay(versionHistoryItemChangeLogTitle, true);
+                UIUtils.SetElementDisplay(versionHistoryItemChangeLogLabel, true);
+                UIUtils.SetElementDisplay(versionHistoryItemChangeLogContainer, true);
+            }
+        }
+
+        private void RefreshDependencies()
+        {
+            var primary = m_Version?.package?.versions?.primary;
+            if (!HasDependenciesDifference(primary, m_Version))
+            {
+                UIUtils.SetElementDisplay(versionHistoryItemDependenciesContainer, false);
+                return;
+            }
+
+            UIUtils.SetElementDisplay(versionHistoryItemDependenciesContainer, true);
+            var hasDependencies = m_Version?.dependencies?.Length > 0;
+            if (!hasDependencies)
+            {
+                versionHistoryItemDependenciesLabel.text = L10n.Tr("No dependencies", null);
+                UIUtils.SetElementDisplay(versionHistoryItemDependenciesList, false);
+            }
+            else
+            {
+                versionHistoryItemDependenciesLabel.text = $"<b>{L10n.Tr("Is using", null)}</b>";
+                versionHistoryItemDependenciesNames.Clear();
+                versionHistoryItemDependenciesVersions.Clear();
+                versionHistoryItemDependenciesStatuses.Clear();
+
+                foreach (var dependency in m_Version.dependencies)
+                {
+                    m_PackageDatabase.GetPackageAndVersion(dependency, out var package, out var packageVersion);
+
+                    var nameText = PackageDetailsDependenciesTab.GetNameText(dependency, package, packageVersion);
+                    var versionText = PackageDetailsDependenciesTab.GetVersionText(dependency, packageVersion);
+                    if (string.IsNullOrEmpty(versionText))
+                        versionText = dependency.version;
+                    var statusText = PackageDetailsDependenciesTab.GetStatusText(dependency, package?.versions.installed);
+
+                    versionHistoryItemDependenciesNames.Add(new SelectableLabel { text = nameText });
+                    versionHistoryItemDependenciesVersions.Add(new SelectableLabel { text = versionText });
+                    versionHistoryItemDependenciesStatuses.Add(new SelectableLabel { text = statusText });
+                }
+
+                UIUtils.SetElementDisplay(versionHistoryItemDependenciesList, true);
+            }
+        }
+
+        private static bool HasDependenciesDifference(IPackageVersion left, IPackageVersion right)
+        {
+            if (left == null || right == null)
+                return false;
+
+            var leftDependencies = left.dependencies ?? Array.Empty<DependencyInfo>();
+            var rightDependencies = right.dependencies ?? Array.Empty<DependencyInfo>();
+            return !leftDependencies.IsSequenceEqual(rightDependencies);
+        }
+
+        private void RefreshMetaDataChanges()
+        {
+            var primary = m_Version?.package?.versions?.primary;
+            if (primary == null || m_Version == primary)
+            {
+                UIUtils.SetElementDisplay(versionHistoryItemMetaDataContainer, false);
+                return;
+            }
+
+            var hasDisplayNameChange = string.Compare(m_Version.displayName, primary.displayName, StringComparison.InvariantCultureIgnoreCase) != 0;
+            var hasAuthorChange = string.Compare(m_Version.author?.name, primary.author?.name, StringComparison.InvariantCultureIgnoreCase) != 0;
+            var hasDescriptionChange = string.Compare(m_Version.description, primary.description, StringComparison.InvariantCultureIgnoreCase) != 0;
+
+            UIUtils.SetElementDisplay(versionHistoryItemMetaDataContainer, hasDisplayNameChange || hasDescriptionChange || hasAuthorChange);
+            if (hasDisplayNameChange || hasDescriptionChange || hasAuthorChange)
+            {
+                UIUtils.SetElementDisplay(versionHistoryItemMetaDataTitle, hasDisplayNameChange);
+                versionHistoryItemMetaDataTitle.text = $"<b>{L10n.Tr("Title", null)}:</b> {m_Version.displayName}";
+
+                UIUtils.SetElementDisplay(versionHistoryItemMetaDataAuthor, hasAuthorChange);
+                versionHistoryItemMetaDataAuthor.text = $"<b>{L10n.Tr("Author", null)}:</b> {m_Version.author?.name}";
+
+                UIUtils.SetElementDisplay(versionHistoryItemMetaDataDescription, hasDescriptionChange);
+                versionHistoryItemMetaDataDescription.text = $"<b>{L10n.Tr("Description", null)}:</b>\n{m_Version.description}";
+            }
+        }
+
+        private void SetExpanded(bool expanded)
+        {
+            UIUtils.SetElementDisplay(versionHistoryItemContainer, expanded);
+            if (expanded)
+                RefreshContent();
+
+            if (versionHistoryItemToggle.value != expanded)
+                versionHistoryItemToggle.SetValueWithoutNotify(expanded);
+        }
+
+        private class DependencyInfoComparer : IEqualityComparer<DependencyInfo>
+        {
+            public bool Equals(DependencyInfo leftDependencyInfo, DependencyInfo rightDependencyInfo)
+            {
+                return string.Equals(leftDependencyInfo.name, rightDependencyInfo.name, StringComparison.InvariantCultureIgnoreCase) &&
+                       string.Equals(leftDependencyInfo.version, rightDependencyInfo.version, StringComparison.InvariantCultureIgnoreCase);
+            }
+
+            public int GetHashCode(DependencyInfo dependencyInfo)
+            {
+                var hashCode = new HashCode();
+                hashCode.Add(dependencyInfo.name, StringComparer.InvariantCultureIgnoreCase);
+                hashCode.Add(dependencyInfo.version, StringComparer.InvariantCultureIgnoreCase);
+                return hashCode.ToHashCode();
+            }
+        }
+
+        private readonly VisualElementCache m_Cache;
+
+        private Toggle versionHistoryItemToggle => m_Cache.Get<Toggle>("versionHistoryItemToggle");
+        private VisualElement versionHistoryItemToggleLeftContainer => m_Cache.Get<VisualElement>("versionHistoryItemToggleLeftContainer");
+        private SelectableLabel versionHistoryItemState => m_Cache.Get<SelectableLabel>("versionHistoryItemState");
+        private VisualElement versionHistoryItemToggleRightContainer => m_Cache.Get<VisualElement>("versionHistoryItemToggleRightContainer");
+        private HelpBox deprecatedVersionErrorInfoBox => m_Cache.Get<HelpBox>("deprecatedVersionErrorInfoBox");
+        private VisualElement versionHistoryItemContainer => m_Cache.Get<VisualElement>("versionHistoryItemContainer");
+        private VisualElement versionHistoryItemReleaseContainer => m_Cache.Get<VisualElement>("versionHistoryItemReleaseContainer");
+        private SelectableLabel versionHistoryItemReleaseDate => m_Cache.Get<SelectableLabel>("versionHistoryItemReleaseDate");
+        private VisualElement versionHistoryItemChangeLogContainer => m_Cache.Get<VisualElement>("versionHistoryItemChangeLogContainer");
+        private Label versionHistoryItemChangeLogTitle => m_Cache.Get<Label>("versionHistoryItemChangeLogTitle");
+        private SelectableLabel versionHistoryItemChangeLogLabel => m_Cache.Get<SelectableLabel>("versionHistoryItemChangeLogLabel");
+        private VisualElement versionHistoryItemDependenciesContainer => m_Cache.Get<VisualElement>("versionHistoryItemDependenciesContainer");
+        private Label versionHistoryItemDependenciesLabel => m_Cache.Get<Label>("versionHistoryItemDependenciesLabel");
+        private VisualElement versionHistoryItemDependenciesList => m_Cache.Get<VisualElement>("versionHistoryItemDependenciesList");
+        private VisualElement versionHistoryItemDependenciesNames => m_Cache.Get<VisualElement>("versionHistoryItemDependenciesNames");
+        private VisualElement versionHistoryItemDependenciesVersions => m_Cache.Get<VisualElement>("versionHistoryItemDependenciesVersions");
+        private VisualElement versionHistoryItemDependenciesStatuses => m_Cache.Get<VisualElement>("versionHistoryItemDependenciesStatuses");
+        private VisualElement versionHistoryItemMetaDataContainer => m_Cache.Get<VisualElement>("versionHistoryItemMetaDataContainer");
+        private SelectableLabel versionHistoryItemMetaDataTitle => m_Cache.Get<SelectableLabel>("versionHistoryItemMetaDataTitle");
+        private SelectableLabel versionHistoryItemMetaDataAuthor => m_Cache.Get<SelectableLabel>("versionHistoryItemMetaDataAuthor");
+        private SelectableLabel versionHistoryItemMetaDataDescription => m_Cache.Get<SelectableLabel>("versionHistoryItemMetaDataDescription");
+        private LoadingSpinner versionHistoryItemToggleSpinner => m_Cache.Get<LoadingSpinner>("versionHistoryItemToggleSpinner");
+    }
+}
+#pragma warning restore UAL0015,UAL0018,UAL0019,UAL0020,UAL0021

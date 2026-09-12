@@ -1,0 +1,131 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+using System;
+using System.Collections.Generic;
+using Unity.Scripting.LifecycleManagement;
+using UnityEngine;
+using UnityEngine.Bindings;
+
+namespace UnityEditor
+{
+    internal delegate IWindowBackend GetDefaultWindowBackendFunction(IWindowModel model);
+
+    internal interface IWindowModel
+    {
+        Vector2 size { get; }
+
+        EventInterests eventInterests { get; }
+
+        Action onGUIHandler { get; }
+
+        IWindowBackend windowBackend { get; set; }
+
+        bool resetPanelRenderingOnAssetChange { get; }
+
+    }
+
+    [VisibleToOtherModules("UnityEditor.UIBuilderModule", "UnityEditor.UIToolkitAuthoringModule")]
+    internal interface IEditorWindowModel : IWindowModel
+    {
+        EditorWindow window { get; }
+
+        RectOffset viewMargins { get; }
+        bool notificationVisible { get; }
+
+        string rootViewClassName { get; }
+
+        Action onSplitterGUIHandler { get; set; }
+
+        IEditorWindowBackend editorWindowBackend { get; set; }
+    }
+
+    internal interface IWindowBackend
+    {
+        void OnCreate(IWindowModel model);
+        void OnDestroy(IWindowModel model);
+
+        bool GetTooltip(Vector2 windowMouseCoordinates, out string tooltip, out Rect windowRectPosition);
+
+        object visualTree { get; }
+
+        void SizeChanged();
+        void OnBackingScaleFactorChanged();
+        void EventInterestsChanged();
+        void ResetPanelRenderingOnAssetChangeChanged();
+        bool ProcessEvent(Event e);
+    }
+
+    internal interface IEditorWindowBackend : IWindowBackend
+    {
+        void NotificationVisibilityChanged();
+        void Focused();
+        void Blurred();
+        void OnRegisterWindow();
+        void OnUnregisterWindow();
+        void OnDisplayWindowMenu(GenericMenu menu);
+        void ViewMarginsChanged();
+        event Action overlayGUIHandler;
+    }
+
+    internal interface IEditorWindowBackendSystem
+    {
+        IWindowBackend GetBackendForWindow(IWindowModel model);
+        bool ValidateBackendCompatibility(IWindowBackend backend, IWindowModel model, ref bool isCompatible);
+    }
+    internal static partial class EditorWindowBackendManager
+    {
+        [NoAutoStaticsCleanup] // one-time infrastructure factory; must persist across reload or window creation breaks
+        internal static GetDefaultWindowBackendFunction defaultWindowBackend { get; set; }
+
+        [AutoStaticsCleanupOnCodeReload]
+        private static List<IEditorWindowBackendSystem> sRegisteredSystems = new List<IEditorWindowBackendSystem>();
+
+        static internal void RegisterWindowSystem(IEditorWindowBackendSystem system)
+        {
+            sRegisteredSystems.Add(system);
+        }
+
+        static internal void UnregisterWindowSystem(IEditorWindowBackendSystem system)
+        {
+            sRegisteredSystems.Remove(system);
+        }
+
+        internal static bool IsBackendCompatible(IWindowBackend backend, IWindowModel model)
+        {
+            if (backend == null)
+            {
+                return false;
+            }
+
+            bool isCompatible = false;
+
+            //Last registered system has higherpriority
+            for (int i = sRegisteredSystems.Count - 1; i >= 0; --i)
+            {
+                if (sRegisteredSystems[i].ValidateBackendCompatibility(backend, model, ref isCompatible))
+                {
+                    return isCompatible;
+                }
+            }
+
+            return true;
+        }
+
+        internal static IWindowBackend GetBackend(IWindowModel model)
+        {
+            //Last registered system has higherpriority
+            for (int i = sRegisteredSystems.Count - 1; i >= 0; --i)
+            {
+                var backend = sRegisteredSystems[i].GetBackendForWindow(model);
+                if (backend != null)
+                {
+                    return backend;
+                }
+            }
+
+            return defaultWindowBackend?.Invoke(model);
+        }
+    }
+}

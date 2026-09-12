@@ -1,0 +1,49 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+#pragma warning disable UAL0015,UAL0018,UAL0019,UAL0020,UAL0021 // AutoStaticsCleanup usage analysis: GraphToolkit not yet converted
+using System;
+using System.Reflection;
+
+namespace Unity.GraphToolkit.Editor.Implementation
+{
+    class GraphTemplateImp : GraphTemplate
+    {
+        /// <inheritdoc />
+        public override Type GraphModelType { get; }
+
+        public override string NewAssetName { get; }
+
+        public override Type GraphType { get; }
+
+        public GraphTemplateImp(Type graphType, string newAssetName = "New Graph")
+            : base(newAssetName, GetGraphExtension(graphType))
+        {
+            GraphType = graphType;
+            GraphModelType = PublicGraphFactory.GetGraphModelImpType(graphType);
+            NewAssetName = newAssetName;
+        }
+
+        static string GetGraphExtension(Type graphType)
+        {
+            return graphType.GetCustomAttribute<GraphAttribute>(false)?.Extension;
+        }
+    }
+    class SubgraphTemplateImp : GraphTemplateImp
+    {
+        public SubgraphTemplateImp(Type graphType, string graphTypeName = "Graph")
+            : base(graphType, graphTypeName) { }
+
+        internal override void InitLocalSubgraphsPreOnEnable(GraphModel graphModel)
+        {
+            base.InitLocalSubgraphsPreOnEnable(graphModel);
+            var graphModelImp = graphModel as GraphModelImp;
+            if (graphModelImp != null)
+            {
+                graphModelImp.InstantiateGraph(GraphType);
+            }
+        }
+    }
+}
+#pragma warning restore UAL0015,UAL0018,UAL0019,UAL0020,UAL0021

@@ -1,0 +1,350 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+using UnityEngine;
+using Unity.Scripting.LifecycleManagement;
+using UnityEditor;
+using System.Collections.Generic;
+using System;
+using System.Globalization;
+using System.Linq;
+using UnityEngine.Bindings;
+
+namespace UnityEditor
+{
+    [VisibleToOtherModules("UnityEditor.UIToolkitAuthoringModule")]
+    internal interface IPrefType
+    {
+        string ToUniqueString();
+        void FromUniqueString(string sstr);
+        void Load();
+    }
+
+    [VisibleToOtherModules("UnityEditor.UIToolkitAuthoringModule")]
+    internal class PrefColor : IPrefType
+    {
+        string m_Name;
+        Color m_Color;
+        Color m_DefaultColor;
+
+        bool m_SeparateColors;
+        Color m_OptionalDarkColor;
+        Color m_OptionalDarkDefaultColor;
+
+        bool m_Loaded;
+
+        public PrefColor()
+        {
+            m_Loaded = true;
+        }
+
+        public PrefColor(string name, float defaultRed, float defaultGreen, float defaultBlue, float defaultAlpha)
+        {
+            this.m_Name = name;
+            this.m_Color = this.m_DefaultColor = new Color(defaultRed, defaultGreen, defaultBlue, defaultAlpha);
+            this.m_SeparateColors = false;
+            this.m_OptionalDarkColor = this.m_OptionalDarkDefaultColor = Color.clear;
+            PrefSettings.Add(this);
+            m_Loaded = false;
+        }
+
+        public PrefColor(string name, float defaultRed, float defaultGreen, float defaultBlue, float defaultAlpha, float defaultRed2, float defaultGreen2, float defaultBlue2, float defaultAlpha2)
+        {
+            this.m_Name = name;
+            this.m_Color = this.m_DefaultColor = new Color(defaultRed, defaultGreen, defaultBlue, defaultAlpha);
+            this.m_SeparateColors = true;
+            this.m_OptionalDarkColor = this.m_OptionalDarkDefaultColor = new Color(defaultRed2, defaultGreen2, defaultBlue2, defaultAlpha2);
+            PrefSettings.Add(this);
+            m_Loaded = false;
+        }
+
+        public void Load()
+        {
+            if (m_Loaded)
+                return;
+
+            m_Loaded = true;
+
+            PrefColor pk = PrefSettings.Get(m_Name, this);
+            this.m_Name = pk.m_Name;
+            this.m_Color = pk.m_Color;
+            this.m_SeparateColors = pk.m_SeparateColors;
+            this.m_OptionalDarkColor = pk.m_OptionalDarkColor;
+        }
+
+        public Color Color
+        {
+            get
+            {
+                Load();
+
+                if (m_SeparateColors && EditorGUIUtility.isProSkin)
+                    return m_OptionalDarkColor;
+
+                return m_Color;
+            }
+            set
+            {
+                Load();
+
+                if (m_SeparateColors && EditorGUIUtility.isProSkin)
+                    m_OptionalDarkColor = value;
+                else
+                    m_Color = value;
+            }
+        }
+        public string Name { get { Load(); return m_Name; } }
+
+        public static implicit operator Color(PrefColor pcolor) { return pcolor.Color; }
+
+        public string ToUniqueString()
+        {
+            Load();
+
+            if (m_SeparateColors)
+                return string.Format("{0};{1};{2};{3};{4};{5};{6};{7};{8}", m_Name, m_Color.r, m_Color.g, m_Color.b, m_Color.a, m_OptionalDarkColor.r, m_OptionalDarkColor.g, m_OptionalDarkColor.b, m_OptionalDarkColor.a);
+
+            return string.Format("{0};{1};{2};{3};{4}", m_Name, m_Color.r, m_Color.g, m_Color.b, m_Color.a);
+        }
+
+        public void FromUniqueString(string s)
+        {
+            Load();
+
+            string[] split = s.Split(';');
+
+            // PrefColor with a single color should have 5 substrings.
+            // PrefColor with separate colors should have 9 substrings.
+            if (split.Length != 5 && split.Length != 9)
+            {
+                Debug.LogError("Parsing PrefColor failed");
+                return;
+            }
+
+            m_Name = split[0];
+            split[1] = split[1].Replace(',', '.');
+            split[2] = split[2].Replace(',', '.');
+            split[3] = split[3].Replace(',', '.');
+            split[4] = split[4].Replace(',', '.');
+            float r, g, b, a;
+            bool success = float.TryParse(split[1], NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture.NumberFormat, out r);
+            success &= float.TryParse(split[2], NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture.NumberFormat, out g);
+            success &= float.TryParse(split[3], NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture.NumberFormat, out b);
+            success &= float.TryParse(split[4], NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture.NumberFormat, out a);
+
+            if (success)
+            {
+                m_Color = new Color(r, g, b, a);
+            }
+            else
+            {
+                Debug.LogError("Parsing PrefColor failed");
+            }
+
+            if (split.Length == 9)
+            {
+                m_SeparateColors = true;
+
+                split[5] = split[5].Replace(',', '.');
+                split[6] = split[6].Replace(',', '.');
+                split[7] = split[7].Replace(',', '.');
+                split[8] = split[8].Replace(',', '.');
+                success = float.TryParse(split[5], NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture.NumberFormat, out r);
+                success &= float.TryParse(split[6], NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture.NumberFormat, out g);
+                success &= float.TryParse(split[7], NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture.NumberFormat, out b);
+                success &= float.TryParse(split[8], NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture.NumberFormat, out a);
+
+                if (success)
+                {
+                    m_OptionalDarkColor = new Color(r, g, b, a);
+                }
+                else
+                {
+                    Debug.LogError("Parsing PrefColor failed");
+                }
+            }
+            else
+            {
+                m_SeparateColors = false;
+                m_OptionalDarkColor = Color.clear;
+            }
+        }
+
+        internal void ResetToDefault()
+        {
+            Load();
+            m_Color = m_DefaultColor;
+            m_OptionalDarkColor = m_OptionalDarkDefaultColor;
+        }
+    }
+
+    [VisibleToOtherModules("UnityEditor.UIElementsModule", "UnityEditor.UIToolkitAuthoringModule")]
+    internal partial class PrefSettings
+    {
+        [NoAutoStaticsCleanup] // editor-preference registry of internal IPrefType impls (no user code); persists across reload
+        static List<IPrefType> m_AddedPrefs = new List<IPrefType>();
+        [NoAutoStaticsCleanup] // registered editor preferences keyed by name (internal pref types only); persists across reload
+        static SortedList<string, object> m_Prefs = new SortedList<string, object>();
+        [AutoStaticsCleanupOnCodeReload]
+        public static Action<string, Type> settingChanged;
+        [AutoStaticsCleanupOnCodeReload]
+        public static Action settingsReverted;
+
+        [VisibleToOtherModules("UnityEditor.UIElementsModule", "UnityEditor.UIToolkitAuthoringModule")]
+        static internal void Add(IPrefType value)
+        {
+            m_AddedPrefs.Add(value);
+        }
+
+        [VisibleToOtherModules("UnityEditor.UIElementsModule", "UnityEditor.UIToolkitAuthoringModule")]
+        static internal T Get<T>(string name, T defaultValue)
+            where T : IPrefType, new()
+        {
+            Load();
+
+            if (defaultValue == null)
+                throw new System.ArgumentException("default can not be null", "defaultValue");
+            if (m_Prefs.ContainsKey(name))
+                return (T)m_Prefs[name];
+            else
+            {
+                string sstr = EditorPrefs.GetString(name, "");
+                if (sstr == "")
+                {
+                    Set(name, defaultValue);
+                    return defaultValue;
+                }
+                else
+                {
+                    defaultValue.FromUniqueString(sstr);
+                    Set(name, defaultValue);
+                    return defaultValue;
+                }
+            }
+        }
+
+        [VisibleToOtherModules("UnityEditor.UIElementsModule", "UnityEditor.UIToolkitAuthoringModule")]
+        static internal void Set<T>(string name, T value)
+            where T : IPrefType
+        {
+            Load();
+
+            EditorPrefs.SetString(name, value.ToUniqueString());
+            m_Prefs[name] = value;
+            settingChanged?.Invoke(name, typeof(T));
+        }
+
+        [VisibleToOtherModules("UnityEditor.UIElementsModule", "UnityEditor.UIToolkitAuthoringModule")]
+        static internal IEnumerable<KeyValuePair<string, T>> Prefs<T>()
+            where T : IPrefType
+        {
+            Load();
+
+            foreach (KeyValuePair<string, object> kvp in m_Prefs)
+            {
+                if (kvp.Value is T)
+                    yield return new KeyValuePair<string, T>(kvp.Key, (T)kvp.Value);
+            }
+        }
+
+        static internal void RevertAll<T>()
+        {
+            foreach (KeyValuePair<string, PrefColor> kvp in Prefs<PrefColor>())
+            {
+                kvp.Value.ResetToDefault();
+                EditorPrefs.SetString(kvp.Value.Name, kvp.Value.ToUniqueString());
+                settingChanged?.Invoke(kvp.Key, typeof(T));
+            }
+            settingsReverted?.Invoke();
+        }
+
+        static void Load()
+        {
+            if (m_AddedPrefs.Count == 0)
+                return;
+
+            List<IPrefType> loadPrefs = new List<IPrefType>(m_AddedPrefs);
+            m_AddedPrefs.Clear();
+
+            foreach (IPrefType pref in loadPrefs)
+                pref.Load();
+        }
+    }
+
+    internal abstract class SavedValue<T> where T : IEquatable<T>
+    {
+        protected T m_Value;
+        protected string m_Name;
+        bool m_Loaded;
+
+        public event Action valueChanged;
+
+        protected SavedValue(string name, T defaultValue)
+        {
+            m_Name = name;
+            m_Value = defaultValue;
+        }
+
+        protected abstract T ReadFromPrefs(T defaultValue);
+        protected abstract void WriteToPrefs(T value);
+
+        private void Load()
+        {
+            if (m_Loaded)
+                return;
+
+            m_Loaded = true;
+            m_Value = ReadFromPrefs(m_Value);
+        }
+
+        public T value
+        {
+            get { Load(); return m_Value; }
+            set
+            {
+                Load();
+                if (m_Value.Equals(value))
+                    return;
+                m_Value = value;
+                WriteToPrefs(value);
+                valueChanged?.Invoke();
+            }
+        }
+
+        // Re-reads the pref store and fires valueChanged if the value has changed since last load.
+        // A no-op if the value has never been read (the next access will pick up the current store value).
+        public void Refresh()
+        {
+            if (!m_Loaded) return;
+            var fresh = ReadFromPrefs(m_Value);
+            if (fresh.Equals(m_Value)) return;
+            m_Value = fresh;
+            valueChanged?.Invoke();
+        }
+    }
+
+    internal class SavedInt : SavedValue<int>
+    {
+        public SavedInt(string name, int value) : base(name, value) { }
+        protected override int ReadFromPrefs(int defaultValue) => EditorPrefs.GetInt(m_Name, defaultValue);
+        protected override void WriteToPrefs(int value) => EditorPrefs.SetInt(m_Name, value);
+        public static implicit operator int(SavedInt s) => s.value;
+    }
+
+    internal class SavedFloat : SavedValue<float>
+    {
+        public SavedFloat(string name, float value) : base(name, value) { }
+        protected override float ReadFromPrefs(float defaultValue) => EditorPrefs.GetFloat(m_Name, defaultValue);
+        protected override void WriteToPrefs(float value) => EditorPrefs.SetFloat(m_Name, value);
+        public static implicit operator float(SavedFloat s) => s.value;
+    }
+
+    internal class SavedBool : SavedValue<bool>
+    {
+        public SavedBool(string name, bool value) : base(name, value) { }
+        protected override bool ReadFromPrefs(bool defaultValue) => EditorPrefs.GetBool(m_Name, defaultValue);
+        protected override void WriteToPrefs(bool value) => EditorPrefs.SetBool(m_Name, value);
+        public static implicit operator bool(SavedBool s) => s.value;
+    }
+}

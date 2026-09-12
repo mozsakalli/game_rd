@@ -1,0 +1,10 @@
+[gamecode] yuklendi: Sandbox.Game (4 script)
+[lifecycle] 18 PASS, 0 FAIL
+[serialization] 14 PASS, 0 FAIL
+[layout] 15 PASS, 0 FAIL
+[info] atlas packed: MainAtlas.asset (1 sprites, 256x256)
+[info] [rpc] dinleniyor: localhost:5157
+[info] [import] Fonts/arial.ttf -> 1 artifact (FontImporter, 83ms)
+[info] [pak] 14 asset (2 dtex) -> C:\Work\digitoygames\game_rd\Projects\Sandbox\Build\game.pak (516.3 KB, acik 6177.9 KB, %8.4)
+[info] [pak] verify OK: 14 bayt-esit, Textures/orb.png defilter pikselleri kaynakla BIREBIR (64x64)
+[info] [import] Fonts/arial.ttf -> 1 artifact (FontImporter, 88ms)

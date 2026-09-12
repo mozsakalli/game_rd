@@ -1,0 +1,66 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+using System;
+using UnityEngine.Bindings;
+using UnityEngine.Scripting;
+using System.Runtime.InteropServices;
+
+namespace UnityEditor.VersionControl
+{
+    [NativeHeader("Editor/Src/VersionControl/VCMessage.h")]
+    [NativeHeader("Editor/Src/VersionControl/VC_bindings.h")]
+    [UsedByNativeCode]
+    [StructLayout(LayoutKind.Sequential)]
+    public partial class Message
+    {
+        [NativeHeader("Editor/Src/VersionControl/VCMessage.h")]
+        public enum Severity
+        {
+            Data = 0,
+            Verbose = 1,
+            Info = 2,
+            Warning = 3,
+            Error = 4
+        }
+
+        // The bindings generator will set the instance pointer in this field
+        IntPtr m_Self;
+
+        internal Message() {}
+
+        private Message(IntPtr self)
+        {
+            m_Self = self;
+        }
+
+#pragma warning disable UA5000 // The Avoid Finalizer Analyzer produces compile errors for any new finalizers. This pre-existing finalizer declaration has been suppressed, but should be rewritten if possible.
+        ~Message()
+        {
+            Dispose();
+        }
+#pragma warning restore UA5000
+
+        public void Dispose()
+        {
+            Destroy(m_Self);
+            m_Self = IntPtr.Zero;
+        }
+
+        [FreeFunction("VersionControlBindings::Message::Destroy", IsThreadSafe = true)]
+        static extern void Destroy(IntPtr message);
+
+        [NativeMethod(IsThreadSafe = true)]
+        public extern Severity severity { get; }
+
+        [NativeMethod(IsThreadSafe = true)]
+        public extern string message { get; }
+
+        internal static class BindingsMarshaller
+        {
+            public static IntPtr ConvertToNative(Message message) => message.m_Self;
+            public static Message ConvertToManaged(IntPtr ptr) => new Message(ptr);
+        }
+    }
+}

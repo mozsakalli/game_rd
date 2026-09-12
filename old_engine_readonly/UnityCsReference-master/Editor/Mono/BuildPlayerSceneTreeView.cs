@@ -1,0 +1,345 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+#pragma warning disable UAL0015,UAL0018,UAL0019,UAL0020,UAL0021 // AutoStaticsCleanup usage analysis: BuildSettingsWindow not yet converted
+using UnityEngine;
+using Unity.Scripting.LifecycleManagement;
+using System.Collections.Generic;
+using System.IO;
+using UnityEditor.IMGUI.Controls;
+using TreeView = UnityEditor.IMGUI.Controls.TreeView<int>;
+using TreeViewItem = UnityEditor.IMGUI.Controls.TreeViewItem<int>;
+using TreeViewState = UnityEditor.IMGUI.Controls.TreeViewState<int>;
+
+namespace UnityEditor
+{
+    internal class BuildPlayerSceneTreeViewItem : TreeViewItem
+    {
+        private const string kAssetsFolder = "Assets/";
+        private const string kSceneExtension = ".unity";
+        public static readonly int kInvalidCounter = -1;
+
+        private string m_FullName;
+
+        public bool active;
+        public int counter;
+        public string fullName
+        {
+            get => m_FullName;
+            set
+            {
+                if (m_FullName == value)
+                    return;
+
+                m_FullName = value;
+                displayName = m_FullName;
+                if (displayName.StartsWith(kAssetsFolder))
+                    displayName = displayName.Remove(0, kAssetsFolder.Length);
+                var ext = displayName.LastIndexOf(kSceneExtension);
+                if (ext > 0)
+                    displayName = displayName.Substring(0, ext);
+            }
+        }
+        public GUID guid;
+
+        public void UpdateName()
+        {
+            var name = AssetDatabase.GUIDToAssetPath(guid.ToString());
+            if (!string.IsNullOrEmpty(name) && name != fullName)
+                fullName = name;
+        }
+
+        public BuildPlayerSceneTreeViewItem(EditorBuildSettingsScene scene) : base(scene.guid.GetHashCode(), 0)
+        {
+            active = scene.enabled;
+            counter = kInvalidCounter;
+            guid = scene.guid;
+            fullName = scene.path;
+            UpdateName();
+        }
+    }
+
+    internal class BuildPlayerSceneTreeView : TreeView
+    {
+        public BuildPlayerSceneTreeView(TreeViewState state) : base(state)
+        {
+            showBorder = true;
+            EditorBuildSettings.sceneListChanged += HandleExternalSceneListChange;
+        }
+
+        internal void UnsubscribeListChange()
+        {
+            EditorBuildSettings.sceneListChanged -= HandleExternalSceneListChange;
+        }
+
+        private void HandleExternalSceneListChange()
+        {
+            Reload();
+        }
+
+        protected override TreeViewItem BuildRoot()
+        {
+            var root = new TreeViewItem(-1, -1);
+            root.children = new List<TreeViewItem>();
+
+            List<EditorBuildSettingsScene> scenes = new List<EditorBuildSettingsScene>(GetScenes());
+            foreach (var sc in scenes)
+            {
+                var item = new BuildPlayerSceneTreeViewItem(sc);
+                root.AddChild(item);
+            }
+            return root;
+        }
+
+        protected override bool CanBeParent(TreeViewItem item)
+        {
+            return false;
+        }
+
+        protected override void BeforeRowsGUI()
+        {
+            int counter = 0;
+            foreach (var item in rootItem.children)
+            {
+                var bpst = item as BuildPlayerSceneTreeViewItem;
+                if (bpst == null)
+                    continue;
+
+                bpst.UpdateName();
+
+                //Need to set counter here because RowGUI is only called on items that are visible.
+                if (bpst.active)
+                {
+                    bpst.counter = counter;
+                    counter++;
+                }
+                else
+                    bpst.counter = BuildPlayerSceneTreeViewItem.kInvalidCounter;
+            }
+
+            base.BeforeRowsGUI();
+        }
+
+        protected override void RowGUI(RowGUIArgs args)
+        {
+            var sceneItem = args.item as BuildPlayerSceneTreeViewItem;
+            if (sceneItem != null)
+            {
+                var sceneWasDeleted = sceneItem.guid.Empty();
+                var sceneExists = !sceneWasDeleted && File.Exists(sceneItem.fullName);
+
+                using (new EditorGUI.DisabledScope(!sceneExists))
+                {
+                    var newState = sceneItem.active;
+                    if (!sceneExists)
+                        newState = false;
+                    newState = GUI.Toggle(new Rect(args.rowRect.x, args.rowRect.y, 16f, 16f), newState, "");
+                    if (newState != sceneItem.active)
+                    {
+                        if (GetSelection().Contains(sceneItem.id))
+                        {
+                            var selection = GetSelection();
+                            foreach (var id in selection)
+                            {
+                                var item = FindItem(id, rootItem) as BuildPlayerSceneTreeViewItem;
+                                item.active = newState;
+                            }
+                        }
+                        else
+                        {
+                            sceneItem.active = newState;
+                        }
+
+                        SetScenes(GetSceneList());
+                    }
+
+                    base.RowGUI(args);
+
+                    if (sceneItem.counter != BuildPlayerSceneTreeViewItem.kInvalidCounter)
+                    {
+                        TreeView.DefaultGUI.LabelRightAligned(args.rowRect, "" + sceneItem.counter, args.selected, args.focused);
+                    }
+                    else if (sceneItem.displayName == string.Empty || !sceneExists)
+                    {
+                        TreeView.DefaultGUI.LabelRightAligned(args.rowRect, "Deleted", args.selected, args.focused);
+                    }
+                }
+            }
+            else
+                base.RowGUI(args);
+        }
+
+        protected override DragAndDropVisualMode HandleDragAndDrop(DragAndDropArgs args)
+        {
+            DragAndDropVisualMode visualMode = DragAndDropVisualMode.None;
+
+            var draggedIDs = DragAndDrop.GetGenericData("BuildPlayerSceneTreeViewItem") as List<int>;
+            if (draggedIDs != null && draggedIDs.Count > 0)
+            {
+                visualMode = DragAndDropVisualMode.Move;
+                if (args.performDrop)
+                {
+                    int newIndex = FindDropAtIndex(args);
+
+                    var result = new List<TreeViewItem>();
+                    int toInsert = 0;
+                    foreach (var item in rootItem.children)
+                    {
+                        if (toInsert == newIndex)
+                        {
+                            foreach (var id in draggedIDs)
+                            {
+                                result.Add(FindItem(id, rootItem));
+                            }
+                        }
+                        toInsert++;
+                        if (!draggedIDs.Contains(item.id))
+                        {
+                            result.Add(item);
+                        }
+                    }
+
+                    if (result.Count < rootItem.children.Count) //must be appending.
+                    {
+                        foreach (var id in draggedIDs)
+                        {
+                            result.Add(FindItem(id, rootItem));
+                        }
+                    }
+                    rootItem.children = result;
+                    SetScenes(GetSceneList());
+                    ReloadAndSelect(draggedIDs);
+                    Repaint();
+                }
+            }
+            else if (DragAndDrop.paths != null && DragAndDrop.paths.Length > 0)
+            {
+                visualMode = DragAndDropVisualMode.Copy;
+                if (args.performDrop)
+                {
+                    var scenes = new List<EditorBuildSettingsScene>(GetScenes());
+                    var scenesToAdd = new List<EditorBuildSettingsScene>();
+                    var selection = new List<int>();
+
+                    foreach (var path in DragAndDrop.paths)
+                    {
+                        if (AssetDatabase.GetMainAssetTypeAtPath(path) == typeof(SceneAsset))
+                        {
+                            var guid = AssetDatabase.GUIDFromAssetPath(path);
+                            selection.Add(guid.GetHashCode());
+
+                            bool unique = true;
+                            foreach (var scene in scenes)
+                            {
+                                if (scene.path == path)
+                                {
+                                    unique = false;
+                                    break;
+                                }
+                            }
+                            if (unique)
+                                scenesToAdd.Add(new EditorBuildSettingsScene(path, true));
+                        }
+                    }
+
+
+                    int newIndex = FindDropAtIndex(args);
+                    scenes.InsertRange(newIndex, scenesToAdd);
+                    SetScenes(scenes.ToArray());
+                    ReloadAndSelect(selection);
+                    Repaint();
+                }
+            }
+            return visualMode;
+        }
+
+        private void ReloadAndSelect(IList<int> hashCodes)
+        {
+            Reload();
+            SetSelection(hashCodes, TreeViewSelectionOptions.RevealAndFrame);
+            SelectionChanged(hashCodes);
+        }
+
+        protected override void DoubleClickedItem(int id)
+        {
+            BuildPlayerSceneTreeViewItem item = FindItem(id , rootItem) as BuildPlayerSceneTreeViewItem;
+            EntityId entityId = AssetDatabase.GetMainAssetOrInProgressProxyEntityId(item.fullName);
+            EditorGUIUtility.PingObject(entityId);
+        }
+
+        protected int FindDropAtIndex(DragAndDropArgs args)
+        {
+            int indexToDrop = args.insertAtIndex;
+
+            // covers if(args.dragAndDropPosition == DragAndDropPosition.OutsideItems) and a safety check.
+            if (indexToDrop < 0 || indexToDrop > rootItem.children.Count)
+                indexToDrop = rootItem.children.Count;
+
+            return indexToDrop;
+        }
+
+        protected override bool CanStartDrag(CanStartDragArgs args)
+        {
+            return true;
+        }
+
+        protected override void SetupDragAndDrop(SetupDragAndDropArgs args)
+        {
+            DragAndDrop.PrepareStartDrag();
+            DragAndDrop.SetGenericData("BuildPlayerSceneTreeViewItem", new List<int>(args.draggedItemIDs));
+            DragAndDrop.visualMode = DragAndDropVisualMode.Copy;
+            DragAndDrop.StartDrag("BuildPlayerSceneTreeView");
+        }
+
+        protected override void KeyEvent()
+        {
+            if ((Event.current.keyCode == KeyCode.Delete || Event.current.keyCode == KeyCode.Backspace) &&
+                (GetSelection().Count > 0))
+            {
+                RemoveSelection();
+            }
+        }
+
+        protected override void ContextClicked()
+        {
+            if (GetSelection().Count > 0)
+            {
+                GenericMenu menu = new GenericMenu();
+                menu.AddItem(EditorGUIUtility.TrTextContent("Remove Selection"), false, RemoveSelection);
+                menu.ShowAsContext();
+            }
+        }
+
+        protected void RemoveSelection()
+        {
+            foreach (var nodeID in GetSelection())
+            {
+                rootItem.children.Remove(FindItem(nodeID, rootItem));
+            }
+            SetScenes(GetSceneList());
+            Reload();
+            Repaint();
+        }
+
+        protected virtual EditorBuildSettingsScene[] GetScenes() => EditorBuildSettings.scenes;
+        protected virtual void SetScenes(EditorBuildSettingsScene[] scenes) => EditorBuildSettings.scenes = scenes;
+
+        public EditorBuildSettingsScene[] GetSceneList()
+        {
+            var sceneList = new EditorBuildSettingsScene[rootItem.children.Count];
+            for (int index = 0; index < rootItem.children.Count; index++)
+            {
+                var sceneItem = rootItem.children[index] as BuildPlayerSceneTreeViewItem;
+                sceneList[index] = new EditorBuildSettingsScene(sceneItem.fullName, sceneItem.active);
+
+                // If the scene was deleted AssetPathToGUID may not work and the guid will be lost
+                // In that case restore it to the previous value
+                if (sceneList[index].guid.Empty() && !sceneItem.guid.Empty())
+                    sceneList[index].guid = sceneItem.guid;
+            }
+            return sceneList;
+        }
+    }
+}
+#pragma warning restore UAL0015,UAL0018,UAL0019,UAL0020,UAL0021

@@ -1,0 +1,668 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+using UnityEngine;
+using UnityEngine.UIElements;
+using System;
+using System.Collections.Generic;
+using UnityEngine.Assertions;
+using UnityEditor.UIElements;
+using System.Runtime.CompilerServices;
+using IPhysicsProjectSettingsECSInspectorExtension = UnityEditorInternal.IPhysicsProjectSettingsECSInspectorExtension;
+using Unity.Scripting.LifecycleManagement;
+
+namespace UnityEditor
+{
+    partial class PhysicsManagerInspector
+    {
+        [AutoStaticsCleanupOnCodeReload]
+        public static IPhysicsProjectSettingsECSInspectorExtension EcsExtension = null;
+
+        static class AssetPath
+        {
+            public const string dynamics = "ProjectSettings/DynamicsManager.asset";
+            public static readonly string dynamicsError = $"{nameof(PhysicsManagerInspector.CreatePhysicsSettingsItemProvider)} failed to load asset {dynamics} containing data for the PhysicsManager.";
+
+            public const string tags = "ProjectSettings/TagManager.asset";
+            public static readonly string tagsError = $"{nameof(PhysicsManagerInspector.CreatePhysicsSettingsItemProvider)} failed to load asset {tags} containing data for the TagManager.";
+        }
+
+        static class StyleSheetPath
+        {
+            public const string projectSettingsSheet = "StyleSheets/ProjectSettings/ProjectSettingsCommon.uss";
+            public const string commonSheet = "StyleSheets/Extensions/base/common.uss";
+            public const string darkSheet = "StyleSheets/Extensions/base/dark.uss";
+            public const string lightSheet = "StyleSheets/Extensions/base/light.uss";
+        }
+
+        static class UXMLPath
+        {
+            public const string projectSettingsMain = "Physics/UXML/ProjectSettings.uxml";
+            public const string projectSettingsSub = "Physics/UXML/ProjectSettingsSub.uxml";
+            public const string physicsLayerGrid = "Physics/UXML/PhysicsLayerGrid.uxml";
+        }
+
+        const string k_layerMatrixFoldoutPref = "project-settings-collision-matrix-unfold";
+        const string k_FrameMaintenanceFoldoutPref = "project-settings-physics-frame-maintenance-unfold";
+
+        const int k_MaxLayers = 32;
+
+        static class Content
+        {
+            public static readonly string classicWarning = EditorGUIUtility.TrTextContent("You have changed the active physics SDK integration. For the change to take effect please restart the Editor.").text;
+            public static readonly string classicFallbackWarning = EditorGUIUtility.TrTextContent($"{classicWarning} \nNote: Setting this value to NONE will cause all physics APIs and Components to no longer work. Coincidentally setting this value to NONE is required for the Physics module to be automatically stripped when 'Strip Engine Code' is enabled.").text;
+            public static readonly string autoSyncTransformsWarning = EditorGUIUtility.TrTextContent("This option has been deprecated and is for legacy support only. It can result in extremely poor performance when ON. For this reason, it defaults to being OFF.").text;
+            public static readonly string reuseCollisionCallbacksWarning = EditorGUIUtility.TrTextContent("This option boosts performance when ON. With it OFF it can result in poor performance due to GC pressure. For this reason, it defaults to being ON.").text;
+
+
+            public static readonly string classicDropDownTooltip = EditorGUIUtility.TrTextContent($"The current physics SDK integration used by Unity's GameObject API. {dropDownTooltipBase}. \nPlease note that only by setting this property to NONE can the Physics module by automatically stripped.").text;
+            public static readonly string entitiesDropDownTooltip = EditorGUIUtility.TrTextContent($"The current physics SDK integration used by Unity's Entities API. {dropDownTooltipBase}").text;
+            
+            const string dropDownTooltipBase = "Changing this value to another SDK integration has the potential to change the behavior of your physics Components. \nTweaking your physics simulation might be necessary due to behavior differences between different physics SDKs.";
+
+            [NoAutoStaticsCleanup] // immutable format string set once at init, holds no user-code references
+            public static string backendInfo = EditorGUIUtility.TrTempContent("Description: {0}\nSDK version: {1}.{2}.{3}\n Integration version: {4}.{5}.{6}").text;
+        }
+
+        static SerializedObject LoadGameManagerAssetAtPath(string path)
+        {
+            var found = AssetDatabase.LoadAllAssetsAtPath(path);
+            if (found == null)
+                return null;
+
+            return new SerializedObject(found[0]);
+        }
+
+        //create the main page, shows warnings/info
+        [SettingsProvider]
+        static SettingsProvider CreatePhysicsSettingsItemProvider()
+        {
+            var provider = new SettingsProvider("Project/Physics", SettingsScope.Project)
+            {
+                label = "Physics",
+                keywords = SettingsProvider.GetSearchKeywordsFromPath(AssetPath.dynamics),
+                activateHandler = (searchContext, rootElement) =>
+                {
+                    var serializedObject = LoadGameManagerAssetAtPath(AssetPath.dynamics);
+                    if (serializedObject == null)
+                    {
+                        Debug.LogError(AssetPath.dynamicsError);
+                        return;
+                    }
+
+                    var mainUXML = EditorGUIUtility.Load(UXMLPath.projectSettingsMain) as VisualTreeAsset;
+                    mainUXML.CloneTree(rootElement);
+
+                    var content = rootElement.Q<ScrollView>(className: "project-settings-section-content");
+                    content.styleSheets.Add(EditorGUIUtility.Load(StyleSheetPath.projectSettingsSheet) as StyleSheet);
+                    content.styleSheets.Add(EditorGUIUtility.Load(StyleSheetPath.commonSheet) as StyleSheet);
+                    content.styleSheets.Add(EditorGUIUtility.Load(EditorGUIUtility.isProSkin ? StyleSheetPath.darkSheet : StyleSheetPath.lightSheet) as StyleSheet);
+
+                    //direct memory access to the infos array, shouldn't be bound to any callback
+                    ReadOnlySpan<IntegrationInfo> infos = Physics.GetIntegrationInfos();
+
+                    var classicEngineDropdown = rootElement.Q<DropdownField>(name: "classic-dropdown");
+                    var classicEngineHelpboxInfo = rootElement.Q<HelpBox>(name: "classic-helpbox-info");
+                    var classicEngineHelpboxWarning = rootElement.Q<HelpBox>(name: "classic-helpbox-warning");
+
+                    int currentChoiceIndex = 0;
+                    int choiceCount = 0;
+                    uint currentSerializedId = serializedObject.FindProperty("m_CurrentBackendId").uintValue;
+
+                    Dictionary<string, uint> choiceToId = new Dictionary<string, uint>();
+                    classicEngineDropdown.userData = choiceToId;
+
+                    for (int i = 0; i < infos.Length; ++i)
+                    {
+                        IntegrationInfo info = infos[i];
+                        string choiceName = info.isExperimental ? $"{info.name} (Experimental)" : info.name;
+
+                        classicEngineDropdown.choices.Add(choiceName);
+                        choiceToId.Add(choiceName, info.id);
+
+                        if (currentSerializedId == info.id)
+                            currentChoiceIndex = choiceCount;
+
+                        choiceCount++;
+                    }
+
+                    classicEngineDropdown.value = classicEngineDropdown.choices[currentChoiceIndex];
+                    classicEngineDropdown.tooltip = Content.classicDropDownTooltip;
+
+                    var currentIntegration = Physics.GetCurrentIntegrationInfo();
+                    classicEngineHelpboxInfo.text = string.Format(Content.backendInfo, currentIntegration.description,
+                        currentIntegration.sDKMajorVersion, currentIntegration.sDKMinorVersion, currentIntegration.sDKPatchVersion,
+                        currentIntegration.majorVersion, currentIntegration.minorVersion, currentIntegration.patchVersion);
+
+                    classicEngineHelpboxWarning.text = currentSerializedId == IntegrationInfo.k_FallbackIntegrationId ? Content.classicFallbackWarning : Content.classicWarning;
+
+
+                    if (currentIntegration.id == currentSerializedId)
+                    {
+                        classicEngineHelpboxInfo.style.display = DisplayStyle.Flex;
+                        classicEngineHelpboxWarning.style.display = DisplayStyle.None;
+                    }
+                    else
+                    {
+                        classicEngineHelpboxWarning.style.display = DisplayStyle.Flex;
+                        classicEngineHelpboxInfo.style.display = DisplayStyle.None;
+                    }
+
+                    classicEngineDropdown.RegisterValueChangedCallback((evt) =>
+                    {
+                        if (evt.newValue == evt.previousValue)
+                            return;
+
+                        var choiceToIdMapping = (Dictionary<string, uint>)classicEngineDropdown.userData;
+                        uint newIntegrationId = choiceToIdMapping.GetValueOrDefault(evt.newValue, IntegrationInfo.k_FallbackIntegrationId);
+                        
+                        var idProp = serializedObject.FindProperty("m_CurrentBackendId");
+                        idProp.uintValue = newIntegrationId;
+
+                        //force apply the property here as we want to ensure that the change is done immediately
+                        serializedObject.ApplyModifiedProperties();
+
+                        //enable warning box if we are swapping and set the correct text depending on integration
+                        classicEngineHelpboxWarning.text = newIntegrationId == IntegrationInfo.k_FallbackIntegrationId? Content.classicFallbackWarning : Content.classicWarning;
+
+
+                        if (newIntegrationId == Physics.GetCurrentIntegrationInfo().id)
+                        {
+                            classicEngineHelpboxInfo.style.display = DisplayStyle.Flex;
+                            classicEngineHelpboxWarning.style.display = DisplayStyle.None;
+                        }
+                        else
+                        {
+                            classicEngineHelpboxWarning.style.display = DisplayStyle.Flex;
+                            classicEngineHelpboxInfo.style.display = DisplayStyle.None;
+                        }
+                    });
+
+                    var ecsEngineDropdown = rootElement.Q<DropdownField>(name: "ecs-dropdown");
+                    var ecsEngineHelpboxInfo = rootElement.Q<HelpBox>(name: "ecs-helpbox-info");
+                    var ecsEngineHelpboxWarning = rootElement.Q<HelpBox>(name: "ecs-helpbox-warning");
+
+                    ecsEngineDropdown.tooltip = Content.entitiesDropDownTooltip;
+
+                    if (EcsExtension != null)
+                    {
+                        EcsExtension.SetupMainPageItems(ecsEngineDropdown, ecsEngineHelpboxInfo, ecsEngineHelpboxWarning, serializedObject);
+                    }
+                    else
+                    {
+                        ecsEngineDropdown.choices.Add("None");
+                        ecsEngineDropdown.value = ecsEngineDropdown.choices[0];
+                        ecsEngineDropdown.visible = false;
+                        ecsEngineHelpboxInfo.visible = false;
+                        ecsEngineHelpboxWarning.visible = false;
+                    }
+
+                    //bind data object
+                    rootElement.Bind(serializedObject);
+                }
+            };
+
+            return provider;
+        }
+
+        struct LayerData
+        {
+            public int bit;
+            public string name;
+        }
+
+        class ToggleData
+        {
+            public int gridX;
+            public int gridY;
+            public int layerBit0;
+            public int layerBit1;
+            public VisualElement sideLabels;
+            public VisualElement topLabels;
+            public VisualElement overlay;
+        }
+
+        class LayerGridData
+        {
+            public List<LayerData> layers;
+            public SerializedObject physicsManager;
+            public SerializedObject tagManager;
+        }
+
+        static void AddGridOverlayLines(VisualElement toggle)
+        {
+            var userData = toggle.userData as ToggleData;
+
+            var horizontalLabel = userData.sideLabels[userData.gridX];
+            var verticalLabel = userData.topLabels[(userData.topLabels.childCount - 1) - userData.gridY];
+
+            //horizontal bar
+            var horizontalBox = new Box();
+            horizontalBox.AddToClassList("project-settings___physics__highlight-box");
+            horizontalBox.style.height = horizontalLabel.resolvedStyle.height;
+            //we compute the width of the horizontal line by using the label width + grabbing the current toggle's parent as it is by default on grid X
+            horizontalBox.style.width = horizontalLabel.resolvedStyle.width + toggle.parent.resolvedStyle.width; 
+
+            //absolute pos calculate for horizontal bar
+            horizontalBox.style.left = horizontalLabel.resolvedStyle.left;
+            horizontalBox.style.top = userData.topLabels.resolvedStyle.width + horizontalLabel.resolvedStyle.top;
+
+            //vertical bar
+            var verticalBox = new Box();
+            verticalBox.AddToClassList("project-settings___physics__highlight-box");
+            verticalBox.style.width = verticalLabel.resolvedStyle.height;
+            //we compute the height of the vertical bar by taking the label width + going up the hierarchy of toggle lines and finding the toggle line that matches our gridY
+            verticalBox.style.height = verticalLabel.resolvedStyle.width + toggle.parent.parent[userData.gridY].resolvedStyle.width;
+
+            //absolute pos calculate for vertical bar, we use the .top (normally we would use .right but the label is rotated 90 deg so we need to account for that rotation) of the vertical label as part of the offset.
+            verticalBox.style.left = userData.sideLabels.resolvedStyle.width + userData.topLabels.resolvedStyle.height - verticalLabel.resolvedStyle.top - verticalLabel.resolvedStyle.height;
+            verticalBox.style.top = userData.topLabels.resolvedStyle.width - verticalLabel.resolvedStyle.width;
+
+            userData.overlay.Add(horizontalBox);
+            userData.overlay.Add(verticalBox);
+        }
+
+        static void ClearGridOverlayLines(VisualElement toggle)
+        {
+            var userData = toggle.userData as ToggleData;
+
+            while (userData.overlay.childCount > 0)
+                userData.overlay.RemoveAt(0);
+        }
+
+        static void SetupLayerCollisionMatrix(VisualElement layerGridContainer)
+        {
+            var topLeftSpacer = layerGridContainer.Q<VisualElement>(name: "top-left-spacer");
+            var topLabels = layerGridContainer.Q<VisualElement>(name: "top-labels");
+            var sideLabels = layerGridContainer.Q<VisualElement>(name: "side-labels");
+            var toggles = layerGridContainer.Q<VisualElement>(name: "toggles");
+            var overlay = layerGridContainer.Q<VisualElement>(name: "layer-grid-overlay");
+
+            Assert.AreEqual(k_MaxLayers, sideLabels.childCount);
+            Assert.AreEqual(sideLabels.childCount, toggles.childCount);
+
+            var data = layerGridContainer.userData as LayerGridData;
+            data.layers.Clear();
+            data.layers.Capacity = k_MaxLayers;
+
+            for (int i = 0; i < k_MaxLayers; i++)
+            {
+                var layerName = LayerMask.LayerToName(i);
+                if (LayerMask.LayerToName(i) == string.Empty)
+                    continue;
+
+                data.layers.Add(new LayerData() { bit = i, name = layerName });
+            }
+
+            for (int i = 0; i < data.layers.Count; ++i)
+            {
+                var layer0 = data.layers[i];
+                var label = sideLabels[i] as Label;
+                label.text = layer0.name;
+
+                var tLabel = new Label();
+                tLabel.AddToClassList("project-settings___physics__toggle-col-label");
+                tLabel.text = layer0.name;
+                topLabels.Add(tLabel);
+
+                var line = toggles[i];
+
+                //generate visible toggles,
+                for (int j = 0; j < data.layers.Count - i; ++j)
+                {
+                    var toggle = line[j] as Toggle;
+                    toggle.AddToClassList("project-settings___physics__toggle");
+                    var layer1 = data.layers[(data.layers.Count - 1) - j];
+
+                    toggle.value = !Physics.GetIgnoreLayerCollision(layer0.bit, layer1.bit);
+                    toggle.userData = new ToggleData() { gridX = i, gridY = j, layerBit0 = layer0.bit, layerBit1 = layer1.bit, sideLabels = sideLabels, topLabels = topLabels, overlay = overlay };
+
+                    toggle.RegisterValueChangedCallback((evt) =>
+                    {
+                        if (evt.newValue == evt.previousValue)
+                            return;
+
+                        var userData = ((evt.target as VisualElement).userData as ToggleData);
+                        Physics.IgnoreLayerCollision(userData.layerBit0, userData.layerBit1, !evt.newValue);
+                    });
+
+                    toggle.RegisterCallback((MouseEnterEvent evt) =>
+                    {
+                        AddGridOverlayLines((evt.target as VisualElement));
+
+                    }, TrickleDown.NoTrickleDown);
+
+                    toggle.RegisterCallback((MouseLeaveEvent evt) =>
+                    {
+                        ClearGridOverlayLines((evt.target as VisualElement));
+
+                    }, TrickleDown.NoTrickleDown);
+                }
+
+                //disable invisible toggles inside the active lines
+                for (int j = data.layers.Count - i; j < line.childCount; ++j)
+                {
+                    var toggle = line[j] as Toggle;
+                    toggle.style.display = DisplayStyle.None;
+                }
+            }
+
+            //loop over the following labels + toggle lines and disable them
+            for (int i = data.layers.Count; i < sideLabels.childCount; ++i)
+            {
+                sideLabels[i].style.display = DisplayStyle.None;
+                toggles[i].style.display = DisplayStyle.None;
+            }
+
+            SerializedProperty layerCollisionMatrix = data.physicsManager.FindProperty("m_LayerCollisionMatrix");
+            toggles.TrackPropertyValue(layerCollisionMatrix);
+            toggles.TrackPropertyValue(layerCollisionMatrix, (prop) =>
+            {
+                for (int i = 0; i < k_MaxLayers; ++i)
+                {
+                    var line = toggles[i];
+                    if (line.style.display == DisplayStyle.None)
+                        continue;
+
+                    for (int j = 0; j < line.childCount; ++j)
+                    {
+                        var toggle = line[j] as Toggle;
+                        if (toggle.style.display == DisplayStyle.None)
+                            continue;
+
+                        var userData = toggle.userData as ToggleData;
+                        toggle.value = !Physics.GetIgnoreLayerCollision(userData.layerBit0, userData.layerBit1);
+                    }
+                }
+            });
+
+            var enableAll = layerGridContainer.Q<Button>("enable-all");
+            enableAll.clicked += () =>
+            {
+                for (int i = 0; i < k_MaxLayers; ++i)
+                {
+                    var line = toggles[i];
+                    for (int j = i; j < k_MaxLayers; ++j)
+                    {
+                        Physics.IgnoreLayerCollision(i, j, false);
+
+                        if (line.style.display == DisplayStyle.None || j >= line.childCount)
+                            continue;
+
+                        var toggle = line[j] as Toggle;
+                        if (toggle.style.display == DisplayStyle.None)
+                            continue;
+
+                        toggle.SetValueWithoutNotify(true);
+                    }
+                }
+            };
+
+            var disableAll = layerGridContainer.Q<Button>("disable-all");
+            disableAll.clicked += () =>
+            {
+                for (int i = 0; i < k_MaxLayers; ++i)
+                {
+                    var line = toggles[i];
+                    for (int j = i; j < k_MaxLayers; ++j)
+                    {
+                        Physics.IgnoreLayerCollision(i, j, true);
+
+                        if (line.style.display == DisplayStyle.None || j >= line.childCount)
+                            continue;
+
+                        var toggle = line[j] as Toggle;
+                        if (toggle.style.display == DisplayStyle.None)
+                            continue;
+
+                        toggle.SetValueWithoutNotify(false);
+                    }
+                }
+            };
+
+            layerGridContainer.RegisterCallbackOnce<GeometryChangedEvent>((evt) =>
+            {
+                //resize elements so they properly align
+                topLeftSpacer.style.width = sideLabels.resolvedStyle.width;
+                topLeftSpacer.style.height = sideLabels.resolvedStyle.width;
+
+                float longestLineWidth = 0.0f;
+                for (int i = 0; i < toggles.childCount; ++i)
+                {
+                    var lineWidth = toggles[i].resolvedStyle.width;
+                    if (longestLineWidth < lineWidth)
+                        longestLineWidth = lineWidth;
+                }
+                toggles.style.width = longestLineWidth;
+
+                topLabels.style.width = sideLabels.resolvedStyle.width;
+                topLabels.style.height = sideLabels.resolvedStyle.height;
+                topLabels.style.left = sideLabels.resolvedStyle.width + longestLineWidth;
+            });
+        }
+
+        static void SetupSharedTab(VisualElement tab, SerializedObject serializedObject, SerializedObject tagManager)
+        {
+            tab.Add(new PropertyField(serializedObject.FindProperty("m_Gravity")));
+
+            bool fold = false;
+            if (EditorPrefs.HasKey(k_layerMatrixFoldoutPref))
+                fold = EditorPrefs.GetBool(k_layerMatrixFoldoutPref);
+
+            var layerGridContainer = new VisualElement();
+            layerGridContainer.style.overflow = Overflow.Hidden;
+
+            var layerGridUXML = EditorGUIUtility.Load(UXMLPath.physicsLayerGrid) as VisualTreeAsset;
+            layerGridUXML.CloneTree(layerGridContainer);
+
+            layerGridContainer.userData = new LayerGridData() { layers = new List<LayerData>(), physicsManager = serializedObject, tagManager = tagManager };
+            SetupLayerCollisionMatrix(layerGridContainer);
+
+            layerGridContainer.TrackPropertyValue(tagManager.FindProperty("layers"), (prop) =>
+            {
+                //scrap the whole tree
+                layerGridContainer.RemoveAt(0);
+                layerGridUXML.CloneTree(layerGridContainer);
+
+                SetupLayerCollisionMatrix(layerGridContainer);
+            });
+
+            var foldOut = new Foldout() { text = "Layer Collision Matrix", value = true };
+            foldOut.RegisterValueChangedCallback((evt) => { EditorPrefs.SetBool(k_layerMatrixFoldoutPref, evt.newValue); });
+
+            //patch in the correct initial value now that we've computed the layout with the unfolded values
+            //we do this step due to the deffered layout computation for the top labels of the collision layer matrix
+            foldOut.RegisterCallbackOnce<GeometryChangedEvent>((evt) => { foldOut.SetValueWithoutNotify(fold); });
+
+            foldOut.Add(layerGridContainer);
+            tab.Add(foldOut);
+        }
+
+
+        static void SetupClassicTab(VisualElement tab, SerializedObject serializedObject)
+        {
+            tab.Add(new PropertyField(serializedObject.FindProperty("m_LogVerbosity")));
+            tab.Add(new PropertyField(serializedObject.FindProperty("m_DefaultMaterial")));
+            tab.Add(new PropertyField(serializedObject.FindProperty("m_BounceThreshold")));
+            tab.Add(new PropertyField(serializedObject.FindProperty("m_DefaultMaxDepenetrationVelocity")));
+            tab.Add(new PropertyField(serializedObject.FindProperty("m_SleepThreshold")));
+            tab.Add(new PropertyField(serializedObject.FindProperty("m_DefaultContactOffset")));
+            tab.Add(new PropertyField(serializedObject.FindProperty("m_DefaultSolverIterations")));
+            tab.Add(new PropertyField(serializedObject.FindProperty("m_DefaultSolverVelocityIterations")));
+            tab.Add(new PropertyField(serializedObject.FindProperty("m_QueriesHitBackfaces")));
+            tab.Add(new PropertyField(serializedObject.FindProperty("m_QueriesHitTriggers")));
+            tab.Add(new PropertyField(serializedObject.FindProperty("m_EnableAdaptiveForce")));
+            tab.Add(new PropertyField(serializedObject.FindProperty("m_SimulationMode")));
+
+            var autoSyncTransformProp = serializedObject.FindProperty("m_AutoSyncTransforms");
+            var legacyAutosyncTransforms = new PropertyField(autoSyncTransformProp);
+            var autoSyncTransformsWarningBox = new HelpBox(Content.autoSyncTransformsWarning, HelpBoxMessageType.Warning);
+            autoSyncTransformsWarningBox.style.display = autoSyncTransformProp.boolValue ? DisplayStyle.Flex : DisplayStyle.None;
+
+            legacyAutosyncTransforms.RegisterValueChangeCallback((evt) =>
+            {
+                autoSyncTransformsWarningBox.style.display = autoSyncTransformProp.boolValue ? DisplayStyle.Flex : DisplayStyle.None;
+            });
+
+            tab.Add(legacyAutosyncTransforms);
+            tab.Add(autoSyncTransformsWarningBox);
+
+            var reuseCollisionCallbacksProp = serializedObject.FindProperty("m_ReuseCollisionCallbacks");
+            var legacyReuseCollisionCallbacks = new PropertyField(reuseCollisionCallbacksProp);
+            var reuseCollisionCallbacksWarningBox = new HelpBox(Content.reuseCollisionCallbacksWarning, HelpBoxMessageType.Warning);
+            reuseCollisionCallbacksWarningBox.style.display = !autoSyncTransformProp.boolValue ? DisplayStyle.Flex : DisplayStyle.None;
+
+            legacyReuseCollisionCallbacks.RegisterValueChangeCallback((evt) =>
+            {
+                reuseCollisionCallbacksWarningBox.style.display = !reuseCollisionCallbacksProp.boolValue ? DisplayStyle.Flex : DisplayStyle.None;
+            });
+
+            tab.Add(legacyReuseCollisionCallbacks);
+            tab.Add(reuseCollisionCallbacksWarningBox);
+
+
+            tab.Add(new PropertyField(serializedObject.FindProperty("m_InvokeCollisionCallbacks")));
+            tab.Add(new PropertyField(serializedObject.FindProperty("m_GenerateOnTriggerStayEvents")));
+            tab.Add(new PropertyField(serializedObject.FindProperty("m_ContactPairsMode")));
+
+            tab.Add(new PropertyField(serializedObject.FindProperty("m_IncrementalStaticBroadphase")));
+            var broadPhaseProp = serializedObject.FindProperty("m_BroadphaseType");
+            var broadPhase = new PropertyField(broadPhaseProp);
+            tab.Add(broadPhase);
+
+            //world bounds and subdivisions
+            bool hasMultiBox = broadPhaseProp.intValue == 1; //check if we are using multibox;
+
+            var worldBounds = new PropertyField(serializedObject.FindProperty("m_WorldBounds"));
+            worldBounds.style.display = hasMultiBox ? DisplayStyle.Flex : DisplayStyle.None;
+
+            var subdivisions = new PropertyField(serializedObject.FindProperty("m_WorldSubdivisions"));
+            subdivisions.style.display = hasMultiBox ? DisplayStyle.Flex : DisplayStyle.None;
+
+            tab.Add(worldBounds);
+            tab.Add(subdivisions);
+
+            broadPhase.RegisterValueChangeCallback((evt) =>
+            {
+                bool changedToMultiBox = evt.changedProperty.intValue == 1;
+
+                worldBounds.style.display = changedToMultiBox ? DisplayStyle.Flex : DisplayStyle.None;
+                subdivisions.style.display = changedToMultiBox ? DisplayStyle.Flex : DisplayStyle.None;
+            });
+
+            tab.Add(new PropertyField(serializedObject.FindProperty("m_FrictionType")));
+            tab.Add(new PropertyField(serializedObject.FindProperty("m_EnableEnhancedDeterminism")));
+            tab.Add(new PropertyField(serializedObject.FindProperty("m_ImprovedPatchFriction")));
+            tab.Add(new PropertyField(serializedObject.FindProperty("m_SolverType")));
+            tab.Add(new PropertyField(serializedObject.FindProperty("m_ThreadingMode")));
+            tab.Add(new PropertyField(serializedObject.FindProperty("m_DefaultMaxAngularSpeed")));
+            tab.Add(new PropertyField(serializedObject.FindProperty("m_ScratchBufferChunkCount")));
+            tab.Add(new PropertyField(serializedObject.FindProperty("m_FastMotionThreshold")));
+
+            bool frameMaintenanceFold = false;
+            if (EditorPrefs.HasKey(k_FrameMaintenanceFoldoutPref))
+                frameMaintenanceFold = EditorPrefs.GetBool(k_FrameMaintenanceFoldoutPref);
+
+            var frameMaintenanceFoldOut = new Foldout() { text = "Release Simulation Buffers", value = true };
+
+            frameMaintenanceFoldOut.RegisterValueChangedCallback((evt) => { EditorPrefs.SetBool(k_FrameMaintenanceFoldoutPref, evt.newValue); });
+            frameMaintenanceFoldOut.SetValueWithoutNotify(frameMaintenanceFold);
+
+            frameMaintenanceFoldOut.Add(new PropertyField(serializedObject.FindProperty("m_ReleaseSceneBuffers")));
+            frameMaintenanceFoldOut.Add(new PropertyField(serializedObject.FindProperty("m_SceneBuffersReleaseInterval")));
+            tab.Add(frameMaintenanceFoldOut);
+        }
+
+        static void SetupClothTab(VisualElement tab, SerializedObject serializedObject)
+        {
+            tab.Add(new PropertyField(serializedObject.FindProperty("m_ClothGravity"), "Gravity Override"));
+
+            var interCollisionToggle = new PropertyField(serializedObject.FindProperty("m_ClothInterCollisionSettingsToggle"), "Enable Inter-Collision");
+            var interCollisionDistance = new PropertyField(serializedObject.FindProperty("m_ClothInterCollisionDistance"), "Inter-Collision Distance");
+            var interCollisionStiffness = new PropertyField(serializedObject.FindProperty("m_ClothInterCollisionStiffness"), "Inter-Collision Stiffness");
+
+            interCollisionToggle.RegisterValueChangeCallback(
+                (evt) =>
+                {
+                    bool res = evt.changedProperty.boolValue;
+
+                    interCollisionDistance.style.display = res ? DisplayStyle.Flex : DisplayStyle.None;
+                    interCollisionStiffness.style.display = res ? DisplayStyle.Flex : DisplayStyle.None;
+                });
+
+            tab.Add(interCollisionToggle);
+            tab.Add(interCollisionDistance);
+            tab.Add(interCollisionStiffness);
+        }
+
+        static void SetupECSTab(TabView tabs, SerializedObject serializedObject)
+        {
+            if (EcsExtension == null)
+                return;
+
+            var tab = new Tab() { label = "Entities", name = "tab__ecs" };
+            var tabContent = new VisualElement() { name = "tab-content__ecs" };
+            tabContent.AddToClassList("project-settings__physics__tab-content");
+
+            try
+            {
+                tab.Add(tabContent);
+
+                EcsExtension.SetupSettingsTab(tab, serializedObject);
+
+                tabs.Add(tab);
+            }
+            catch (Exception ex)
+            {
+                //consume the exception without breaking the settings pane
+                Debug.LogException(ex);
+            }
+        }
+
+        [SettingsProvider]
+        static SettingsProvider CreatePhysicsSettingsPageProvider()
+        {
+            var provider = new SettingsProvider("Project/Physics/Settings", SettingsScope.Project)
+            {
+                label = "Settings",
+                keywords = SettingsProvider.GetSearchKeywordsFromPath(AssetPath.dynamics)
+            };
+
+            provider.activateHandler = (searchContext, rootElement) =>
+            {
+                var serializedObject = LoadGameManagerAssetAtPath(AssetPath.dynamics);
+                if (serializedObject == null)
+                {
+                    Debug.LogError(AssetPath.dynamicsError);
+                    return;
+                }
+
+                var serializedTagManager = LoadGameManagerAssetAtPath(AssetPath.tags);
+                if (serializedObject == null)
+                {
+                    Debug.LogError(AssetPath.tagsError);
+                    return;
+                }
+
+                var subUXML = EditorGUIUtility.Load(UXMLPath.projectSettingsSub) as VisualTreeAsset;
+                subUXML.CloneTree(rootElement);
+
+                var content = rootElement.Q<ScrollView>(className: "project-settings-section-content");
+                content.styleSheets.Add(EditorGUIUtility.Load(StyleSheetPath.projectSettingsSheet) as StyleSheet);
+                content.styleSheets.Add(EditorGUIUtility.Load(StyleSheetPath.commonSheet) as StyleSheet);
+                content.styleSheets.Add(EditorGUIUtility.Load(EditorGUIUtility.isProSkin ? StyleSheetPath.darkSheet : StyleSheetPath.lightSheet) as StyleSheet);
+
+                SetupSharedTab(content.Q(name: "tab-content__shared"), serializedObject, serializedTagManager);
+                SetupClassicTab(content.Q(name: "tab-content__classic"), serializedObject);
+                SetupClothTab(content.Q(name: "tab-content__cloth"), serializedObject);
+                SetupECSTab(content.Q<TabView>(name: "setting-tabs"), serializedObject);
+
+                //bind data object
+                rootElement.Bind(serializedObject);
+            };
+
+            return provider;
+        }
+    }
+}

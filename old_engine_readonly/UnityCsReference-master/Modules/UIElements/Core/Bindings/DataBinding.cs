@@ -1,0 +1,364 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+using System;
+using System.Collections.Generic;
+using System.Reflection;
+using Unity.Properties;
+using Unity.Scripting.LifecycleManagement;
+using UnityEngine.Bindings;
+
+namespace UnityEngine.UIElements
+{
+    /// <summary>
+    /// Binding mode to control how a binding is updated.
+    /// </summary>
+    /// <remarks>To let the data binding system know that the value in the UI changed, use <c>VisualElement.NotifyPropertyChanged</c>.</remarks>
+    public enum BindingMode
+    {
+        /// <summary>
+        /// Changes on the data source will be replicated in the UI.
+        /// Changes on the UI will be replicated to the data source.
+        /// </summary>
+        TwoWay,
+
+        /// <summary>
+        /// Changes will only be replicated from the UI to the data source for this binding.
+        /// </summary>
+        ToSource,
+
+        /// <summary>
+        /// Changes will only be replicated from the source to the UI for this binding.
+        /// </summary>
+        ToTarget,
+
+        /// <summary>
+        /// Changes will only be replicated once, from the source to the UI. This binding will be ignored on subsequent updates.
+        /// </summary>
+        ToTargetOnce,
+    }
+
+    /// <summary>
+    ///  Binding type that enables data synchronization between a property of a data source and a property of a <see cref="VisualElement"/>.
+    /// </summary>
+    [UxmlObject]
+    [Serializable]
+    public partial class DataBinding : Binding, IDataSourceProvider
+    {
+        internal const string k_DataSourceTooltip = "A data source is a collection of information. By default, a binding will inherit the existing data source from the hierarchy. " +
+            "You can instead define another object here as the data source, or define the type of property it may be if the source is not yet available.";
+        internal const string k_DataSourcePathTooltip = "The path to the value in the data source used by this binding. To see resolved bindings in the UI Builder, define a path that is compatible with the target source property.";
+        internal const string k_BindingModeTooltip = "Controls how a binding is updated, which can include the direction in which data is written.";
+        internal const string k_SourceToUiConvertersTooltip = "Define one or more converter groups for this binding that will be used between the data source to the target UI.";
+        internal const string k_UiToSourceConvertersTooltip = "Define one or more converter groups for this binding that will be used between the target UI to the data source.";
+
+
+        [NoAutoStaticsCleanup] // reflection cache for immutable method metadata
+        private static MethodInfo s_UpdateUIMethodInfo;
+        internal static MethodInfo updateUIMethod => s_UpdateUIMethodInfo ??= CacheReflectionInfo();
+
+        [NoAutoStaticsCleanup]
+        internal static readonly UniqueStyleString textElementInnerInputFieldUssClassNameUnique =
+            new("unity-text-element--inner-input-field-component");
+
+        private static MethodInfo CacheReflectionInfo()
+        {
+            foreach (var method in typeof(DataBinding).GetMethods(BindingFlags.Instance | BindingFlags.NonPublic))
+            {
+                if (method.Name != nameof(UpdateUI))
+                    continue;
+
+                if (method.GetParameters().Length != 2) continue;
+                return s_UpdateUIMethodInfo = method;
+            }
+
+            throw new InvalidOperationException($"Could not find method {nameof(UpdateUI)} by reflection. This is an internal bug. Please report using `Help > Report a Bug...` ");
+        }
+
+        private BindingMode m_BindingMode;
+
+        private ConverterGroup m_SourceToUiConverters;
+        private ConverterGroup m_UiToSourceConverters;
+
+        /// <summary>
+        /// Object that serves as a local source for the binding, and is particularly useful when the data source is not
+        /// part of the UI hierarchy, such as a static localization table. If this object is null, the binding resolves
+        /// the data source using its normal resolution method.
+        /// </summary>
+        /// <remarks>
+        /// Using a local source does not prevent children of the target from using the hierarchy source.
+        /// </remarks>
+        [CreateProperty]
+        public object dataSource { get; set; }
+
+        [UxmlAttribute("data-source"), UxmlAttributeBindingPath("dataSource"), HideInInspector, DataSourceDrawer]
+        [Tooltip(k_DataSourceTooltip)]
+        internal Object dataSourceUnityObject
+        {
+            get => dataSource as Object;
+            set => dataSource = value ? value : null;
+        }
+
+        /// <summary>
+        /// The possible data source types that can be assigned to the binding.
+        /// </summary>
+        /// <remarks>
+        /// This information is only used by the UI Builder as a hint to provide some completion to the data source path field when the effective data source cannot be specified at design time.
+        /// </remarks>
+        [CreateProperty]
+        [UxmlAttribute, HideInInspector, UxmlTypeReference(typeof(object))]
+        [Tooltip(k_DataSourceTooltip)]
+        public Type dataSourceType { get; set; }
+
+        /// <summary>
+        /// Path from the data source to the value.
+        /// </summary>
+        [CreateProperty]
+        public PropertyPath dataSourcePath { get; set; }
+
+        [Tooltip(k_DataSourcePathTooltip), HideInInspector]
+        [UxmlAttribute("data-source-path")]
+        internal string dataSourcePathString
+        {
+            get => dataSourcePath.ToString();
+            set => dataSourcePath = new PropertyPath(value);
+        }
+
+        /// <summary>
+        /// Controls how this binding should be updated.
+        /// The default value is <see cref="BindingMode.TwoWay"/>.
+        /// </summary>
+        [CreateProperty]
+        [Tooltip(k_BindingModeTooltip)]
+        [BindingModeDrawer, HideInInspector]
+        [UxmlAttribute("binding-mode")]
+        public BindingMode bindingMode
+        {
+            get => m_BindingMode;
+            set
+            {
+                if (m_BindingMode == value)
+                    return;
+
+                m_BindingMode = value;
+                MarkDirty();
+            }
+        }
+
+        /// <summary>
+        /// Returns the <see cref="ConverterGroup"/> used when trying to convert data from the data source to a UI property.
+        /// </summary>
+        [CreateProperty(ReadOnly = true)]
+        public ConverterGroup sourceToUiConverters
+        {
+            get
+            {
+                return m_SourceToUiConverters ??= new ConverterGroup(string.Empty);
+            }
+        }
+
+        /// <summary>
+        /// Returns the <see cref="ConverterGroup"/> used when trying to convert data from a UI property back to the data source.
+        /// </summary>
+        [CreateProperty(ReadOnly = true)]
+        public ConverterGroup uiToSourceConverters
+        {
+            get
+            {
+                return m_UiToSourceConverters ??= new ConverterGroup(string.Empty);
+            }
+        }
+
+        List<string> m_SourceToUIConvertersString;
+        [VisibleToOtherModules("UnityEditor.UIToolkitAuthoringModule")]
+        [Tooltip(k_SourceToUiConvertersTooltip)]
+        [HideInInspector, ConverterDrawer(isConverterToSource = false)]
+        [UxmlAttributeBindingPath(nameof(sourceToUiConverters))]
+        [UxmlAttribute("source-to-ui-converters")]
+        internal string sourceToUiConvertersString
+        {
+            get => m_SourceToUIConvertersString != null ? string.Join(", ", m_SourceToUIConvertersString) : null;
+            set
+            {
+                m_SourceToUIConvertersString = UxmlUtility.ParseStringListAttribute(value);
+                if (m_SourceToUIConvertersString != null)
+                {
+                    foreach (var id in m_SourceToUIConvertersString)
+                    {
+                        if (ConverterGroups.TryGetConverterGroup(id, out var group))
+                        {
+                            ApplyConverterGroupToUI(group);
+                        }
+                    }
+                }
+            }
+        }
+
+        List<string> m_UiToSourceConvertersString;
+        [VisibleToOtherModules("UnityEditor.UIToolkitAuthoringModule")]
+        [Tooltip(k_UiToSourceConvertersTooltip)]
+        [HideInInspector, ConverterDrawer(isConverterToSource = true)]
+        [UxmlAttributeBindingPath(nameof(uiToSourceConverters))]
+        [UxmlAttribute("ui-to-source-converters")]
+        internal string uiToSourceConvertersString
+        {
+            get => m_UiToSourceConvertersString != null ? string.Join(", ", m_UiToSourceConvertersString) : null;
+            set
+            {
+                m_UiToSourceConvertersString = UxmlUtility.ParseStringListAttribute(value);
+                if (m_UiToSourceConvertersString != null)
+                {
+                    foreach (var id in m_UiToSourceConvertersString)
+                    {
+                        if (ConverterGroups.TryGetConverterGroup(id, out var group))
+                        {
+                            ApplyConverterGroupToSource(group);
+                        }
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Initializes and returns an instance of <see cref="DataBinding"/>.
+        /// </summary>
+        public DataBinding()
+        {
+            updateTrigger = BindingUpdateTrigger.OnSourceChanged;
+        }
+
+        /// <summary>
+        /// Applies a <see cref="ConverterGroup"/> to this binding that will be used when converting data between a
+        /// UI control to a data source.
+        /// </summary>
+        /// <remarks>
+        /// Converter groups can be queried using <see cref="ConverterGroups.TryGetConverterGroup"/>.
+        /// </remarks>
+        /// <param name="group">The converter group.</param>
+        public void ApplyConverterGroupToSource(ConverterGroup group)
+        {
+            var localToSource = uiToSourceConverters;
+            localToSource.registry.Apply(group.registry);
+        }
+
+        /// <summary>
+        /// Applies a <see cref="ConverterGroup"/> to this binding that will be used when converting data between a
+        /// data source to a UI control.
+        /// </summary>
+        /// <remarks>
+        /// Converter groups can be queried using <see cref="ConverterGroups.TryGetConverterGroup"/>.
+        /// </remarks>
+        /// <param name="group">The converter group.</param>
+        public void ApplyConverterGroupToUI(ConverterGroup group)
+        {
+            var localToUI = sourceToUiConverters;
+            localToUI.registry.Apply(group.registry);
+        }
+
+        /// <summary>
+        /// Callback called to allow derived classes to update the UI with the resolved value from the data source.
+        /// </summary>
+        /// <param name="context">Context object containing the necessary information to resolve a binding.</param>
+        /// <param name="value">The resolved value from the data source.</param>
+        /// <typeparam name="TValue">The type of the <paramref name="value"/></typeparam>
+        /// <returns>A <see cref="BindingResult"/> indicating if the binding update succeeded or not.</returns>
+        protected internal virtual BindingResult UpdateUI<TValue>(in BindingContext context, ref TValue value)
+        {
+            var target = context.targetElement;
+
+            // When a field is delayed or touchScreen, we should avoid setting the value.
+            var focusController = target.focusController;
+            if (null != focusController && focusController.IsFocused(target))
+            {
+                // Only skip setting the value when the actual input field is focused.
+                var leaf = focusController.GetLeafFocusedElement();
+                if (leaf is TextElement textElement && textElement.ClassListContains(textElementInnerInputFieldUssClassNameUnique) &&
+                    (target is IDelayedField { isDelayed: true } || textElement.edition.touchScreenKeyboard != null))
+                {
+                    return new BindingResult(BindingStatus.Pending);
+                }
+            }
+
+            // A "${component:TypeName}.field" path targets a component's data on the element, not the element
+            // itself; redirect the write there (converters and TValue preserved). Every other binding
+            // falls through to the normal element path below.
+            if (ComponentBinding.TryResolve(target, context.bindingId, out var componentHandle, out var componentSubPath))
+            {
+                if (ComponentBinding.SetUI(sourceToUiConverters, target, componentHandle, componentSubPath, value, out var componentReturnCode))
+                    return default;
+
+                var componentMessage = GetSetValueErrorString(componentReturnCode, context.dataSource, context.dataSourcePath, target, context.bindingId, value);
+                return new BindingResult(BindingStatus.Failure, componentMessage);
+            }
+
+            var succeeded = sourceToUiConverters.TrySetValue(ref target, context.bindingId, value, out var returnCode);
+            if (succeeded)
+                return default;
+
+            var message = GetSetValueErrorString(returnCode, context.dataSource, context.dataSourcePath, target, context.bindingId, value);
+            return new BindingResult(BindingStatus.Failure, message);
+        }
+
+        /// <summary>
+        /// Callback called to allow derived classes to update the data source with the resolved value when a change from the UI is detected.
+        /// </summary>
+        /// <param name="context">Context object containing the necessary information to resolve a binding.</param>
+        /// <param name="value">The resolved value from the data source.</param>
+        /// <typeparam name="TValue">The type of the <paramref name="value"/></typeparam>
+        /// <returns>A <see cref="BindingResult"/> indicating if the binding update succeeded or not.</returns>
+        protected internal virtual BindingResult UpdateSource<TValue>(in BindingContext context, ref TValue value)
+        {
+            var target = context.dataSource;
+            var succeeded = uiToSourceConverters.TrySetValue(ref target, context.dataSourcePath, value, out var returnCode);
+            if (succeeded)
+                return default;
+
+            var message = GetSetValueErrorString(returnCode, context.targetElement, context.bindingId, context.dataSource, context.dataSourcePath, value);
+            return new BindingResult(BindingStatus.Failure, message);
+        }
+
+        // Internal for tests
+        internal static string GetSetValueErrorString<TValue>(VisitReturnCode returnCode, object source, in PropertyPath sourcePath, object target, in BindingId targetPath, TValue extractedValueFromSource)
+        {
+            var prefix = $"[UI Toolkit] Could not set value for target of type '<b>{target.GetType().Name}</b>' at path '<b>{targetPath}</b>':";
+            switch (returnCode)
+            {
+                case VisitReturnCode.MissingPropertyBag:
+                    return $"{prefix} the type '{target.GetType().Name}' is missing a property bag.";
+                case VisitReturnCode.InvalidPath:
+                    return $"{prefix} the path is either invalid or contains a null value.";
+                case VisitReturnCode.InvalidCast:
+                    if (sourcePath.IsEmpty)
+                    {
+                        if (PropertyContainer.TryGetValue(ref target, targetPath, out object obj) && null != obj)
+                        {
+                            return null == extractedValueFromSource
+                                ? $"{prefix} could not convert from '<b>null</b>' to '<b>{obj.GetType().Name}</b>'."
+                                : $"{prefix} could not convert from type '<b>{extractedValueFromSource.GetType().Name}</b>' to type '<b>{obj.GetType().Name}</b>'.";
+                        }
+                    }
+
+                    if (PropertyContainer.TryGetProperty(ref source, sourcePath, out var property))
+                    {
+                        if (PropertyContainer.TryGetValue(ref target, targetPath, out object obj) && null != obj)
+                        {
+                            return null == extractedValueFromSource
+                                ? $"{prefix} could not convert from '<b>null ({property.DeclaredValueType().Name})</b>' to '<b>{obj.GetType().Name}</b>'."
+                                : $"{prefix} could not convert from type '<b>{extractedValueFromSource.GetType().Name}</b>' to type '<b>{obj.GetType().Name}</b>'.";
+                        }
+                    }
+
+                    return $"{prefix} conversion failed.";
+                case VisitReturnCode.AccessViolation:
+                    return $"{prefix} the path is read-only.";
+                case VisitReturnCode.Ok: // Can't extract an error message from a success.
+                case VisitReturnCode.NullContainer: // Should be checked before trying to set a value.
+                case VisitReturnCode.InvalidContainerType: // Target should always be a VisualElement
+                    throw new InvalidOperationException($"{prefix} internal data binding error. Please report this using the '<b>Help/Report a bug...</b>' menu item.");
+                default:
+                    throw new ArgumentOutOfRangeException();
+            }
+        }
+    }
+}

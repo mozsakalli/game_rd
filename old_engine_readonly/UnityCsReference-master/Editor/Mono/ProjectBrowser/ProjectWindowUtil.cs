@@ -1,0 +1,1457 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Text;
+using System.Text.RegularExpressions;
+using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
+using Unity.Scripting.LifecycleManagement;
+using UnityEditor.Audio;
+using UnityEditor.Compilation;
+using UnityEditor.ProjectWindowCallback;
+using UnityEditor.SceneManagement;
+using UnityEditorInternal;
+using UnityEditor.Experimental;
+using UnityEditor.Utils;
+using UnityEditor.VersionControl;
+using UnityEngine;
+using UnityEngine.Audio;
+using UnityEngine.Bindings;
+using UnityEngine.Scripting;
+using Object = UnityEngine.Object;
+using UnityEngine.Pool;
+
+namespace UnityEditor
+{
+    internal class DragAndDropDelay
+    {
+        public Vector2 mouseDownPosition;
+
+        public bool CanStartDrag()
+        {
+            return Vector2.Distance(mouseDownPosition, Event.current.mousePosition) > 6;
+        }
+    }
+
+    // Callbacks to be used when creating assets via the project window
+    // You can extend the EndNameEditAction and write your own callback
+    // It is done this way instead of via a delegate because the action
+    // needs to survive an assembly reload.
+    namespace ProjectWindowCallback
+    {
+        [Obsolete("EndNameEditAction is obsolete. Use AssetCreationEndAction that uses EntityId instead of int for instance IDs.", true)]
+        public abstract class EndNameEditAction : AssetCreationEndAction
+        {
+            public override void Action(EntityId entityId, string pathName, string resourceFile)
+            {
+                Action(entityId, pathName, resourceFile);
+            }
+
+            public override void Cancelled(EntityId entityId, string pathName, string resourceFile)
+            {
+                Cancelled(entityId, pathName, resourceFile);
+            }
+
+            public abstract void Action(int instanceId, string pathName, string resourceFile);
+            public virtual void Cancelled(int instanceId, string pathName, string resourceFile) {}
+        }
+
+        public abstract class AssetCreationEndAction : ScriptableObject
+        {
+            public virtual void OnEnable()
+            {
+                hideFlags = HideFlags.HideAndDontSave;
+            }
+
+            public abstract void Action(EntityId entityId, string pathName, string resourceFile);
+            public virtual void Cancelled(EntityId entityId, string pathName, string resourceFile) {}
+
+            public virtual void CleanUp()
+            {
+                DestroyImmediate(this);
+            }
+        }
+
+
+        internal class DoCreateNewDefaultAsset : AssetCreationEndAction
+        {
+            public override void Action(EntityId entityId, string pathName, string resourceFile)
+            {
+                var cleanPath = AssetDatabase.GenerateUniqueAssetPath(pathName);
+                AssetDatabase.CreateAsset(EditorUtility.EntityIdToObject(entityId),
+                    cleanPath);
+                var obj = AssetDatabase.LoadMainAssetAtPath(cleanPath);
+                var name = obj.name;
+                ObjectFactory.FinalizeObjectAndAwake(obj);
+                obj.name = name;
+                AssetDatabase.SaveAssetIfDirty(obj);
+                ProjectWindowUtil.FrameObjectInProjectWindow(entityId);
+            }
+
+            public override void Cancelled(EntityId entityId, string pathName, string resourceFile)
+            {
+                Selection.activeObject = null;
+            }
+        }
+
+        internal class DoCreateNewAsset : AssetCreationEndAction
+        {
+            public override void Action(EntityId entityId, string pathName, string resourceFile)
+            {
+                AssetDatabase.CreateAsset(EditorUtility.EntityIdToObject(entityId),
+                    AssetDatabase.GenerateUniqueAssetPath(pathName));
+                ProjectWindowUtil.FrameObjectInProjectWindow(entityId);
+            }
+
+            public override void Cancelled(EntityId entityId, string pathName, string resourceFile)
+            {
+                Selection.activeObject = null;
+            }
+        }
+
+        internal class DoCreateFolder : AssetCreationEndAction
+        {
+            public override void Action(EntityId entityId, string pathName, string resourceFile)
+            {
+                string guid = AssetDatabase.CreateFolder(Path.GetDirectoryName(pathName), Path.GetFileName(pathName));
+                Object o = AssetDatabase.LoadAssetAtPath(AssetDatabase.GUIDToAssetPath(guid), typeof(Object));
+                ProjectWindowUtil.ShowCreatedAsset(o);
+            }
+        }
+        internal partial class DoCreateFolderWithSelection : DoCreateFolder
+        {
+            [AutoStaticsCleanupOnCodeReload]
+            public static DoCreateFolderWithSelection Instance = null;
+
+            [SerializeField]
+            List<EntityId> m_SerializedSelection;
+            [SerializeField]
+            List<string> m_SerializedPaths;
+            public override void OnEnable()
+            {
+                Instance = this;
+
+                // this should only be after a domain reload so we shouldnt need to worry about cleaning up any existing state
+                if (m_SerializedSelection != null)
+                {
+                    m_SelectionSet = HashSetPool<EntityId>.Get();
+                    foreach (var id in m_SerializedSelection)
+                        m_SelectionSet.Add(id);
+                }
+                if (m_SerializedPaths != null)
+                {
+                    m_Paths = HashSetPool<string>.Get();
+                    foreach (var path in m_SerializedPaths)
+                        m_Paths.Add(path);
+                }
+
+                base.OnEnable();
+            }
+            public void OnDisable()
+            {
+                m_SerializedSelection = m_SelectionSet != null ? new List<EntityId>(m_SelectionSet) : null;
+                m_SerializedPaths = m_Paths != null ? new List<string>(m_Paths) : null;
+            }
+
+            HashSet<EntityId> m_SelectionSet;
+            HashSet<string> m_Paths;
+            public void SetItemsToMove(ReadOnlySpan<EntityId> selection)
+            {
+                m_SelectionSet = HashSetPool<EntityId>.Get();
+                m_Paths = HashSetPool<string>.Get();
+                foreach (var id in selection)
+                {
+                    var path = AssetDatabase.GetAssetPath(id);
+                    if (string.IsNullOrEmpty(path))
+                        continue;
+
+                    m_SelectionSet.Add(id);
+                    m_Paths.Add(path);
+                }
+            }
+
+            public string GetCreationPath()
+            {
+                string selected = null;
+                var commonLength = 0;
+                var isFirst = true;
+
+                foreach (var path in m_Paths)
+                {
+                    if (string.IsNullOrEmpty(path))
+                        continue;
+
+                    var pathParent = Path.GetDirectoryName(path).ConvertSeparatorsToUnity();
+
+                    if (isFirst)
+                    {
+                        selected = pathParent;
+                        commonLength = pathParent.Length;
+                        isFirst = false;
+                        continue;
+                    }
+
+                    commonLength = GetCommonPathLength(selected, pathParent, commonLength);
+                }
+
+                // Empty String will be consumed as "current directory" which is a safe default, this is the same directory a standard folder would be created in if created at this point in time.
+                if (isFirst || string.IsNullOrEmpty(selected) || commonLength == 0
+                    || (selected.StartsWith("Packages") && commonLength <= "Packages".Length))
+                    return string.Empty;
+
+                if (commonLength > selected.Length)
+                    commonLength = selected.Length;
+
+                return selected.Substring(0, commonLength) + '/';
+            }
+
+            /// <summary>
+            /// Returns the length of the common path "segments" (the directory names separated by '/') between path1 and path2, up to currentLimit.
+            /// Given a path1 and path2 of "Assets/MyFolder/MySubfolder/mat.asset" and "Assets/MyFolder/MySubfolder/MyDeeperFolder/tex.png",
+            /// this function will evaluate each path "segment"-by-"segment" and return the length up to the end of the last common segment to give the common parent path of the two paths.
+            /// currentLimit is used to progressively reduce the length when comparing a set of paths.
+            /// </summary>
+            /// <param name="path1">First path to compare</param>
+            /// <param name="path2">Second path to compare</param>
+            /// <param name="currentLimit">The maximum length to consider in paths</param>
+            /// <returns></returns>
+            private static int GetCommonPathLength(string path1, string path2, int currentLimit)
+            {
+                var path1Index = 0;
+                var path2Index = 0;
+                var lastCommonSegmentEndIndex = 0;
+
+                var path1EffectiveLength = Math.Min(path1.Length, currentLimit);
+                var path2Length = path2.Length;
+
+                while (path1Index < path1EffectiveLength && path2Index < path2Length)
+                {
+                    var path1SegmentEndIndex = path1.IndexOf('/', path1Index, path1EffectiveLength - path1Index);
+                    if (path1SegmentEndIndex < 0)
+                        path1SegmentEndIndex = path1EffectiveLength;
+
+                    var path2SegmentEndIndex = path2.IndexOf('/', path2Index, path2Length - path2Index);
+                    if (path2SegmentEndIndex < 0)
+                        path2SegmentEndIndex = path2Length;
+
+                    var path1SegmentLength = path1SegmentEndIndex - path1Index;
+                    var path2SegmentLength = path2SegmentEndIndex - path2Index;
+
+                    if (path1SegmentLength != path2SegmentLength)
+                        break;
+
+                    if (string.Compare(path1, path1Index, path2, path2Index, path1SegmentLength, StringComparison.OrdinalIgnoreCase) != 0)
+                        break;
+
+                    lastCommonSegmentEndIndex = path1SegmentEndIndex;
+
+                    path1Index = (path1SegmentEndIndex < path1EffectiveLength && path1[path1SegmentEndIndex] == '/')
+                        ? path1SegmentEndIndex + 1
+                        : path1SegmentEndIndex;
+
+                    path2Index = (path2SegmentEndIndex < path2Length && path2[path2SegmentEndIndex] == '/')
+                        ? path2SegmentEndIndex + 1
+                        : path2SegmentEndIndex;
+                }
+
+                return lastCommonSegmentEndIndex;
+            }
+
+            public static bool IsItemBeingMoved(EntityId id) => Instance?.m_SelectionSet != null && Instance.m_SelectionSet.Contains(id);
+
+            public override void Action(EntityId entityId, string pathName, string resourceFile)
+            {
+                var guid = AssetDatabase.CreateFolder(Path.GetDirectoryName(pathName).ConvertSeparatorsToUnity(), Path.GetFileName(pathName));
+                var newFolderPath = AssetDatabase.GUIDToAssetPath(guid);
+                using (var _ = new AssetDatabase.AssetEditingScope())
+                {
+                    foreach (var toMovePath in m_Paths)
+                    {
+                        // UUM-134783 - If the new folder is being created inside one of the folders being moved, skip. This can occur when the user has nothing selected in a Package or Project root. E.g "Assets/"
+                        if (newFolderPath.Contains(toMovePath))
+                            continue;
+
+                        var hasSelectedAncestor = false;
+                        var parent = Path.GetDirectoryName(toMovePath).ConvertSeparatorsToUnity();
+
+                        while (!string.IsNullOrEmpty(parent))
+                        {
+                            // If any ancestor folder is also in the selection, skip this item to preserve structure
+                            if (m_Paths.Contains(parent))
+                            {
+                                hasSelectedAncestor = true;
+                                break;
+                            }
+
+                            parent = Path.GetDirectoryName(parent).ConvertSeparatorsToUnity();
+                        }
+                        if (hasSelectedAncestor)
+                            continue;
+
+                        var err = AssetDatabase.MoveAsset(toMovePath, Path.Combine(newFolderPath, Path.GetFileName(toMovePath).ConvertSeparatorsToUnity()));
+                        if (!string.IsNullOrEmpty(err))
+                        {
+                            Debug.LogError($"Could not move asset '{toMovePath}' to new folder: {err}");
+                        }
+                    }
+                }
+
+                Object o = AssetDatabase.LoadAssetAtPath(newFolderPath, typeof(Object));
+                ProjectWindowUtil.ShowCreatedAsset(o);
+            }
+
+            public override void Cancelled(EntityId entityId, string pathName, string resourceFile)
+            {
+                // repaint all project browsers to get rid of the fade effect on non-active windows
+                foreach (var pb in ProjectBrowser.GetAllProjectBrowsers())
+                    pb.Repaint();
+
+                base.Cancelled(entityId, pathName, resourceFile);
+            }
+
+            public override void CleanUp()
+            {
+                if (Instance == this) Instance = null;
+
+                if (m_SelectionSet != null)
+                    HashSetPool<EntityId>.Release(m_SelectionSet);
+                if (m_Paths != null)
+                    HashSetPool<string>.Release(m_Paths);
+                base.CleanUp();
+            }
+        }
+
+        internal class DoCreateScene : AssetCreationEndAction
+        {
+            public override void Action(EntityId entityId, string pathName, string resourceFile)
+            {
+                bool createDefaultGameObjects = true;
+                if (EditorSceneManager.CreateSceneAsset(pathName, createDefaultGameObjects))
+                {
+                    Object sceneAsset = AssetDatabase.LoadAssetAtPath(pathName, typeof(SceneAsset));
+                    ProjectWindowUtil.ShowCreatedAsset(sceneAsset);
+                }
+            }
+        }
+
+        internal class DoCreateFolderWithTemplates : AssetCreationEndAction
+        {
+            public string ResourcesTemplatePath = "Resources/ScriptTemplates";
+
+            public bool UseCustomPath = false;
+
+            public IList<string> templates { get; set; }
+
+            public override void Action(EntityId entityId, string pathName, string resourceFile)
+            {
+                var fileName = Path.GetFileName(pathName);
+                string guid = AssetDatabase.CreateFolder(Path.GetDirectoryName(pathName), fileName);
+                string basePath = UseCustomPath ? ResourcesTemplatePath :
+                    Path.Combine(EditorApplication.applicationContentsPath, ResourcesTemplatePath);
+                using (var _ = new AssetDatabase.AssetEditingScope())
+                {
+                    foreach (var template in templates ?? Array.Empty<string>())
+                    {
+                        var templateNameWithoutTxt = template.Replace(".txt", string.Empty);
+                        var templateExtension = Path.GetExtension(templateNameWithoutTxt);
+
+                        ProjectWindowUtil.CreateScriptAssetFromTemplate(Path.Combine(pathName, fileName + templateExtension), Path.Combine(basePath, template));
+                    }
+                }
+
+                Object o = AssetDatabase.LoadAssetAtPath(AssetDatabase.GUIDToAssetPath(guid), typeof(Object));
+                ProjectWindowUtil.ShowCreatedAsset(o);
+            }
+        }
+
+        internal class DoCreatePrefab : AssetCreationEndAction
+        {
+            public override void Action(EntityId entityId, string pathName, string resourceFile)
+            {
+                var empty = new GameObject("New Prefab");
+                try
+                {
+                    Object o = PrefabUtility.SaveAsPrefabAsset(empty, pathName, out _);
+                    ProjectWindowUtil.ShowCreatedAsset(o);
+                }
+                finally
+                {
+                    DestroyImmediate(empty);
+                }
+            }
+        }
+
+        internal class DoCreatePrefabVariant : AssetCreationEndAction
+        {
+            public override void Action(EntityId entityId, string pathName, string resourceFile)
+            {
+                GameObject go = AssetDatabase.LoadAssetAtPath<GameObject>(resourceFile);
+                Object o = PrefabUtility.CreateVariant(go, pathName);
+                ProjectWindowUtil.ShowCreatedAsset(o);
+            }
+        }
+
+        internal class DoCreateScriptAsset : AssetCreationEndAction
+        {
+            public override void Action(EntityId entityId, string pathName, string resourceFile)
+            {
+                Object o = ProjectWindowUtil.CreateScriptAssetFromTemplate(pathName, resourceFile);
+                ProjectWindowUtil.ShowCreatedAsset(o);
+            }
+        }
+
+        [VisibleToOtherModules("UnityEditor.UIBuilderModule")]
+        internal class DoCreateAssetWithContent : AssetCreationEndAction
+        {
+            public string filecontent;
+            public Action<EntityId> onComplete;
+            public override void Action(EntityId entityId, string pathName, string resourceFile)
+            {
+                Object o = ProjectWindowUtil.CreateScriptAssetWithContent(pathName, filecontent);
+                ProjectWindowUtil.ShowCreatedAsset(o);
+
+                // Call the completion callback
+                onComplete?.Invoke(o.GetEntityId());
+            }
+        }
+
+        internal class DoCreateAnimatorController : AssetCreationEndAction
+        {
+            public override void Action(EntityId entityId, string pathName, string resourceFile)
+            {
+                Animations.AnimatorController controller = Animations.AnimatorController.CreateAnimatorControllerAtPath(pathName);
+                ProjectWindowUtil.ShowCreatedAsset(controller);
+            }
+        }
+
+        internal class DoCreateAudioMixer : AssetCreationEndAction
+        {
+            public override void Action(EntityId entityId, string pathName, string resourceFile)
+            {
+                AudioMixerController controller = AudioMixerController.CreateMixerControllerAtPath(pathName);
+
+                // Check if the output group should be initialized (instanceID is stored in the resource file) TODO: rename 'resourceFile' to 'userData' so it's more obvious that it can be used by all EndNameEditActions
+                if (!string.IsNullOrEmpty(resourceFile))
+                {
+                    if (System.UInt64.TryParse(resourceFile, out var outputEntityIdRaw))
+                    {
+                        Debug.Assert(UnsafeUtility.SizeOf<EntityId>() == sizeof(ulong), "EntityId should be 8 bytes");
+                        var outputGroup = InternalEditorUtility.GetObjectFromEntityId(EntityId.FromULong((ulong)outputEntityIdRaw)) as AudioMixerGroupController;
+                        if (outputGroup != null)
+                            controller.outputAudioMixerGroup = outputGroup;
+                    }
+                }
+                ProjectWindowUtil.ShowCreatedAsset(controller);
+            }
+        }
+
+        internal class DoCreateAudioRandomContainer : AssetCreationEndAction
+        {
+            public Object[] selection;
+
+            private bool ActiveSelectionIsAudioClipList()
+            {
+                return selection.Length > 0 && Array.TrueForAll(selection, obj => obj.GetType() == typeof(AudioClip));
+            }
+
+            private void CreateAudioRandomContainer(string path)
+            {
+                var container = new AudioRandomContainer { name = Path.GetFileName(path) };
+
+                AssetDatabase.CreateAsset(container, path);
+                ProjectWindowUtil.ShowCreatedAsset(container);
+            }
+
+            private void CreateAudioRandomContainerFromSelectedClips(string path)
+            {
+                var container = new AudioRandomContainer { name = Path.GetFileName(path) };
+
+                container.elements = Array.ConvertAll(selection, obj =>
+                {
+                    var element = new AudioContainerElement();
+                    element.audioClip = obj as AudioClip;
+                    element.hideFlags = HideFlags.HideInHierarchy;
+                    return element;
+                });
+
+                AssetDatabase.CreateAsset(container, path);
+
+                foreach (var element in container.elements)
+                {
+                    AssetDatabase.AddObjectToAsset(element, container);
+                    AssetDatabase.TryGetGUIDAndLocalFileIdentifier(element, out var guid, out var localId);
+                    var clipName = element.audioClip.name;
+                    element.name = $"{clipName}_{{{localId}}}";
+                }
+
+                AssetDatabase.SaveAssetIfDirty(container);
+
+                ProjectWindowUtil.ShowCreatedAsset(container);
+            }
+
+            public override void Action(EntityId entityId, string path, string resourceFile)
+            {
+                if (ActiveSelectionIsAudioClipList())
+                {
+                    CreateAudioRandomContainerFromSelectedClips(path);
+                }
+                else
+                {
+                    CreateAudioRandomContainer(path);
+                }
+            }
+        }
+    }
+
+    public class ProjectWindowUtil
+    {
+        [MenuItem("Assets/Create/GUI Skin", false, -18)]
+        public static void CreateNewGUISkin()
+        {
+            GUISkin skin = ScriptableObject.CreateInstance<GUISkin>();
+            GUISkin original = Resources.GetBuiltinResource(typeof(GUISkin), "GameSkin/GameSkin.guiskin") as GUISkin;
+            if (original)
+                EditorUtility.CopySerialized(original, skin);
+            else
+                Debug.LogError("Internal error: unable to load builtin GUIskin");
+
+            CreateAsset(skin, "New GUISkin.guiskin");
+        }
+
+        // Returns the path of currently selected folder. If multiple are selected, returns the first one.
+        [VisibleToOtherModules("UnityEditor.UIToolkitAuthoringModule")]
+        internal static string GetActiveFolderPath()
+        {
+            ProjectBrowser projectBrowser = GetProjectBrowserIfExists();
+
+            if (projectBrowser == null)
+                return "Assets";
+
+            return projectBrowser.GetActiveFolderPath();
+        }
+
+        internal static bool TryGetActiveFolderPath(out string path)
+        {
+            ProjectBrowser projectBrowser = GetProjectBrowserIfExists();
+
+            path = string.Empty;
+
+            if (projectBrowser == null || !projectBrowser.IsTwoColumns())
+                return false;
+
+            path = projectBrowser.GetActiveFolderPath();
+
+            return true;
+        }
+
+        internal static void EndNameEditAction(AssetCreationEndAction action, EntityId entityId, string pathName, string resourceFile, bool accepted)
+        {
+            pathName = AssetDatabase.GenerateUniqueAssetPath(pathName);
+            if (action != null)
+            {
+                if (accepted)
+                    action.Action(entityId, pathName, resourceFile);
+                else
+                    action.Cancelled(entityId, pathName, resourceFile);
+                action.CleanUp();
+            }
+        }
+
+        [UsedByNativeCode]
+        private static void CreateDefaultAsset(Object asset, string pathName)
+        {
+            StartNameEditingIfProjectWindowExists(asset.GetEntityId(), ScriptableObject.CreateInstance<DoCreateNewDefaultAsset>(), pathName, AssetPreview.GetMiniThumbnail(asset), null);
+        }
+
+        // Create a standard Object-derived asset.
+        [RequiredByNativeCode]
+        public static void CreateAsset(Object asset, string pathName)
+        {
+            StartNameEditingIfProjectWindowExists(asset.GetEntityId(), ScriptableObject.CreateInstance<DoCreateNewAsset>(), pathName, AssetPreview.GetMiniThumbnail(asset), null);
+        }
+
+        // Create a folder
+        [RequiredByNativeCode]
+        [ShortcutManagement.ShortcutAttribute("Project Browser/Create/Folder", typeof(ProjectBrowser), KeyCode.N, ShortcutManagement.ShortcutModifiers.Shift | ShortcutManagement.ShortcutModifiers.Action)]
+        public static void CreateFolder()
+        {
+            StartNameEditingIfProjectWindowExists(EntityId.None, ScriptableObject.CreateInstance<DoCreateFolder>(), "New Folder", EditorGUIUtility.IconContent(EditorResources.emptyFolderIconName).image as Texture2D, null);
+        }
+
+        // Create a folder with the current selection
+        [RequiredByNativeCode]
+        internal static void CreateFolderWithSelection()
+        {
+            var action = ScriptableObject.CreateInstance<DoCreateFolderWithSelection>();
+            action.SetItemsToMove(Selection.GetEntityIdsUnsafe());
+
+            StartNameEditingIfProjectWindowExists(EntityId.None, action, $"{action.GetCreationPath()}New Folder with Selection", EditorGUIUtility.IconContent(EditorResources.folderIconName).image as Texture2D, null);
+        }
+
+        internal static void CreateFolderWithTemplates(string defaultName, params string[] templates)
+        {
+            var folderIcon = templates != null && templates.Length > 0
+                ? EditorResources.folderIconName
+                : EditorResources.emptyFolderIconName;
+
+            var endNameEditAction = ScriptableObject.CreateInstance<DoCreateFolderWithTemplates>();
+            endNameEditAction.templates = templates;
+            StartNameEditingIfProjectWindowExists(EntityId.None, endNameEditAction, defaultName, EditorGUIUtility.IconContent(folderIcon).image as Texture2D, null);
+        }
+
+        internal static void CreateFolderWithTemplatesWithCustomResourcesPath(string defaultName, string customResPath, params string[] templates)
+        {
+            var folderIcon = templates != null && templates.Length > 0
+                ? EditorResources.folderIconName
+                : EditorResources.emptyFolderIconName;
+
+            var endNameEditAction = ScriptableObject.CreateInstance<DoCreateFolderWithTemplates>();
+            endNameEditAction.templates = templates;
+            endNameEditAction.ResourcesTemplatePath = customResPath;
+            endNameEditAction.UseCustomPath = true;
+            StartNameEditingIfProjectWindowExists(EntityId.None, endNameEditAction, defaultName, EditorGUIUtility.IconContent(folderIcon).image as Texture2D, null);
+        }
+
+        [RequiredByNativeCode]
+        public static void CreateScene()
+        {
+            StartNameEditingIfProjectWindowExists(EntityId.None, ScriptableObject.CreateInstance<DoCreateScene>(), "New Scene.unity", EditorGUIUtility.FindTexture(typeof(SceneAsset)), null);
+        }
+
+        [MenuItem("Assets/Create/Scene/Prefab", false, 21)]
+        static void CreatePrefab()
+        {
+            StartNameEditingIfProjectWindowExists(
+                EntityId.None,
+                ScriptableObject.CreateInstance<DoCreatePrefab>(),
+                "New Prefab.prefab",
+                EditorGUIUtility.FindTexture("Prefab Icon"),
+                null);
+        }
+
+        [MenuItem("Assets/Create/Scene/Prefab Variant", true)]
+        static bool CreatePrefabVariantValidation()
+        {
+            var gameObjects = Selection.gameObjects;
+            if (gameObjects == null || gameObjects.Length == 0)
+                return false;
+
+            foreach (var go in gameObjects)
+            {
+                if (go == null || !EditorUtility.IsPersistent(go))
+                    return false;
+            }
+            return true;
+        }
+
+        [MenuItem("Assets/Create/Scene/Prefab Variant", false, 22)]
+        static void CreatePrefabVariant()
+        {
+            var gameObjects = Selection.gameObjects;
+            if (gameObjects == null || gameObjects.Length == 0)
+                return;
+
+            if (gameObjects.Length == 1)
+            {
+                var go = gameObjects[0];
+                if (go == null || !EditorUtility.IsPersistent(go))
+                    return;
+
+                string sourcePath = AssetDatabase.GetAssetPath(go);
+                string sourceDir = Path.GetDirectoryName(sourcePath).ConvertSeparatorsToUnity();
+                string variantPath = GetPrefabVariantPath(sourceDir, go);
+
+                StartNameEditingIfProjectWindowExists(
+                    EntityId.None,
+                    ScriptableObject.CreateInstance<DoCreatePrefabVariant>(),
+                    variantPath,
+                    EditorGUIUtility.FindTexture("PrefabVariant Icon"),
+                    sourcePath);
+            }
+            else if (gameObjects.Length > 1)
+            {
+                CreatePrefabVariants(gameObjects);
+            }
+        }
+
+        [MenuItem("Assets/Create/Prefab Variant", true)]
+        static bool CreatePrefabVariantShortcutValidation() => CreatePrefabVariantValidation();
+        [MenuItem("Assets/Create/Prefab Variant", false, -215)]
+        static void CreatePrefabVariantShortcut() => CreatePrefabVariant();
+
+        static GameObject[] CreatePrefabVariants(GameObject[] gameObjects)
+        {
+            if (gameObjects == null)
+                return null;
+
+            foreach (var go in gameObjects)
+            {
+                if (go == null || !EditorUtility.IsPersistent(go))
+                    return null;
+            }
+
+            var createdVariants = new List<GameObject>();
+            foreach (var go in gameObjects)
+            {
+                string sourcePath = AssetDatabase.GetAssetPath(go);
+                string sourceDir = Path.GetDirectoryName(sourcePath).ConvertSeparatorsToUnity();
+                string variantPath = GetPrefabVariantPath(sourceDir, go);
+                variantPath = AssetDatabase.GenerateUniqueAssetPath(variantPath);
+
+                var variant = PrefabUtility.CreateVariant(go, variantPath);
+                if (variant != null)
+                    createdVariants.Add(variant);
+            }
+
+            if (createdVariants.Count > 0)
+            {
+                Selection.objects = createdVariants.ToArray();
+                FrameObjectInProjectWindow(createdVariants[^1].GetEntityId());
+            }
+
+            return createdVariants.ToArray();
+        }
+
+        static string GetPrefabVariantPath(string folder, GameObject gameObject)
+        {
+            if (PrefabUtility.IsPartOfModelPrefab(gameObject))
+                return string.Format("{0}/{1}.prefab", folder, gameObject.name);
+            else
+                return string.Format("{0}/{1} Variant.prefab", folder, gameObject.name);
+        }
+
+        [Obsolete("CreateAssetWithContent(string, string, Texture2D, Action<int>) is obsolete. Use CreateAssetWithTextContent(string, string, Texture2D, Action<EntityId>) instead.", true)]
+        public static void CreateAssetWithContent(string filename, string content, Texture2D icon = null, Action<int> onRenameComplete = null)
+        {
+            var action = ScriptableObject.CreateInstance<DoCreateAssetWithContent>();
+            action.filecontent = content;
+            action.onComplete = onRenameComplete != null ? (id) => onRenameComplete(id) : null; // Wrap to obsolete int version
+            StartNameEditingIfProjectWindowExists(EntityId.None, action, filename, icon, null);
+        }
+
+        public static void CreateAssetWithTextContent(string filename, string content, Texture2D icon = null, Action<EntityId> onRenameComplete = null)
+        {
+            var action = ScriptableObject.CreateInstance<DoCreateAssetWithContent>();
+            action.filecontent = content;
+            action.onComplete = onRenameComplete;
+            StartNameEditingIfProjectWindowExists(EntityId.None, action, filename, icon, null);
+        }
+
+        [RequiredByNativeCode]
+        public static void CreateScriptAssetFromTemplateFile(string templatePath, string defaultNewFileName)
+        {
+            if (templatePath == null)
+                throw new ArgumentNullException(nameof(templatePath));
+            if (!File.Exists(templatePath))
+                throw new FileNotFoundException($"The template file \"{templatePath}\" could not be found.", templatePath);
+
+            if (string.IsNullOrEmpty(defaultNewFileName))
+                defaultNewFileName = Path.GetFileName(templatePath);
+
+            Texture2D icon = null;
+            switch (Path.GetExtension(defaultNewFileName))
+            {
+                case ".cs":
+                    icon = EditorGUIUtility.IconContent("cs Script Icon").image as Texture2D;
+                    break;
+                case ".shader":
+                    icon = EditorGUIUtility.IconContent<Shader>().image as Texture2D;
+                    break;
+                case ".asmdef":
+                    icon = EditorGUIUtility.IconContent<AssemblyDefinitionAsset>().image as Texture2D;
+                    break;
+                case ".asmref":
+                    icon = EditorGUIUtility.IconContent<AssemblyDefinitionReferenceAsset>().image as Texture2D;
+                    break;
+                default:
+                    icon = EditorGUIUtility.IconContent<TextAsset>().image as Texture2D;
+                    break;
+            }
+            StartNameEditingIfProjectWindowExists(EntityId.None, ScriptableObject.CreateInstance<DoCreateScriptAsset>(), defaultNewFileName, icon, templatePath);
+        }
+
+        public static void ShowCreatedAsset(Object o)
+        {
+            // Show it
+            Selection.activeObject = o;
+            if (o)
+                FrameObjectInProjectWindow(o.GetEntityId());
+        }
+
+        [RequiredByNativeCode]
+        static private void CreateAnimatorController()
+        {
+            var icon = EditorGUIUtility.IconContent<Animations.AnimatorController>().image as Texture2D;
+            StartNameEditingIfProjectWindowExists(EntityId.None, ScriptableObject.CreateInstance<DoCreateAnimatorController>(), "New Animator Controller.controller", icon, null);
+        }
+
+        [RequiredByNativeCode]
+        static private void CreateAudioMixer()
+        {
+            var icon = EditorGUIUtility.IconContent<AudioMixerController>().image as Texture2D;
+            StartNameEditingIfProjectWindowExists(EntityId.None, ScriptableObject.CreateInstance<DoCreateAudioMixer>(), "NewAudioMixer.mixer", icon, null);
+        }
+
+        [RequiredByNativeCode]
+        static internal void CreateAudioRandomContainer()
+        {
+            var icon = EditorGUIUtility.IconContent<AudioRandomContainer>().image as Texture2D;
+            var scriptableObject = ScriptableObject.CreateInstance<DoCreateAudioRandomContainer>();
+
+            scriptableObject.selection = Selection.objects;
+
+            StartNameEditingIfProjectWindowExists(EntityId.None, scriptableObject, "New Audio Random Container.asset", icon, null);
+        }
+
+        internal static string SetLineEndings(string content, LineEndingsMode lineEndingsMode)
+        {
+            const string windowsLineEndings = "\r\n";
+            const string unixLineEndings = "\n";
+
+            string preferredLineEndings;
+
+            switch (lineEndingsMode)
+            {
+                case LineEndingsMode.OSNative:
+                    if (Application.platform == RuntimePlatform.WindowsEditor)
+                        preferredLineEndings = windowsLineEndings;
+                    else
+                        preferredLineEndings = unixLineEndings;
+                    break;
+                case LineEndingsMode.Unix:
+                    preferredLineEndings = unixLineEndings;
+                    break;
+                case LineEndingsMode.Windows:
+                    preferredLineEndings = windowsLineEndings;
+                    break;
+                default:
+                    preferredLineEndings = unixLineEndings;
+                    break;
+            }
+
+            content = Regex.Replace(content, @"\r\n?|\n", preferredLineEndings);
+
+            return content;
+        }
+
+        public static Object CreateScriptAssetWithContent(string assetPath, string scriptContent)
+        {
+            AssetModificationProcessorInternal.OnWillCreateAsset(assetPath);
+
+            scriptContent = SetLineEndings(scriptContent, EditorSettings.lineEndingsForNewScripts);
+
+            string fullPath = Path.GetFullPath(assetPath);
+            File.WriteAllText(fullPath, scriptContent);
+
+            // Import the asset
+            AssetDatabase.ImportAsset(assetPath);
+
+            return AssetDatabase.LoadAssetAtPath(assetPath, typeof(Object));
+        }
+
+        internal static string RemoveOrInsertNamespace(string content, string rootNamespace)
+        {
+            var rootNamespaceBeginTag = "#ROOTNAMESPACEBEGIN#";
+            var rootNamespaceEndTag = "#ROOTNAMESPACEEND#";
+
+            if (!content.Contains(rootNamespaceBeginTag) || !content.Contains(rootNamespaceEndTag))
+                return content;
+
+            if (string.IsNullOrEmpty(rootNamespace))
+            {
+                content = Regex.Replace(content, $"((\\r\\n)|\\n)?[ \\t]*{rootNamespaceBeginTag}[ \\t]*", string.Empty);
+                content = Regex.Replace(content, $"((\\r\\n)|\\n)?[ \\t]*{rootNamespaceEndTag}[ \\t]*", string.Empty);
+
+                return content;
+            }
+
+            // Use first found newline character as newline for entire file after replace.
+            var newline = content.Contains("\r\n") ? "\r\n" : "\n";
+            var contentLines = new List<string>(content.Split(new[] { "\r\n", "\r", "\n" }, StringSplitOptions.None));
+
+            int i = 0;
+
+            for (; i < contentLines.Count; ++i)
+            {
+                if (contentLines[i].Contains(rootNamespaceBeginTag))
+                    break;
+            }
+
+            var beginTagLine = contentLines[i];
+
+            // Use the whitespace between beginning of line and #ROOTNAMESPACEBEGIN# as identation.
+            var indentationString = beginTagLine.Substring(0, beginTagLine.IndexOf("#"));
+
+            contentLines[i] = $"namespace {rootNamespace}";
+            contentLines.Insert(i + 1, "{");
+
+            i += 2;
+
+            for (; i < contentLines.Count; ++i)
+            {
+                var line = contentLines[i];
+
+                if (String.IsNullOrEmpty(line) || line.Trim().Length == 0)
+                    continue;
+
+                if (line.Contains(rootNamespaceEndTag))
+                {
+                    contentLines[i] = "}";
+                    break;
+                }
+
+                contentLines[i] = $"{indentationString}{line}";
+            }
+
+            return string.Join(newline, contentLines);
+        }
+
+        internal static string PreprocessScriptAssetTemplate(string pathName, string resourceContent)
+        {
+            string rootNamespace = null;
+
+            if (Path.GetExtension(pathName) == ".cs")
+            {
+                rootNamespace = CompilationPipeline.GetAssemblyRootNamespaceFromScriptPath(pathName);
+            }
+
+            string content = resourceContent;
+
+            // #NOTRIM# is a special marker that is used to mark the end of a line where we want to leave whitespace. prevent editors auto-stripping it by accident.
+            content = content.Replace("#NOTRIM#", "");
+
+            // macro replacement
+            string baseFile = Path.GetFileNameWithoutExtension(pathName);
+
+            content = content.Replace("#NAME#", baseFile);
+            string baseFileNoSpaces = baseFile.Replace(" ", "");
+            content = content.Replace("#SCRIPTNAME#", baseFileNoSpaces);
+
+            content = RemoveOrInsertNamespace(content, rootNamespace);
+
+            // if the script name begins with an uppercase character we support a lowercase substitution variant
+            if (char.IsUpper(baseFileNoSpaces, 0))
+            {
+                baseFileNoSpaces = char.ToLower(baseFileNoSpaces[0]) + baseFileNoSpaces.Substring(1);
+                content = content.Replace("#SCRIPTNAME_LOWER#", baseFileNoSpaces);
+            }
+            else
+            {
+                // still allow the variant, but change the first character to upper and prefix with "my"
+                baseFileNoSpaces = "my" + char.ToUpper(baseFileNoSpaces[0]) + baseFileNoSpaces.Substring(1);
+                content = content.Replace("#SCRIPTNAME_LOWER#", baseFileNoSpaces);
+            }
+
+            return content;
+        }
+
+        internal static Object CreateScriptAssetFromTemplate(string pathName, string resourceFile)
+        {
+            string content = File.ReadAllText(resourceFile);
+            return CreateScriptAssetWithContent(pathName, PreprocessScriptAssetTemplate(pathName, content));
+        }
+
+        [Obsolete("StartNameEditingIfProjectWindowExists(int, EndNameEditAction, string, Texture2D, string) is obsolete. Use StartNameEditingIfProjectWindowExists(EntityId, AssetCreationEndAction, string, Texture2D, string) instead.", true)]
+        public static void StartNameEditingIfProjectWindowExists(int instanceID, EndNameEditAction endAction, string pathName, Texture2D icon, string resourceFile)
+            => StartNameEditingIfProjectWindowExists((EntityId)instanceID, (AssetCreationEndAction)endAction, pathName, icon, resourceFile);
+        public static void StartNameEditingIfProjectWindowExists(EntityId entityId, AssetCreationEndAction endAction, string pathName, Texture2D icon, string resourceFile)
+        {
+            StartNameEditingIfProjectWindowExists(entityId, endAction, pathName, icon, resourceFile, true);
+        }
+
+        [Obsolete("StartNameEditingIfProjectWindowExists(int, EndNameEditAction, string, Texture2D, string, bool) is obsolete. Use StartNameEditingIfProjectWindowExists(EntityId, AssetCreationEndAction, string, Texture2D, string, bool) instead.", true)]
+        public static void StartNameEditingIfProjectWindowExists(int instanceID, EndNameEditAction endAction, string pathName, Texture2D icon, string resourceFile, bool selectAssetBeingCreated)
+            => StartNameEditingIfProjectWindowExists((EntityId)instanceID, (AssetCreationEndAction)endAction, pathName, icon, resourceFile, selectAssetBeingCreated);
+        public static void StartNameEditingIfProjectWindowExists(EntityId entityId, AssetCreationEndAction endAction, string pathName, Texture2D icon, string resourceFile, bool selectAssetBeingCreated)
+        {
+            // instanceID 0 is used for assets that haven't been imported, which can conflict with
+            // asset under creations, which might also use instanceID 0. To avoid this conflict the instanceID
+            // is changed if 0.
+            if (entityId == EntityId.None)
+                entityId = ProjectBrowser.kAssetCreationInstanceID_ForNonExistingAssets;
+
+            ProjectBrowser pb = GetProjectBrowserIfExists();
+            if (pb)
+            {
+                pb.Focus();
+                pb.BeginPreimportedNameEditing(entityId, endAction, pathName, icon, resourceFile, selectAssetBeingCreated);
+                pb.Repaint();
+            }
+            else
+            {
+                if (!pathName.StartsWith("assets/", StringComparison.CurrentCultureIgnoreCase))
+                    pathName = "Assets/" + pathName;
+                EndNameEditAction(endAction, entityId, pathName, resourceFile, true);
+                if (selectAssetBeingCreated)
+                    Selection.activeObject = EditorUtility.EntityIdToObject(entityId);
+            }
+        }
+
+        static ProjectBrowser GetProjectBrowserIfExists()
+        {
+            return ProjectBrowser.s_LastInteractedProjectBrowser;
+        }
+
+        [VisibleToOtherModules("UnityEditor.ProjectAuditorModule")]
+        internal static void FrameObjectInProjectWindow(EntityId entityId, bool ping = false)
+        {
+            ProjectBrowser pb = GetProjectBrowserIfExists();
+            if (pb)
+            {
+                pb.FrameObject(entityId, ping);
+            }
+        }
+
+
+        internal static readonly string k_DraggingFavoriteGenericData = "DraggingFavorite";
+        internal static readonly string k_IsFolderGenericData = "IsFolder";
+
+        internal static bool IsFavoritesItem(EntityId entityId)
+        {
+            return ProjectBrowser.GetItemType(entityId) == ProjectBrowser.ItemType.SavedFilter;
+        }
+
+        internal static void StartDrag(EntityId draggedEntityId, List<EntityId> selectedInstanceIDs)
+        {
+            if (draggedEntityId == ProjectBrowser.kPackagesFolderInstanceId)
+                return;
+
+            DragAndDrop.PrepareStartDrag();
+
+            string title = "";
+            if (IsFavoritesItem(draggedEntityId))
+            {
+                DragAndDrop.SetGenericData(k_DraggingFavoriteGenericData, draggedEntityId);
+            }
+            else
+            {
+                // Normal assets dragging
+                bool isFolder = IsFolder(draggedEntityId);
+                DragAndDrop.objectReferences = GetDragAndDropObjects(draggedEntityId, selectedInstanceIDs);
+                DragAndDrop.SetGenericData(k_IsFolderGenericData, isFolder ? "isFolder" : "");
+                string[] paths = GetDragAndDropPaths(draggedEntityId, selectedInstanceIDs);
+                if (paths.Length > 0)
+                    DragAndDrop.paths = paths;
+
+                if (DragAndDrop.objectReferences.Length > 1)
+                    title = "<Multiple>";
+                else
+                    title = ObjectNames.GetDragAndDropTitle(InternalEditorUtility.GetObjectFromEntityId(draggedEntityId));
+            }
+
+            DragAndDrop.StartDrag(title);
+        }
+
+        internal static Object[] GetDragAndDropObjects(EntityId draggedInstanceID, List<EntityId> selectedInstanceIDs)
+        {
+            List<Object> outList = new List<Object>(selectedInstanceIDs.Count);
+            if ((Event.current.control || Event.current.command) && !selectedInstanceIDs.Contains(draggedInstanceID))
+            {
+                selectedInstanceIDs.Add(draggedInstanceID);
+            }
+            if (selectedInstanceIDs.Contains(draggedInstanceID))
+            {
+                for (int i = 0; i < selectedInstanceIDs.Count; ++i)
+                {
+                    Object obj = InternalEditorUtility.GetObjectFromEntityId(selectedInstanceIDs[i]);
+                    if (obj != null)
+                        outList.Add(obj);
+                }
+            }
+            else
+            {
+                Object obj = InternalEditorUtility.GetObjectFromEntityId(draggedInstanceID);
+                if (obj != null)
+                    outList.Add(obj);
+            }
+            return outList.ToArray();
+        }
+
+        internal static string[] GetDragAndDropPaths(EntityId draggedInstanceID, List<EntityId> selectedInstanceIDs)
+        {
+            // Only main assets contribute a path: GetAssetPath on a sub asset returns its containing
+            // file, so it can only repeat the main asset's path. 'seen' also serves the dragged item's
+            // already-covered check below.
+            List<string> paths = new List<string>();
+            HashSet<string> seen = new HashSet<string>();
+            foreach (EntityId entityId in selectedInstanceIDs)
+            {
+                if (AssetDatabase.IsMainAsset(entityId))
+                    AddPath(AssetDatabase.GetAssetPath(entityId), paths, seen);
+            }
+
+            string dragPath = AssetDatabase.GetAssetPath(draggedInstanceID);
+
+            // A builtin resource or scene object. The selection's paths are dropped too, as before.
+            if (string.IsNullOrEmpty(dragPath))
+                return Array.Empty<string>();
+
+            // Already covered by the selection.
+            if (seen.Contains(dragPath))
+                return paths.ToArray();
+
+            // Ctrl/cmd extends the selection with the grabbed item. Event.current is null outside a GUI
+            // event, where no modifier can be held; reading it unguarded used to throw.
+            Event currentEvent = Event.current;
+            if (currentEvent != null && (currentEvent.control || currentEvent.command))
+            {
+                AddPath(dragPath, paths, seen);
+                return paths.ToArray();
+            }
+
+            return new[] { dragPath };
+        }
+
+        // Skips empties and paths already carried.
+        static void AddPath(string path, List<string> paths, HashSet<string> seen)
+        {
+            if (!string.IsNullOrEmpty(path) && seen.Add(path))
+                paths.Add(path);
+        }
+
+        // Returns instanceID of folders (and main asset if input is a subasset) up until and including the Assets folder
+        public static EntityId[] GetAncestors(EntityId instanceID)
+        {
+            var ancestors = new HashSet<EntityId>();
+            GetAncestors(instanceID, ancestors);
+#pragma warning disable UAC2001 // Avoid Linq
+            return ancestors.ToArray();
+#pragma warning restore UAC2001
+        }
+
+        [Obsolete("GetAncestors is deprecated. Use GetAncestors(EntityId) instead.", true)]
+        public static int[] GetAncestors(int instanceID)
+        {
+            var ancestors = new HashSet<EntityId>();
+            GetAncestors(instanceID, ancestors);
+            var result = new int[ancestors.Count];
+            var i = 0;
+            foreach (var ancestor in ancestors)
+                result[i++] = ancestor;
+            return result;
+        }
+
+        internal static void GetAncestors(EntityId entityId, HashSet<EntityId> ancestors)
+        {
+            // Ensure we handle packages root folder
+            if (entityId == ProjectBrowser.kPackagesFolderInstanceId)
+                return;
+
+            // Ensure we add the main asset as ancestor if input is a sub-asset
+            EntityId mainAssetEntityId = AssetDatabase.GetMainAssetOrInProgressProxyEntityId(AssetDatabase.GetAssetPath(entityId));
+            bool isSubAsset = mainAssetEntityId != entityId;
+            if (isSubAsset)
+                ancestors.Add(mainAssetEntityId);
+
+            // Find ancestors of main asset
+            string currentFolderPath = GetContainingFolder(AssetDatabase.GetAssetPath(mainAssetEntityId));
+            while (!string.IsNullOrEmpty(currentFolderPath))
+            {
+                EntityId currentInstanceID = ProjectBrowser.GetFolderInstanceID(currentFolderPath);
+                ancestors.Add(currentInstanceID);
+                currentFolderPath = GetContainingFolder(AssetDatabase.GetAssetPath(currentInstanceID));
+            }
+        }
+
+        [Obsolete("IsFolder(int instanceID) is deprecated. Use IsFolder(EntityId entityId) instead.", true)]
+        public static bool IsFolder(int instanceID) => IsFolder((EntityId)instanceID);
+
+        public static bool IsFolder(EntityId entityId)
+        {
+            return AssetDatabase.IsValidFolder(AssetDatabase.GetAssetPath(entityId));
+        }
+
+        // Returns containing folder if possible otherwise null.
+        // Trims any trailing forward slashes
+        public static string GetContainingFolder(string path)
+        {
+            if (string.IsNullOrEmpty(path))
+                return null;
+
+            path = path.Trim('/');
+            int pos = path.LastIndexOf("/", StringComparison.Ordinal);
+            if (pos != -1)
+            {
+                return path.Substring(0, pos);
+            }
+
+            // Could not determine containing folder
+            return null;
+        }
+
+        // Input the following list:
+        //  assets/flesh/big
+        //  assets/icons/duke
+        //  assets/icons/duke/snake
+        //  assets/icons/duke/zoo
+        //
+        // ... And the returned list becomes:
+        //  assets/flesh/big
+        //  assets/icons/duke
+
+        // Returned paths are trimmed for ending slashes
+        public static string[] GetBaseFolders(string[] folders)
+        {
+            if (folders.Length <= 1)
+                return folders;
+
+            List<string> result = new List<string>();
+            List<string> sortedFolders = new List<string>(folders);
+
+            // Remove forward slashes before sorting otherwise will "Assets 1/" come before "Assets/"
+            // which we do not want in the find base folders section below
+            for (int i = 0; i < sortedFolders.Count; ++i)
+                sortedFolders[i] = sortedFolders[i].Trim('/');
+
+            sortedFolders.Sort();
+
+            // Ensure folder paths are ending with '/' so e.g: "assets/" is not found in "assets 1/".
+            // If we did not end with '/' then "assets" could be found in "assets 1"
+            // which is not what we want when finding base folders
+            for (int i = 0; i < sortedFolders.Count; ++i)
+                if (!sortedFolders[i].EndsWith("/"))
+                    sortedFolders[i] = sortedFolders[i] + "/";
+
+            // Find base folders
+            // We assume sortedFolders is sorted with less first. E.g: {assets/, assets/icons/}
+            string curPath = sortedFolders[0];
+            result.Add(curPath);
+            for (int i = 1; i < sortedFolders.Count; ++i)
+            {
+                // Ensure path matches from start of curPath (to ensure "assets/monkey" and "npc/assets/monkey" both are returned as base folders)
+                bool startOfPathMatches = sortedFolders[i].IndexOf(curPath, StringComparison.Ordinal) == 0;
+                if (!startOfPathMatches)
+                {
+                    // Add tested path if not part of current path and use tested path as new base
+                    result.Add(sortedFolders[i]);
+                    curPath = sortedFolders[i];
+                }
+            }
+
+            // Remove forward slashes again (added above)
+            for (int i = 0; i < result.Count; ++i)
+                result[i] = result[i].Trim('/');
+
+            return result.ToArray();
+        }
+
+        static bool AnyTargetMaterialHasChildren(string[] targetPaths)
+        {
+            GUID[] guids = Array.ConvertAll(targetPaths, AssetDatabase.GUIDFromAssetPath);
+
+            Func<string, bool> HasChildrenInPath = (string rootPath) => {
+                var property = new HierarchyIterator(rootPath, false);
+                property.SetSearchFilter(new SearchFilter { classNames = new string[] { "Material" }, searchArea = SearchFilter.SearchArea.AllAssets });
+                while (property.Next(default(EntityId[])))
+                {
+                    GUID parent;
+                    var child = InternalEditorUtility.GetLoadedObjectFromEntityId(property.GetEntityIdIfImported()) as Material;
+                    if (child)
+                    {
+                        if (AssetDatabase.IsForeignAsset(child))
+                            continue;
+                        parent = AssetDatabase.GUIDFromAssetPath(AssetDatabase.GetAssetPath(child.parent));
+                    }
+                    else
+                    {
+                        var path = AssetDatabase.GUIDToAssetPath(property.guid);
+                        if (!path.EndsWith(".mat", StringComparison.OrdinalIgnoreCase))
+                            continue;
+                        parent = EditorMaterialUtility.GetMaterialParentFromFile(path);
+                    }
+
+                    for (int i = 0; i < guids.Length; i++)
+                    {
+                        if (guids[i] == parent)
+                            return true;
+                    }
+                }
+                return false;
+            };
+
+            if (HasChildrenInPath("Assets"))
+                return true;
+            foreach (var package in PackageManagerUtilityInternal.GetAllVisiblePackages(false))
+            {
+                if (package.source == PackageManager.PackageSource.Local && HasChildrenInPath(package.assetPath))
+                    return true;
+            }
+            return false;
+        }
+
+        static void ReparentMaterialChildren(string assetPath)
+        {
+            var toDelete = AssetDatabase.LoadAssetAtPath<Material>(assetPath);
+            var toDeleteGUID = AssetDatabase.GUIDFromAssetPath(assetPath);
+            var newParent = toDelete.parent;
+
+            Action<string> ReparentInPath = (string rootPath) => {
+                var property = new HierarchyIterator(rootPath, false);
+                property.SetSearchFilter(new SearchFilter { classNames = new string[] { "Material" }, searchArea = SearchFilter.SearchArea.AllAssets });
+                while (property.Next(default(EntityId[])))
+                {
+                    var child = InternalEditorUtility.GetLoadedObjectFromEntityId(property.GetEntityIdIfImported()) as Material;
+                    if (!child)
+                    {
+                        // First check guid from file to avoid loading all materials in memory
+                        string path = AssetDatabase.GUIDToAssetPath(property.guid);
+                        if (EditorMaterialUtility.GetMaterialParentFromFile(path) != toDeleteGUID)
+                            continue;
+                        child = AssetDatabase.LoadAssetAtPath<Material>(path);
+                    }
+                    if (child != null && child.parent == toDelete && !AssetDatabase.IsForeignAsset(child))
+                        child.parent = newParent;
+                }
+            };
+
+            ReparentInPath("Assets");
+            foreach (var package in PackageManagerUtilityInternal.GetAllVisiblePackages(false))
+            {
+                if (package.source == PackageManager.PackageSource.Local)
+                    ReparentInPath(package.assetPath);
+            }
+        }
+
+        // Deletes the assets of the instance IDs, with an optional user confirmation dialog.
+        // Returns true if the delete operation was successfully performed on all assets.
+        // Note: Zero input assets always returns true.
+        // Also note that the operation cannot be undone even if some operations failed.
+        internal static bool DeleteAssets(IReadOnlyList<EntityId> instanceIDs, bool askIfSure)
+        {
+            if (instanceIDs.Count == 0)
+                return true;
+
+            bool foundAssetsFolder = instanceIDs.Contains(AssetDatabase.GetMainAssetOrInProgressProxyEntityId("Assets"));
+            if (foundAssetsFolder)
+            {
+                EditorUtility.DisplayDialog(L10n.Tr("Cannot Delete", null), L10n.Tr("Deleting the 'Assets' folder is not allowed", null), L10n.Tr("OK", null));
+                return false;
+            }
+
+            bool reparentMaterials = false;
+#pragma warning disable UAC2001 // Avoid Linq
+            var paths = GetMainPathsOfAssets(instanceIDs).ToArray();
+#pragma warning restore UAC2001
+
+            if (paths.Length == 0)
+                return false;
+
+            if (askIfSure)
+            {
+                string title;
+                if (paths.Length > 1)
+                {
+                    title = L10n.Tr("Delete selected assets?", null);
+                }
+                else
+                {
+                    title = L10n.Tr("Delete selected asset?", null);
+                }
+
+                int maxCount = 3;
+                bool containsMaterial = false;
+
+                var infotext = new StringBuilder();
+                for (int i = 0; i < paths.Length; ++i)
+                {
+                    if (i < maxCount)
+                        infotext.AppendLine(paths[i]);
+
+                    if (paths[i].EndsWith(".mat", StringComparison.OrdinalIgnoreCase))
+                    {
+                        containsMaterial = true;
+                        if (i >= maxCount)
+                            break;
+                    }
+                }
+
+                if (paths.Length > maxCount)
+                {
+                    infotext.AppendLine("...");
+                }
+                infotext.AppendLine("");
+                infotext.AppendLine(L10n.Tr("You cannot undo the delete assets action.", null));
+
+                if (containsMaterial)
+                {
+                    // If the assets to be deleted contain a material, check for its children.
+                    // Warning: AnyTargetMaterialHasChildren will load assets so it can be costly.
+                    containsMaterial = AnyTargetMaterialHasChildren(paths);
+                }
+
+                if (containsMaterial)
+                {
+                    infotext.AppendLine();
+                    string name = (paths.Length == 1) ? "This Material" : "One or more of these Material(s)";
+                    infotext.AppendLine(name + " is inherited by one or more children. Deleting will result in the children re-mapping to their closest remaining ancestor. Would you like to proceed with re-parenting?");
+
+                    bool dialogOptionIndex = EditorUtility.DisplayDialog(title, infotext.ToString(), L10n.Tr("Delete and re-parent children", null), L10n.Tr("Cancel", null));
+
+                    if (dialogOptionIndex)
+                        reparentMaterials = true;
+                    else
+                        return false;
+                }
+                else if (!EditorUtility.DisplayDialog(title, infotext.ToString(), L10n.Tr("Delete", null), L10n.Tr("Cancel", null)))
+                    return false;
+            }
+
+            bool success = true;
+            List<string> failedPaths = new List<string>();
+
+            AssetDatabase.StartAssetEditing();
+
+            if (reparentMaterials)
+            {
+                for (int i = 0; i < paths.Length; i++)
+                {
+                    if (paths[i].EndsWith(".mat", StringComparison.OrdinalIgnoreCase))
+                        ReparentMaterialChildren(paths[i]);
+                }
+            }
+
+            if (!AssetDatabase.MoveAssetsToTrash(paths, failedPaths))
+                success = false;
+
+            AssetDatabase.StopAssetEditing();
+
+            if (!success)
+            {
+                var vcsOffline = false;
+                if (!EditorUserSettings.WorkOffline)
+                {
+                    var vco = VersionControlManager.activeVersionControlObject;
+                    if (vco != null)
+                        vcsOffline = !vco.isConnected;
+                    else if (Provider.enabled)
+                        vcsOffline = !Provider.isActive;
+                }
+                var message = vcsOffline ?
+                    L10n.Tr("Some assets could not be deleted.\nMake sure you are connected to your Version Control server or \"Work Offline\" is enabled.", null) :
+                    L10n.Tr("Some assets could not be deleted.\nMake sure nothing is keeping a hook on them, like a loaded DLL for example.", null);
+
+                EditorUtility.DisplayDialog(L10n.Tr("Cannot Delete", null), message, L10n.Tr("OK", null));
+            }
+
+            PackageManager.Client.Resolve(false);
+
+            return success;
+        }
+
+        internal static IEnumerable<string> GetMainPathsOfAssets(IEnumerable<EntityId> instanceIDs)
+        {
+            foreach (var instanceID in instanceIDs)
+            {
+                if (AssetDatabase.IsMainAsset(instanceID))
+                {
+                    yield return AssetDatabase.GetAssetPath(instanceID);
+                }
+            }
+        }
+    }
+}

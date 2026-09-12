@@ -1,0 +1,156 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+using System;
+using UnityEngine;
+using UnityEngine.Bindings;
+using UnityEngine.UIElements;
+using Unity.Scripting.LifecycleManagement;
+
+namespace UnityEditor.UIElements
+{
+    internal interface ISerializedObjectBindingImplementation
+    {
+        void Bind(VisualElement element, SerializedObject obj);
+        void Unbind(VisualElement element);
+        SerializedProperty BindProperty(IBindable field, SerializedObject obj);
+        void BindProperty(IBindable field, SerializedProperty property);
+
+        void Bind(VisualElement element, object bindingContext, SerializedProperty parentProperty);
+
+        void TrackPropertyValue(VisualElement element, SerializedProperty property, Action<object, SerializedProperty> callback);
+
+        void UntrackPropertyValue(VisualElement element, SerializedProperty property, Action<object, SerializedProperty> callback);
+
+        void TrackSerializedObjectValue(VisualElement element, SerializedObject property, Action<SerializedObject> callback);
+
+        void HandleStyleUpdate(VisualElement element);
+    }
+
+    /// <summary>
+    /// Provides VisualElement extension methods that implement data binding between INotifyValueChanged fields and SerializedObjects.
+    /// </summary>
+    public static partial class BindingExtensions
+    {
+        /// <summary>
+        /// USS class added to element when in prefab override mode.
+        /// </summary>
+        public static readonly string prefabOverrideUssClassName = "unity-binding--prefab-override";
+        internal static readonly string prefabOverrideBarName = "unity-binding-prefab-override-bar";
+        internal static readonly string prefabOverrideBarContainerName = "unity-prefab-override-bars-container";
+        internal static readonly string prefabOverrideBarUssClassName = "unity-binding__prefab-override-bar";
+        internal static readonly string prefabOverrideBarNotApplicableUssClassName = "unity-binding__prefab-override-bar-not-applicable";
+        internal static readonly UniqueStyleString drivenUssClassName = new("unity-binding--driven");
+        [VisibleToOtherModules("UnityEditor.UIBuilderModule", "UnityEditor.UIToolkitAuthoringModule")]
+        internal static readonly UniqueStyleString animationAnimatedUssClassName = new("unity-binding--animation-animated");
+        [VisibleToOtherModules("UnityEditor.UIBuilderModule", "UnityEditor.UIToolkitAuthoringModule")]
+        internal static readonly UniqueStyleString animationRecordedUssClassName = new("unity-binding--animation-recorded");
+        [VisibleToOtherModules("UnityEditor.UIBuilderModule", "UnityEditor.UIToolkitAuthoringModule")]
+        internal static readonly UniqueStyleString animationCandidateUssClassName = new("unity-binding--animation-candidate");
+        internal static readonly UniqueStyleString livePropertyUssClassName = new("unity-binding--live-property");
+        internal static readonly string livePropertyBarName = "unity-binding-live-property-bar";
+        internal static readonly string livePropertyBarContainerName = "unity-live-property-bars-container";
+        internal static readonly string livePropertyBarUssClassName = "unity-binding__live-property-bar";
+
+        internal static readonly PropertyName s_DataSourceProperty = new PropertyName("unity-data-source");
+
+        [VisibleToOtherModules("UnityEditor.UIBuilderModule")]
+        internal static readonly string s_SerializedBindingId = "--unity-serialized-object-bindings";
+        internal static readonly string s_SerializedBindingContextUpdaterId = "--unity-serialized-object-bindings-context-updater";
+
+        [AutoStaticsCleanupOnCodeReload]
+        internal static ISerializedObjectBindingImplementation bindingImpl = null;
+
+        /// <summary>
+        /// Binds a SerializedObject to fields in the element hierarchy.
+        /// </summary>
+        /// <param name="element">Root VisualElement containing IBindable fields.</param>
+        /// <param name="obj">Data object.</param>
+        /// <remarks>
+        /// Don’t call @@Bind()@@ from the @@Editor.CreateInspectorGUI()@2 or @@PropertyDrawer.CreatePropertyGUI()@@ override. It is called automatically on the hierarchy that these methods return.
+        /// </remarks>
+        public static void Bind(this VisualElement element, SerializedObject obj)
+        {
+            bindingImpl.Bind(element, obj);
+        }
+
+        /// <summary>
+        /// Disconnects all properties bound to fields in the element's hierarchy.
+        /// </summary>
+        /// <param name="element">Root VisualElement containing IBindable fields.</param>
+        public static void Unbind(this VisualElement element)
+        {
+            bindingImpl.Unbind(element);
+        }
+
+        /// <summary>
+        /// Binds a property to a field and synchronizes their values. This method finds the property using the field's binding path.
+        /// </summary>
+        /// <param name="field">VisualElement field editing a property.</param>
+        /// <param name="obj">Root SerializedObject containing the bindable property.</param>
+        /// <returns>The serialized object that owns the bound property.</returns>
+        public static SerializedProperty BindProperty(this IBindable field, SerializedObject obj)
+        {
+            return bindingImpl.BindProperty(field, obj);
+        }
+
+        /// <summary>
+        /// Binds a property to a field and synchronizes their values.
+        /// </summary>
+        /// <param name="field">VisualElement field editing a property.</param>
+        /// <param name="property">The SerializedProperty to bind.</param>
+        public static void BindProperty(this IBindable field, SerializedProperty property)
+        {
+            bindingImpl.BindProperty(field, property);
+        }
+
+        internal static void HandleStyleUpdate(VisualElement element)
+        {
+            bindingImpl.HandleStyleUpdate(element);
+        }
+
+        /// <summary>
+        /// Executes the callback when the property value changes. Unity checks properties for changes at regular intervals during the update loop.
+        /// If no callback is specified, a SerializedPropertyChangeEvent is sent to the target element.
+        /// </summary>
+        /// <param name="element">VisualElement tracking a property.</param>
+        /// <param name="property">The SerializedProperty to track.</param>
+        /// <param name="callback">Invoked when the tracked SerializedProperty value changes.</param>
+        public static void TrackPropertyValue(this VisualElement element, SerializedProperty property, Action<SerializedProperty> callback = null)
+        {
+            bindingImpl.TrackPropertyValue(element, property, callback == null ? null : (e, p) => callback(p));
+        }
+
+        [VisibleToOtherModules("UnityEditor.UIBuilderModule", "UnityEditor.UIToolkitAuthoringModule")]
+        internal static void TrackPropertyValue(this VisualElement element, SerializedProperty property, Action<object, SerializedProperty> callback)
+        {
+            bindingImpl.TrackPropertyValue(element, property, callback);
+        }
+
+        [VisibleToOtherModules("UnityEditor.UIBuilderModule", "UnityEditor.UIToolkitAuthoringModule")]
+        internal static void UntrackPropertyValue(this VisualElement element, SerializedProperty property)
+        {
+            bindingImpl.UntrackPropertyValue(element, property, null);
+        }
+
+        [VisibleToOtherModules("UnityEditor.UIBuilderModule", "UnityEditor.UIToolkitAuthoringModule")]
+        internal static void UntrackPropertyValue(this VisualElement element, SerializedProperty property, Action<object, SerializedProperty> callback)
+        {
+            bindingImpl.UntrackPropertyValue(element, property, callback);
+        }
+
+        /// <summary>
+        /// Executes the callback when the property value changes. Unity checks properties for changes at regular intervals during the update loop.
+        /// If no callback is specified, a SerializedPropertyChangeEvent is sent to the target element.
+        /// </summary>
+        /// <param name="element">VisualElement tracking an object.</param>
+        /// <param name="obj">The SerializedObject to track.</param>
+        /// <param name="callback">Invoked when one of the tracked SerializedObject's value changes.</param>
+        public static void TrackSerializedObjectValue(this VisualElement element, SerializedObject obj,
+            Action<SerializedObject> callback = null)
+        {
+            bindingImpl.TrackSerializedObjectValue(element, obj, callback);
+        }
+    }
+}

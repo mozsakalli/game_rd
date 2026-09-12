@@ -1,0 +1,1696 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+#pragma warning disable UAL0015,UAL0018,UAL0019,UAL0020,UAL0021 // AutoStaticsCleanup usage analysis: Search not yet converted
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using UnityEditor.Profiling;
+using UnityEditor.Search.Providers;
+using UnityEditor.SearchService;
+using UnityEditor.ShortcutManagement;
+using UnityEngine;
+using UnityEngine.Search;
+using UnityEngine.UIElements;
+using Unity.Scripting.LifecycleManagement;
+
+namespace UnityEditor.Search
+{
+    interface ISearchWindow
+    {
+        void Close();
+        bool IsPicker();
+        bool HasFocus();
+        void Show();
+        ISearchView ShowWindow();
+        ISearchView ShowWindow(SearchFlags flags);
+        ISearchView ShowWindow(float width, float height);
+        ISearchView ShowWindow(float width, float height, SearchFlags flags);
+        IEnumerable<SearchItem> FetchItems();
+        void AddProvidersToMenu(GenericMenu menu);
+        void AddItemsToMenu(GenericMenu menu);
+        void Update();
+    }
+
+    [EditorWindowTitle(title="Search")]
+    partial class SearchWindow : EditorWindow, ISearchView, ISearchQueryView, ISearchElement, IDisposable, ISearchWindow
+    {
+        internal const float defaultWidth = 700f;
+        internal const float defaultHeight = 450f;
+
+        internal const string refreshShortcutId = "Search/Refresh";
+        internal const string toggleQueryBuilderModeShortcutId = "Search/Toggle Query Builder Mode";
+        internal const string toggleInspectorPanelShortcutId = "Search/Toggle Inspector Panel";
+        internal const string toggleSavedSearchesPanelShortcutId = "Search/Toggle Saved Searches Panel";
+
+        private const string k_TogleSyncShortcutName = "Search/Toggle Sync Search View";
+        private const string k_LastSearchPrefKey = "last_search";
+        private const string k_SideBarWidthKey = "Search.SidebarWidth";
+        private const string k_DetailsWidthKey = "Search.DetailsWidth";
+        private static readonly string k_CheckWindowKeyName = $"{typeof(SearchWindow).FullName}h";
+        static readonly TimeSpan k_MaxUpdateTime = TimeSpan.FromMilliseconds(16);
+        static readonly TimeSpan k_InfiniteTime = TimeSpan.MaxValue;
+
+        [AutoStaticsCleanupOnCodeReload]
+        private static EditorWindow s_FocusedWindow;
+        [AutoStaticsCleanupOnCodeReload]
+        private static SearchViewState s_GlobalViewState = null;
+
+        private bool m_Disposed = false;
+        private Action m_DebounceOff = null;
+        private SearchMonitorView m_SearchMonitorView;
+        private List<Action> m_SearchEventOffs;
+
+        private TwoPaneSplitView m_LeftSplitter;
+        private const string k_LeftSplitterViewDataKey = "search-left-splitter__view-data-key";
+        private TwoPaneSplitView m_RightSplitter;
+        private const string k_RightSplitterViewDataKey = "search-right-splitter__view-data-key";
+        private SearchView m_SearchView = default;
+        private SearchToolbar m_SearchToolbar;
+        private SearchGroupBar m_GroupBar;
+        private SearchAutoCompleteWindow m_SearchAutoCompleteWindow;
+        private VisualElement m_SearchQueryPanelContainer;
+        private VisualElement m_DetailsPanelContainer;
+        private SearchWindowCustomPanel m_CustomPanelContainer;
+        private SearchIndexingWarningWindow m_IndexingWarningWindow;
+        private List<SearchProvider> m_AvailableProviders;
+        private bool m_HasAssetProvider;
+        Dictionary<string, (ShortcutBinding, Action)> m_ShortcutBindings;
+        private SearchStatusBar m_StatusBar;
+        private RefreshFlags m_RefreshRequest;
+
+        [SerializeField] protected int m_ContextHash;
+        [SerializeField] private float m_PreviousItemSize = -1;
+        [SerializeField] protected SearchViewState m_ViewState = null;
+        [SerializeField] protected EditorWindow m_LastFocusedWindow;
+        [SerializeField] protected bool m_IsWarningWindowDismissed;
+
+        internal SearchView searchView => m_SearchView;
+        internal IResultView resultView => m_SearchView.resultView;
+        internal QueryBuilder queryBuilder => m_SearchToolbar.queryBuilder;
+
+        internal SearchAutoCompleteWindow autoComplete => m_SearchAutoCompleteWindow;
+        internal SearchToolbar searchToolbar => m_SearchToolbar;
+        internal IReadOnlyCollection<SearchProvider> availableProviders => m_AvailableProviders;
+
+        internal static readonly int generalWindowContextHash = HashingUtils.GetHashCode(SearchFlags.GeneralSearchWindow.ToString());
+        internal int contextHash => m_ContextHash;
+
+        public Action<SearchItem, bool> selectCallback
+        {
+            get => m_ViewState.selectHandler;
+            set => m_ViewState.selectHandler = value;
+        }
+
+        Func<SearchItem, bool> ISearchView.filterCallback { get => (item) => m_ViewState.filterHandler?.Invoke(item) ?? true; }
+        Action<SearchItem> ISearchView.trackingCallback => m_ViewState.trackingHandler;
+
+        public bool searchInProgress => (m_SearchView?.searchInProgress ?? context?.searchInProgress ?? false) || !guiCreated;
+        public bool UpdateNeeded => m_RefreshRequest != RefreshFlags.None || searchInProgress || (m_SearchView?.UpdateNeeded ?? false);
+        public string currentGroup { get => m_SearchView?.currentGroup ?? viewState.group; set => SelectGroup(value); }
+
+        public SearchViewState state => m_ViewState;
+        protected SearchViewState viewState => m_ViewState;
+        SearchViewState ISearchElement.viewState => m_ViewState;
+
+        public ISearchQuery activeQuery
+        {
+            get => m_ViewState.activeQuery;
+            set => m_ViewState.activeQuery = value;
+        }
+
+        public SearchSelection selection => m_SearchView.selection;
+        public SearchContext context => m_ViewState.context;
+        public ISearchList results => m_SearchView.results;
+        public DisplayMode displayMode => m_SearchView.displayMode;
+        public float itemIconSize { get => m_SearchView?.itemSize ?? 0; set => m_SearchView.itemSize = value; }
+        public string currentResultViewId { get => m_SearchView?.currentResultViewId ?? "empty"; set => m_SearchView.currentResultViewId = value; }
+
+        public bool multiselect { get => m_SearchView.multiselect; set => m_SearchView.multiselect = value; }
+        public bool guiCreated { get; private set; } = false;
+
+        internal string windowId => m_ViewState.sessionId;
+        int ISearchView.totalCount => m_SearchView.totalCount;
+        bool ISearchView.syncSearch { get => m_SearchView.syncSearch; set { if (m_SearchView != null) m_SearchView.syncSearch = value; } }
+        SearchPreviewManager ISearchView.previewManager => m_SearchView.previewManager;
+
+        public void CreateGUI()
+        {
+            VisualElement body = rootVisualElement;
+
+            body.focusable = true;
+            body.style.flexGrow = 1.0f;
+            body.RegisterCallback<KeyDownEvent>(OnGlobalKeyDownEvent, callbackOptions: CallbackOptions.IncludeDisabled | CallbackOptions.TrickleDown);
+            body.RegisterCallback<NavigationSubmitEvent>(OnGlobalNavigationSubmitEvent, callbackOptions: CallbackOptions.IncludeDisabled | CallbackOptions.TrickleDown);
+            body.RegisterCallback<ValidateCommandEvent>(OnGlobalValidateCommandEvent, callbackOptions: CallbackOptions.IncludeDisabled | CallbackOptions.TrickleDown);
+            body.RegisterCallback<ExecuteCommandEvent>(OnGlobalExecuteCommandEvent, callbackOptions: CallbackOptions.IncludeDisabled | CallbackOptions.TrickleDown);
+
+            // Create main layout
+            if (m_ViewState.flags.HasNone(SearchViewFlags.HideSearchBar))
+                body.Add(m_SearchToolbar = new SearchToolbar("SearchToolbar", this));
+            else
+                m_SearchView?.RegisterCallback<AttachToPanelEvent>(SetFocusOnViewAttached);
+            body.Add(CreateContent(m_SearchView));
+            body.Add(m_StatusBar = new SearchStatusBar("SearchStatusBar", this));
+
+            m_SearchView?.Refresh(); // Call Refresh after it is attached.
+
+            // Don't add it to the body, the SearchAutoCompleteWindow will take care of it when shown.
+            m_SearchAutoCompleteWindow = new SearchAutoCompleteWindow(this, body);
+
+            guiCreated = true;
+        }
+
+        public void SetCustomPanelConfig(SearchWindowCustomPanelConfig config)
+        {
+            if (config != null && !config.isValid)
+                config = null;
+
+            viewState.customPanelConfig = config;
+            if (m_CustomPanelContainer != null)
+                m_CustomPanelContainer.config = config;
+        }
+
+        public void Update()
+        {
+            UpdateTimed(k_MaxUpdateTime);
+        }
+
+        internal void UpdateTimed(TimeSpan updateTime)
+        {
+            if (!guiCreated)
+                return;
+
+            // Add more context about the Refresh to the SearchView that will gets updated:
+            if (m_RefreshRequest != RefreshFlags.None && m_SearchView != null)
+            {
+                m_SearchView.Refresh(m_RefreshRequest);
+            }
+
+            m_SearchView?.UpdateIncrementalTimed(updateTime);
+            if (m_HasAssetProvider && !m_IsWarningWindowDismissed && m_IndexingWarningWindow != null)
+            {
+                m_IsWarningWindowDismissed = m_IndexingWarningWindow.CheckIndexing();
+            }
+
+            m_RefreshRequest = RefreshFlags.None;
+        }
+
+        internal void CompleteUpdate()
+        {
+            UpdateTimed(k_InfiniteTime);
+        }
+
+        EntityId ISearchView.GetViewId()
+        {
+            return ((ISearchView)m_SearchView).GetViewId();
+        }
+
+        internal bool IsGeneralSearchWindow()
+        {
+            return context.options.HasFlag(SearchFlags.GeneralSearchWindow);
+        }
+
+        internal static SearchFlags GetAdditionalGeneralSearchWindowFlags()
+        {
+            return SearchFlags.AllProvidersAvailable | SearchFlags.UseSessionSettings;
+        }
+
+        internal bool HasSessionSettings()
+        {
+            return m_ContextHash != 0;
+        }
+
+        private void SetFocusOnViewAttached(AttachToPanelEvent evt)
+        {
+            SelectSearch();
+        }
+
+        private void OnGlobalKeyDownEvent(KeyDownEvent evt)
+        {
+            var e = evt.target as VisualElement;
+
+            var focusedElement = rootVisualElement.focusController.focusedElement;
+            var globalNavigationResult = HandleKeyboardNavigation(e, evt, evt.imguiEvent);
+            if (globalNavigationResult.Handled)
+            {
+                evt.StopImmediatePropagation();
+
+                // Restore focus in case we lost it because we sent another event.
+                // focusedElement may be null when the window is not in focus (e.g. in tests
+                // that dispatch events without first focusing any element).
+                if (globalNavigationResult.KeepFocusOnOriginalElement && focusedElement is Focusable focusable)
+                    focusable.Focus();
+            }
+        }
+
+        private void OnGlobalNavigationSubmitEvent(NavigationSubmitEvent evt)
+        {
+            var result = SearchGlobalEventHandlerManager.HandleGlobalEventHandlers(m_ViewState.globalEventManager, evt);
+            if (result.Handled)
+                evt.StopImmediatePropagation();
+        }
+
+        private void OnGlobalValidateCommandEvent(ValidateCommandEvent evt)
+        {
+            var result = SearchGlobalEventHandlerManager.HandleGlobalEventHandlers(m_ViewState.globalEventManager, evt);
+            if (result.Handled)
+                evt.StopImmediatePropagation();
+        }
+
+        private void OnGlobalExecuteCommandEvent(ExecuteCommandEvent evt)
+        {
+            var result = SearchGlobalEventHandlerManager.HandleGlobalEventHandlers(m_ViewState.globalEventManager, evt);
+            if (result.Handled)
+                evt.StopImmediatePropagation();
+        }
+
+        private bool HandleDefaultPressEnter(Event evt)
+        {
+            if (evt.type != EventType.KeyDown)
+                return false;
+
+            if (evt.modifiers > 0)
+                return false;
+
+            if (selection.Count != 0 || results.Count == 0)
+                return false;
+
+            if (evt.keyCode != KeyCode.KeypadEnter && evt.keyCode != KeyCode.Return)
+                return false;
+
+            SetSelection(0);
+            evt.Use();
+            GUIUtility.ExitGUI();
+            return true;
+        }
+
+        private SearchGlobalEventHandlerResult HandleKeyboardNavigation(VisualElement target, KeyDownEvent evt, Event imguiEvt)
+        {
+            // Note: Inspector done with IMGUI (ex: transform, Light...) can allow TextField editing that is not done through a UIElements.TextElement so
+            // assume all KeyDownEvent coming from UIElements.InspectorElement needs to be handle by the Embedded Inspector.
+            if ((target is TextElement || target?.parent is UIElements.InspectorElement) && !SearchElement.IsPartOf<SearchToolbar>(target))
+                return false;
+
+            // Ignore tabbing and line return in quicksearch
+            if (evt.keyCode == KeyCode.None && (evt.character == '\t' || (int)evt.character == 10))
+                return true;
+
+            // Handle shortcuts because the textfield is eating them.
+            if (HandleShortcuts(evt))
+                return true;
+
+            var globalHandlerResult = SearchGlobalEventHandlerManager.HandleGlobalEventHandlers(m_ViewState.globalEventManager, evt);
+            if (globalHandlerResult.Handled)
+                return globalHandlerResult;
+
+            if (imguiEvt != null && HandleDefaultPressEnter(imguiEvt))
+                return true;
+
+            if (evt is KeyDownEvent)
+            {
+                var groupNavModifier = Application.platform == RuntimePlatform.OSXEditor ? (EventModifiers.Command | EventModifiers.Alt) : EventModifiers.Alt;
+
+                if (evt.keyCode == KeyCode.Escape)
+                {
+                    HandleEscapeKeyDown(evt);
+                    return true;
+                }
+                else if (evt.modifiers.HasAll(groupNavModifier) && evt.keyCode == KeyCode.LeftArrow)
+                {
+                    string previousGroupId = null;
+                    foreach (var group in EnumerateGroups())
+                    {
+                        if (previousGroupId != null && group.id == currentGroup)
+                        {
+                            SelectGroup(previousGroupId);
+                            break;
+                        }
+                        previousGroupId = group.id;
+                    }
+                    return true;
+                }
+                else if (evt.modifiers.HasAll(groupNavModifier) && evt.keyCode == KeyCode.RightArrow)
+                {
+                    bool selectNext = false;
+                    foreach (var group in EnumerateGroups())
+                    {
+                        if (selectNext)
+                        {
+                            SelectGroup(group.id);
+                            break;
+                        }
+                        else if (group.id == m_SearchView.currentGroup)
+                            selectNext = true;
+                    }
+                    return true;
+                }
+                else if (evt.keyCode == KeyCode.Tab && evt.modifiers == EventModifiers.None && !viewState.queryBuilderEnabled)
+                {
+                    m_SearchAutoCompleteWindow.Show(m_SearchToolbar);
+                    return true;
+                }
+            }
+
+            if (imguiEvt != null && imguiEvt.type == EventType.Used)
+                return true;
+
+            return false;
+        }
+
+        protected virtual void HandleEscapeKeyDown(EventBase evt)
+        {
+            if (!docked)
+            {
+                SendEvent(SearchAnalytics.GenericEventType.QuickSearchDismissEsc);
+                selectCallback?.Invoke(null, true);
+                selectCallback = null;
+                CloseSearchWindow();
+            }
+            else
+            {
+                ClearSearch();
+            }
+        }
+
+        private VisualElement CreateContent(SearchView resultView)
+        {
+            m_GroupBar = !viewState.hideTabs ? new SearchGroupBar("SearchGroupbar", this) : null;
+
+            var resultContainer = SearchElement.Create<VisualElement>("SearchResultContainer", "search-panel", "search-result-container", "search-splitter__flexed-pane");
+            if (m_GroupBar != null)
+            {
+                m_GroupBar.SortingChanged += OnGroupBarSortingChanged;
+                resultContainer.Add(m_GroupBar);
+            }
+
+            m_IndexingWarningWindow = new SearchIndexingWarningWindow(this, m_IsWarningWindowDismissed);
+            resultContainer.Add(m_IndexingWarningWindow);
+
+            m_CustomPanelContainer = new SearchWindowCustomPanel(this, m_SearchView);
+            m_CustomPanelContainer.config = m_ViewState.customPanelConfig;
+            resultContainer.Add(m_CustomPanelContainer);
+
+            resultContainer.Add(resultView);
+
+            m_SearchQueryPanelContainer = new VisualElement() { name = "SearchQueryPanelContainer" };
+            m_SearchQueryPanelContainer.AddToClassList("search-panel-container");
+            if (m_ViewState.isQueryPanelVisible)
+                m_SearchQueryPanelContainer.Add(new SearchQueryPanelTreeView("SearchQueryPanel", this, "search-panel", "search-query-panel"));
+
+            m_DetailsPanelContainer = new VisualElement() { name = "SearchDetailViewContainer" };
+            m_DetailsPanelContainer.AddToClassList("search-panel-container");
+            if (m_ViewState.isInspectorPanelVisible)
+                m_DetailsPanelContainer.Add(new SearchDetailView("SearchDetailView", this, "search-panel", "search-detail-panel"));
+
+            m_LeftSplitter = new TwoPaneSplitView(0, EditorPrefs.GetFloat(k_SideBarWidthKey, 120f), TwoPaneSplitViewOrientation.Horizontal) { name = "SearchLeftSidePanels" };
+            m_LeftSplitter.viewDataKey = k_LeftSplitterViewDataKey;
+            m_LeftSplitter.AddToClassList("search-splitter");
+            m_LeftSplitter.AddToClassList("search-splitter__flexed-pane");
+            m_LeftSplitter.Add(m_SearchQueryPanelContainer);
+            m_LeftSplitter.Add(resultContainer);
+
+            m_RightSplitter = new TwoPaneSplitView(1, EditorPrefs.GetFloat(k_DetailsWidthKey, 160f), TwoPaneSplitViewOrientation.Horizontal) { name = "SearchContent" };
+            m_RightSplitter.viewDataKey = k_RightSplitterViewDataKey;
+            m_RightSplitter.AddToClassList("search-content");
+            m_RightSplitter.AddToClassList("search-splitter");
+            m_RightSplitter.Add(m_LeftSplitter);
+            m_RightSplitter.Add(m_DetailsPanelContainer);
+
+            m_RightSplitter.RegisterCallback<GeometryChangedEvent>(UpdateLayout);
+            return m_RightSplitter;
+        }
+
+        private void OnGroupBarSortingChanged(ISearchListComparer comparer)
+        {
+            m_SearchView?.SetSearchItemComparer(comparer);
+        }
+
+        private void UpdateLayout(GeometryChangedEvent evt)
+        {
+            if (evt.target is CallbackEventHandler eh)
+                eh.UnregisterCallback<GeometryChangedEvent>(UpdateLayout);
+            UpdateSplitterPanes();
+        }
+
+        public void SetSearchText(string searchText, TextCursorPlacement moveCursor = TextCursorPlacement.Default)
+        {
+            SetSearchText(searchText, moveCursor, -1);
+        }
+
+        public void SetSearchText(string searchText, TextCursorPlacement moveCursor, int cursorInsertPosition)
+        {
+            if (context == null)
+                return;
+
+            // Always emit event as cursor might have changed even if the text didn't
+            var oldText = context.searchText;
+            m_SearchView.SetSearchText(searchText, moveCursor);
+            Dispatcher.Emit(SearchEvent.SearchTextChanged, new SearchEventPayload(this, oldText, context.searchText, moveCursor, cursorInsertPosition));
+
+            if (viewState.queryBuilderEnabled && queryBuilder != null && queryBuilder.BuildQuery() != searchText)
+            {
+                Dispatcher.Emit(SearchEvent.RefreshBuilder, new SearchEventPayload(this));
+            }
+        }
+
+        public virtual void Refresh(RefreshFlags flags = RefreshFlags.Default)
+        {
+            m_RefreshRequest |= flags;
+        }
+
+        private void SetContext(SearchContext newContext, bool notifyContextChanged = true)
+        {
+            if (context == null || context != newContext)
+            {
+                var searchText = context?.searchText ?? string.Empty;
+                context?.Dispose();
+                m_ViewState.context = newContext ?? SearchService.CreateContext(searchText, SearchFlags.None);
+
+                if (notifyContextChanged)
+                    Dispatcher.Emit(SearchEvent.SearchContextChanged, new SearchEventPayload(this));
+            }
+
+            if (IsGeneralSearchWindow())
+            {
+                context.options |= GetAdditionalGeneralSearchWindowFlags();
+            }
+
+            UpdateAvailableProviders();
+            m_SearchView?.Reset();
+            ComputeContextHash();
+            context.searchView = this;
+            Refresh();
+        }
+
+        public void SetSelection(params int[] selection)
+        {
+            m_SearchView.SetSelection(selection);
+        }
+
+        public void SetColumns(IEnumerable<SearchColumn> columns)
+        {
+            if (viewState.tableConfig == null)
+                throw new NotSupportedException("This result view cannot set columns");
+
+            #pragma warning disable UAC2001 // Avoid Linq
+            viewState.tableConfig.columns = columns.ToArray();
+#pragma warning restore UAC2001
+
+            m_SearchView.resultView.Refresh(RefreshFlags.DisplayModeChanged);
+        }
+
+        public void AddSelection(params int[] selection)
+        {
+            m_SearchView.AddSelection(selection);
+        }
+
+        public void ExecuteSearchQuery(ISearchQuery query)
+        {
+            SetSelection();
+
+            // Capture previous view flags so we can keep the same state.
+            var preservedViewFlags = viewState.flags & SearchViewFlags.ContextSwitchPreservedMask;
+            var queryBuilderEnabled = viewState.queryBuilderEnabled;
+
+            // Assigned to our viewState from the query ViewState
+            var queryContext = CreateQueryContext(query);
+            var possibleTextQuery = query as SearchQuery;
+            var queryViewState = query.GetViewState();
+            var needToRebindCustomPanel = false;
+            if (possibleTextQuery == null || !possibleTextQuery.isTextOnlyQuery)
+            {
+                // TODO OptimSearchEvents: this might rebuild the table + RefreshViewContent
+
+                // If our current state has a "locked" panel we do not want to assign over it:
+                needToRebindCustomPanel = state.CanAssignCustomPanelConfig();
+                viewState.Assign(queryViewState);
+            }
+            viewState.flags &= ~SearchViewFlags.ContextSwitchPreservedMask;
+            viewState.flags |= preservedViewFlags;
+            viewState.queryBuilderEnabled = queryBuilderEnabled;
+
+            m_StatusBar.UpdateDisplayModeButtons();
+            // TODO OptimSearchEvents: this might rebuild the table + RefreshViewContent
+            m_SearchView.UpdateViewAndEmitDisplayModeChange();
+
+            // TODO OptimSearchEvents: Set the context. This will trigger a synchronous: SearchView.Refresh which in turn can do *multiple*
+            //      SearchView.fetchItems, SearchView.RefreshContent, SearchView.DisplayModeChhange, other SearchView.Refresh, BuildColumns
+            // TODO OptimSearchEvents: This will also trigger an async ContextChanged which will trigger: multiple SearchView.Refresh, ColumnRebuild....
+            SetContext(queryContext, true);
+            if (!viewState.hideTabs)
+            {
+                // TODO OptimSearchEvents: This will perform a RefreshContent.
+                SelectGroup(SearchUtils.GetValidGroupForState(viewState, viewState.group));
+            }
+
+            if (needToRebindCustomPanel)
+            {
+                SetCustomPanelConfig(queryViewState.customPanelConfig);
+            }
+
+            if (!query.IsTemporaryQuery())
+                activeQuery = query;
+            SearchQueryAsset.AddToRecentSearch(query);
+
+            var evt = CreateEvent(SearchAnalytics.GenericEventType.QuickSearchSavedSearchesExecuted, query.searchText, "", query is SearchQueryAsset ? "project" : "user");
+            evt.intPayload1 = viewState.tableConfig != null ? 1 : 0;
+            SearchAnalytics.SendEvent(evt);
+
+            SearchQuery.SaveLastUsedTimeToPropertyDatabase(activeQuery);
+
+            Dispatcher.Emit(SearchEvent.SearchQueryExecuted, new SearchEventPayload(this, query));
+        }
+
+        private void HandleExecuteSearchQuery(ISearchEvent evt)
+        {
+            if (evt.sourceViewState != m_ViewState)
+                return;
+            var query = evt.GetArgument<ISearchQuery>(0);
+            ExecuteSearchQuery(query);
+            evt.Use();
+        }
+
+        protected virtual SearchContext CreateQueryContext(ISearchQuery query)
+        {
+            var providers = context?.GetProviders() ?? SearchService.GetActiveProviders();
+            var flags = context?.options ?? SearchFlags.Default;
+            if (query.GetViewState() != null)
+            {
+                flags |= (query.GetViewState().searchFlags & (SearchFlags.WantsMore | SearchFlags.Packages));
+            }
+            return SearchService.CreateContext(SearchUtils.GetMergedProviders(providers, query.GetProviderIds()), query.searchText, flags);
+        }
+
+        public virtual void ExecuteSelection()
+        {
+            ExecuteSelection(0);
+        }
+
+        private void ExecuteSelection(int actionIndex)
+        {
+            if (selection.Count == 0)
+                return;
+            // Execute default action
+            var item = selection.First();
+            if (item.provider.actions.Count > actionIndex)
+#pragma warning disable UAC2001 // Avoid Linq
+                ExecuteAction(item.provider.actions[actionIndex], selection.ToArray(), true);
+#pragma warning restore UAC2001
+        }
+
+        public void ExecuteAction(SearchAction action, SearchItem[] items, bool endSearch = true)
+        {
+            m_SearchView.ExecuteAction(action, items, endSearch);
+        }
+
+        public void ShowItemContextualMenu(SearchItem item, Rect position)
+        {
+            m_SearchView.ShowItemContextualMenu(item, position);
+        }
+
+        internal virtual void OnEnable()
+        {
+            using (new EditorPerformanceTracker("SearchView.OnEnable"))
+            {
+                minSize = new Vector2(200f, minSize.y);
+                InitializeShortcutBindings();
+
+                rootVisualElement.name = nameof(SearchWindow);
+                rootVisualElement.AddToClassList("search-window");
+                SearchElement.AppendStyleSheets(rootVisualElement);
+
+                hideFlags |= HideFlags.DontSaveInEditor;
+                wantsLessLayoutEvents = true;
+
+                m_LastFocusedWindow = m_LastFocusedWindow ?? focusedWindow;
+                m_ViewState = s_GlobalViewState ?? m_ViewState ?? SearchViewState.LoadDefaults();
+
+                // Don't emit event when initializing the window, as all the views will initialize
+                // with the correct context anyway. Emitting when the window is initializing causes issues with tests.
+                SetContext(m_ViewState.context, notifyContextChanged: false);
+                LoadSessionSettings();
+
+                SearchSettings.SortActionsPriority();
+
+                m_SearchMonitorView = SearchMonitor.GetView();
+                m_SearchView = new SearchView(m_ViewState, GetEntityId());
+
+                UpdateWindowTitle();
+
+                m_SearchEventOffs = new List<Action>()
+                {
+                    Dispatcher.On(SearchEvent.ExecuteSearchQuery, HandleExecuteSearchQuery),
+                    Dispatcher.On(SearchEvent.SaveUserQuery, HandleSaveUserQuery),
+                    Dispatcher.On(SearchEvent.SaveProjectQuery, HandleSaveProjectQuery),
+                    Dispatcher.On(SearchEvent.SaveActiveSearchQuery, HandleSaveActiveSearchQuery),
+                    Dispatcher.On(SearchEvent.RefreshContent, RefreshContent)
+                };
+
+                s_GlobalViewState = null;
+            }
+        }
+
+        void UpdateAvailableProviders()
+        {
+            var contextProviders = context.GetProviders();
+            #pragma warning disable UAC2001 // Avoid Linq
+            var availableProviders = context.options.HasAny(SearchFlags.AllProvidersAvailable) ? contextProviders.Concat(SearchService.Providers).Distinct() : contextProviders;
+#pragma warning restore UAC2001
+            #pragma warning disable UAC2001 // Avoid Linq
+            m_AvailableProviders = SearchUtils.SortProvider(availableProviders).ToList();
+#pragma warning restore UAC2001
+        }
+
+        void HandleSaveActiveSearchQuery(ISearchEvent evt)
+        {
+            if (evt.sourceViewState != m_ViewState)
+                return;
+            SaveActiveSearchQuery();
+        }
+
+        void HandleSaveProjectQuery(ISearchEvent evt)
+        {
+            if (evt.sourceViewState != m_ViewState)
+                return;
+
+            string savePath = null;
+            if (evt.HasArgument(0))
+                savePath = evt.GetArgument<string>(0);
+            SaveProjectSearchQuery(savePath);
+        }
+
+        void HandleSaveUserQuery(ISearchEvent evt)
+        {
+            if (evt.sourceViewState != m_ViewState)
+                return;
+            SaveUserSearchQuery();
+        }
+
+        private bool HasCustomTitle()
+        {
+            return viewState.windowTitle != null && !string.IsNullOrEmpty(viewState.windowTitle.text);
+        }
+
+        internal virtual void OnDisable()
+        {
+            if (m_CustomPanelContainer != null)
+                m_CustomPanelContainer.config = null;
+
+            if (m_GroupBar != null)
+                m_GroupBar.SortingChanged -= OnGroupBarSortingChanged;
+
+            UnregisterSearchEventHandlers();
+
+            ClearShortcutBindings();
+            s_FocusedWindow = null;
+
+            m_DebounceOff?.Invoke();
+            m_DebounceOff = null;
+
+            try
+            {
+                #pragma warning disable UAC2011 // Avoid Linq
+                selectCallback?.Invoke(selection?.FirstOrDefault(), selection == null || selection.Count == 0);
+#pragma warning restore UAC2011
+            }
+            catch
+            {
+            }
+
+            selectCallback = null;
+
+            SaveSessionSettings();
+
+            if (m_SearchView != null)
+            {
+                m_SearchView.syncSearch = false;
+                m_SearchView.Dispose();
+            }
+
+            guiCreated = false;
+
+            m_SearchMonitorView.Dispose();
+
+            // End search session
+            context.Dispose();
+        }
+
+        void UnregisterSearchEventHandlers()
+        {
+            foreach (var eventOff in m_SearchEventOffs)
+            {
+                eventOff?.Invoke();
+            }
+            m_SearchEventOffs.Clear();
+        }
+
+        internal protected virtual bool IsSavedSearchQueryEnabled()
+        {
+            return m_ViewState.hasQueryPanel;
+        }
+
+        public bool CanSaveQuery()
+        {
+            return !string.IsNullOrWhiteSpace(context.searchQuery);
+        }
+
+        private void SaveItemCountToPropertyDatabase(bool isSaving)
+        {
+            if (activeQuery == null || m_SearchView == null)
+                return;
+
+            if (activeQuery.searchText != context.searchText && !isSaving)
+                return;
+
+            using (var view = SearchMonitor.GetView())
+            {
+                var recordKey = PropertyDatabase.CreateRecordKey(activeQuery.guid, SearchQuery.k_QueryItemsNumberPropertyName);
+                // Always save the total count, taking the count from the query providers can be misleading.
+                var itemCount = m_SearchView.GetItemCount(null);
+                view.StoreProperty(recordKey, itemCount);
+                Dispatcher.Emit(SearchEvent.SearchQueryItemCountUpdated, new SearchEventPayload(this, activeQuery.guid, itemCount));
+            }
+        }
+
+        protected virtual void UpdateAsyncResults()
+        {
+            if (!this)
+                return;
+
+            m_DebounceOff = null;
+
+            UpdateWindowTitle(asyncResultUpdate: true);
+            SaveItemCountToPropertyDatabase(false);
+        }
+
+        private void RefreshContent(ISearchEvent evt)
+        {
+            if (evt.sourceViewState != viewState)
+                return;
+
+            // This debounce can be kept since it is only used to update the UI
+            m_DebounceOff?.Invoke();
+            m_DebounceOff = Utils.CallDelayed(UpdateAsyncResults, 0.1d);
+        }
+
+        internal bool ToggleFilter(string providerId)
+        {
+            var toggledEnabled = !context.IsEnabled(providerId);
+            var provider = SearchService.GetProvider(providerId);
+            if (provider != null)
+            {
+                SearchService.SetActive(providerId, toggledEnabled);
+                SearchSettings.Save();
+            }
+            if (providerId == m_SearchView.currentGroup)
+                SelectGroup(null);
+
+            context.SetFilter(providerId, toggledEnabled);
+            #pragma warning disable UAC2006 // Avoid Linq
+            if (toggledEnabled && provider == null && !context.providers.Any(p => p.id == providerId))
+#pragma warning restore UAC2006
+            {
+                // Provider that are not stored in the SearchService, might only exists in the m_AvailableProviders (local providers created directly in the context).
+                #pragma warning disable UAC2001 // Avoid Linq
+                var localProvider = m_AvailableProviders.FirstOrDefault(p => p.id == providerId);
+#pragma warning restore UAC2001
+                if (localProvider != null)
+                {
+                    #pragma warning disable UAC2001 // Avoid Linq
+                    var newProviderList = context.GetProviders().Concat(new[] { localProvider }).ToArray();
+#pragma warning restore UAC2001
+                    context.SetProviders(newProviderList);
+                }
+            }
+
+            m_HasAssetProvider = HasAssetProvider();
+
+            Dispatcher.Emit(SearchEvent.FilterToggled, new SearchEventPayload(this, providerId));
+
+            SendEvent(SearchAnalytics.GenericEventType.FilterWindowToggle, providerId, context.IsEnabled(providerId).ToString());
+            Refresh();
+            return toggledEnabled;
+        }
+
+        bool HasAssetProvider()
+        {
+            foreach (var provider in context.GetProviders())
+            {
+                if (provider.id == AssetProvider.type)
+                    return true;
+            }
+            return false;
+        }
+
+        internal void TogglePanelView(SearchViewFlags panelOption)
+        {
+            var hasOptions = !m_ViewState.flags.HasAny(panelOption);
+            SendEvent(SearchAnalytics.GenericEventType.QuickSearchOpenToggleToggleSidePanel, panelOption.ToString(), hasOptions.ToString());
+            if (hasOptions)
+                m_ViewState.flags |= panelOption;
+            else
+                m_ViewState.flags &= ~panelOption;
+
+            if (panelOption == SearchViewFlags.OpenLeftSidePanel && IsSavedSearchQueryEnabled())
+            {
+                SearchSettings.showSavedSearchPanel = hasOptions;
+                SearchSettings.Save();
+            }
+
+            UpdateSplitterPanes();
+        }
+
+        private void UpdateSplitterPanes()
+        {
+            // We collapse/uncollapse the splitter panes according to the state of the view
+            // (showing left/right side panels). To reduce resource consumption, we also remove the
+            // inner panels when they are hidden.
+            if (m_ViewState.isQueryPanelVisible)
+            {
+                if (m_SearchQueryPanelContainer.childCount == 0)
+                    m_SearchQueryPanelContainer.Add(new SearchQueryPanelTreeView("SearchQueryPanel", this, "search-panel", "search-query-panel"));
+                m_LeftSplitter?.UnCollapse();
+            }
+            else
+            {
+                if (rootVisualElement.panel.focusController.focusedElement is VisualElement ve && m_SearchQueryPanelContainer.Contains(ve))
+                    rootVisualElement.Focus();
+
+                m_SearchQueryPanelContainer.Clear();
+                m_LeftSplitter?.CollapseChild(0);
+            }
+
+            if (m_ViewState.isInspectorPanelVisible)
+            {
+                if (m_DetailsPanelContainer.childCount == 0)
+                    m_DetailsPanelContainer.Add(new SearchDetailView("SearchDetailView", this, "search-panel", "search-detail-panel"));
+                m_RightSplitter?.UnCollapse();
+            }
+            else
+            {
+                if (rootVisualElement.panel.focusController.focusedElement is VisualElement ve && m_DetailsPanelContainer.Contains(ve))
+                    rootVisualElement.Focus();
+
+                m_DetailsPanelContainer.Clear();
+                m_RightSplitter?.CollapseChild(1);
+            }
+
+            Dispatcher.Emit(SearchEvent.ViewStateUpdated, new SearchEventPayload(this));
+        }
+
+        void ISearchWindow.AddItemsToMenu(GenericMenu menu)
+        {
+            if (m_ViewState.isSimplePicker)
+                return;
+
+            if (!IsPicker())
+            {
+                menu.AddItem(new GUIContent(L10n.Tr("Preferences", null)), false, () => SearchUtils.OpenPreferences());
+                menu.AddSeparator("");
+            }
+
+            var savedSearchContent = new GUIContent(L10n.Tr("Searches", null));
+            var previewInspectorContent = new GUIContent(L10n.Tr("Inspector", null));
+
+            if (IsSavedSearchQueryEnabled())
+                menu.AddItem(savedSearchContent, m_ViewState.flags.HasAny(SearchViewFlags.OpenLeftSidePanel), () => TogglePanelView(SearchViewFlags.OpenLeftSidePanel));
+            if (m_ViewState.flags.HasNone(SearchViewFlags.DisableInspectorPreview))
+                menu.AddItem(previewInspectorContent, m_ViewState.flags.HasAny(SearchViewFlags.OpenInspectorPreview), () => TogglePanelView(SearchViewFlags.OpenInspectorPreview));
+            if (m_ViewState.flags.HasNone(SearchViewFlags.DisableBuilderModeToggle))
+                menu.AddItem(new GUIContent(L10n.Tr($"Query Builder\tF1", null)), viewState.queryBuilderEnabled, ToggleQueryBuilder);
+            menu.AddItem(new GUIContent(L10n.Tr($"Status Bar", null)), SearchSettings.showStatusBar, ToggleShowStatusBar);
+
+            if (Utils.isDeveloperBuild)
+            {
+                menu.AddSeparator("");
+                menu.AddItem(new GUIContent(L10n.Tr($"Debug", null)), context?.options.HasAny(SearchFlags.Debug) ?? false, ToggleDebugQuery);
+                menu.AddItem(new GUIContent(L10n.Tr("Serialize SearchContext", null)), false, () => SerializeSearchContext());
+            }
+
+            if (!IsPicker())
+            {
+                menu.AddSeparator("");
+                menu.AddItem(new GUIContent(L10n.Tr($"Keep Open", null)), SearchSettings.keepOpen, ToggleKeepOpen);
+            }
+        }
+
+        private void SerializeSearchContext()
+        {
+            var json = EditorJsonUtility.ToJson(context, prettyPrint: true);
+            Debug.Log($"(JSON) Search Context: {context}\r\n{json}");
+            Debug.Log(Utils.PrintObject($"A. {context}", context));
+
+            {
+                var ssvs = new SearchContext();
+                EditorJsonUtility.FromJsonOverwrite(json, ssvs);
+                Debug.Log(Utils.PrintObject($"B. {ssvs}", ssvs));
+            }
+        }
+
+        private void ToggleShowTabs()
+        {
+            var currentTabs = rootVisualElement.Q<SearchGroupBar>();
+            viewState.hideTabs = !viewState.hideTabs;
+            SearchSettings.hideTabs = viewState.hideTabs;
+            SearchSettings.Save();
+            if (viewState.hideTabs)
+                currentTabs?.RemoveFromHierarchy();
+            else if (currentTabs == null)
+                rootVisualElement.Q("SearchResultContainer")?.Insert(0, new SearchGroupBar("SearchGroupbar", this));
+            SelectGroup(null);
+            Refresh();
+        }
+
+        internal void ToggleQueryBuilder()
+        {
+            if (!viewState.hasQueryBuilderToggle)
+                return;
+            SearchSettings.queryBuilder = viewState.queryBuilderEnabled = !viewState.queryBuilderEnabled;
+            SearchSettings.Save();
+            var evt = CreateEvent(SearchAnalytics.GenericEventType.QuickSearchToggleBuilder, viewState.queryBuilderEnabled.ToString());
+            evt.intPayload1 = viewState.queryBuilderEnabled ? 1 : 0;
+            SearchAnalytics.SendEvent(evt);
+
+            Dispatcher.Emit(SearchEvent.RefreshBuilder, new SearchEventPayload(this));
+            Dispatcher.Emit(SearchEvent.ViewStateUpdated, new SearchEventPayload(this));
+        }
+
+        private void ToggleShowStatusBar()
+        {
+            SearchSettings.showStatusBar = !SearchSettings.showStatusBar;
+            Dispatcher.Emit(SearchEvent.ViewStateUpdated, new SearchEventPayload(this));
+            SendEvent(SearchAnalytics.GenericEventType.PreferenceChanged, nameof(SearchSettings.showStatusBar), SearchSettings.showStatusBar.ToString());
+        }
+
+        private void ToggleKeepOpen()
+        {
+            SearchSettings.keepOpen = !SearchSettings.keepOpen;
+            SendEvent(SearchAnalytics.GenericEventType.PreferenceChanged, nameof(SearchSettings.keepOpen), SearchSettings.keepOpen.ToString());
+        }
+
+        private void ToggleDebugQuery()
+        {
+            if (context.debug)
+            {
+                // TODO defaultFlags: Remove this
+                SearchSettings.defaultFlags &= ~SearchFlags.Debug;
+                context.debug = false;
+            }
+            else
+            {
+                // TODO defaultFlags: Remove this
+                SearchSettings.defaultFlags |= SearchFlags.Debug;
+                context.debug = true;
+            }
+            Refresh();
+        }
+
+        protected virtual void UpdateWindowTitle(bool asyncResultUpdate = false)
+        {
+            if (HasCustomTitle())
+                titleContent = viewState.windowTitle;
+            else
+            {
+                titleContent.image = activeQuery?.thumbnail ?? Icons.quickSearchWindow;
+
+                if (!titleContent.image)
+                    titleContent.image = Icons.quickSearchWindow;
+
+                if (context == null)
+                    return;
+
+                if (m_SearchView == null || m_SearchView.results.Count == 0)
+                    titleContent.text = L10n.Tr("Search", null);
+                else
+                    titleContent.text = $"Search ({m_SearchView.results.Count})";
+            }
+
+            if (Utils.isDeveloperBuild)
+            {
+                if (context?.options.HasAny(SearchFlags.Debug) ?? false)
+                    titleContent.tooltip = $"{Profiling.EditorPerformanceTracker.GetAverageTime("SearchWindow.Paint") * 1000:0.#} ms";
+
+                if (Utils.IsRunningTests())
+                    titleContent.text = $"[TEST] {titleContent.text}";
+            }
+
+            if (asyncResultUpdate)
+                Repaint();
+        }
+
+        IEnumerable<SearchQueryError> ISearchView.GetAllVisibleErrors()
+        {
+            return m_SearchView.GetAllVisibleErrors();
+        }
+
+        public void SelectSearch()
+        {
+            FocusSearch();
+            if (m_SearchToolbar != null)
+                m_SearchToolbar.searchField.FocusSearchField();
+        }
+
+        public void FocusSearch()
+        {
+            rootVisualElement.Query<SearchElement>().Visible().Where(e => e.focusable).First()?.Focus();
+        }
+
+        internal protected void CloseSearchWindow()
+        {
+            if (s_FocusedWindow)
+                s_FocusedWindow.Focus();
+            Utils.CallDelayed(Close);
+        }
+
+        public virtual bool CanCloseWindowOnAction()
+        {
+            return !SearchSettings.keepOpen && (!context.options.HasFlag(SearchFlags.Dockable) || !docked);
+        }
+
+        IEnumerable<IGroup> ISearchView.EnumerateGroups()
+        {
+            return EnumerateGroups();
+        }
+
+        private IEnumerable<IGroup> EnumerateGroups()
+        {
+            return m_SearchView.EnumerateGroups();
+        }
+
+        void ISearchWindow.AddProvidersToMenu(GenericMenu menu)
+        {
+            #pragma warning disable UAC2001 // Avoid Linq
+            var allEnabledProviders = m_AvailableProviders.Where(p => context.IsEnabled(p.id));
+#pragma warning restore UAC2001
+#pragma warning disable UAC2005, UAC2010 // Avoid Linq
+            var singleProviderEnabled = allEnabledProviders.Count() == 1 ? allEnabledProviders.First() : null;
+#pragma warning restore UAC2005, UAC2010
+            foreach (var p in m_AvailableProviders)
+            {
+                var filterContent = new GUIContent($"{p.name} ({p.filterId})");
+                if (singleProviderEnabled == p)
+                {
+                    menu.AddDisabledItem(filterContent, context.IsEnabled(p.id));
+                }
+                else
+                {
+                    menu.AddItem(filterContent, context.IsEnabled(p.id), () => ToggleFilter(p.id));
+                }
+            }
+        }
+
+        internal void SelectGroup(string groupId)
+        {
+            if (m_SearchView.currentGroup == groupId)
+                return;
+
+            var selectedProvider = SearchService.GetProvider(groupId);
+            if (selectedProvider != null && selectedProvider.showDetailsOptions.HasAny(ShowDetailsOptions.ListView))
+            {
+                if (m_PreviousItemSize == -1f)
+                    m_PreviousItemSize = itemIconSize;
+                itemIconSize = 1;
+            }
+            else if (m_PreviousItemSize >= 0f)
+            {
+                itemIconSize = m_PreviousItemSize;
+                m_PreviousItemSize = -1f;
+            }
+
+            var evt = SearchAnalytics.GenericEvent.Create(windowId, SearchAnalytics.GenericEventType.QuickSearchSwitchTab, groupId ?? string.Empty);
+            evt.stringPayload1 = m_SearchView.currentGroup;
+            evt.intPayload1 = m_SearchView.GetGroupById(groupId)?.count ?? 0;
+            SearchAnalytics.SendEvent(evt);
+
+            m_SearchView.currentGroup = groupId;
+            viewState.group = m_SearchView.currentGroup;
+        }
+
+        protected void ClearSearch()
+        {
+            SendEvent(SearchAnalytics.GenericEventType.QuickSearchClearSearch);
+            SetSearchText(IsPicker() ? m_ViewState.initialQuery : string.Empty);
+            SetSelection();
+            SelectSearch();
+            Dispatcher.Emit(SearchEvent.RefreshBuilder, new SearchEventPayload(this));
+        }
+
+        public virtual bool IsPicker()
+        {
+            return false;
+        }
+
+        public void SaveActiveSearchQuery()
+        {
+            if (activeQuery is SearchQueryAsset sqa)
+            {
+                var searchQueryPath = AssetDatabase.GetAssetPath(sqa);
+                if (!string.IsNullOrEmpty(searchQueryPath))
+                {
+                    SaveSearchQueryFromContext(searchQueryPath, false);
+                }
+            }
+            else if (activeQuery is SearchQuery sq)
+            {
+                sq.Set(viewState);
+                SearchQuery.SaveSearchQuery(sq);
+                SaveItemCountToPropertyDatabase(true);
+            }
+        }
+
+        void ISearchQueryView.SaveUserSearchQuery()
+        {
+            SaveUserSearchQuery();
+        }
+
+        private void SaveUserSearchQuery()
+        {
+            var query = SearchQuery.AddUserQuery(viewState);
+            AddNewQuery(query);
+        }
+
+        void ISearchQueryView.SaveProjectSearchQuery()
+        {
+            SaveProjectSearchQuery();
+        }
+
+        private void SaveProjectSearchQuery(in string path = null)
+        {
+            var initialFolder = SearchSettings.GetFullQueryFolderPath();
+            var searchQueryFileName = SearchQueryAsset.GetQueryName(context.searchQuery);
+            var searchQueryPath = string.IsNullOrWhiteSpace(path) ? EditorUtility.SaveFilePanel("Save search query...", initialFolder, searchQueryFileName, "asset") : path;
+            if (string.IsNullOrEmpty(searchQueryPath))
+                return;
+            if (!SearchUtils.ValidateAssetPath(ref searchQueryPath, ".asset", out var errorMessage))
+            {
+                Debug.LogWarning($"Save Search Query has failed. {errorMessage}");
+                return;
+            }
+
+            SearchSettings.queryFolder = Utils.CleanPath(Path.GetDirectoryName(searchQueryPath));
+            SaveSearchQueryFromContext(searchQueryPath, true);
+        }
+
+        private void SaveSearchQueryFromContext(string searchQueryPath, bool newQuery)
+        {
+            try
+            {
+                var searchQuery = AssetDatabase.LoadAssetAtPath<SearchQueryAsset>(searchQueryPath) ?? SearchQueryAsset.Create(context);
+                if (!searchQuery)
+                    throw new Exception($"Failed to create search query asset {searchQueryPath}");
+
+                var folder = Utils.CleanPath(Path.GetDirectoryName(searchQueryPath));
+                var queryName = Path.GetFileNameWithoutExtension(searchQueryPath);
+                var newContext = new SearchContext(context);
+                searchQuery.viewState ??= new SearchViewState(newContext);
+                searchQuery.viewState.Assign(viewState);
+
+                if (SearchQueryAsset.SaveQuery(searchQuery, context, viewState, folder, queryName) && newQuery)
+                {
+                    Selection.activeObject = searchQuery;
+                    AddNewQuery(searchQuery);
+                }
+                else
+                    SaveItemCountToPropertyDatabase(true);
+            }
+            catch
+            {
+                Debug.LogError($"Failed to save search query at {searchQueryPath}");
+            }
+        }
+
+        private void AddNewQuery(ISearchQuery newQuery)
+        {
+            SearchSettings.AddRecentSearch(newQuery.searchText);
+            SearchQueryAsset.ResetSearchQueryItems();
+            activeQuery = newQuery;
+            SendNewQueryAnalyticsEvent(newQuery);
+
+            if (IsSavedSearchQueryEnabled() && m_ViewState.flags.HasNone(SearchViewFlags.OpenLeftSidePanel))
+                TogglePanelView(SearchViewFlags.OpenLeftSidePanel);
+
+            SaveItemCountToPropertyDatabase(true);
+        }
+
+        void SendNewQueryAnalyticsEvent(ISearchQuery newQuery)
+        {
+            SearchAnalytics.GenericEvent evt = default;
+            if (newQuery is SearchQueryAsset sqa)
+                evt = CreateEvent(SearchAnalytics.GenericEventType.QuickSearchCreateSearchQuery, sqa.searchText, sqa.filePath, "project");
+            else if (newQuery is SearchQuery sq && SearchQuery.IsUserQuery(sq))
+                evt = CreateEvent(SearchAnalytics.GenericEventType.QuickSearchCreateSearchQuery, sq.searchText, "", "user");
+
+            if (!string.IsNullOrEmpty(evt.windowId))
+            {
+                evt.intPayload1 = newQuery.GetSearchTable() != null ? 1 : 0;
+                SearchAnalytics.SendEvent(evt);
+            }
+        }
+
+        protected virtual void ComputeContextHash()
+        {
+            if (IsGeneralSearchWindow())
+            {
+                m_ContextHash = generalWindowContextHash;
+            }
+            else if (context.options.HasFlag(SearchFlags.UseSessionSettings) && !string.IsNullOrEmpty(viewState.sessionName))
+            {
+                m_ContextHash = HashingUtils.GetHashCode(viewState.sessionName);
+            }
+            else
+            {
+                m_ContextHash = 0;
+            }
+        }
+
+        protected void UpdateViewState(SearchViewState args)
+        {
+            args.group = SearchUtils.GetValidGroupForState(args, args.group);
+            if (context?.options.HasAny(SearchFlags.Expression) ?? false)
+            {
+                args.SetDisplayMode(DisplayMode.Table);
+            }
+
+            if (args.queryTreeConfig == null || args.queryTreeConfig.NodeSources == null || args.queryTreeConfig.NodeSources == null || args.queryTreeConfig.NodeSources.Length == 0)
+            {
+                args.queryTreeConfig = SearchQueryTreeConfig.CreateDefault();
+            }
+            m_HasAssetProvider = HasAssetProvider();
+            args.ValidateState();
+        }
+
+        protected virtual void LoadSessionSettings()
+        {
+            if (!Utils.IsRunningTests())
+            {
+                RestoreSearchText();
+
+                if (m_ViewState.flags.HasNone(SearchViewFlags.OpenInspectorPreview | SearchViewFlags.OpenLeftSidePanel | SearchViewFlags.HideSearchBar))
+                {
+                    if (HasSessionSettings() && SearchSettings.GetScopeValue(nameof(SearchViewFlags.OpenInspectorPreview), m_ContextHash, 0) != 0)
+                        m_ViewState.flags |= SearchViewFlags.OpenInspectorPreview;
+
+                    if (SearchSettings.showSavedSearchPanel)
+                        m_ViewState.flags |= SearchViewFlags.OpenLeftSidePanel;
+                }
+
+                if (HasSessionSettings())
+                {
+                    m_ViewState.group = SearchSettings.GetScopeValue(nameof(m_SearchView.currentGroup), m_ContextHash, currentGroup);
+                }
+            }
+            else if (!string.IsNullOrEmpty(m_ViewState.searchText))
+            {
+                m_ViewState.flags |= SearchViewFlags.DisableQueryHelpers;
+            }
+
+            // Apply Package and WantsMore visbility global flags.
+            SearchSettings.ApplyContextOptions(m_ViewState.context);
+            UpdateViewState(m_ViewState);
+        }
+
+        protected virtual void RestoreSearchText()
+        {
+            if (!m_ViewState.ignoreSaveSearches &&
+                 m_ViewState.context != null &&
+                 string.IsNullOrEmpty(m_ViewState.context.searchText) &&
+                 HasSessionSettings())
+            {
+                m_ViewState.searchText = SearchSettings.GetScopeValue(k_LastSearchPrefKey, m_ContextHash, "").TrimStart();
+                if (m_ViewState.context != null)
+                {
+                    m_ViewState.context.searchText = m_ViewState.searchText;
+                }
+            }
+        }
+
+        protected virtual void SaveSessionSettings()
+        {
+            if (!HasSessionSettings())
+                return;
+
+            if (!viewState.ignoreSaveSearches)
+                SearchSettings.SetScopeValue(k_LastSearchPrefKey, m_ContextHash, context.searchText.TrimStart());
+            SearchSettings.SetScopeValue(nameof(SearchViewFlags.OpenInspectorPreview), m_ContextHash, m_ViewState.flags.HasAny(SearchViewFlags.OpenInspectorPreview) ? 1 : 0);
+
+            if (m_SearchView != null)
+                SearchSettings.SetScopeValue(nameof(m_SearchView.currentGroup), m_ContextHash, currentGroup);
+
+            SearchSettings.itemIconSize = viewState.itemIconSize;
+
+            SearchSettings.Save();
+        }
+
+        private SearchAnalytics.GenericEvent CreateEvent(SearchAnalytics.GenericEventType category, string name = null, string message = null, string description = null)
+        {
+            var e = SearchAnalytics.GenericEvent.Create(windowId, category, name);
+            e.message = message;
+            e.description = description;
+            return e;
+        }
+
+        internal void SendEvent(SearchAnalytics.GenericEventType category, string name = null, string message = null, string description = null)
+        {
+            SearchAnalytics.SendEvent(windowId, category, name, message, description);
+        }
+
+        protected virtual void Dispose(bool disposing)
+        {
+            if (m_Disposed)
+                return;
+
+            if (disposing)
+                Close();
+
+            m_Disposed = true;
+        }
+
+        public void Dispose()
+        {
+            Dispose(true);
+        }
+
+        // TODO: Use ISearchWindow when possible
+        public static SearchWindow Create(SearchFlags flags = SearchFlags.OpenDefault)
+        {
+            return Create<SearchWindow>(flags);
+        }
+
+        public static SearchWindow Create<T>(SearchFlags flags = SearchFlags.OpenDefault) where T : SearchWindow
+        {
+            return Create<T>(null, null, flags);
+        }
+
+        public static SearchWindow Create(SearchContext context, string topic = "Unity", SearchFlags flags = SearchFlags.OpenDefault)
+        {
+            return Create<SearchWindow>(context, topic, flags);
+        }
+
+        public static SearchWindow Create<T>(SearchContext context, string topic = "Unity", SearchFlags flags = SearchFlags.OpenDefault) where T : SearchWindow
+        {
+            context = context ?? SearchService.CreateContext("", flags);
+            context.options |= flags;
+            var viewState = new SearchViewState(context) { title = topic };
+            return Create<T>(viewState.LoadDefaults());
+        }
+
+        public static ISearchWindow Create(SearchViewState viewArgs)
+        {
+            return Create<SearchWindow>(viewArgs);
+        }
+
+        public static T Create<T>(SearchViewState viewArgs) where T : SearchWindow
+        {
+            s_GlobalViewState = viewArgs;
+            s_FocusedWindow = focusedWindow;
+
+            var context = viewArgs.context;
+            var flags = viewArgs.context?.options ?? SearchFlags.OpenDefault;
+            SearchWindow searchWindow;
+            if (flags.HasAny(SearchFlags.ReuseExistingWindow))
+            {
+                searchWindow = SearchUtils.FindReusableWindow(viewArgs);
+                if (!searchWindow)
+                {
+                    searchWindow = CreateInstance<T>();
+                }
+                else if (context != null)
+                {
+                    if (context.empty)
+                        context.searchText = searchWindow.context?.searchText ?? string.Empty;
+                    searchWindow.SetContext(context);
+                }
+            }
+            else
+            {
+                searchWindow = CreateInstance<T>();
+            }
+
+            return (T)searchWindow;
+        }
+
+        internal static SearchWindow Open(float width = defaultWidth, float height= defaultHeight, SearchFlags flags = SearchFlags.OpenDefault)
+        {
+            return Create(flags).ShowWindow(width, height, flags);
+        }
+
+        [MenuItem($"{OpenSearchHelper.k_SearchMenuName} %k", priority = 141)]
+        internal static void OpenDefaultQuickSearch()
+        {
+            SearchUtils.OpenDefaultQuickSearch();
+        }
+
+        public ISearchView ShowWindow()
+        {
+            return ShowWindow(defaultWidth, defaultHeight, SearchFlags.OpenDefault);
+        }
+
+        public ISearchView ShowWindow(SearchFlags flags)
+        {
+            return ShowWindow(defaultWidth, defaultHeight, flags);
+        }
+
+        public ISearchView ShowWindow(float width, float height)
+        {
+            return ShowWindow(width, height, SearchFlags.OpenDefault);
+        }
+
+        ISearchView ISearchWindow.ShowWindow(float width, float height, SearchFlags flags)
+        {
+            return ShowWindow(width, height, flags);
+        }
+
+        public SearchWindow ShowWindow(float width, float height, SearchFlags flags)
+        {
+            if (m_Parent == null)
+            {
+                using (new EditorPerformanceTracker("SearchView.ShowWindow"))
+                {
+                    var windowSize = new Vector2(width, height);
+                    if (flags.HasAny(SearchFlags.Dockable) && viewState.flags.HasNone(SearchViewFlags.Borderless))
+                    {
+                        bool firstOpen = Utils.IsRunningTests() || !EditorPrefs.HasKey(k_CheckWindowKeyName);
+                        Show(true);
+                        if (firstOpen)
+                        {
+                            var centeredPosition = Utils.GetMainWindowCenteredPosition(windowSize);
+                            position = centeredPosition;
+                        }
+                        else if (!firstOpen && !docked)
+                        {
+                            var newWindow = this;
+                            #pragma warning disable UAC2001 // Avoid Linq
+                            var existingWindow = Resources.FindObjectsOfTypeAll<SearchWindow>().FirstOrDefault(w => w != newWindow);
+#pragma warning restore UAC2001
+                            if (existingWindow)
+                            {
+                                var cascadedWindowPosition = existingWindow.position.position;
+                                cascadedWindowPosition += new Vector2(30f, 30f);
+                                position = new Rect(cascadedWindowPosition, position.size);
+                            }
+                        }
+                    }
+                    else
+                    {
+                        this.ShowDropDown(windowSize);
+                    }
+                }
+            }
+            Focus();
+            return this;
+        }
+
+        void ISearchView.SetupColumns(IList<SearchField> fields)
+        {
+            m_SearchView.SetupColumns(fields);
+        }
+
+        [CommandHandler("OpenQuickSearch")]
+        internal static void OpenQuickSearchCommand(CommandExecuteContext c)
+        {
+            OpenDefaultQuickSearch();
+        }
+
+        [MenuItem("Window/Search/New Window", priority = 0)]
+        public static void OpenNewWindow()
+        {
+            SearchUtils.OpenNewWindow();
+        }
+
+        [CommandHandler("OpenQuickSearchInContext")]
+        internal static void OpenFromContextWindowCommand(CommandExecuteContext c)
+        {
+            // Called by the Jump Button in Hierarchy and Project Browser
+            var query = c.GetArgument<string>(0);
+            var sourceContext = c.GetArgument<string>(1);
+            SearchUtils.OpenFromContextWindow(query, sourceContext);
+            c.result = true;
+        }
+
+        [Shortcut("Help/Search Transient Window")]
+        public static void OpenPopupWindow()
+        {
+            SearchUtils.OpenTransientWindow();
+        }
+
+        [Shortcut("Help/Search Contextual")]
+        internal static void OpenFromContextWindow(ShortcutArguments args)
+        {
+            SearchUtils.OpenFromContextWindow();
+        }
+
+        [Shortcut(refreshShortcutId, typeof(SearchWindow), KeyCode.F5)]
+        static void OnRefreshShortcut(ShortcutArguments args)
+        {
+            if (args.context is not SearchWindow sw)
+                return;
+            sw.OnRefresh();
+        }
+
+        void OnRefresh()
+        {
+            Refresh();
+        }
+
+        [Shortcut(toggleQueryBuilderModeShortcutId, typeof(SearchWindow), KeyCode.F1)]
+        static void OnToggleQueryBuilderShortcut(ShortcutArguments args)
+        {
+            if (args.context is not SearchWindow sw)
+                return;
+            sw.OnToggleQueryBuilder();
+        }
+
+        void OnToggleQueryBuilder()
+        {
+            ToggleQueryBuilder();
+        }
+
+        [Shortcut(toggleInspectorPanelShortcutId, typeof(SearchWindow), KeyCode.F4)]
+        static void OnToggleInspectorPanelShortcut(ShortcutArguments args)
+        {
+            if (args.context is not SearchWindow sw)
+                return;
+            sw.OnToggleInspectorPanel();
+        }
+
+        void OnToggleInspectorPanel()
+        {
+            if (viewState.flags.HasAny(SearchViewFlags.DisableInspectorPreview))
+                return;
+            TogglePanelView(SearchViewFlags.OpenInspectorPreview);
+        }
+
+        [Shortcut(toggleSavedSearchesPanelShortcutId, typeof(SearchWindow), KeyCode.F3)]
+        static void OnToggleSavedSearchPanelShortcut(ShortcutArguments args)
+        {
+            if (args.context is not SearchWindow sw)
+                return;
+            sw.OnToggleSavedSearchPanel();
+        }
+
+        void OnToggleSavedSearchPanel()
+        {
+            if (!IsSavedSearchQueryEnabled())
+                return;
+            TogglePanelView(SearchViewFlags.OpenLeftSidePanel);
+        }
+
+        void InitializeShortcutBindings()
+        {
+            // Ideally we should not have to do this, but the text field seems to eat all
+            // shortcuts so we have to handle them ourselves the old fashioned way, i.e.
+            // through our HandleKeyboardNavigation method.
+            m_ShortcutBindings = new Dictionary<string, (ShortcutBinding, Action)>()
+            {
+                {refreshShortcutId, (Utils.GetShortcutBinding(refreshShortcutId), OnRefresh)},
+                {toggleQueryBuilderModeShortcutId, (Utils.GetShortcutBinding(toggleQueryBuilderModeShortcutId), OnToggleQueryBuilder)},
+                {toggleInspectorPanelShortcutId, (Utils.GetShortcutBinding(toggleInspectorPanelShortcutId), OnToggleInspectorPanel)},
+                {toggleSavedSearchesPanelShortcutId, (Utils.GetShortcutBinding(toggleSavedSearchesPanelShortcutId), OnToggleSavedSearchPanel)}
+            };
+            ShortcutManager.instance.shortcutBindingChanged += OnShortcutBindingChanged;
+        }
+
+        void ClearShortcutBindings()
+        {
+            ShortcutManager.instance.shortcutBindingChanged -= OnShortcutBindingChanged;
+            m_ShortcutBindings.Clear();
+        }
+
+        void OnShortcutBindingChanged(ShortcutBindingChangedEventArgs args)
+        {
+            if (m_ShortcutBindings.TryGetValue(args.shortcutId, out var tuple))
+            {
+                (ShortcutBinding _, Action action) = tuple;
+                m_ShortcutBindings[args.shortcutId] = (args.newBinding, action);
+            }
+        }
+
+        internal ShortcutBinding GetShortcutBinding(string shortcutId)
+        {
+            if (m_ShortcutBindings.TryGetValue(shortcutId, out var tuple))
+            {
+                (ShortcutBinding shortcutBinding, Action _) = tuple;
+                return shortcutBinding;
+            }
+
+            return ShortcutBinding.empty;
+        }
+
+        bool HandleShortcuts(KeyDownEvent evt)
+        {
+            var evtKeyCombination = KeyCombination.FromKeyboardInput(evt.keyCode, evt.modifiers);
+            foreach (var (_, (shortcutBinding, action)) in m_ShortcutBindings)
+            {
+                foreach (var keyCombination in shortcutBinding.keyCombinationSequence)
+                {
+                    if (keyCombination.Equals(evtKeyCombination))
+                    {
+                        action?.Invoke();
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+
+        protected virtual IEnumerable<SearchItem> FetchItems()
+        {
+            return Array.Empty<SearchItem>();
+        }
+
+        IEnumerable<SearchItem> ISearchWindow.FetchItems()
+        {
+            return FetchItems();
+        }
+
+        bool ISearchWindow.HasFocus()
+        {
+            return hasFocus;
+        }
+
+        [WindowAction]
+        internal static WindowAction CreateSearchHelpWindowAction()
+        {
+            // Developer-mode render doc button to enable capturing any HostView content/panels
+            var action = WindowAction.CreateWindowActionButton("HelpSearch", OpenSearchHelp, null, ContainerWindow.kButtonWidth + 1, Icons.help);
+            action.validateHandler = (window, _) => window && window.GetType() == typeof(SearchWindow);
+            return action;
+        }
+
+        internal static string GetHelpURL()
+        {
+            return Help.FindHelpNamed("search-overview");
+        }
+
+        private static void OpenSearchHelp(EditorWindow window, WindowAction action)
+        {
+            var windowId = (window as SearchWindow)?.windowId ?? null;
+            SearchAnalytics.SendEvent(windowId, SearchAnalytics.GenericEventType.QuickSearchOpenDocLink);
+            EditorUtility.OpenWithDefaultApp(GetHelpURL());
+        }
+    }
+}
+#pragma warning restore UAL0015,UAL0018,UAL0019,UAL0020,UAL0021

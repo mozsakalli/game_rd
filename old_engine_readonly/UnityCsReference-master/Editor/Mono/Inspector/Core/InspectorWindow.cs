@@ -1,0 +1,697 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+#pragma warning disable UAL0015,UAL0018,UAL0019,UAL0020,UAL0021 // AutoStaticsCleanup usage analysis: InspectorFramework not yet converted
+using System;
+using System.Collections.Generic;
+using Unity.Scripting.LifecycleManagement;
+using UnityEngine;
+using UnityEngine.Bindings;
+using UnityEngine.Scripting;
+using UnityEngine.UIElements;
+
+using Object = UnityEngine.Object;
+
+namespace UnityEditor
+{
+    [VisibleToOtherModules("UnityEditor.PlayModeModule", "UnityEditor.UIToolkitAuthoringModule")]
+    [EditorWindowTitle(title = k_InspectorWindowTitle, useTypeNameAsIconName = true)]
+    internal partial class InspectorWindow : PropertyEditor, IPropertyView, IHasCustomMenu
+    {
+        #pragma warning disable UAL0015 // this side effect does not outlive the current call (global trigger / lazily-loaded asset re-fetched on next access); a stale reference is harmlessly replaced
+        internal InspectorWindow() { }
+        #pragma warning restore UAL0015
+
+        const string k_InspectorWindowTitle = "Inspector";
+        const string k_InspectorWindowTitleDebug = "Inspector (Debug)";
+        const string k_InspectorWindowTitleDebugInternal = "Inspector (Debug Internal)";
+
+        [AutoStaticsCleanupOnCodeReload]
+        static List<InspectorWindow> m_AllInspectors = new List<InspectorWindow>();
+        [NoAutoStaticsCleanup] // bool flag, safe to persist; rebuild triggered on next repaint
+        static bool s_AllOptimizedGUIBlocksNeedsRebuild;
+
+        [SerializeField] EditorGUIUtility.EditorLockTrackerWithActiveEditorTracker m_LockTracker = new EditorGUIUtility.EditorLockTrackerWithActiveEditorTracker();
+        [SerializeField] PreviewWindow m_PreviewWindow;
+
+        readonly HashSet<DataMode> m_UserSupportedDataModes = new(4);
+        IMGUIContainer m_TrackerResetter;
+
+
+        public bool isLocked
+        {
+            get
+            {
+                //this makes sure the getter for InspectorWindow.tracker gets called and creates an ActiveEditorTracker if needed
+                m_LockTracker.tracker = tracker;
+                return m_LockTracker.isLocked;
+            }
+            set
+            {
+                //this makes sure the getter for InspectorWindow.tracker gets called and creates an ActiveEditorTracker if needed
+                m_LockTracker.tracker = tracker;
+                m_LockTracker.isLocked = value;
+            }
+        }
+
+        public bool isVisible => m_Parent.actualView == this;
+
+        internal class TestHelper
+        {
+            public static string GetExpectedWindowTitle(InspectorMode mode) => mode switch
+            {
+                InspectorMode.Normal => k_InspectorWindowTitle,
+                InspectorMode.Debug => k_InspectorWindowTitleDebug,
+                InspectorMode.DebugInternal => k_InspectorWindowTitleDebugInternal,
+                _ => throw new ArgumentOutOfRangeException(nameof(mode), mode, null)
+            };
+
+            public static void PopupPreviewWindow(InspectorWindow inspector)
+            {
+                inspector.PopupPreviewWindow();
+            }
+
+            public static void DockPreviewWindow(InspectorWindow inspector)
+            {
+                inspector.DockPreviewWindow();
+            }
+
+            public static PreviewWindow GetPreviewWindow(InspectorWindow inspector)
+            {
+                return inspector.m_PreviewWindow;
+            }
+
+            public static PreviewRootElement GetPreviewRootElement(InspectorWindow inspector)
+            {
+                return inspector.m_PreviewRootElement;
+            }
+        }
+
+
+        internal void Awake()
+        {
+            AddInspectorWindow(this);
+        }
+
+        protected override void OnDestroy()
+        {
+            if (m_PreviewWindow is { IsFloatingWindow: true })
+                m_PreviewWindow.Close();
+            if (m_Tracker != null && !m_Tracker.Equals(ActiveEditorTracker.sharedTracker))
+            {
+                // Ensure that m_Tracker is null before calling Destroy(), as a callback could be made to redraw the
+                // InspectorWindow, and the native representation of the tracker will already be gone
+                var trackerToDestroy = m_Tracker;
+                m_Tracker = null;
+                trackerToDestroy.Destroy();
+            }
+
+            if (m_TrackerResetter != null)
+            {
+                m_TrackerResetter.Dispose();
+                m_TrackerResetter = null;
+            }
+        }
+
+        protected override void OnEnable()
+        {
+            // Enable MSAA for UIElements inspectors, which is the only supported
+            // antialiasing solution for UIElements.
+            antiAliasing = 4;
+
+            RefreshTitle();
+            AddInspectorWindow(this);
+
+            base.OnEnable();
+
+            RestoreLockStateFromSerializedData();
+
+            if (m_LockTracker == null)
+            {
+                m_LockTracker = new EditorGUIUtility.EditorLockTrackerWithActiveEditorTracker();
+            }
+
+            m_LockTracker.tracker = tracker;
+            m_LockTracker.lockStateChanged.AddListener(LockStateChanged);
+            m_Tracker.dataMode = GetDataModeController_Internal().dataMode;
+
+            EditorApplication.projectWasLoaded += OnProjectWasLoaded;
+            EditorApplication.playModeStateChanged += OnPlayModeStateChanged;
+            Selection.selectionChanged += OnSelectionChanged;
+            AssemblyReloadEvents.afterAssemblyReload += OnAfterAssemblyReload;
+        }
+
+        private void OnAfterAssemblyReload()
+        {
+            // Case 1348788: After reloading the assemblies after a script compilation,
+            // active editors are not rebuilt automatically. If a custom editor changed
+            // the way it handles multi object editing you won't see the effect in the inspector unless
+            // you change the selection. It is a minor issue. But this call makes sure to rebuild the active
+            // editors if necessary.
+            // Note: This is only a problem when adding the attribute CanEditMultipleObjects. When the attribute is not
+            // there, the editor used for multi editing is the generic inspector. If you add the CanEditMultipleObjects attribute,
+            // a refresh is triggered and we check if the editor instance is still valid, which is the case for the generic inspector
+            // so we don't rebuild it. When removing the CanEditMultipleObjects, the refresh sees that the editor was the custom inspector
+            // but its instance is no longer valid, so it rebuilds the inspector.
+            if (EditorsForMultiEditingChanged())
+                tracker.ForceRebuild();
+        }
+
+        void OnPlayModeStateChanged(PlayModeStateChange state)
+        {
+            // Case UUM-64580: unable to interact with the inspector after exiting play mode.
+            // Somehow the inspector is still showing the last selected object, but the tracker does not respond anymore.
+            // Forcing a rebuild of the tracker after exiting play mode ensures that it is put back in a valid state.
+            if (state == PlayModeStateChange.EnteredEditMode)
+                tracker.ForceRebuild();
+        }
+
+        void OnBecameVisible()
+        {
+            SceneView.SetActiveEditorsDirty(true);
+        }
+
+        void OnBecameInvisible()
+        {
+            SceneView.SetActiveEditorsDirty();
+        }
+
+        private void OnProjectWasLoaded()
+        {
+            // EditorApplication.projectWasLoaded, which calls this, fires after OnEnabled
+            // therefore the logic in OnEnabled already tried to de-serialize the locked objects, including those it only had InstanceIDs of
+            // This needs to get fixed here as the InstanceIDs have been reshuffled with the new session and could resolving to random Objects
+            if (m_EntityIdsLockedBeforeSerialization.Count > 0)
+            {
+                // Game objects will have new instanceIDs in a new Unity session, so take out all objects that where reconstructed from InstanceIDs
+                for (int i = m_EntityIdsLockedBeforeSerialization.Count - 1; i >= 0; i--)
+                {
+                    for (int j = m_ObjectsLockedBeforeSerialization.Count - 1; j >= 0; j--)
+                    {
+                        if (m_ObjectsLockedBeforeSerialization[j] == null || m_ObjectsLockedBeforeSerialization[j].GetEntityId() == m_EntityIdsLockedBeforeSerialization[i])
+                        {
+                            m_ObjectsLockedBeforeSerialization.RemoveAt(j);
+                            break;
+                        }
+                    }
+                }
+                m_EntityIdsLockedBeforeSerialization.Clear();
+                RestoreLockStateFromSerializedData();
+            }
+        }
+
+        private void OnSelectionChanged()
+        {
+            if (isLocked)
+                return;
+
+            RebuildContentsContainers();
+            if (Selection.objects.Length == 0 && m_MultiEditLabel != null)
+            {
+                m_MultiEditLabel.RemoveFromHierarchy();
+            }
+
+            if (m_PreviewWindow != null)
+                m_PreviewWindow.SetParentInspector(this);
+
+            UpdateSupportedDataModesList();
+        }
+
+        // Note: supportedModes is cleared before and sorted after this method is called
+        protected override void OnUpdateSupportedDataModes(List<DataMode> supportedModes) { }
+
+        protected override void OnDisable()
+        {
+            base.OnDisable();
+
+            RemoveInspectorWindow(this);
+            m_LockTracker?.lockStateChanged.RemoveListener(LockStateChanged);
+
+            EditorApplication.projectWasLoaded -= OnProjectWasLoaded;
+            EditorApplication.playModeStateChanged -= OnPlayModeStateChanged;
+            Selection.selectionChanged -= OnSelectionChanged;
+            AssemblyReloadEvents.afterAssemblyReload -= OnAfterAssemblyReload;
+        }
+
+        [VisibleToOtherModules("UnityEditor.UIToolkitAuthoringModule")]
+        static internal void RepaintAllInspectors()
+        {
+            foreach (var win in m_AllInspectors)
+                win.Repaint();
+        }
+
+        internal static List<InspectorWindow> GetInspectors()
+        {
+            return m_AllInspectors;
+        }
+
+        protected override void Update()
+        {
+            var lastRenderTimeBefore = m_lastRenderedTime;
+            base.Update();
+            // The render time has changed, so a repaint has been triggered on the main inspector window
+            // We should also trigger it on the associated preview if the preview is in a separated window
+            if (m_PreviewWindow != null && (m_lastRenderedTime - lastRenderTimeBefore) > 0f)
+            {
+                m_PreviewWindow.Repaint();
+            }
+        }
+
+        [NoAutoStaticsCleanup]
+        static List<EditorWindow> s_WindowsSnapshot = new List<EditorWindow>(32);
+
+        [UsedByNativeCode]
+        internal static void RedrawFromNative()
+        {
+            // This method could be called before `OnEnable` is being called on an editor window.
+            // Therefore it is important to make sure your editor window is enabled/active/alive first,
+            // which means it have to be contained in `activeEditorWindows` list.
+
+            // Acquire a snapshot instead of directly iterating over activeEditorWindows as calling
+            // RebuildContentsContainers can mutate activeEditorWindows.
+            var snapshot = s_WindowsSnapshot;
+
+            // Guard against re-entry by setting s_WindowsSnapshot to null for the current entry (the finally statement will restore it).
+            if (snapshot != null)
+                s_WindowsSnapshot = null;
+            else  // If snapshot is null, we're re-entering. We shouldn't overwrite s_WindowsSnapshot therefore fallback to allocating new.
+                snapshot = new List<EditorWindow>(32);
+
+            try
+            {
+                snapshot.AddRange(activeEditorWindows);
+
+                for (int i = 0; i < snapshot.Count; ++i)
+                {
+                    if (snapshot[i] is PropertyEditor propertyEditor && propertyEditor != null)
+                        propertyEditor.RebuildContentsContainers();
+                }
+            }
+            finally
+            {
+                snapshot.Clear();
+                s_WindowsSnapshot = snapshot;
+            }
+        }
+
+        internal static InspectorWindow[] GetAllInspectorWindows()
+        {
+            return m_AllInspectors.ToArray();
+        }
+
+        public override void AddItemsToMenu(GenericMenu menu)
+        {
+            m_LockTracker.AddItemsToMenu(menu);
+            menu.AddItem(EditorGUIUtility.TrTextContent("Properties..."), false, () => OpenPropertyEditor(GetInspectedObjects()));
+            menu.AddSeparator(String.Empty);
+            base.AddItemsToMenu(menu);
+        }
+
+        protected override void RefreshTitle()
+        {
+            string iconName = "UnityEditor.InspectorWindow";
+
+            switch (m_InspectorMode)
+            {
+                case InspectorMode.Normal:
+                {
+                    titleContent = EditorGUIUtility.TrTextContentWithIcon(k_InspectorWindowTitle, iconName);
+                    break;
+                }
+                case InspectorMode.Debug:
+                {
+                    titleContent = EditorGUIUtility.TrTextContentWithIcon(k_InspectorWindowTitleDebug, iconName);
+                    break;
+                }
+                case InspectorMode.DebugInternal:
+                {
+                    titleContent = EditorGUIUtility.TrTextContentWithIcon(k_InspectorWindowTitleDebugInternal, iconName);
+                    break;
+                }
+                default:
+                {
+                    throw new ArgumentOutOfRangeException(nameof(m_InspectorMode), m_InspectorMode, null);
+                }
+            }
+        }
+
+        protected override void UpdateWindowObjectNameTitle()
+        {
+            // The inspector window does not track the object name.
+        }
+
+        protected override void CreateTracker()
+        {
+            if (m_Tracker != null)
+            {
+                // Ensure that inspector mode
+                // This shouldn't be necessary but there are some non-reproducable bugs objects showing up as not able to multi-edit
+                // because this state goes out of sync.
+                m_Tracker.inspectorMode = m_InspectorMode;
+                return;
+            }
+
+            m_Tracker = sharedTrackerInUse ? new ActiveEditorTracker() : ActiveEditorTracker.sharedTracker;
+            m_Tracker.inspectorMode = m_InspectorMode;
+            m_Tracker.RebuildIfNecessary();
+        }
+
+        bool sharedTrackerInUse
+        {
+            get
+            {
+                return m_AllInspectors.Exists(i => i.m_Tracker != null && i.m_Tracker.Equals(ActiveEditorTracker.sharedTracker));
+            }
+        }
+
+        protected virtual void ShowButton(Rect r)
+        {
+            m_LockTracker.ShowButton(r, Styles.lockButton);
+        }
+
+        private void LockStateChanged(bool lockState)
+        {
+            if (lockState)
+            {
+                PrepareLockedObjectsForSerialization();
+            }
+            else
+            {
+                ClearSerializedLockedObjects();
+            }
+
+            tracker.RebuildIfNecessary();
+        }
+
+        protected override bool CloseIfEmpty()
+        {
+            return false;
+        }
+
+        protected override void BeginRebuildContentContainers()
+        {
+            FlushAllOptimizedGUIBlocksIfNeeded();
+
+            if (m_TrackerResetter == null)
+            {
+                m_TrackerResetInserted = false;
+                m_TrackerResetter = CreateIMGUIContainer(() => {}, "activeEditorTrackerResetter");
+                rootVisualElement.Insert(0, m_TrackerResetter);
+            }
+        }
+
+        protected override bool BeginDrawPreviewAndLabels()
+        {
+            if (m_PreviewWindow && Event.current?.type == EventType.Repaint)
+                m_PreviewWindow.Repaint();
+            return m_PreviewWindow == null;
+        }
+
+        /// <summary>
+        /// Finalize IMGUI based inspectors.
+        /// </summary>
+        protected override void EndDrawPreviewAndLabels(Event evt, Rect rect, Rect dragRect)
+        {
+            if (m_HasPreview || m_PreviewWindow != null)
+            {
+                if (EditorGUILayout.DropdownButton(Styles.menuIcon, FocusType.Passive, Styles.preOptionsButton))
+                {
+                    GenericMenu menu = new GenericMenu();
+                    menu.AddItem(
+                        EditorGUIUtility.TrTextContent(m_PreviewWindow == null
+                            ? "Convert to Floating Window"
+                            : "Dock Preview to Inspector"), false,
+                        () =>
+                        {
+                            if (m_PreviewWindow == null)
+                            {
+                                PopupPreviewWindow(exitGUI: false);
+                            }
+                            else
+                            {
+                                DockPreviewWindow();
+                            }
+                        });
+                    menu.AddItem(
+                        EditorGUIUtility.TrTextContent(m_PreviewResizer.GetExpanded()
+                            ? "Minimize in Inspector"
+                            : "Restore in Inspector"), false,
+                        () =>
+                        {
+                            m_PreviewResizer.SetExpanded(position, k_InspectorPreviewMinTotalHeight,
+                                k_MinAreaAbovePreview, kBottomToolbarHeight, dragRect,
+                                !m_PreviewResizer.GetExpanded());
+                        });
+                    menu.ShowAsContext();
+                }
+            }
+
+            // Detach preview on right click in preview title bar
+            if (evt.type == EventType.MouseUp && evt.button == 1 && rect.Contains(evt.mousePosition) && m_PreviewWindow == null)
+                PopupPreviewWindow(exitGUI: true);
+        }
+
+        /// <summary>
+        /// Creates the ellipsis menu for UITK based inspectors.
+        /// </summary>
+        protected override void CreatePreviewEllipsisMenu()
+        {
+            if (m_PreviewRootElement == null)
+                return;
+
+            m_PreviewRootElement.ClearEllipsisMenu();
+            m_PreviewRootElement.AppendActionToEllipsisMenu(
+                "Convert to Floating Window",
+                (e) =>
+                {
+                    if (m_PreviewWindow == null)
+                        PopupPreviewWindow();
+                    else
+                        DockPreviewWindow();
+                },
+                a => DropdownMenuAction.Status.Normal);
+
+            m_PreviewRootElement.AppendActionToEllipsisMenu(
+                "Minimize in Inspector",
+                (e) =>
+                {
+                    ExpandCollapsePreview();
+                },
+                a => !showingPreview ? DropdownMenuAction.Status.Checked : DropdownMenuAction.Status.Normal
+            );
+
+            m_SplitView.Q(s_draglineAnchor).RegisterCallback<PointerUpEvent>(OnDraglineChange);
+        }
+
+        void OnDraglineChange(PointerUpEvent evt)
+        {
+            if (m_PreviewWindow != null || evt.button != (int)MouseButton.RightMouse)
+                return;
+
+            PopupPreviewWindow();
+        }
+
+        void PopupPreviewWindow(bool exitGUI = false)
+        {
+            DetachPreview(exitGUI);
+            m_PreviewRootElement.parent?.Remove(m_PreviewRootElement);
+            SetPreviewPopOutStateAndRebuild(true);
+        }
+
+        void DockPreviewWindow()
+        {
+            m_PreviewWindow?.Close();
+            SetPreviewPopOutStateAndRebuild(false);
+        }
+
+        private void DetachPreview(bool exitGUI = true)
+        {
+            if (Event.current != null)
+                Event.current.Use();
+            m_PreviewWindow = CreateInstance(typeof(PreviewWindow)) as PreviewWindow;
+            m_PreviewWindow.SetParentInspector(this);
+            m_PreviewWindow.Show();
+            Repaint();
+            IMGUIContainer.MakeCurrentIMGUIContainerDirty();
+            if (exitGUI)
+                GUIUtility.ExitGUI();
+        }
+
+        [UsedByNativeCode]
+        internal static void ShowWindow()
+        {
+            GetWindow(typeof(InspectorWindow));
+        }
+
+        private static void FlushAllOptimizedGUIBlocksIfNeeded()
+        {
+            if (!s_AllOptimizedGUIBlocksNeedsRebuild)
+                return;
+            s_AllOptimizedGUIBlocksNeedsRebuild = false;
+        }
+
+        private void PrepareLockedObjectsForSerialization()
+        {
+            ClearSerializedLockedObjects();
+
+            if (m_Tracker != null && m_Tracker.isLocked)
+            {
+                m_Tracker.GetObjectsLockedByThisTracker(m_ObjectsLockedBeforeSerialization);
+
+                // take out non persistent and track them in a list of instance IDs, because they wouldn't survive serialization as Objects
+                for (int i = m_ObjectsLockedBeforeSerialization.Count - 1; i >= 0; i--)
+                {
+                    if (!EditorUtility.IsPersistent(m_ObjectsLockedBeforeSerialization[i]))
+                    {
+                        if (m_ObjectsLockedBeforeSerialization[i] != null)
+                            m_EntityIdsLockedBeforeSerialization.Add(m_ObjectsLockedBeforeSerialization[i].GetEntityId());
+                        m_ObjectsLockedBeforeSerialization.RemoveAt(i);
+                    }
+                }
+            }
+        }
+
+        private void ClearSerializedLockedObjects()
+        {
+            m_ObjectsLockedBeforeSerialization.Clear();
+
+            m_EntityIdsLockedBeforeSerialization.Clear();
+        }
+
+        internal void GetObjectsLocked(List<Object> objs)
+        {
+            m_Tracker.GetObjectsLockedByThisTracker(objs);
+        }
+
+        internal void SetObjectsLocked(List<Object> objs)
+        {
+            m_LockTracker.isLocked = false; //temporary disable the "selection locked so OnSelectionChanged can do something
+            m_Tracker.SetObjectsLockedByThisTracker(objs);
+            m_LockTracker.isLocked = true;
+        }
+
+        private void RestoreLockStateFromSerializedData()
+        {
+            if (m_Tracker == null)
+            {
+                return;
+            }
+
+            // try to retrieve all Objects from their stored instance ids in the list.
+            // this is only used for non persistent objects (scene objects)
+
+            if (m_EntityIdsLockedBeforeSerialization.Count > 0)
+            {
+                for (int i = 0; i < m_EntityIdsLockedBeforeSerialization.Count; i++)
+                {
+                    Object instance = EditorUtility.EntityIdToObject(m_EntityIdsLockedBeforeSerialization[i]);
+                    //don't add null objects (i.e.
+                    if (instance)
+                    {
+                        m_ObjectsLockedBeforeSerialization.Add(instance);
+                    }
+                }
+            }
+
+            for (int i = m_ObjectsLockedBeforeSerialization.Count - 1; i >= 0; i--)
+            {
+                if (m_ObjectsLockedBeforeSerialization[i] == null)
+                {
+                    m_ObjectsLockedBeforeSerialization.RemoveAt(i);
+                }
+            }
+
+            // set the tracker to the serialized list. if it contains nulls or is empty, the tracker won't lock
+            // this fixes case 775007
+            m_Tracker.SetObjectsLockedByThisTracker(m_ObjectsLockedBeforeSerialization);
+            // since this method likely got called during OnEnable, and rebuilding the tracker could call OnDisable on all Editors,
+            // some of which might not have gotten their enable yet, the rebuilding needs to happen delayed in EditorApplication.update
+            EditorApplication.CallDelayed(tracker.RebuildIfNecessary, 0f);
+        }
+
+        internal static bool AddInspectorWindow(InspectorWindow window)
+        {
+            if (m_AllInspectors.Contains(window))
+            {
+                return false;
+            }
+
+            m_AllInspectors.Add(window);
+            return true;
+        }
+
+        internal static void RemoveInspectorWindow(InspectorWindow window)
+        {
+            m_AllInspectors.Remove(window);
+        }
+
+        internal static void ApplyChanges()
+        {
+            foreach (var inspector in m_AllInspectors)
+            {
+                foreach (var editor in inspector.tracker.activeEditors)
+                {
+                    if(editor.hasUnsavedChanges)
+                        editor.SaveChanges();
+                }
+            }
+        }
+
+        internal static void RefreshInspectors()
+        {
+            foreach (var inspector in m_AllInspectors)
+            {
+                inspector.tracker.ForceRebuild();
+            }
+        }
+
+        internal override Object GetInspectedObject()
+        {
+            if (tracker.hasComponentsWhichCannotBeMultiEdited && !tracker.isLocked)
+                return Selection.activeObject;
+
+            Editor editor = InspectorWindowUtils.GetFirstNonImportInspectorEditor(tracker.activeEditors);
+            if (editor == null)
+                return null;
+            return editor.target;
+        }
+
+        internal Object[] GetInspectedObjects()
+        {
+            if (tracker.hasComponentsWhichCannotBeMultiEdited && !tracker.isLocked)
+                return Selection.objects;
+
+            Editor editor = InspectorWindowUtils.GetFirstNonImportInspectorEditor(tracker.activeEditors);
+            if (editor == null)
+                return null;
+            return editor.targets;
+        }
+
+        private bool EditorsForMultiEditingChanged()
+        {
+            foreach (var editor in tracker.activeEditors)
+            {
+                if (EditorForMultiEditingChanged(editor, editor.target))
+                    return true;
+            }
+
+            return false;
+        }
+
+        private static bool EditorForMultiEditingChanged(Editor editor, Object target)
+        {
+            if (editor.targets.Length <= 1)
+                return false;
+
+            var currentEditorType = editor.GetType();
+            var expectedEditorType = CustomEditorAttributes.FindCustomEditorType(target, true);
+
+            // Going from generic to generic inspector for multi editing is correctly handled.
+            if (editor is GenericInspector && expectedEditorType == null)
+                return false;
+            return currentEditorType != expectedEditorType;
+        }
+    }
+}
+#pragma warning restore UAL0015,UAL0018,UAL0019,UAL0020,UAL0021

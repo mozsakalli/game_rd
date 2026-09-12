@@ -1,0 +1,184 @@
+//
+// These types are shared with the Editor
+//
+
+using System.Collections.Generic;
+using System.Diagnostics;
+
+//linker or editor may not make use of all fields so suppress unused fields warn
+#pragma warning disable CS0649
+
+namespace UnityEditorInternal
+{
+    [System.Serializable]
+    internal class EditorToLinkerData
+    {
+        [UnityEngine.SerializeField]
+        public SerializedTypeData[] serializedTypes;
+
+        [UnityEngine.SerializeField]
+        public TypeInSceneData[] typesInScenes;
+
+        [UnityEngine.SerializeField]
+        public NativeTypeData[] allNativeTypes;
+
+        [UnityEngine.SerializeField]
+        public string[] forceIncludeModules;
+
+        [UnityEngine.SerializeField]
+        public string[] forceExcludeModules;
+
+        /// <summary>
+        /// Dynamically generated module dependency information
+        /// </summary>
+        [UnityEngine.SerializeField]
+        public DynamicModuleDependencies[] dynamicModuleDependencies;
+
+        /// <summary>
+        /// ManagedCapture config JSON string supplied by the Editor at build time (Option D2).
+        /// When non-null it drives ManagedCapture injection; this is the only mechanism for
+        /// supplying the config.
+        /// </summary>
+        [UnityEngine.SerializeField]
+        public string managedCaptureConfig;
+
+        [System.Serializable]
+        public class SerializedTypeData
+        {
+            [UnityEngine.SerializeField]
+            public string managedAssemblyName;
+            [UnityEngine.SerializeField]
+            public string fullManagedTypeName;
+        }
+
+        [System.Serializable]
+        public class TypeInSceneData
+        {
+            [UnityEngine.SerializeField]
+            public string managedAssemblyName;
+            [UnityEngine.SerializeField]
+            public string nativeClass;
+            [UnityEngine.SerializeField]
+            public string fullManagedTypeName;
+            [UnityEngine.SerializeField]
+            public string moduleName;
+            [UnityEngine.SerializeField]
+            public string[] usedInScenes;
+
+            /// <summary>
+            /// For deserializing
+            /// </summary>
+            public TypeInSceneData()
+            {
+            }
+
+            public TypeInSceneData(string managedAssemblyName, string fullManagedTypeName, string nativeClass, string moduleName, string[] usedInScenes)
+            {
+                this.managedAssemblyName = managedAssemblyName;
+                this.nativeClass = nativeClass;
+                this.fullManagedTypeName = fullManagedTypeName;
+                this.moduleName = moduleName;
+                this.usedInScenes = usedInScenes;
+            }
+
+            /// <summary>
+            /// Overridden for easier reading when debugging
+            /// </summary>
+            /// <returns></returns>
+            public override string ToString()
+            {
+                var managedPart = string.IsNullOrEmpty(fullManagedTypeName) ? "None" : $"{managedAssemblyName}::{fullManagedTypeName}";
+                var nativeName = string.IsNullOrEmpty(nativeClass) ? "None" : $"{moduleName}::{nativeClass}";
+                return $"{managedPart} [{nativeName}]";
+            }
+        }
+
+        [DebuggerDisplay("{module}:{name}")]
+        [System.Serializable]
+        public class NativeTypeData
+        {
+            [UnityEngine.SerializeField]
+            public string name;
+            [UnityEngine.SerializeField]
+            public string qualifiedName;
+            [UnityEngine.SerializeField]
+            public string nativeNamespace;
+            [UnityEngine.SerializeField]
+            public string module;
+
+            [UnityEngine.SerializeField]
+            public string baseName;
+            [UnityEngine.SerializeField]
+            public string baseModule;
+
+            [UnityEngine.SerializeField]
+            public string managedName;
+            [UnityEngine.SerializeField]
+            public string managedNamespace;
+            [UnityEngine.SerializeField]
+            public string managedAssembly;
+        }
+
+        [System.Serializable]
+        public class DynamicModuleDependencies
+        {
+            /// <summary>
+            /// The native name of the module with dynamic generated dependencies.
+            /// </summary>
+            [UnityEngine.SerializeField]
+            public string module;
+
+            /// <summary>
+            /// The native module names that should be treated as dependencies of the module
+            /// </summary>
+            [UnityEngine.SerializeField]
+            public string[] dependencies;
+        }
+    }
+
+    [System.Serializable]
+    internal class LinkerToEditorData
+    {
+        [UnityEngine.SerializeField]
+        public ReportData report;
+
+        [System.Serializable]
+        public class ReportData
+        {
+            [UnityEngine.SerializeField]
+            public List<Module> modules;
+
+            [System.Serializable]
+            [DebuggerDisplay("{name}")]
+            public class Module
+            {
+                [UnityEngine.SerializeField]
+                public string name;
+                [UnityEngine.SerializeField]
+                public List<Dependency> dependencies;
+            }
+
+            [System.Serializable]
+            [DebuggerDisplay("{name}")]
+            public class Dependency
+            {
+                [UnityEngine.SerializeField]
+                public string name;
+                [UnityEngine.SerializeField]
+                public string[] scenes;
+                [UnityEngine.SerializeField]
+                public DependencyType dependencyType;
+                [UnityEngine.SerializeField]
+                public string icon;
+            }
+
+            public enum DependencyType
+            {
+                ManagedType,
+                NativeType,
+                Module,
+                Custom
+            }
+        }
+    }
+}

@@ -1,0 +1,1314 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
+using Unity.Properties;
+using UnityEditor;
+using UnityEditor.UIElements;
+using UnityEditorInternal;
+using UnityEngine;
+using UnityEngine.Bindings;
+using UnityEngine.Pool;
+using UnityEngine.UIElements;
+using UnityEngine.UIElements.StyleSheets;
+using Debug = UnityEngine.Debug;
+using Unity.Scripting.LifecycleManagement;
+
+namespace Unity.UIToolkit.Editor;
+
+[VisibleToOtherModules("UnityEditor.UIBuilderModule")]
+internal enum TrackedPropertyType
+{
+    MarkOverride,
+    ClearOverride,
+    StopTracking,
+}
+
+[VisibleToOtherModules("UnityEditor.UIBuilderModule")]
+internal interface ITrackablePropertyProvider
+{
+    event Action<ITrackablePropertyProvider, string, TrackedPropertyType> OnTrackedPropertyChanged;
+    event Action<ITrackablePropertyProvider, string, bool, bool, bool> OnTrackedPropertySourceChanged;
+}
+
+internal interface INotifyCompositeStylePropertyChanged<in TValue>
+{
+    void SetValue(BindingId id, TValue v, bool notify);
+
+    void NotifyStylePropertyChanged(BindingId id, TValue previousValue, TValue newValue);
+}
+
+internal static class NotifyCompositeStylePropertyChangedExtensions
+{
+    public static void NotifyStylePropertyChanged<TValue>(this INotifyCompositeStylePropertyChanged<TValue> self, VisualElement element, BindingId id, TValue previousValue, TValue newValue)
+    {
+        var evt = CompositeStylePropertyChangeEvent<TValue>.GetPooled(id, previousValue, newValue);
+        evt.target = element;
+        element.SendEvent(evt);
+    }
+}
+
+class CompositeStylePropertyChangeEvent<T> : EventBase<CompositeStylePropertyChangeEvent<T>>, IChangeEvent
+{
+    static CompositeStylePropertyChangeEvent()
+    {
+        SetCreateFunction(() => new CompositeStylePropertyChangeEvent<T>());
+    }
+
+    public BindingId Id { get; protected set; }
+    public T PreviousValue { get; protected set; }
+    public T NewValue { get; protected set; }
+
+    protected override void Init()
+    {
+        base.Init();
+        LocalInit();
+    }
+
+    void LocalInit()
+    {
+        bubbles = false;
+        tricklesDown = false;
+        PreviousValue = default(T);
+        NewValue = default(T);
+    }
+
+    public static CompositeStylePropertyChangeEvent<T> GetPooled(BindingId id, T previousValue, T newValue)
+    {
+        CompositeStylePropertyChangeEvent<T> e = GetPooled();
+        e.Id = id;
+        e.PreviousValue = previousValue;
+        e.NewValue = newValue;
+        return e;
+    }
+
+    public CompositeStylePropertyChangeEvent()
+    {
+        LocalInit();
+    }
+}
+
+[UxmlObject]
+sealed partial class StylePropertyBinding : CustomBinding, ITrackablePropertyProvider, IDataSourceProvider
+{
+    [Flags]
+    enum UpdateFlags
+    {
+        None = 0,
+        IgnoreChanges = 1,
+    }
+
+    readonly struct IgnoreChangeScope : IDisposable
+    {
+        readonly StylePropertyBinding m_Binding;
+        readonly bool m_WasIgnoringChanges;
+
+        public IgnoreChangeScope(StylePropertyBinding binding)
+        {
+            m_Binding = binding;
+            m_WasIgnoringChanges = m_Binding.ignoreChanges;
+            m_Binding.ignoreChanges = true;
+        }
+
+        public void Dispose()
+        {
+            m_Binding.ignoreChanges = m_WasIgnoringChanges;
+        }
+    }
+
+    readonly record struct CallbackContext(StylePropertyBinding binding, VisualElement element, BindingId bindingId)
+    {
+        public readonly StylePropertyBinding binding = binding;
+        public readonly VisualElement element = element;
+        public readonly StyleInspectorElement.AuthoringContext authoringContext = (StyleInspectorElement.AuthoringContext)element.GetHierarchicalDataSourceContext().dataSource;
+        public readonly BindingId bindingId = bindingId;
+    }
+
+    readonly record struct BindingInfoKey(VisualElement target, in BindingId id)
+    {
+        public readonly VisualElement target = target;
+        public readonly BindingId id = id;
+    }
+
+    struct State
+    {
+        public bool IsInlined;
+        public bool HasBinding;
+        public bool HasVariable;
+
+        public bool IsOverridden => IsInlined || HasBinding || HasVariable;
+    }
+
+    interface IProcessGenericChange<T>
+    {
+        void ProcessGenericChange(ref T value);
+    }
+
+    partial class GenericValueAtPath : PathVisitor
+    {
+        public StylePropertyBinding binding;
+        public BindingId bindingId;
+        public VisualElement element;
+        public StyleInspectorElement.AuthoringContext authoringContext;
+
+        public override void Reset()
+        {
+            base.Reset();
+            binding = null;
+            bindingId = default;
+            element = null;
+            authoringContext = null;
+        }
+
+        protected override void VisitPath<TContainer, TValue>(Property<TContainer, TValue> property, ref TContainer container, ref TValue value)
+        {
+            if (this is IProcessGenericChange<TValue> typedProcessor)
+            {
+                typedProcessor.ProcessGenericChange(ref value);
+            }
+        }
+
+        private bool ShouldProcessChange()
+        {
+            if (authoringContext.IsReadOnly)
+            {
+                binding.Update(bindingId, binding.stylePropertyId, authoringContext, element);
+                return false;
+            }
+
+            return true;
+        }
+    }
+
+    [NoAutoStaticsCleanup] // visitor pool, safe to persist
+    static readonly UnityEngine.Pool.ObjectPool<GenericValueAtPath> s_VisitorPool = new (CreateVisitor, null, OnReleaseVisitor);
+
+    static GenericValueAtPath CreateVisitor()
+    {
+        return new GenericValueAtPath();
+    }
+
+    static void OnReleaseVisitor(GenericValueAtPath visitor)
+    {
+        visitor.Reset();
+    }
+
+    public static readonly string k_AddBindingText = L10n.Tr("Add Binding", null);
+    public static readonly string k_RemoveBindingText = L10n.Tr("Remove Binding", null);
+    public static readonly string k_EditBindingText = L10n.Tr("Edit Binding", null);
+    public static readonly string k_ViewBindingText = L10n.Tr("View Binding", null);
+    public static readonly string k_ViewVariableText = L10n.Tr("View variable", null);
+    public static readonly string k_SetVariableText = L10n.Tr("Set variable", null);
+    public static readonly string k_EditVariableText = L10n.Tr("Edit variable", null);
+    public static readonly string k_RemoveVariableText = L10n.Tr("Remove variable", null);
+    public static readonly string k_GoToSelectorText = L10n.Tr("Go to selector", null);
+    public static readonly string k_OpenSelectorInIDEText = L10n.Tr("Open selector in IDE", null);
+    public static readonly string k_SetAsInlineValueText = L10n.Tr("Set as inline value", null);
+    public static readonly string k_SetAsValueText = L10n.Tr("Set as value", null);
+    public static readonly string k_UnsetText = L10n.Tr("Unset", null);
+    public static readonly string k_UnsetAllText = L10n.Tr("Unset All", null);
+    public static readonly string k_ExtractInlineStyleText = L10n.Tr("Extract Inlined Style to Selector", null);
+    public static readonly string k_ExtractAllInlineStylesText = L10n.Tr("Extract All Inlined Styles to Selector", null);
+    public static readonly string k_NewClassText = L10n.Tr("New Class...", null);
+
+    public static readonly UniqueStyleString k_InlineFieldUssClassName = new("style-property-field__inline-value");
+    public static readonly UniqueStyleString k_VariableFieldUssClassName = new("style-property-field__variable");
+    public static readonly UniqueStyleString k_BoundFieldUssClassName = new("style-property-field__bound");
+    public static readonly UniqueStyleString k_AnimationDrivenFieldUssClassName = new("style-property-field__animation-driven");
+
+    const string k_ContextualMenuManipulatorPropertyName = "__ContextMenuManipulator";
+
+    private readonly Dictionary<BindingInfoKey, State> m_State = new ();
+    private UpdateFlags m_UpdateFlags;
+    private string m_StyleProperty;
+    private string m_StylePropertyCSharpName;
+    private StylePropertyId stylePropertyId;
+
+    public event Action<ITrackablePropertyProvider, string, TrackedPropertyType> OnTrackedPropertyChanged;
+    public event Action<ITrackablePropertyProvider, string, bool, bool, bool> OnTrackedPropertySourceChanged;
+
+    internal const string k_DataSourcePathTooltip = "The name of the style property that is targeted.";
+
+    /// <summary>
+    /// Object that serves as a local source for the binding, and is particularly useful when the data source is not
+    /// part of the UI hierarchy, such as a static localization table. If this object is null, the binding resolves
+    /// the data source using its normal resolution method.
+    /// </summary>
+    /// <remarks>
+    /// Using a local source does not prevent children of the target from using the hierarchy source.
+    /// </remarks>
+    [UxmlAttribute, HideInInspector, Tooltip(k_DataSourcePathTooltip), CreateProperty]
+    public string styleProperty
+    {
+        get => m_StyleProperty;
+        private set
+        {
+            if (m_StyleProperty == value)
+                return;
+            m_StyleProperty = value;
+            stylePropertyId = GetPropertyId(m_StyleProperty);
+            m_StylePropertyCSharpName = StylePropertyUtil.ussNameToCSharpName.GetValueOrDefault(m_StyleProperty, m_StyleProperty);
+        }
+    }
+
+    private bool ignoreChanges
+    {
+        get => (m_UpdateFlags & UpdateFlags.IgnoreChanges) == UpdateFlags.IgnoreChanges;
+        set
+        {
+            if (value)
+                m_UpdateFlags |= UpdateFlags.IgnoreChanges;
+            else
+                m_UpdateFlags &= ~UpdateFlags.IgnoreChanges;
+        }
+    }
+
+    public StylePropertyBinding()
+        :this(null)
+    {
+    }
+
+    public StylePropertyBinding(string styleProperty)
+    {
+        updateTrigger = BindingUpdateTrigger.OnSourceChanged;
+        this.styleProperty = styleProperty;
+    }
+
+    protected internal override void OnActivated(in BindingActivationContext context)
+    {
+        base.OnActivated(in context);
+        SendTrackPropertyEvent(this, context.targetElement, styleProperty, PropertyTrackingType.Register);
+        RegisterCallbacks(this, context.bindingId, stylePropertyId, context.targetElement);
+
+        // TrickleDown phase: must run before VisualElement.SetTooltip and BaseField.HandleEventBubbleUp
+        context.targetElement.RegisterCallback<TooltipEvent, CallbackContext>(
+            OnTooltipEvent,
+            new CallbackContext(this, context.targetElement, context.bindingId),
+            TrickleDown.TrickleDown);
+
+        SetupVariableEditingHandler(context.targetElement);
+    }
+
+    protected internal override void OnDeactivated(in BindingActivationContext context)
+    {
+        base.OnDeactivated(in context);
+        OnTrackedPropertyChanged?.Invoke(this, styleProperty, TrackedPropertyType.StopTracking);
+        UnregisterCallbacks(this, stylePropertyId, context.targetElement);
+        context.targetElement.UnregisterCallback<TooltipEvent, CallbackContext>(OnTooltipEvent, TrickleDown.TrickleDown);
+        m_State.Remove(new BindingInfoKey(context.targetElement, context.bindingId));
+    }
+
+    protected internal override BindingResult Update(in BindingContext context)
+    {
+        if (context.dataSource is not StyleInspectorElement.AuthoringContext ctx)
+            return new BindingResult(BindingStatus.Failure, "Expected a StyleDiff as the data source");
+
+        // StyleDiff has not been run yet.
+        if (ctx.StyleDiff.currentContextType == StyleDiff.ContextType.None)
+            return new BindingResult(BindingStatus.Pending);
+
+        if (!IsStylePropertySupported(stylePropertyId))
+            return new BindingResult(BindingStatus.Failure, "Expected a style property as the target. Shorthand and custom properties are not supported.");
+
+        var targetElement = context.targetElement;
+        return Update(context.bindingId, stylePropertyId, ctx, targetElement);
+    }
+
+    static void ProcessChange<T>(T value, StyleInspectorElement.AuthoringContext authoringContext, StylePropertyBinding binding, Action<StyleProperty, StyleSheet, T> setter)
+    {
+        var styleDiff = authoringContext.StyleDiff;
+        switch (styleDiff.currentContextType)
+        {
+            case StyleDiff.ContextType.VisualElement:
+            {
+                if (authoringContext.AnimationController != null)
+                {
+                    Debug.Assert(AnimationMode.InAnimationRecording(),
+                        "AnimationController is set but AnimationMode.InAnimationRecording() is false.");
+                    if (StyleDebug.IsShorthandProperty(binding.stylePropertyId))
+                        break;
+                    var inspectedElement = styleDiff.currentTarget;
+                    AnimationRecordingStyleBridge.TryRecordStylePropertyChange(inspectedElement, binding.stylePropertyId, false, in value, in value);
+                    break;
+                }
+
+                Debug.Assert(!AnimationMode.InAnimationRecording(),
+                    "AnimationMode is recording but AnimationController is null. Refresh must run before ProcessChange.");
+
+                SetInlineStylePropertyCommand<T>.Execute(CommandSources.Inspector, styleDiff.currentTarget, binding.stylePropertyId, setter, value);
+                break;
+            }
+            case StyleDiff.ContextType.StyleSheet:
+            {
+                // While recording, save the rule's edit to its clip instead of the stylesheet; otherwise
+                // write to the stylesheet as usual. Shorthands aren't recorded - edit their parts instead.
+                if (authoringContext.AnimationController != null && AnimationMode.InAnimationRecording())
+                {
+                    if (!StyleDebug.IsShorthandProperty(binding.stylePropertyId))
+                        AnimationRecordingStyleBridge.TryRecordStyleRulePropertyChange(styleDiff.currentRule, binding.stylePropertyId, in value);
+                    break;
+                }
+
+                SetStyleSheetPropertyCommand<T>.Execute(CommandSources.Inspector, styleDiff.currentStyleSheet, styleDiff.currentRule, binding.stylePropertyId, setter, value);
+
+                // Update selector element
+                styleDiff.currentTarget?.UpdateInlineRule(styleDiff.currentStyleSheet, styleDiff.currentRule, styleDiff.currentTarget.variableContext);
+                styleDiff.currentTarget?.IncrementVersion(VersionChangeType.StyleSheet | VersionChangeType.Styles);
+
+                break;
+            }
+            case StyleDiff.ContextType.None:
+            default:
+                Debug.Assert(authoringContext.AnimationController == null,
+                    "AnimationController must be null when context type is None.");
+                break;
+        }
+    }
+
+    // Composes the field tooltip from up to three independent sections, joined by blank lines:
+    //   1. <b>{blocked reason}</b>  - recording is active and this property cannot be recorded here.
+    //   2. {affordance tooltip}     - echoes the affordance icon's current tooltip (Default Value,
+    //                                 Inline Value, Inherited, Animation-driven/Recording/Candidate,
+    //                                 binding/variable details, ...). Independent of section 1 -
+    //                                 a UXML-driven property that is also recording-blocked shows
+    //                                 both the bold status AND its affordance line.
+    //   3. UXML tooltip verbatim    - already carries its own bold "<b>USS property: name</b> ..."
+    //                                 header and inline description.
+    // rect is anchored to the field worldBound in every case so the tooltip pops above the field.
+    // StopImmediatePropagation is called only when we actually emit something, so a field with no
+    // UXML tooltip and no affordance state lets the default tooltip flow continue undisturbed.
+    static void OnTooltipEvent(TooltipEvent evt, CallbackContext ctx)
+    {
+
+        if (evt.target is not VisualElement target || HasOwnLeafTooltip(target, ctx.element))
+            return;
+
+        var sb = new System.Text.StringBuilder();
+
+        var controller = ctx.authoringContext?.AnimationController;
+        if (controller != null)
+        {
+            var blocked = ComputeBlockedReason(
+                ctx.authoringContext.StyleDiff.currentTarget,
+                ctx.binding.stylePropertyId,
+                controller);
+            if (blocked != null)
+                sb.Append("<b>").Append(blocked).Append("</b>");
+        }
+
+        var affordance = (ctx.element as IAffordanceField)?.affordanceElement?.GetTooltip();
+        if (!string.IsNullOrEmpty(affordance))
+        {
+            if (sb.Length > 0) sb.Append("\n\n");
+            sb.Append(affordance);
+        }
+
+        var baseTooltip = ctx.element.tooltip;
+        if (!string.IsNullOrEmpty(baseTooltip))
+        {
+            if (sb.Length > 0) sb.Append("\n\n");
+            sb.Append(baseTooltip);
+        }
+
+        if (sb.Length == 0)
+            return;
+
+
+        evt.tooltip = sb.ToString();
+        evt.rect = ctx.element.worldBound;
+        evt.StopImmediatePropagation();
+    }
+
+    // True when the hovered element - or anything between it and the field, exclusive - carries its own
+    // tooltip string
+    static bool HasOwnLeafTooltip(VisualElement target, VisualElement field)
+    {
+        for (var e = target; e != null && e != field; e = e.hierarchy.parent)
+        {
+            if (!string.IsNullOrEmpty(e.tooltip))
+                return true;
+        }
+        return false;
+    }
+
+    static string ComputeBlockedReason(VisualElement inspected, StylePropertyId id, StyleInspectorAnimationRecordingContext controller)
+    {
+        if (controller.IsPropertyRecordable(id))
+            return null;
+
+        // Per-element clip in scope bypasses the panel-wide naming rule, so any block here can only
+        // be property-level (shorthand / unsupported channel). The panel-wide probe would falsely
+        // report "give this element a name" for an unnamed element that records fine via its clip.
+        if (VisualElementAnimationClipUtility.FindClipOwner(inspected) != null)
+            return VisualElementRecordability.k_PropertyNotRecordableMessage;
+
+        return VisualElementRecordability.Probe(inspected, id).GetBlockedMessage();
+    }
+
+    static void ProcessChange<T>(ChangeEvent<T> evt, CallbackContext ctx, Action<StyleProperty, StyleSheet, T> setter)
+    {
+        if (ctx.binding.ignoreChanges)
+            return;
+
+        if (ShouldProcessChange(evt, ctx))
+            ProcessChange(evt.newValue, ctx.authoringContext, ctx.binding, setter);
+    }
+
+    static void ProcessChange<T>(CompositeStylePropertyChangeEvent<T> evt, CallbackContext ctx, Action<StyleProperty, StyleSheet, T> setter)
+    {
+        if (ctx.binding.ignoreChanges || evt.target != ctx.element || evt.Id != ctx.bindingId)
+            return;
+
+        if (ShouldProcessChange(evt, ctx))
+            ProcessChange(evt.NewValue, ctx.authoringContext, ctx.binding, setter);
+    }
+
+    void SetupContextMenu<TInline, TComputed>(VisualElement field, FieldAffordanceElement fieldAffordanceElement,
+        StyleInspectorElement.AuthoringContext authoringContext, StylePropertyData<TInline, TComputed> value,
+        BindingId id, VisualElement propertyContainer = null)
+    {
+        EnsureContextMenuManipulator(field);
+
+        fieldAffordanceElement.populateMenuItems = menu =>
+        {
+            var ve = authoringContext.StyleDiff.currentTarget;
+            var bindingPath = "style." + m_StylePropertyCSharpName;
+
+            // Add a separator in case then menu is already filled with items (e.g: TextField's input)
+            menu.AppendSeparator();
+
+            AppendBindingMenuItems(menu, ve, bindingPath, fieldAffordanceElement, authoringContext.IsReadOnly);
+            AppendSetAsInlineValueMenuItems(menu, propertyContainer ?? field, value, authoringContext, id);
+            AppendUnsetMenuItems(menu, value, authoringContext);
+            AppendExtractInlineStyleMenuItems(menu, field, value, authoringContext);
+
+            menu.AppendSeparator();
+
+            AppendVariableMenuItems(menu, field, value.uxmlValue.requireVariableResolve, authoringContext);
+            AppendSelectorMenuItems(menu, fieldAffordanceElement, authoringContext);
+
+            // Animation Window contextual items - no-op when no responder is active so the
+            // menu is unchanged outside of preview/recording sessions.
+            VisualElementContextualPropertyMenu.Populate(menu, ve, stylePropertyId);
+        };
+    }
+
+    void AppendSetAsInlineValueMenuItems<TInline, TComputed>(DropdownMenu menu, VisualElement field,
+        StylePropertyData<TInline, TComputed> value, StyleInspectorElement.AuthoringContext authoringContext,
+        BindingId id)
+    {
+        var contextType = authoringContext.StyleDiff.currentContextType;
+        if (contextType == StyleDiff.ContextType.None)
+            return;
+
+        var label = contextType == StyleDiff.ContextType.VisualElement
+            ? k_SetAsInlineValueText
+            : k_SetAsValueText;
+
+        var isAlreadyInlined = value.uxmlValue.isInlined;
+        var hasVariable = value.uxmlValue.requireVariableResolve;
+        var status = (!isAlreadyInlined || hasVariable) && !authoringContext.IsReadOnly
+            ? DropdownMenuAction.Status.Normal
+            : DropdownMenuAction.Status.Disabled;
+
+        var computedValue = value.computedValue;
+        menu.AppendAction(label, _ => TriggerSetAsInlineValue<TInline, TComputed>(field, computedValue, id), _ => status);
+    }
+
+    void TriggerSetAsInlineValue<TInline, TComputed>(VisualElement field, TComputed capturedValue, BindingId id)
+    {
+        switch (field)
+        {
+            case BaseField<TComputed>:
+            {
+                using var evt = ChangeEvent<TComputed>.GetPooled(capturedValue, capturedValue);
+                evt.target = field;
+                field.SendEvent(evt);
+                break;
+            }
+            case BaseField<TInline>:
+            {
+                if (TypeConversion.TryConvert<TComputed, TInline>(ref capturedValue, out var converted))
+                {
+                    using var evt = ChangeEvent<TInline>.GetPooled(converted, converted);
+                    evt.target = field;
+                    field.SendEvent(evt);
+                }
+                break;
+            }
+            case INotifyCompositeStylePropertyChanged<TComputed> composite:
+                composite.SetValue(id, capturedValue, true);
+                break;
+            case INotifyCompositeStylePropertyChanged<TInline> compositeInline:
+            {
+                if (TypeConversion.TryConvert<TComputed, TInline>(ref capturedValue, out var converted))
+                    compositeInline.SetValue(id, converted, true);
+                break;
+            }
+            default:
+                PropertyContainer.SetValue(field, id, capturedValue);
+                break;
+        }
+    }
+
+    void EnsureContextMenuManipulator(VisualElement field)
+    {
+        if (field.HasProperty(k_ContextualMenuManipulatorPropertyName))
+            return;
+
+        var contextMenuManipulator = new ContextualMenuManipulator(evt =>
+        {
+            // Dynamically retrieve the current affordance element instead of capturing it
+            var currentAffordanceElement = (field as IAffordanceField)?.affordanceElement;
+            currentAffordanceElement?.OnContextualMenuPopulate(evt);
+        });
+        contextMenuManipulator.acceptClicksIfDisabled = true;
+        field.AddManipulator(contextMenuManipulator);
+        field.SetProperty(k_ContextualMenuManipulatorPropertyName, contextMenuManipulator);
+    }
+
+    void AppendBindingMenuItems(DropdownMenu menu, VisualElement ve, string bindingPath,
+        FieldAffordanceElement fieldAffordanceElement, bool isReadOnly)
+    {
+        var isBindableElement = UxmlSerializedDataRegistry.GetDescription(ve.GetType().FullName) != null;
+        var isBindableProperty = PropertyContainer.IsPathValid(ve, bindingPath);
+
+        if (!isBindableElement || !isBindableProperty)
+            return;
+
+        var vea = ve.visualElementAsset;
+        var hasDataBinding = vea != null && ve.TryGetBinding(bindingPath, out _);
+
+        if (hasDataBinding)
+        {
+            if (isReadOnly)
+            {
+                menu.AppendAction(k_ViewBindingText,
+                    _ => BindingWindow.OpenToView(ve, bindingPath, fieldAffordanceElement),
+                    _ => DropdownMenuAction.Status.Normal,
+                    this);
+            }
+            else
+            {
+                menu.AppendAction(k_EditBindingText,
+                    _ => BindingWindow.OpenToEdit(ve, bindingPath, fieldAffordanceElement),
+                    _ => DropdownMenuAction.Status.Normal,
+                    this);
+
+                menu.AppendAction(k_RemoveBindingText,
+                    _ => RemoveBindingCommand.Execute(CommandSources.Inspector, ve, stylePropertyId),
+                    _ => DropdownMenuAction.Status.Normal,
+                    this);
+            }
+        }
+        else if (!isReadOnly && vea != null)
+        {
+            menu.AppendAction(k_AddBindingText,
+                _ => BindingWindow.OpenToCreate(ve, bindingPath, fieldAffordanceElement));
+        }
+    }
+
+    void AppendUnsetMenuItems<TInline, TComputed>(DropdownMenu menu, StylePropertyData<TInline, TComputed> value,
+        StyleInspectorElement.AuthoringContext authoringContext)
+    {
+        var isOverridden = value.uxmlValue.isInlined || value.binding != null || value.uxmlValue.requireVariableResolve;
+        var unsetStatus = isOverridden && !authoringContext.IsReadOnly
+            ? DropdownMenuAction.Status.Normal
+            : DropdownMenuAction.Status.Disabled;
+        menu.AppendAction(k_UnsetText, _ => UnsetStyleProperty(authoringContext.StyleDiff), unsetStatus);
+
+        var hasAnyProperties = HasAnyProperties(authoringContext.StyleDiff);
+        var unsetAllStatus = hasAnyProperties && !authoringContext.IsReadOnly
+            ? DropdownMenuAction.Status.Normal
+            : DropdownMenuAction.Status.Disabled;
+        menu.AppendAction(k_UnsetAllText, _ => UnsetAllStyleProperties(authoringContext.StyleDiff), unsetAllStatus);
+    }
+
+    void AppendExtractInlineStyleMenuItems<TInline, TComputed>(DropdownMenu menu, VisualElement field,
+        StylePropertyData<TInline, TComputed> value, StyleInspectorElement.AuthoringContext authoringContext)
+    {
+        if (authoringContext.StyleDiff.currentContextType != StyleDiff.ContextType.VisualElement
+            || authoringContext.IsReadOnly)
+            return;
+
+        var ve = authoringContext.StyleDiff.currentTarget;
+        var vea = ve?.visualElementAsset;
+        var vta = vea?.visualTreeAsset;
+        if (ve == null || vea == null || vta == null)
+            return;
+
+        var hasInlineValue = value.uxmlValue.isInlined;
+        var hasAnyInlineValue = HasAnyProperties(authoringContext.StyleDiff);
+
+        var ussPropertyName = StylePropertyUtil.cSharpNameToUssName.GetValueOrDefault(m_StyleProperty, m_StyleProperty);
+
+        var extractOneLabel = k_ExtractInlineStyleText;
+        if (hasInlineValue)
+            extractOneLabel += "/" + k_NewClassText;
+        menu.AppendAction(extractOneLabel,
+            _ => OpenNewClassWindow(field, vea, vta, ussPropertyName),
+            _ => hasInlineValue ? DropdownMenuAction.Status.Normal : DropdownMenuAction.Status.Disabled);
+
+        var extractAllLabel = k_ExtractAllInlineStylesText;
+        if (hasAnyInlineValue)
+            extractAllLabel += "/" + k_NewClassText;
+        menu.AppendAction(extractAllLabel,
+            _ => OpenNewClassWindow(field, vea, vta, null),
+            _ => hasAnyInlineValue ? DropdownMenuAction.Status.Normal : DropdownMenuAction.Status.Disabled);
+
+        var matchingSelectors = authoringContext.StyleDiff.matchRecords;
+        if (matchingSelectors == null || matchingSelectors.Count == 0)
+            return;
+
+        var hasLocalSelector = false;
+        foreach (var record in matchingSelectors)
+        {
+            if (record.sheet != null && !record.sheet.IsUnityEditorStyleSheet() && !record.sheet.isDefaultStyleSheet)
+            {
+                hasLocalSelector = true;
+                break;
+            }
+        }
+
+        if (!hasLocalSelector)
+            return;
+
+        if (hasInlineValue)
+            menu.AppendSeparator(k_ExtractInlineStyleText + "/");
+        if (hasAnyInlineValue)
+            menu.AppendSeparator(k_ExtractAllInlineStylesText + "/");
+
+        foreach (var record in matchingSelectors)
+        {
+            if (record.sheet == null || record.sheet.IsUnityEditorStyleSheet() || record.sheet.isDefaultStyleSheet)
+                continue;
+
+            var selectorStr = StyleSheetExporter.Default.ToUssString(record.sheet, record.complexSelector);
+            selectorStr = selectorStr.Replace(" #", "\u00A0#").Replace("/", "\u2215");
+            var capturedRecord = record;
+
+            if (hasInlineValue)
+                menu.AppendAction(k_ExtractInlineStyleText + "/" + selectorStr,
+                    _ => ExtractInlineStyleToSelector(vea, vta, capturedRecord, ussPropertyName),
+                    _ => DropdownMenuAction.Status.Normal);
+
+            if (hasAnyInlineValue)
+                menu.AppendAction(k_ExtractAllInlineStylesText + "/" + selectorStr,
+                    _ => ExtractInlineStyleToSelector(vea, vta, capturedRecord, null),
+                    _ => DropdownMenuAction.Status.Normal);
+        }
+    }
+
+    void OpenNewClassWindow(VisualElement field, VisualElementAsset vea, VisualTreeAsset vta, string propertyName)
+    {
+        var screenRect = GUIUtility.GUIToScreenRect(field.worldBound);
+        NewClassWindow.Open(screenRect, className => ExtractInlineStylesToNewClass(vea, vta, className, propertyName)).ShowModal();
+    }
+
+    void ExtractInlineStylesToNewClass(VisualElementAsset vea, VisualTreeAsset vta, string className, string propertyName)
+    {
+        using var _ = UICommandQueue.BeginGroup(ExtractInlineStylesToNewClassCommand.CommandUndoName);
+
+        var activeStyleSheet = GetActiveStyleSheetQuery.Get();
+        if (activeStyleSheet == null)
+        {
+            var ussPath = StyleSheetAssetUtilities.DisplaySaveFileDialogForUSS();
+            if (string.IsNullOrEmpty(ussPath))
+                return;
+
+            CreateStyleSheetCommand.Execute(CommandSources.Inspector, vta, ussPath);
+            activeStyleSheet = GetActiveStyleSheetQuery.Get();
+        }
+
+        if (activeStyleSheet == null)
+            return;
+
+        ExtractInlineStylesToNewClassCommand.Execute(CommandSources.Inspector, vea, vta, activeStyleSheet, className, propertyName);
+        AddClassCommand.Execute(CommandSources.Inspector, vea, className);
+    }
+
+    void ExtractInlineStyleToSelector(VisualElementAsset vea, VisualTreeAsset vta, SelectorMatchRecord record, string propertyName)
+    {
+        var rule = record.complexSelector?.rule;
+        if (rule == null)
+            return;
+
+        ExtractInlineStyleToStyleRuleCommand.Execute(CommandSources.Inspector, vea, vta, record.sheet, rule, propertyName);
+    }
+
+    void AppendVariableMenuItems(DropdownMenu menu, VisualElement field, bool requireVariableResolve,
+        StyleInspectorElement.AuthoringContext authoringContext)
+    {
+        if (requireVariableResolve)
+        {
+            menu.AppendAction(k_EditVariableText,
+                ViewVariableViaContextMenu,
+                a => VariableActionStatus(a, authoringContext.IsReadOnly),
+                field);
+
+            var removeStatus = !authoringContext.IsReadOnly
+                ? DropdownMenuAction.Status.Normal
+                : DropdownMenuAction.Status.Disabled;
+            menu.AppendAction(k_RemoveVariableText,
+                _ => RemoveVariableViaContextMenu(authoringContext),
+                _ => removeStatus,
+                field);
+        }
+        else
+        {
+            menu.AppendAction(k_SetVariableText,
+                ViewVariableViaContextMenu,
+                a => VariableActionStatus(a, authoringContext.IsReadOnly),
+                field);
+        }
+    }
+
+    void AppendSelectorMenuItems(DropdownMenu menu, FieldAffordanceElement fieldAffordanceElement,
+        StyleInspectorElement.AuthoringContext authoringContext)
+    {
+        var sourceTypeInfo = fieldAffordanceElement.fieldAffordanceData.sourceTypeInfo;
+        var isMatchingSelector = sourceTypeInfo == FieldAffordanceSourceInfoType.MatchingUSSSelector;
+        var isLocalSelector = sourceTypeInfo == FieldAffordanceSourceInfoType.LocalUSSSelector;
+
+        if (!isMatchingSelector && !isLocalSelector)
+            return;
+
+        var selectorRecord = fieldAffordanceElement.fieldAffordanceData.selector;
+        if (isMatchingSelector && selectorRecord.sheet == null)
+            return;
+
+        // MatchingUSSSelector may resolve from a built-in or theme sheet. Skip navigation
+        // actions in that case since the sheet is not user-editable.
+        var isNavigable = isLocalSelector || !selectorRecord.sheet.isDefaultStyleSheet;
+
+        if (!isNavigable)
+            return;
+
+        menu.AppendSeparator();
+
+        if (isMatchingSelector)
+        {
+            var rule = selectorRecord.complexSelector?.rule;
+            if (rule != null)
+            {
+                menu.AppendAction(k_GoToSelectorText,
+                    _ => RequestSelectionQuery<StyleRule>.Execute(CommandSources.Inspector, rule),
+                    _ => authoringContext.IsReadOnly ? DropdownMenuAction.Status.Disabled : DropdownMenuAction.Status.Normal);
+            }
+        }
+
+        menu.AppendAction(k_OpenSelectorInIDEText,
+            _ => OpenSelectorInIDE(fieldAffordanceElement, authoringContext));
+    }
+
+    void OpenSelectorInIDE(FieldAffordanceElement fieldAffordanceElement,
+        StyleInspectorElement.AuthoringContext authoringContext)
+    {
+        StyleSheet sheet;
+        int line;
+        if (fieldAffordanceElement.fieldAffordanceData.sourceTypeInfo == FieldAffordanceSourceInfoType.MatchingUSSSelector)
+        {
+            var record = fieldAffordanceElement.fieldAffordanceData.selector;
+            sheet = record.sheet;
+            line = record.complexSelector?.rule?.line ?? 0;
+        }
+        else
+        {
+            sheet = authoringContext.StyleDiff.currentStyleSheet;
+            line = authoringContext.StyleDiff.currentRule?.line ?? 0;
+        }
+        var fullPath = AssetDatabase.GetAssetPath(sheet);
+        var opened = !string.IsNullOrEmpty(fullPath) && File.Exists(fullPath)
+            && InternalEditorUtility.OpenFileAtLineExternal(fullPath, line, -1);
+        if (!opened)
+            Debug.LogWarning("Could not open the stylesheet containing the selector.");
+    }
+
+    DropdownMenuAction.Status VariableActionStatus(DropdownMenuAction action, bool isReadOnly)
+    {
+        var bindableElement = action.userData as BindableElement;
+        if (bindableElement == null)
+            return DropdownMenuAction.Status.Disabled;
+
+        var varEditingHandler = StyleVariableUtility.GetVarHandler(bindableElement);
+        if (varEditingHandler == null)
+            return DropdownMenuAction.Status.Disabled;
+
+        return !isReadOnly ? DropdownMenuAction.Status.Normal : DropdownMenuAction.Status.Disabled;
+    }
+
+    void ViewVariableViaContextMenu(DropdownMenuAction action)
+    {
+        var bindableElement = action.userData as BindableElement;
+        var varEditingHandler = StyleVariableUtility.GetVarHandler(bindableElement);
+        varEditingHandler.ShowVariableField();
+    }
+
+    void RemoveVariableViaContextMenu(StyleInspectorElement.AuthoringContext authoringContext)
+    {
+        var styleDiff = authoringContext.StyleDiff;
+        RemoveVariableCommand.Execute(CommandSources.Inspector, styleDiff.currentStyleSheet, styleDiff.currentRule, stylePropertyId);
+    }
+
+    void UnsetStyleProperty(StyleDiff styleDiff)
+    {
+        switch (styleDiff.currentContextType)
+        {
+            case StyleDiff.ContextType.VisualElement:
+                UnsetInlineStyleProperty(styleDiff.currentTarget);
+                break;
+            case StyleDiff.ContextType.StyleSheet:
+                UnsetStyleSheetProperty(styleDiff.currentStyleSheet, styleDiff.currentRule, styleDiff.currentTarget);
+                break;
+        }
+    }
+
+    void UnsetInlineStyleProperty(VisualElement element)
+    {
+        UnsetInlineStylePropertyCommand.Execute(CommandSources.Inspector, element, stylePropertyId);
+    }
+
+    void UnsetStyleSheetProperty(StyleSheet styleSheet, StyleRule rule, VisualElement element)
+    {
+        UnsetStyleSheetPropertyCommand.Execute(CommandSources.Inspector, styleSheet, rule, stylePropertyId);
+
+        element?.UpdateInlineRule(styleSheet, rule, element.variableContext);
+        element?.IncrementVersion(VersionChangeType.StyleSheet | VersionChangeType.Styles);
+    }
+
+    bool HasAnyProperties(StyleDiff styleDiff)
+    {
+        switch (styleDiff.currentContextType)
+        {
+            case StyleDiff.ContextType.VisualElement:
+            {
+                var element = styleDiff.currentTarget;
+                if (element?.visualTreeAssetSource == null)
+                    return false;
+
+                var visualTreeAsset = element.visualTreeAssetSource;
+                var inlineStyleSheet = visualTreeAsset.inlineSheet;
+                if (inlineStyleSheet == null)
+                    return false;
+
+                var vea = element.visualElementAsset;
+                if (vea == null || vea.ruleIndex < 0)
+                    return false;
+
+                var rule = inlineStyleSheet.rules[vea.ruleIndex];
+                return rule.properties.Length > 0;
+            }
+            case StyleDiff.ContextType.StyleSheet:
+            {
+                var rule = styleDiff.currentRule;
+                return rule != null && rule.properties.Length > 0;
+            }
+            default:
+                return false;
+        }
+    }
+
+    void UnsetAllStyleProperties(StyleDiff styleDiff)
+    {
+        switch (styleDiff.currentContextType)
+        {
+            case StyleDiff.ContextType.VisualElement:
+                UnsetAllInlineStyleProperties(styleDiff.currentTarget);
+                break;
+            case StyleDiff.ContextType.StyleSheet:
+                UnsetAllStyleSheetProperties(styleDiff.currentStyleSheet, styleDiff.currentRule, styleDiff.currentTarget);
+                break;
+        }
+    }
+
+    void UnsetAllInlineStyleProperties(VisualElement element)
+    {
+        UnsetAllInlineStylePropertiesCommand.Execute(CommandSources.Inspector, element);
+    }
+
+    void UnsetAllStyleSheetProperties(StyleSheet styleSheet, StyleRule rule, VisualElement element)
+    {
+        UnsetAllStyleSheetPropertiesCommand.Execute(CommandSources.Inspector, styleSheet, rule);
+
+        // Update selector element
+        element?.UpdateInlineRule(styleSheet, rule, element.variableContext);
+        element?.IncrementVersion(VersionChangeType.StyleSheet | VersionChangeType.Styles);
+    }
+
+    BindingResult Update<TInline, TComputed>(in BindingId id, StylePropertyData<TInline, TComputed> value,
+        StyleInspectorElement.AuthoringContext authoringContext, VisualElement targetElement)
+    {
+        var currentState = new State
+        {
+            IsInlined = value.uxmlValue.isInlined,
+            HasBinding = value.binding != null,
+            HasVariable = value.uxmlValue.requireVariableResolve
+        };
+
+        var isOverridden = currentState.IsOverridden;
+        var key = new BindingInfoKey(targetElement, in id);
+        if (m_State.TryGetValue(key, out var previousState))
+        {
+            m_State[key] = currentState;
+            if (previousState.IsOverridden != currentState.IsOverridden)
+                OnTrackedPropertyChanged?.Invoke(this, styleProperty, isOverridden ? TrackedPropertyType.MarkOverride : TrackedPropertyType.ClearOverride);
+        }
+        // If state is not tracked yet and the value is not inlined, let's wait until it is to start tracking it.
+        else if (isOverridden)
+        {
+            m_State[key] = currentState;
+            OnTrackedPropertyChanged?.Invoke(this, styleProperty, TrackedPropertyType.MarkOverride);
+        }
+
+        targetElement.EnableInClassList(k_InlineFieldUssClassName, value.uxmlValue.isInlined);
+        targetElement.EnableInClassList(k_VariableFieldUssClassName, value.uxmlValue.requireVariableResolve);
+        targetElement.EnableInClassList(k_BoundFieldUssClassName, value.binding != null);
+
+        var inlineValue = value.inlineValue;
+        var computedValue = value.computedValue;
+
+        var targetEnabled = true;
+
+        var affordanceField = targetElement as IAffordanceField;
+        var animationSubState = FieldAffordanceSourceInfoType.Default;
+        if (targetElement is IPropertyMappedAffordanceField mappedField)
+        {
+            using var pool = ListPool<FieldAffordanceElement>.Get(out var affordanceElements);
+            mappedField.GetAffordanceElements(stylePropertyId, affordanceElements);
+            foreach (var fieldAffordanceElement in affordanceElements)
+            {
+                // Pass the sub-field (parent of the affordance element) so SetupContextMenu uses the correct
+                // element for var handler lookup, rather than the composite targetElement.
+                var subField = fieldAffordanceElement.parent;
+                if (subField == null)
+                    continue;
+                UpdateAffordanceElement(fieldAffordanceElement, subField, authoringContext, value, targetElement, id, ref animationSubState, ref targetEnabled);
+                subField.enabledSelf = targetEnabled;
+                // We don't want to disable the parent
+                targetEnabled = true;
+            }
+        }
+        else if ((targetElement as IAffordanceField)?.affordanceElement is { } affordanceElement)
+        {
+            UpdateAffordanceElement(affordanceElement, targetElement, authoringContext, value, null, id, ref animationSubState, ref targetEnabled);
+        }
+        // Tint the value field's input(s) exactly like the standard Inspector tints animated properties:
+        // reuse the shared unity-binding--animation-* classes so the global driven-property USS applies.
+        if (affordanceField != null)
+            ApplyAnimationDrivenTint(targetElement, animationSubState);
+
+        targetElement.EnableInClassList(k_AnimationDrivenFieldUssClassName, animationSubState.IsAnimationDriven());
+
+        OnTrackedPropertySourceChanged?.Invoke(this, styleProperty, value.uxmlValue.requireVariableResolve, value.binding != null, animationSubState.IsAnimationDriven());
+
+        var inRecording = authoringContext.AnimationController != null;
+        Debug.Assert(inRecording == AnimationMode.InAnimationRecording(),
+            $"AnimationController presence ({inRecording}) must match AnimationMode.InAnimationRecording() ({AnimationMode.InAnimationRecording()}).");
+        var propertyRecordable = !inRecording || authoringContext.AnimationController.IsPropertyRecordable(stylePropertyId);
+        targetEnabled &= propertyRecordable;
+        targetEnabled &= !authoringContext.IsReadOnly;
+        targetElement.enabledSelf = targetEnabled;
+
+        // A resolveToFloat property (font-size) stores a resolved px float in computed storage, dropping the
+        // authoring unit (% -> px). Show the authored StyleLength so the field edits and records in the authoring
+        // unit; the resolved px is surfaced separately as a read-only hint.
+        StyleLength authoredFontSize = default;
+        var showAuthoredFontSize = false;
+        if (StyleDebug.IsResolveToFloatProperty(stylePropertyId))
+        {
+            // set via element.style (runtime inline).
+            if (inlineValue is StyleLength sl && sl.keyword != StyleKeyword.Null)
+            {
+                showAuthoredFontSize = true;
+                authoredFontSize = sl;
+            }
+            // set via the UXML/USS inline stylesheet
+            else if (value.uxmlValue.isInlined
+                     && authoringContext.StyleDiff.currentStyleSheet is { } authoredSheet
+                     && value.uxmlValue.inlineProperty.TryGetDimension(authoredSheet, out var authoredDim))
+            {
+                showAuthoredFontSize = true;
+                authoredFontSize = new StyleLength(authoredDim.ToLength());
+            }
+        }
+
+        using var _ = new IgnoreChangeScope(this);
+        switch (targetElement)
+        {
+            case BaseField<TComputed> field when id == BaseField<TComputed>.valueProperty:
+                field.value = computedValue;
+                break;
+            case BaseField<TInline> inlineField when id == BaseField<TInline>.valueProperty:
+            {
+                if (showAuthoredFontSize)
+                    inlineField.value = (TInline)(object)authoredFontSize;
+                else if (StyleDebug.IsResolveToFloatProperty(stylePropertyId) && computedValue is float resolvedPx)
+                    inlineField.value = (TInline)(object)new StyleLength(new Length(resolvedPx));
+                else if (TypeConversion.TryConvert<TComputed, TInline>(ref computedValue, out var convertedValue))
+                    inlineField.value = convertedValue;
+                else
+                    Debug.LogWarning($"Invalid Cast from: `{typeof(TComputed).Name}` to `{typeof(TInline).Name}`");
+                break;
+            }
+            case INotifyCompositeStylePropertyChanged<TComputed> compositeComputedField:
+            {
+                compositeComputedField.SetValue(id, computedValue, true);
+                break;
+            }
+            case INotifyCompositeStylePropertyChanged<TInline> compositeInlineField:
+            {
+                if (TypeConversion.TryConvert<TComputed, TInline>(ref computedValue, out var convertedValue))
+                    compositeInlineField.SetValue(id, convertedValue, true);
+                else
+                    Debug.LogWarning($"Invalid Cast from: `{typeof(TComputed).Name}` to `{typeof(TInline).Name}`");
+                break;
+            }
+            default:
+                PropertyContainer.SetValue(targetElement, id, computedValue);
+                break;
+        }
+
+        UpdateSetAlphaIfTransparentWhenPicked(targetElement, !value.uxmlValue.isInlined || value.uxmlValue.requireVariableResolve);
+
+        // A resolveToFloat property (font-size) resolves % to px; show the resolved px as a read-only hint alongside
+        // the authored value, but only for a real element instance (a selector has no context) and only when the field
+        // isn't already showing that px verbatim (authored plain px, or the computed value shown directly).
+        if (StyleDebug.IsResolveToFloatProperty(stylePropertyId) && targetElement is StyleLengthField lengthField)
+        {
+            var showsResolvedAlready = !showAuthoredFontSize
+                || (authoredFontSize.keyword == StyleKeyword.Undefined && authoredFontSize.value.unit == LengthUnit.Pixel);
+            lengthField.SetResolvedValueHint(
+                !showsResolvedAlready
+                && authoringContext.StyleDiff.currentContextType == StyleDiff.ContextType.VisualElement
+                && computedValue is float px
+                    ? $"{px.ToString("0.##", CultureInfo.InvariantCulture)}px"
+                    : null);
+        }
+
+        return default;
+    }
+
+    // Tag every leaf input the driven-tint USS keys off (text/popup/slider/toggle/object/radio), so each
+    // control type colours. Querying the whole field rather than valueInputElement covers composite fields
+    // whose inputs live below the field root, including template-cloned ones like BackgroundSize.
+    static void ApplyAnimationDrivenTint(VisualElement field, FieldAffordanceSourceInfoType animationSubState)
+    {
+        if (field == null)
+            return;
+
+        foreach (var input in field.Query(className: BaseField<int>.inputUssClassName).Build())
+        {
+            if (!IsInsideUnitDropdown(input, field))
+                SetAnimationTintClasses(input, animationSubState);
+        }
+    }
+
+    // A value field tints its number, not its unit dropdown (px/deg/s stays neutral). The walk is bounded
+    // to the field root, within which the dropdown always sits.
+    static bool IsInsideUnitDropdown(VisualElement input, VisualElement field)
+    {
+        for (var e = input; e != null && e != field; e = e.hierarchy.parent)
+        {
+            if (e.ClassListContains(LengthField.unitDropdownUssClass))
+                return true;
+        }
+        return false;
+    }
+
+    static void SetAnimationTintClasses(VisualElement input, FieldAffordanceSourceInfoType animationSubState)
+    {
+        input.EnableInClassList(BindingExtensions.animationAnimatedUssClassName, animationSubState == FieldAffordanceSourceInfoType.AnimationAnimated);
+        input.EnableInClassList(BindingExtensions.animationRecordedUssClassName, animationSubState == FieldAffordanceSourceInfoType.AnimationRecording);
+        input.EnableInClassList(BindingExtensions.animationCandidateUssClassName, animationSubState == FieldAffordanceSourceInfoType.AnimationCandidate);
+    }
+
+
+    void UpdateAffordanceElement<TInline, TComputed>(FieldAffordanceElement affordanceElement, VisualElement targetElement,
+        StyleInspectorElement.AuthoringContext authoringContext, StylePropertyData<TInline, TComputed> value,
+        VisualElement propertyContainer, in BindingId id, ref FieldAffordanceSourceInfoType animationSubState, ref bool targetEnabled)
+    {
+        FieldAffordanceController.UpdateFieldAffordanceData(affordanceElement.fieldAffordanceData,
+            authoringContext.StyleDiff.currentTarget, authoringContext.StyleDiff.currentContextType, value,
+            authoringContext.StyleDiff.currentStyleSheet);
+        SetupContextMenu(targetElement, affordanceElement, authoringContext, value, id, propertyContainer);
+        var sourceType = affordanceElement.fieldAffordanceData.sourceTypeInfo;
+        var hasResolvedBinding = sourceType == FieldAffordanceSourceInfoType.ResolvedBinding;
+        var hasResolvedVariable = sourceType == FieldAffordanceSourceInfoType.USSVariable
+            && affordanceElement.fieldAffordanceData.variableSheet != null;
+        if (sourceType.IsAnimationDriven())
+            animationSubState = sourceType;
+        targetEnabled &= !hasResolvedBinding && !hasResolvedVariable && !animationSubState.ShouldDisableInlineEdit();
+    }
+
+    private static void UpdateSetAlphaIfTransparentWhenPicked(VisualElement targetElement, bool setAlphaIfTransparent)
+    {
+        switch (targetElement)
+        {
+            case StyleColorField styleColorField:
+                styleColorField.valueField.setAlphaIfTransparentWhenPicked = setAlphaIfTransparent;
+                break;
+            case ColorField colorField:
+                colorField.setAlphaIfTransparentWhenPicked = setAlphaIfTransparent;
+                break;
+            case StyleTextShadowField styleTextShadowField:
+                styleTextShadowField.valueField.colorField.setAlphaIfTransparentWhenPicked = setAlphaIfTransparent;
+                break;
+            case TextShadowField textShadowField:
+                textShadowField.colorField.setAlphaIfTransparentWhenPicked = setAlphaIfTransparent;
+                break;
+        }
+    }
+
+    private static void SendTrackPropertyEvent(ITrackablePropertyProvider provider, VisualElement target, string styleProperty, PropertyTrackingType type)
+    {
+        using var evt = TrackPropertyEvent.GetPooled(provider, styleProperty);
+        evt.target = target;
+        target.SendEvent(evt);
+    }
+
+    internal static StylePropertyId GetPropertyId(string propertyName)
+    {
+        // i.e. backgroundColor => background-color
+        if (StylePropertyUtil.cSharpNameToUssName.TryGetValue(propertyName, out var ussName))
+            propertyName = ussName;
+
+        return StylePropertyUtil.propertyNameToStylePropertyId.GetValueOrDefault(propertyName, StylePropertyId.Unknown);
+    }
+
+    private static bool IsStylePropertySupported(StylePropertyId stylePropertyId)
+    {
+        return stylePropertyId is not (StylePropertyId.Unknown or StylePropertyId.All or StylePropertyId.Custom) && !StyleDebug.IsShorthandProperty(stylePropertyId);
+    }
+
+    private static string GetUnsupportedPropertyId(StylePropertyId stylePropertyId)
+    {
+        return $"[UI Toolkit] Unsupported style property: '{stylePropertyId}'";
+    }
+
+    static void RegisterEnumCallbacks<T>(StylePropertyBinding binding, in BindingId id, VisualElement targetElement)
+        where T: struct, Enum, IConvertible
+    {
+        var isValueProperty = id == BaseField<T>.valueProperty;
+        switch (targetElement)
+        {
+            case BaseField<T> when isValueProperty:
+                targetElement.RegisterCallback<ChangeEvent<T>, CallbackContext>(ProcessChange, new CallbackContext(binding, targetElement, id));
+                break;
+            case BaseField<StyleEnum<T>> when isValueProperty:
+                targetElement.RegisterCallback<ChangeEvent<StyleEnum<T>>, CallbackContext>(ProcessChange, new CallbackContext(binding, targetElement, id));
+                break;
+            case BaseField<Enum> when isValueProperty:
+                targetElement.RegisterCallback<ChangeEvent<Enum>, CallbackContext>(ProcessChange, new CallbackContext(binding, targetElement, id));
+                break;
+            default:
+                targetElement.RegisterCallback<PropertyChangedEvent, CallbackContext>(binding.ProcessChange, new CallbackContext(binding, targetElement, id));
+                break;
+        }
+    }
+
+    static void RegisterCallbacks<TStyleValue, TValue>(
+        StylePropertyBinding binding,
+        in BindingId id,
+        VisualElement targetElement,
+        EventCallback<ChangeEvent<TStyleValue>, CallbackContext> styleValueCallback,
+        EventCallback<ChangeEvent<TValue>, CallbackContext> valueCallback,
+        EventCallback<CompositeStylePropertyChangeEvent<TStyleValue>, CallbackContext> styleValueChangedCallback,
+        EventCallback<CompositeStylePropertyChangeEvent<TValue>, CallbackContext> valueChangedCallback)
+    {
+        switch (targetElement)
+        {
+            case INotifyValueChanged<TStyleValue> when id == BaseField<TStyleValue>.valueProperty:
+                targetElement.RegisterCallback(styleValueCallback, new CallbackContext(binding, targetElement, id));
+                break;
+            case INotifyValueChanged<TValue> when id == BaseField<TValue>.valueProperty:
+                targetElement.RegisterCallback(valueCallback, new CallbackContext(binding, targetElement, id));
+                break;
+            case INotifyCompositeStylePropertyChanged<TStyleValue>:
+                targetElement.RegisterCallback(styleValueChangedCallback, new CallbackContext(binding, targetElement, id));
+                break;
+            case INotifyCompositeStylePropertyChanged<TValue>:
+                targetElement.RegisterCallback(valueChangedCallback, new CallbackContext(binding, targetElement, id));
+                break;
+            default:
+                targetElement.RegisterCallback<PropertyChangedEvent, CallbackContext>(binding.ProcessChange, new CallbackContext(binding, targetElement, id));
+                break;
+        }
+    }
+
+    static void SetStyleValue<TStyleValue, TValue>(StyleProperty property, StyleSheet sheet, TStyleValue styleValue, Action<StyleProperty, StyleSheet, TValue> setterDelegate)
+        where TStyleValue : IStyleValue<TValue>
+    {
+        switch (styleValue.keyword)
+        {
+            case StyleKeyword.Undefined:
+                setterDelegate(property, sheet, styleValue.value);
+                break;
+            case StyleKeyword.Null:
+                break;
+            case StyleKeyword.Auto:
+                property.SetKeyword(sheet, StyleValueKeyword.Auto);
+                break;
+            case StyleKeyword.None:
+                property.SetKeyword(sheet, StyleValueKeyword.None);
+                break;
+            case StyleKeyword.Initial:
+                property.SetKeyword(sheet, StyleValueKeyword.Initial);
+                break;
+            default:
+                throw new ArgumentOutOfRangeException();
+        }
+    }
+
+    private static bool ShouldProcessChange<T>(ChangeEvent<T> evt, CallbackContext ctx)
+    {
+        if (evt.target != ctx.element)
+            return false;
+
+        if (!ctx.authoringContext.IsReadOnly)
+            return true;
+
+        // Write back the previous value so that it looks like it's readonly.
+        ((BaseField<T>)evt.target).SetValueWithoutNotify(evt.previousValue);
+        evt.StopImmediatePropagation();
+        return false;
+    }
+
+    private static bool ShouldProcessChange<T>(CompositeStylePropertyChangeEvent<T> evt, CallbackContext ctx)
+    {
+        if (evt.target != ctx.element)
+            return false;
+
+        if (!ctx.authoringContext.IsReadOnly)
+            return true;
+
+        // Write back the previous value so that it looks like it's readonly.
+        ((INotifyCompositeStylePropertyChanged<T>)evt.target).SetValue(evt.Id, evt.PreviousValue, false);
+        evt.StopImmediatePropagation();
+
+        return false;
+    }
+
+    void SetupVariableEditingHandler(VisualElement targetElement)
+    {
+        if (targetElement is not BindableElement bindableField)
+            return;
+
+        var styleInspector = bindableField.GetFirstAncestorOfType<StyleInspectorElement>();
+        if (styleInspector?.VariableEditingContext == null)
+            return;
+
+        var handler = StyleVariableUtility.GetOrCreateVarHandler(bindableField, styleInspector.VariableEditingContext,
+            bindableField.GetFirstAncestorOfType<OverrideRow>(),
+            targetElement is StyleLengthField or StyleFloatField or StyleIntField);
+        handler.styleName = StylePropertyUtil.cSharpNameToUssName.GetValueOrDefault(styleProperty, styleProperty);
+    }
+
+    // These are implemented solely to opt-in the change tracking per property, we don't want these to be set
+    // from UXML, hence why they are not UXML attributes.
+    object IDataSourceProvider.dataSource => null;
+    PropertyPath IDataSourceProvider.dataSourcePath => PropertyPath.FromName(m_StylePropertyCSharpName);
+}

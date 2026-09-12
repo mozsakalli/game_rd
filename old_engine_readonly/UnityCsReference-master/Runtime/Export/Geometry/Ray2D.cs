@@ -1,0 +1,72 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+using System;
+using System.Globalization;
+using System.Runtime.CompilerServices;
+
+namespace UnityEngine
+{
+    // Representation of 2D rays.
+    public partial struct Ray2D : IFormattable
+    {
+        private Vector2 m_Origin;
+        private Vector2 m_Direction;
+
+        // Creates a ray starting at /origin/ along /direction/.
+        [MethodImpl(MethodImplOptionsEx.AggressiveInlining)]
+        public Ray2D(Vector2 origin, Vector2 direction)
+        {
+            m_Origin = origin; 
+            m_Direction = direction;
+            m_Direction.Normalize();
+        }
+
+        // Creates a ray starting at /origin/ along /direction/.
+        [MethodImpl(MethodImplOptionsEx.AggressiveInlining)]
+        public Ray2D(in Vector2 origin, in Vector2 direction)
+        {
+            m_Origin = origin;
+            m_Direction = direction;
+            m_Direction.Normalize();
+        }
+
+        // The origin point of the ray.
+        public Vector2 origin
+        {
+            [MethodImpl(MethodImplOptionsEx.AggressiveInlining)] readonly get => m_Origin;
+            [MethodImpl(MethodImplOptionsEx.AggressiveInlining)] set => m_Origin = value;
+        }
+
+        // The direction of the ray.
+        public Vector2 direction
+        {
+            [MethodImpl(MethodImplOptionsEx.AggressiveInlining)] readonly get => m_Direction;
+            [MethodImpl(MethodImplOptionsEx.AggressiveInlining)] set { m_Direction = value; m_Direction.Normalize(); }
+        }
+
+        // Returns a point at /distance/ units along the ray.
+        [MethodImpl(MethodImplOptionsEx.AggressiveInlining)]
+        public readonly Vector2 GetPoint(float distance) => new Vector2() {
+            x = m_Origin.x + m_Direction.x * distance,
+            y = m_Origin.y + m_Direction.y * distance
+        };
+
+        [MethodImpl(MethodImplOptionsEx.AggressiveInlining)]
+        public override readonly string ToString() => ToString(null, null);
+
+        [MethodImpl(MethodImplOptionsEx.AggressiveInlining)]
+        public readonly string ToString(string format) => ToString(format, null);
+
+        [MethodImpl(MethodImplOptionsEx.AggressiveInlining)]
+        public readonly string ToString(string format, IFormatProvider formatProvider)
+        {
+            if (string.IsNullOrEmpty(format))
+                format = "F2";
+            if (formatProvider == null)
+                formatProvider = CultureInfo.InvariantCulture.NumberFormat;
+            return string.Format("Origin: {0}, Dir: {1}", m_Origin.ToString(format, formatProvider), m_Direction.ToString(format, formatProvider));
+        }
+    }
+}

@@ -1,0 +1,482 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+using System;
+using System.Collections.Generic;
+using Unity.Properties;
+using System.Linq;
+using UnityEngine.Pool;
+
+namespace UnityEngine.UIElements
+{
+    /// <summary>
+    /// Base collection list view controller. View controllers of this type are meant to take care of data virtualized by any <see cref="BaseListView"/> inheritor.
+    /// </summary>
+    public abstract class BaseListViewController : CollectionViewController
+    {
+        internal const string k_NullItemSourceError = "Unable to add or remove items because the source is not defined. Please assign a valid items source.";
+        internal const string k_FixedItemSourceError = "Unable to add or remove items because the items source is a fixed size.";
+
+        private protected class SerializedObjectListControllerImpl
+        {
+            private ISerializedObjectList serializedObjectList => m_SerializedObjectListGetter?.Invoke();
+            private Func<ISerializedObjectList> m_SerializedObjectListGetter;
+            private BaseListViewController m_BaseListViewController;
+
+            internal SerializedObjectListControllerImpl(BaseListViewController baseListViewController, Func<ISerializedObjectList> serializedObjectListGetter)
+            {
+                m_BaseListViewController = baseListViewController;
+                m_SerializedObjectListGetter = serializedObjectListGetter;
+            }
+
+            public int GetItemsCount()
+            {
+                return serializedObjectList?.Count ?? 0;
+            }
+
+            internal int GetItemsMinCount()
+            {
+                return serializedObjectList?.minArraySize ?? 0;
+            }
+
+            public void AddItems(int itemCount)
+            {
+                var previousCount = GetItemsCount();
+                var previousArraySize = serializedObjectList.arraySize;
+                serializedObjectList.arraySize += itemCount;
+                serializedObjectList.ApplyChanges();
+
+                // The serialized array can refuse the resize (e.g. when it would exceed the maximum
+                // serialized object size), so raise only the items actually added rather than the
+                // requested itemCount - otherwise we would iterate and allocate an index list for an
+                // absurd count and run out of memory even though the resize was rejected. Use arraySize,
+                // which reflects the resize immediately, rather than GetItemsCount, whose cached view can
+                // still report the previous size right after ApplyChanges. (UUM-134407)
+                var addedCount = serializedObjectList.arraySize - previousArraySize;
+                if (addedCount > 0)
+                {
+                    var indices = ListPool<int>.Get();
+                    try
+                    {
+                        for (var i = 0; i < addedCount; i++)
+                        {
+                            indices.Add(previousCount + i);
+                        }
+
+                        m_BaseListViewController.RaiseItemsAdded(indices);
+                    }
+                    finally
+                    {
+                        ListPool<int>.Release(indices);
+                    }
+                }
+
+                m_BaseListViewController.RaiseOnSizeChanged();
+            }
+
+            internal void RemoveItems(int itemCount)
+            {
+                var previousCount = GetItemsCount();
+                serializedObjectList.arraySize -= itemCount;
+
+                var indices = ListPool<int>.Get();
+                try
+                {
+                    for (var i = previousCount - itemCount; i < previousCount; i++)
+                    {
+                        indices.Add(i);
+                    }
+
+                    m_BaseListViewController.RaiseItemsRemoved(indices);
+                }
+                finally
+                {
+                    ListPool<int>.Release(indices);
+                }
+
+                serializedObjectList.ApplyChanges();
+                m_BaseListViewController.RaiseOnSizeChanged();
+            }
+
+            public void RemoveItems(List<int> indices)
+            {
+                indices.Sort();
+
+                m_BaseListViewController.RaiseItemsRemoved(indices);
+
+                var listCount = serializedObjectList.Count;
+                for (var i = indices.Count - 1; i >= 0; i--)
+                {
+                    var index = indices[i];
+                    serializedObjectList.RemoveAt(index, listCount);
+                    listCount--;
+                }
+
+                serializedObjectList.ApplyChanges();
+                m_BaseListViewController.RaiseOnSizeChanged();
+            }
+
+            public void RemoveItem(int index)
+            {
+                using (ListPool<int>.Get(out var indices))
+                {
+                    indices.Add(index);
+                    m_BaseListViewController.RaiseItemsRemoved(indices);
+                }
+
+                serializedObjectList.RemoveAt(index);
+                serializedObjectList.ApplyChanges();
+
+                m_BaseListViewController.RaiseOnSizeChanged();
+            }
+
+            public void ClearItems()
+            {
+                #pragma warning disable UAC2001 // Avoid Linq
+                var itemsSourceIndices = Enumerable.Range(0, GetItemsMinCount() - 1);
+#pragma warning restore UAC2001
+                serializedObjectList.arraySize = 0;
+                serializedObjectList.ApplyChanges();
+                m_BaseListViewController.RaiseItemsRemoved(itemsSourceIndices);
+                m_BaseListViewController.RaiseOnSizeChanged();
+            }
+
+            public void Move(int srcIndex, int destIndex)
+            {
+                if (srcIndex == destIndex)
+                    return;
+
+                serializedObjectList.Move(srcIndex, destIndex);
+                serializedObjectList.ApplyChanges();
+                m_BaseListViewController.RaiseItemIndexChanged(srcIndex, destIndex);
+            }
+        }
+
+        /// <summary>
+        /// Raised when the <see cref="CollectionViewController.itemsSource"/> size changes.
+        /// </summary>
+        public event Action itemsSourceSizeChanged;
+
+        /// <summary>
+        /// Raised when an item is added to the <see cref="CollectionViewController.itemsSource"/>.
+        /// </summary>
+        public event Action<IEnumerable<int>> itemsAdded;
+
+        /// <summary>
+        /// Raised when an item is removed from the <see cref="CollectionViewController.itemsSource"/>.
+        /// </summary>
+        public event Action<IEnumerable<int>> itemsRemoved;
+
+        /// <summary>
+        /// View for this controller, cast as a <see cref="BaseListView"/>.
+        /// </summary>
+        protected BaseListView baseListView => view as BaseListView;
+
+        internal override void InvokeMakeItem(ReusableCollectionItem reusableItem)
+        {
+            if (reusableItem is ReusableListViewItem listItem)
+            {
+                listItem.Init(MakeItem(), baseListView.reorderable && baseListView.reorderMode == ListViewReorderMode.Animated);
+                PostInitRegistration(listItem);
+            }
+        }
+
+        internal void PostInitRegistration(ReusableListViewItem listItem)
+        {
+            listItem.bindableElement.style.position = Position.Relative;
+            listItem.bindableElement.style.flexBasis = StyleKeyword.Initial;
+            listItem.bindableElement.style.marginTop = 0f;
+            listItem.bindableElement.style.marginBottom = 0f;
+            listItem.bindableElement.style.paddingTop = 0f;
+            listItem.bindableElement.style.flexGrow = 0f;
+            listItem.bindableElement.style.flexShrink = 0f;
+        }
+
+        internal override void SetBindingContext(ReusableCollectionItem reusableItem, int index)
+        {
+            base.SetBindingContext(reusableItem, index);
+            if (baseListView.autoAssignSource)
+            {
+                reusableItem.rootElement.dataSource = itemsSource;
+                reusableItem.rootElement.dataSourcePath = PropertyPath.FromIndex(GetIdForIndex(index));
+            }
+        }
+
+        internal override void InvokeBindItem(ReusableCollectionItem reusableItem, int index)
+        {
+            if (reusableItem is ReusableListViewItem listItem)
+            {
+                var usesAnimatedDragger = baseListView.reorderable && baseListView.reorderMode == ListViewReorderMode.Animated;
+                listItem.UpdateDragHandle(usesAnimatedDragger && NeedsDragHandle(index));
+            }
+
+            base.InvokeBindItem(reusableItem, index);
+        }
+
+        /// <summary>
+        /// Returns whether this item needs a drag handle or not with the Animated drag mode.
+        /// </summary>
+        /// <param name="index">Item index.</param>
+        /// <returns>Whether or not the drag handle is needed.</returns>
+        public virtual bool NeedsDragHandle(int index)
+        {
+            return true;
+        }
+
+        // Whether the collection can grow to newItemCount. Controllers backed by a source with a
+        // maximum size (e.g. serialized arrays) override this to validate and notify the user.
+        internal virtual bool ValidateItemCountChange(int newItemCount) => true;
+
+        /// <summary>
+        /// Adds a certain amount of items at the end of the collection.
+        /// </summary>
+        /// <param name="itemCount">The number of items to add.</param>
+        public virtual void AddItems(int itemCount)
+        {
+            if (itemCount <= 0)
+                return;
+
+            EnsureItemSourceCanBeResized();
+            var previousCount = GetItemsCount();
+            var indices = ListPool<int>.Get();
+            try
+            {
+                if (itemsSource.IsFixedSize)
+                {
+                    itemsSource = AddToArray((Array)itemsSource, itemCount);
+
+                    for (var i = 0; i < itemCount; i++)
+                    {
+                        indices.Add(previousCount + i);
+                    }
+                }
+                else
+                {
+                    var sourceType = itemsSource.GetType();
+                    bool IsGenericList(Type t) => t.IsGenericType && t.GetGenericTypeDefinition() == typeof(IList<>);
+                    #pragma warning disable UAC2001 // Avoid Linq
+                    var listType = sourceType.GetInterfaces().FirstOrDefault(IsGenericList);
+#pragma warning restore UAC2001
+                    if (listType != null && listType.GetGenericArguments()[0].IsValueType)
+                    {
+                        var elementValueType = listType.GetGenericArguments()[0];
+                        for (var i = 0; i < itemCount; i++)
+                        {
+                            indices.Add(previousCount + i);
+                            itemsSource.Add(Activator.CreateInstance(elementValueType));
+                        }
+                    }
+                    else
+                    {
+                        for (var i = 0; i < itemCount; i++)
+                        {
+                            indices.Add(previousCount + i);
+                            itemsSource.Add(default);
+                        }
+                    }
+                }
+
+                RaiseItemsAdded(indices);
+            }
+            finally
+            {
+                ListPool<int>.Release(indices);
+            }
+
+            RaiseOnSizeChanged();
+        }
+
+        /// <summary>
+        /// Moves an item in the source.
+        /// </summary>
+        /// <param name="index">The source index.</param>
+        /// <param name="newIndex">The destination index.</param>
+        public virtual void Move(int index, int newIndex)
+        {
+            if (itemsSource == null)
+                return;
+
+            if (index == newIndex)
+                return;
+
+            var minIndex = Mathf.Min(index, newIndex);
+            var maxIndex = Mathf.Max(index, newIndex);
+
+            if (minIndex < 0 || maxIndex >= itemsSource.Count)
+                return;
+
+            var destinationIndex = newIndex;
+            var direction = newIndex < index ? 1 : -1;
+
+            while (Mathf.Min(index, newIndex) < Mathf.Max(index, newIndex))
+            {
+                Swap(index, newIndex);
+                newIndex += direction;
+            }
+
+            RaiseItemIndexChanged(index, destinationIndex);
+        }
+
+        /// <summary>
+        /// Removes an item from the source, by index.
+        /// </summary>
+        /// <param name="index">The item index.</param>
+        public virtual void RemoveItem(int index)
+        {
+            using (ListPool<int>.Get(out var indices))
+            {
+                indices.Add(index);
+                RemoveItems(indices);
+            }
+        }
+
+        /// <summary>
+        /// Removes items from the source, by indices.
+        /// </summary>
+        /// <param name="indices">A list of indices to remove.</param>
+        public virtual void RemoveItems(List<int> indices)
+        {
+            EnsureItemSourceCanBeResized();
+
+            if (indices == null)
+                return;
+
+            indices.Sort();
+            RaiseItemsRemoved(indices);
+
+            if (itemsSource.IsFixedSize)
+            {
+                itemsSource = RemoveFromArray((Array)itemsSource, indices);
+            }
+            else
+            {
+                for (var i = indices.Count - 1; i >= 0; i--)
+                {
+                    itemsSource.RemoveAt(indices[i]);
+                }
+            }
+
+            RaiseOnSizeChanged();
+        }
+
+        internal virtual void RemoveItems(int itemCount)
+        {
+            if (itemCount <= 0)
+                return;
+
+            var previousCount = GetItemsCount();
+            var indices = ListPool<int>.Get();
+            try
+            {
+                var newItemCount = previousCount - itemCount;
+                for (var i = newItemCount; i < previousCount; i++)
+                {
+                    indices.Add(i);
+                }
+
+                RemoveItems(indices);
+            }
+            finally
+            {
+                ListPool<int>.Release(indices);
+            }
+        }
+
+        /// <summary>
+        /// Removes all items from the source.
+        /// </summary>
+        public virtual void ClearItems()
+        {
+            if (itemsSource == null)
+                return;
+
+            EnsureItemSourceCanBeResized();
+            #pragma warning disable UAC2001 // Avoid Linq
+            var itemsSourceIndices = Enumerable.Range(0, itemsSource.Count - 1);
+#pragma warning restore UAC2001
+            itemsSource.Clear();
+            RaiseItemsRemoved(itemsSourceIndices);
+            RaiseOnSizeChanged();
+        }
+
+        /// <summary>
+        /// Invokes the <see cref="itemsSourceSizeChanged"/> event.
+        /// </summary>
+        protected void RaiseOnSizeChanged()
+        {
+            itemsSourceSizeChanged?.Invoke();
+        }
+
+        /// <summary>
+        /// Invokes the <see cref="itemsAdded"/> event.
+        /// </summary>
+        protected void RaiseItemsAdded(IEnumerable<int> indices)
+        {
+            itemsAdded?.Invoke(indices);
+        }
+
+        /// <summary>
+        /// Invokes the <see cref="itemsRemoved"/> event.
+        /// </summary>
+        protected void RaiseItemsRemoved(IEnumerable<int> indices)
+        {
+            itemsRemoved?.Invoke(indices);
+        }
+
+        static Array AddToArray(Array source, int itemCount)
+        {
+            var elementType = source.GetType().GetElementType();
+            if (elementType == null)
+                throw new InvalidOperationException("Cannot resize source, because its size is fixed.");
+
+            var newItemsSource = Array.CreateInstance(elementType, source.Length + itemCount);
+            Array.Copy(source, newItemsSource, source.Length);
+            return newItemsSource;
+        }
+
+        // Requires the list to be sorted without duplicates.
+        static Array RemoveFromArray(Array source, List<int> indicesToRemove)
+        {
+            var count = source.Length;
+            var newCount = count - indicesToRemove.Count;
+            if (newCount < 0)
+                throw new InvalidOperationException("Cannot remove more items than the current count from source.");
+
+            var elementType = source.GetType().GetElementType();
+            if (newCount == 0)
+                return Array.CreateInstance(elementType, 0);
+
+            var newSource = Array.CreateInstance(elementType, newCount);
+
+            var newSourceIndex = 0;
+            var toRemove = 0;
+            for (var index = 0; index < source.Length; ++index)
+            {
+                if (toRemove < indicesToRemove.Count && indicesToRemove[toRemove] == index)
+                {
+                    ++toRemove;
+                    continue;
+                }
+
+                newSource.SetValue(source.GetValue(index), newSourceIndex);
+                ++newSourceIndex;
+            }
+
+            return newSource;
+        }
+
+        void Swap(int lhs, int rhs)
+        {
+            (itemsSource[lhs], itemsSource[rhs]) = (itemsSource[rhs], itemsSource[lhs]);
+        }
+
+        void EnsureItemSourceCanBeResized()
+        {
+            if (itemsSource == null)
+                throw new InvalidOperationException(k_NullItemSourceError);
+            else if (itemsSource.IsFixedSize && !itemsSource.GetType().IsArray)
+                throw new InvalidOperationException(k_FixedItemSourceError);
+        }
+    }
+}

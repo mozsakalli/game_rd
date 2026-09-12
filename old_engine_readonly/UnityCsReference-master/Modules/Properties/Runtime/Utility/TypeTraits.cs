@@ -1,0 +1,187 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+using System;
+using System.Reflection;
+using System.Runtime.CompilerServices;
+using UnityEngine.Bindings;
+
+namespace Unity.Properties
+{
+    /// <summary>
+    /// Helper class to avoid paying the cost of runtime type lookups.
+    /// </summary>
+    public static class TypeTraits
+    {
+        /// <summary>
+        /// Returns <see langword="true"/> if the given type can be treated as a container. i.e. not primitive, pointer, enum or string.
+        /// </summary>
+        /// <param name="type">The type to test.</param>
+        /// <returns><see langword="true"/> if the given type is a container type; <see langword="false"/> otherwise.</returns>
+        /// <exception cref="ArgumentNullException">The given type is null.</exception>
+        public static bool IsContainer(Type type)
+        {
+            if (null == type)
+                throw new ArgumentNullException(nameof(type));
+            return !(type.IsPrimitive || type.IsPointer || type.IsEnum || type == typeof(string));
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static bool IsAbstractOrInterface(Type type)
+        {
+            return type.IsAbstract || type.IsInterface;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static bool IsNullable(Type type)
+        {
+            return Nullable.GetUnderlyingType(type) != null;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        [VisibleToOtherModules("UnityEngine.UIElementsModule")]
+        internal static bool CanBeNull(Type type)
+        {
+            return !type.IsValueType || Nullable.GetUnderlyingType(type) != null;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static bool IsObject(Type type)
+        {
+            return type == typeof(object);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        internal static bool IsUnityObject(Type type)
+        {
+            return typeof(UnityEngine.Object).IsAssignableFrom(type);
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        [VisibleToOtherModules("UnityEngine.UIElementsModule")]
+        internal static bool IsEnumFlags(Type type)
+        {
+            return type.IsEnum && type.IsDefined(typeof(FlagsAttribute));
+        }
+    }
+
+    /// <summary>
+    /// Helper class to avoid paying the cost of runtime type lookups.
+    ///
+    /// This is also used to abstract underlying type info in the runtime (e.g. RuntimeTypeHandle vs StaticTypeReg)
+    /// </summary>
+    public static class TypeTraits<T>
+    {
+        /// <summary>
+        /// Gets a value indicating whether <typeparamref name="T"/> is a value type.
+        /// </summary>
+        public static bool IsValueType { get; }
+
+        /// <summary>
+        /// Gets a value indicating whether <typeparamref name="T"/> is a primitive type.
+        /// </summary>
+        public static bool IsPrimitive { get; }
+
+        /// <summary>
+        /// Gets a value indicating whether <typeparamref name="T"/> is an interface type.
+        /// </summary>
+        public static bool IsInterface { get; }
+
+        /// <summary>
+        /// Gets a value indicating whether <typeparamref name="T"/> is an abstract type.
+        /// </summary>
+        public static bool IsAbstract { get; }
+
+        /// <summary>
+        /// Gets a value indicating whether <typeparamref name="T"/> is an array type.
+        /// </summary>
+        public static bool IsArray { get; }
+
+        /// <summary>
+        /// Gets a value indicating whether <typeparamref name="T"/> is a multidimensional array type.
+        /// </summary>
+        public static bool IsMultidimensionalArray { get; }
+
+        /// <summary>
+        /// Gets a value indicating whether <typeparamref name="T"/> is an enum type.
+        /// </summary>
+        public static bool IsEnum { get; }
+
+        /// <summary>
+        /// Gets a value indicating whether <typeparamref name="T"/> is an flags enum type.
+        /// </summary>
+        public static bool IsEnumFlags { get; }
+
+        /// <summary>
+        /// Gets a value indicating whether <typeparamref name="T"/> is a nullable type.
+        /// </summary>
+        public static bool IsNullable { get; }
+
+        /// <summary>
+        /// Gets a value indicating whether <typeparamref name="T"/> is <see cref="Object"/> type.
+        /// </summary>
+        public static bool IsObject { get; }
+
+        /// <summary>
+        /// Gets a value indicating whether <typeparamref name="T"/> is <see cref="string"/> type.
+        /// </summary>
+        public static bool IsString { get; }
+
+        /// <summary>
+        /// Gets a value indicating whether <typeparamref name="T"/> is a property container type.
+        /// </summary>
+        public static bool IsContainer { get; }
+
+        /// <summary>
+        /// Gets a value indicating whether <typeparamref name="T"/> can be null. i.e. The type is an object or nullable.
+        /// </summary>
+        public static bool CanBeNull { get; }
+
+        /// <summary>
+        /// Gets a value indicating whether <typeparamref name="T"/> is a primitive or <see cref="string"/> type.
+        /// </summary>
+        public static bool IsPrimitiveOrString { get; }
+
+        /// <summary>
+        /// Gets a value indicating whether <typeparamref name="T"/> is an abstract or interface type.
+        /// </summary>
+        public static bool IsAbstractOrInterface { get; }
+
+        /// <summary>
+        /// Gets a value indicating whether <typeparamref name="T"/> is a <see cref="UnityEngine.Object"/> type.
+        /// </summary>
+        public static bool IsUnityObject { get; }
+
+        /// <summary>
+        /// Gets a value indicating whether <typeparamref name="T"/> is a <see cref="UnityEngine.LazyLoadReference{TValue}"/> type.
+        /// </summary>
+        public static bool IsLazyLoadReference { get; }
+
+        static TypeTraits()
+        {
+            var type = typeof(T);
+            IsValueType = type.IsValueType;
+            IsPrimitive = type.IsPrimitive;
+            IsInterface = type.IsInterface;
+            IsAbstract = type.IsAbstract;
+            IsArray = type.IsArray;
+            IsEnum = type.IsEnum;
+
+            IsEnumFlags = TypeTraits.IsEnumFlags(type);
+            IsNullable = TypeTraits.IsNullable(type);
+            IsMultidimensionalArray = IsArray && type.GetArrayRank() != 1;
+            IsObject = TypeTraits.IsObject(type);
+            IsString = type == typeof(string);
+            IsContainer = TypeTraits.IsContainer(type);
+
+            IsPrimitiveOrString = IsPrimitive || IsString;
+            IsAbstractOrInterface = IsAbstract || IsInterface;
+
+            CanBeNull = TypeTraits.CanBeNull(type);
+
+            IsLazyLoadReference = type.IsGenericType && type.GetGenericTypeDefinition() == typeof(UnityEngine.LazyLoadReference<>);
+            IsUnityObject = TypeTraits.IsUnityObject(type);
+        }
+    }
+}

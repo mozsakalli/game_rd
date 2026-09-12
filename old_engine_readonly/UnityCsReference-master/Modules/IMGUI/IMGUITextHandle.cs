@@ -1,0 +1,520 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+#pragma warning disable UAL0015,UAL0018,UAL0019,UAL0020,UAL0021 // AutoStaticsCleanup usage analysis: IMGUIFramework not yet converted
+using System;
+using System.Collections.Generic;
+using Unity.Scripting.LifecycleManagement;
+using UnityEngine.TextCore;
+using UnityEngine.TextCore.Text;
+
+namespace UnityEngine
+{
+    internal partial class IMGUITextHandle : TextHandle
+    {
+        internal LinkedListNode<TextHandleTuple> tuple;
+
+        const float sFallbackFontSize = 13;
+        const float sTimeToFlush = 5.0f;
+        const float sTimeBetweenCleanupRuns = 30.0f;
+        const int sNewHandlesBetweenCleanupRuns = 500;
+
+        [AutoStaticsCleanupOnCodeReload]
+        internal static Func<Object> GetEditorTextSettings;
+        [AutoStaticsCleanupOnCodeReload]
+        internal static Func<int, FontAsset, bool, FontAsset> GetBlurryFontAssetMapping;
+        [AutoStaticsCleanupOnCodeReload]
+        internal static Func<TextGeneratorType> GetEditorTextGeneratorType;
+
+        [AutoStaticsCleanupOnCodeReload]
+        private static TextSettings s_EditorTextSettings;
+
+        [NoAutoStaticsCleanup] // entries own native generators and buffers; a blind reload wipe orphans them, so ReleaseCacheOnUnloading empties the cache explicitly instead
+        private static Dictionary<int, IMGUITextHandle> textHandles = new ();
+        [NoAutoStaticsCleanup] // same native ownership as textHandles; cleared explicitly, not by reload
+        private static LinkedList<TextHandleTuple> textHandlesTuple = new ();
+        [NoAutoStaticsCleanup] // cleanup timestamp; if stale after reload the time-delta goes negative and cleanup runs immediately (handled explicitly)
+        private static float lastCleanupTime;
+        [NoAutoStaticsCleanup] // handle counter since last cleanup run; worst case triggers one extra cleanup pass after reload
+        private static int newHandlesSinceCleanup = 0;
+
+        internal bool isCachedOnNative = false;
+
+        internal class TextHandleTuple
+        {
+            public TextHandleTuple(float lastTimeUsed, int hashCode)
+            {
+                this.hashCode = hashCode;
+                this.lastTimeUsed = lastTimeUsed;
+            }
+
+            public float lastTimeUsed;
+            public int hashCode;
+        }
+
+        internal static void GetMeshInfo(GUIStyle style, Color color, string content, Rect rect, ref MeshInfoBindings[] meshInfos, ref Vector2 dimensions, ref int generationId)
+        {
+            if (IsAdvancedTextEnabled())
+            {
+                GetMeshInfoNative(style, color, content, rect, ref meshInfos, ref dimensions, ref generationId);
+                return;
+            }
+
+            bool isCached = false;
+            var textHandle = IMGUITextHandle.GetTextHandle(style, rect, content, color, ref isCached);
+            generationId = TextHandle.settings.GetHashCode();
+            var invScale = 1 / GUIUtility.pixelsPerPoint;
+            // If not already cached on the native side, we must send the meshInfo
+            if (!isCached)
+            {
+                var textInfo = textHandle.textInfo;
+                meshInfos = new MeshInfoBindings[textInfo.materialCount];
+                for (int i = 0; i < textInfo.materialCount; i++)
+                {
+                    meshInfos[i].vertexData = new TextCoreVertex[textInfo.meshInfo[i].vertexCount];
+                    meshInfos[i].vertexCount = textInfo.meshInfo[i].vertexCount;
+                    meshInfos[i].material = textInfo.meshInfo[i].material;
+                    Array.Copy(textInfo.meshInfo[i].vertexData, meshInfos[i].vertexData, textInfo.meshInfo[i].vertexCount);
+
+                    for (int j = 0; j < meshInfos[i].vertexData.Length; j++)
+                    {
+                        meshInfos[i].vertexData[j].position *= invScale;
+                    }
+                }
+            }
+            dimensions = textHandle.preferredSize;
+        }
+
+        // This cleans both the managed and the native cache
+        internal static void EmptyCache()
+        {
+            GUIStyle.Internal_CleanupAllTextGenerator();
+            EmptyManagedCache();
+        }
+
+        // This only cleans up the cache on the managed side. We assume it is already cleaned on the native side to avoid calls.
+        internal static void EmptyManagedCache()
+        {
+            foreach (var handle in textHandles.Values)
+            {
+                handle.RemoveFromTemporaryCache();
+                handle.RemoveFromPermanentCache();
+            }
+            textHandles.Clear();
+            textHandlesTuple.Clear();
+        }
+
+        // Free on the main thread, before the domain unloads. (OnAssemblyUnloading->crash) 
+        // Native generator cache is left to TextCoreGeneratorGroup::CleanupAll: destroying its GPU buffers mid-reload is not safe.
+        [OnCodeUnloading]
+        internal static void ReleaseCacheOnUnloading()
+        {
+            EmptyManagedCache();
+        }
+
+        /// <summary>
+        /// Checks if the text system infrastructure is ready for text generation.
+        /// During early editor initialization, some required delegates may not be set yet.
+        /// </summary>
+        internal static bool IsTextSystemReady()
+        {
+            if (GetEditorTextSettings == null || GetEditorTextGeneratorType == null)
+                return false;
+
+            if (GUIStyle.useAdvancedText == true ||
+                (GUIStyle.useAdvancedText == null && GetEditorTextGeneratorType() == TextGeneratorType.Advanced))
+            {
+                if (TextLib.GetICUAssetEditorDelegate == null)
+                    return false;
+            }
+
+            return true;
+        }
+
+        internal static IMGUITextHandle GetTextHandle(GUIStyle style, Rect position, string content, Color32 textColor, bool update = true)
+        {
+            if (IsAdvancedTextEnabled())
+                return GetATGTextHandle(style, position, content, textColor, update);
+
+            bool isCached = false;
+            ConvertGUIStyleToGenerationSettings(settings, style, textColor, content, position);
+            return GetTextHandle(settings, false, ref isCached);
+        }
+
+        internal static IMGUITextHandle GetTextHandle(GUIStyle style, Rect position, string content, Color32 textColor, ref bool isCached)
+        {
+            if (IsAdvancedTextEnabled())
+                return GetATGTextHandle(style, position, content, textColor, ref isCached);
+
+            ConvertGUIStyleToGenerationSettings(settings, style, textColor, content, position);
+            return GetTextHandle(settings, true, ref isCached);
+        }
+
+        private static bool ShouldCleanup(float currentTime, float lastTime, float cleanupThreshold)
+        {
+            // timeSinceLastCleanup can end up negative if lastCleanupTime is from a previous run.
+            // Clean up if this happens.
+            float timeSinceLastCleanup = currentTime - lastTime;
+            return timeSinceLastCleanup > cleanupThreshold || timeSinceLastCleanup < 0;
+        }
+
+        private static void ClearUnusedTextHandles()
+        {
+            var currentTime = Time.realtimeSinceStartup;
+            while (textHandlesTuple.Count > 0)
+            {
+                var tuple = textHandlesTuple.First.Value;
+                if (ShouldCleanup(currentTime, tuple.lastTimeUsed, sTimeToFlush))
+                {
+                    GUIStyle.Internal_DestroyTextGenerator(tuple.hashCode);
+                    if (textHandles.TryGetValue(tuple.hashCode, out IMGUITextHandle textHandleCached))
+                    {
+                        textHandleCached.RemoveFromPermanentCache();
+                    }
+                    textHandles.Remove(tuple.hashCode);
+                    textHandlesTuple.RemoveFirst();
+                }
+                else
+                    break;
+            }
+        }
+
+        private static IMGUITextHandle GetTextHandle(TextCore.Text.TextGenerationSettings settings, bool isCalledFromNative, ref bool isCached)
+        {
+            isCached = false;
+            var currentTime = Time.realtimeSinceStartup;
+            if (ShouldCleanup(currentTime, lastCleanupTime, sTimeBetweenCleanupRuns) ||
+                newHandlesSinceCleanup > sNewHandlesBetweenCleanupRuns)
+            {
+                ClearUnusedTextHandles();
+                lastCleanupTime = currentTime;
+                newHandlesSinceCleanup = 0;
+            }
+
+            int hash = settings.GetHashCode();
+
+            if (textHandles.TryGetValue(hash, out IMGUITextHandle textHandleCached))
+            {
+                textHandleCached.tuple.Value.lastTimeUsed = currentTime;
+                textHandlesTuple.Remove(textHandleCached.tuple);
+                textHandlesTuple.AddLast(textHandleCached.tuple);
+
+                isCached = isCalledFromNative ? textHandleCached.isCachedOnNative : true;
+                if (!textHandleCached.isCachedOnNative && isCalledFromNative)
+                {
+                    textHandleCached.UpdateWithHash(hash);
+                    textHandleCached.UpdatePreferredSize();
+                    textHandleCached.isCachedOnNative = true;
+                }
+                return textHandleCached;
+            }
+
+            var handle = new IMGUITextHandle();
+            var tuple = new TextHandleTuple(currentTime, hash);
+            var listNode = new LinkedListNode<TextHandleTuple>(tuple);
+            handle.tuple = listNode;
+            textHandles[hash] = handle;
+            handle.UpdateWithHash(hash);
+            handle.UpdatePreferredSize();
+            textHandlesTuple.AddLast(listNode);
+            handle.isCachedOnNative = isCalledFromNative;
+            ++newHandlesSinceCleanup;
+            return handle;
+        }
+
+        protected override float GetPixelsPerPoint() => GUIUtility.pixelsPerPoint;
+
+        internal static float GetLineHeight(GUIStyle style)
+        {
+            if (IsAdvancedTextEnabled())
+            {
+                return GetNativeLineHeightDefault(style) / GUIUtility.pixelsPerPoint;
+            }
+            else
+            {
+                ConvertGUIStyleToGenerationSettings(settings, style, Color.white, "", Rect.zero);
+                return GetLineHeightDefault(settings.fontAsset, settings.fontSize) / GUIUtility.pixelsPerPoint;
+            }
+
+        }
+
+        //Width is in saled pixels
+        internal int GetNumCharactersThatFitWithinWidth(float width)
+        {
+            AddToPermanentCacheAndGenerateMesh();
+            if (useAdvancedText)
+            {
+                width = PointsToPixels(width);
+                return TextLib.GetNumCharactersThatFitWithinWidth(textGenerationInfo, (int)(width * 64));
+            }
+            int characterCount = textInfo.lineInfo[0].characterCount;
+            int charCount;
+            float currentSize = 0;
+
+            width = PointsToPixels(width);
+
+            for (charCount = 0; charCount < characterCount; charCount++)
+            {
+                currentSize += textInfo.textElementInfo[charCount].xAdvance - textInfo.textElementInfo[charCount].origin;
+                if (currentSize > width)
+                {
+                    break;
+                }
+            }
+
+            return charCount;
+        }
+
+        public Rect[] GetHyperlinkRects(Rect content)
+        {
+            AddToPermanentCacheAndGenerateMesh();
+
+            if (useAdvancedText)
+            {
+                var hyperlinks = TextLib.GetHyperlinkRects(textGenerationInfo);
+                for (int i = 0; i < hyperlinks.Length; ++i)
+                {
+                    hyperlinks[i].position /= GUIUtility.pixelsPerPoint;
+                    hyperlinks[i].size /= GUIUtility.pixelsPerPoint;
+                    hyperlinks[i].position += new Vector2(content.x, content.y);
+
+                }
+
+                return hyperlinks;
+            }
+
+            List<Rect> rects = new List<Rect>();
+            var scaleinv = 1/ GetPixelsPerPoint();
+
+            for (int i = 0; i < textInfo.linkCount; i++)
+            {
+                var minPos = GetCursorPositionFromStringIndexUsingLineHeight(textInfo.linkInfo[i].linkTextfirstCharacterIndex) + new Vector2(content.x, content.y); //All scaled
+                var maxPos = GetCursorPositionFromStringIndexUsingLineHeight(textInfo.linkInfo[i].linkTextLength + textInfo.linkInfo[i].linkTextfirstCharacterIndex) + new Vector2(content.x, content.y);//all scaled
+                var lineHeight = textInfo.lineInfo[0].lineHeight * scaleinv;
+
+                if (minPos.y == maxPos.y)
+                {
+                    rects.Add(new Rect(minPos.x, minPos.y - lineHeight, maxPos.x - minPos.x, lineHeight));
+                }
+                else
+                {
+                    // Rect for the first line - including end part
+                    rects.Add(new Rect(minPos.x, minPos.y - lineHeight, textInfo.lineInfo[0].width*scaleinv - minPos.x, lineHeight));
+                    // Rect for the middle part
+                    rects.Add(new Rect(content.x, minPos.y, textInfo.lineInfo[0].width * scaleinv, maxPos.y - minPos.y - lineHeight));
+                    // Rect for the bottom line - up to selection
+                    if (maxPos.x != 0f)
+                        rects.Add(new Rect(content.x, maxPos.y - lineHeight, maxPos.x, lineHeight));
+                }
+            }
+            return rects.ToArray();
+        }
+
+        private static void ConvertGUIStyleToGenerationSettings(UnityEngine.TextCore.Text.TextGenerationSettings settings, GUIStyle style, Color textColor, string text, Rect rect)
+        {
+            if (s_EditorTextSettings == null)
+            {
+                s_EditorTextSettings = (TextSettings)GetEditorTextSettings?.Invoke();
+            }
+
+#pragma warning disable UAL0018 // settings.textSettings is reassigned from the platform's text settings singleton on every call before being consumed; a reload window with a stale value is never observed
+            settings.textSettings = s_EditorTextSettings;
+#pragma warning restore UAL0018
+
+            if (settings.textSettings == null)
+                return;
+
+            Font font = style.font;
+
+            if (!font)
+            {
+                font = GUIStyle.GetDefaultFont();
+            }
+            var pixelsPerPoint = GUIUtility.pixelsPerPoint;
+
+            if (style.fontSize > 0)
+                settings.fontSize = Mathf.RoundToInt(style.fontSize * pixelsPerPoint);
+            else if (font)
+                settings.fontSize = Mathf.RoundToInt(font.fontSize * pixelsPerPoint);
+            else
+                settings.fontSize = Mathf.RoundToInt(sFallbackFontSize * pixelsPerPoint);
+
+
+            settings.fontStyle = TextGeneratorUtilities.LegacyStyleToNewStyle(style.fontStyle);
+
+            settings.fontAsset = settings.textSettings.GetCachedFontAsset(font);
+            if (settings.fontAsset == null)
+                return;
+
+            var shouldRenderBitmap = !style.isSDF && settings.fontAsset.IsEditorFont && TextCore.Text.TextGenerationSettings.IsEditorTextRenderingModeBitmap();
+            if (shouldRenderBitmap)
+            {
+                settings.fontAsset = GetBlurryFontAssetMapping(settings.fontSize, settings.fontAsset, TextCore.Text.TextGenerationSettings.IsEditorTextRenderingModeRaster());
+            }
+
+            // If the raster mode is bitmap, we need to have a clean rect for the alignment to work properly.
+            if (settings.fontAsset.IsBitmap())
+            {
+                settings.screenRect = new Rect(0, 0, Mathf.Max(0, Mathf.Round(rect.width * pixelsPerPoint)), Mathf.Max(0, Mathf.Round(rect.height * pixelsPerPoint)));
+            }
+            else
+            {
+                settings.screenRect = new Rect(0, 0, Mathf.Max(0, rect.width * pixelsPerPoint), Mathf.Max(0, rect.height * pixelsPerPoint));
+
+                if (settings.fontAsset.IsEditorFont)
+                {
+                    settings.fontAsset.material.SetFloat("_Sharpness", settings.textSettings.GetEditorTextSharpness());
+                }
+                else
+                {
+                    settings.fontAsset.material.SetFloat("_Sharpness", 0.5f);
+                }
+
+            }
+
+            settings.text = text;
+
+            var tempAlignment = style.alignment;
+            if (style.imagePosition == ImagePosition.ImageAbove)
+            {
+                switch (style.alignment)
+                {
+                    case TextAnchor.MiddleRight:
+                    case TextAnchor.LowerRight:
+                        tempAlignment = TextAnchor.UpperRight;
+                        break;
+                    case TextAnchor.MiddleCenter:
+                    case TextAnchor.LowerCenter:
+                        tempAlignment = TextAnchor.UpperCenter;
+                        break;
+                    case TextAnchor.MiddleLeft:
+                    case TextAnchor.LowerLeft:
+                        tempAlignment = TextAnchor.UpperLeft;
+                        break;
+                }
+            }
+
+            settings.textAlignment = TextGeneratorUtilities.LegacyAlignmentToNewAlignment(tempAlignment);
+            settings.overflowMode = LegacyClippingToNewOverflow(style.clipping);
+            if (rect.width > 0 && style.wordWrap)
+            {
+                settings.textWrappingMode = TextWrappingMode.PreserveWhitespace;
+            }
+            else
+            {
+                settings.textWrappingMode = TextWrappingMode.PreserveWhitespaceNoWrap;
+            }
+            settings.richText = style.richText;
+            settings.parseControlCharacters = false;
+            settings.isPlaceholder = false;
+            settings.isRightToLeft = false;
+            settings.characterSpacing = 0;
+            settings.wordSpacing = 0;
+            settings.paragraphSpacing = 0;
+            settings.color = textColor;
+
+            settings.isIMGUI = true;
+            settings.shouldConvertToLinearSpace = false;
+
+            settings.emojiFallbackSupport = true;
+            settings.extraPadding = 6.0f;
+            settings.pixelsPerPoint = pixelsPerPoint;
+        }
+
+        static TextOverflowMode LegacyClippingToNewOverflow(TextClipping clipping)
+        {
+            switch (clipping)
+            {
+                case TextClipping.Clip:
+                    return TextOverflowMode.Masking;
+                case TextClipping.Ellipsis:
+                    return TextOverflowMode.Ellipsis;
+                case TextClipping.Overflow:
+                default:
+                    return TextOverflowMode.Overflow;
+            }
+        }
+
+        static TextOverflow LegacyClippingToNativeOverflow(TextClipping clipping)
+        {
+            switch (clipping)
+            {
+                case TextClipping.Clip:
+                    return TextOverflow.Clip;
+                case TextClipping.Ellipsis:
+                    return TextOverflow.Ellipsis;
+                case TextClipping.Overflow:
+                default:
+                    return TextOverflow.Clip;
+            }
+        }
+
+        internal override bool IsAdvancedTextEnabledForElement()
+        {
+            return IsAdvancedTextEnabled();
+        }
+
+        internal static bool IsAdvancedTextEnabled()
+        {
+            return GUIStyle.useAdvancedText ?? GetEditorTextGeneratorType() == TextGeneratorType.Advanced;
+        }
+
+        public bool HasClickedOnLink(Vector2 mousePosition, out string linkData)
+        {
+            return useAdvancedText ? HasClickedOnLinkATG(mousePosition, out linkData) : HasClickedOnLinkTextCore(mousePosition, out linkData);
+        }
+
+        private bool HasClickedOnLinkTextCore(Vector2 mousePosition, out string linkData)
+        {
+            linkData = "";
+            var intersectingLink = FindIntersectingLink(mousePosition);
+            if (intersectingLink < 0)
+                return false;
+
+            var link = textInfo.linkInfo[intersectingLink];
+            if (link.linkId != null && link.linkIdLength > 0)
+            {
+                linkData = new string(link.linkId);
+                return true;
+            }
+            return false;
+        }
+
+        internal bool HasClickedOnHREF(Vector2 mousePosition, out string href)
+        {
+            return useAdvancedText ? HasClickedOnHREFATG(mousePosition, out href) : HasClickedOnHREFTextCore(mousePosition, out href);
+        }
+
+        private bool HasClickedOnHREFTextCore(Vector2 mousePosition, out string href)
+        {
+            href = "";
+            var intersectingLink = FindIntersectingLink(mousePosition);
+            if (intersectingLink < 0)
+                return false;
+
+            var link = textInfo.linkInfo[intersectingLink];
+            if (link.hashCode == (int)MarkupTag.HREF)
+            {
+                if (link.linkId != null && link.linkIdLength > 0)
+                {
+                    href = new string(link.linkId);
+                    if (!href.StartsWith("href"))
+                        return false;
+                    // Removes href="..."
+                    if (href.StartsWith("href=\"") || href.StartsWith("href=\'"))
+                        href = href.Substring(6, href.Length - 7);
+                    // Removes href=...
+                    else
+                        href = href.Substring(5, href.Length - 6);
+                    if (Uri.IsWellFormedUriString(href, UriKind.Absolute))
+                    {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        }
+    }
+}
+#pragma warning restore UAL0015,UAL0018,UAL0019,UAL0020,UAL0021

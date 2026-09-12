@@ -1,0 +1,88 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+using System.Collections.Generic;
+using System.Linq;
+using UnityEngine;
+using UnityEditor.AnimatedValues;
+using Unity.Scripting.LifecycleManagement;
+
+namespace UnityEditor
+{
+    /// <summary>
+    /// Prompts the end-user to add 2D colliders if non exist for 2D effector to work with.
+    /// </summary>
+    [CustomEditor(typeof(AreaEffector2D), true)]
+    [CanEditMultipleObjects]
+    internal class AreaEffector2DEditor : Effector2DEditor
+    {
+        readonly AnimBool m_ShowForceRollout = new AnimBool();
+        SerializedProperty m_UseGlobalAngle;
+        SerializedProperty m_ForceAngle;
+        SerializedProperty m_ForceMagnitude;
+        SerializedProperty m_ForceVariation;
+        SerializedProperty m_ForceTarget;
+
+        [NoAutoStaticsCleanup] // foldout UI state shared across inspectors; safe to persist across code reload as it holds no user-code references
+        static readonly AnimBool m_ShowDampingRollout = new AnimBool();
+        SerializedProperty m_LinearDamping;
+        SerializedProperty m_AngularDamping;
+
+        public override void OnEnable()
+        {
+            base.OnEnable();
+
+            m_ShowForceRollout.value = true;
+            m_ShowForceRollout.valueChanged.AddListener(Repaint);
+            m_UseGlobalAngle = serializedObject.FindProperty("m_UseGlobalAngle");
+            m_ForceAngle = serializedObject.FindProperty("m_ForceAngle");
+            m_ForceMagnitude = serializedObject.FindProperty("m_ForceMagnitude");
+            m_ForceVariation = serializedObject.FindProperty("m_ForceVariation");
+            m_ForceTarget = serializedObject.FindProperty("m_ForceTarget");
+
+            m_ShowDampingRollout.valueChanged.AddListener(Repaint);
+            m_LinearDamping = serializedObject.FindProperty("m_LinearDamping");
+            m_AngularDamping = serializedObject.FindProperty("m_AngularDamping");
+        }
+
+        public override void OnDisable()
+        {
+            base.OnDisable();
+
+            m_ShowForceRollout.valueChanged.RemoveListener(Repaint);
+            m_ShowDampingRollout.valueChanged.RemoveListener(Repaint);
+        }
+
+        public override void OnInspectorGUI()
+        {
+            base.OnInspectorGUI();
+
+            serializedObject.Update();
+
+            // Force.
+            m_ShowForceRollout.target = EditorGUILayout.Foldout(m_ShowForceRollout.target, "Force", true);
+            if (EditorGUILayout.BeginFadeGroup(m_ShowForceRollout.faded))
+            {
+                EditorGUILayout.PropertyField(m_UseGlobalAngle);
+                EditorGUILayout.PropertyField(m_ForceAngle);
+                EditorGUILayout.PropertyField(m_ForceMagnitude);
+                EditorGUILayout.PropertyField(m_ForceVariation);
+                EditorGUILayout.PropertyField(m_ForceTarget);
+                EditorGUILayout.Space();
+            }
+            EditorGUILayout.EndFadeGroup();
+
+            // Drag.
+            m_ShowDampingRollout.target = EditorGUILayout.Foldout(m_ShowDampingRollout.target, "Damping", true);
+            if (EditorGUILayout.BeginFadeGroup(m_ShowDampingRollout.faded))
+            {
+                EditorGUILayout.PropertyField(m_LinearDamping);
+                EditorGUILayout.PropertyField(m_AngularDamping);
+            }
+            EditorGUILayout.EndFadeGroup();
+
+            serializedObject.ApplyModifiedProperties();
+        }
+    }
+}

@@ -1,0 +1,70 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+using System;
+using System.Runtime.InteropServices;
+using UnityEngine;
+using UnityEngine.Scripting.APIUpdating;
+using static Unity.U2D.Physics.Scripting2D;
+
+namespace Unity.U2D.Physics
+{
+    /// <summary>
+    /// A <see cref="PhysicsChain"/> definition used to specify the chain of vertices that will produce multiple <see cref="ChainSegmentGeometry"/> shape types.
+    /// Additionally, non-geometric properties can be specified here.
+    /// </summary>
+    [Serializable]
+    [StructLayout(LayoutKind.Sequential)]
+    [MovedFrom(autoUpdateAPI: ScriptUpdateConstants.AutoUpdateAPI, sourceNamespace: ScriptUpdateConstants.SourceNamespace, sourceAssembly: ScriptUpdateConstants.SourceAssembly)]
+    public record struct PhysicsChainDefinition
+    {
+        /// <summary>
+        /// Create a default <see cref="PhysicsChain"/> definition.
+        /// </summary>
+        public PhysicsChainDefinition() { this = defaultDefinition; }
+
+        /// <summary>
+        /// Create a default <see cref="PhysicsChain"/> definition.
+        /// </summary>
+        /// <param name="useSettings">Controls whether the default come settings from the physics settings or not.</param>
+        public PhysicsChainDefinition(bool useSettings) { this = PhysicsChain_GetDefaultDefinition(useSettings); }
+
+        /// <summary>
+        /// Get a default <see cref="PhysicsChain"/> definition.
+        /// </summary>
+        public static PhysicsChainDefinition defaultDefinition => PhysicsChain_GetDefaultDefinition(true);
+
+        /// <summary>
+        /// The surface material for the shape comprising of many properties such as friction, bounciness, rolling resistance etc.
+        /// </summary>
+        public PhysicsShape.SurfaceMaterial surfaceMaterial { readonly get => m_SurfaceMaterial; set => m_SurfaceMaterial = value; }
+
+        /// <summary>
+        /// The contact filter used to control which contacts this shape can participate in.
+        /// </summary>
+        public PhysicsShape.ContactFilter contactFilter { readonly get => m_ContactFilter; set => m_ContactFilter = value; }
+
+        /// <summary>
+        /// Indicates a closed chain formed by connecting the first and last vertices specified.
+        /// When enabled, no ghost vertices should be defined in the <see cref="ChainGeometry.vertices"/> with all being used to define <see cref="ChainSegmentGeometry"/> with the ghost vertices being calculated automatically to force a closed loop.
+        /// When disabled, the <see cref="ChainGeometry.vertices"/> should define <see cref="ChainSegmentGeometry.ghost1"/> as the first vertex followed by at least two vertices or more defining the subsequent edges and finally a <see cref="ChainSegmentGeometry.ghost2"/> vertex, therefore there must be at least 4 vertices.
+        /// </summary>
+        public bool isLoop { readonly get => m_IsLoop; set => m_IsLoop = value; }
+
+        /// <summary>
+        /// Controls whether this chain produces trigger events which can be retrieved after the simulation has completed.
+        /// This applies to triggers and non-triggers alike.
+        /// </summary>
+	    public bool triggerEvents { readonly get => m_TriggerEvents; set => m_TriggerEvents = value; }
+
+        #region Internal
+
+        [SerializeField] PhysicsShape.SurfaceMaterial m_SurfaceMaterial;
+        [SerializeField] PhysicsShape.ContactFilter m_ContactFilter;
+        [SerializeField] bool m_IsLoop;
+	    [SerializeField] bool m_TriggerEvents;
+
+        #endregion
+    }
+}

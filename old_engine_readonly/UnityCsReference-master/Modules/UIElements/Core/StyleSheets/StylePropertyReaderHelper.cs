@@ -1,0 +1,664 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+using UnityEngine.Bindings;
+
+namespace UnityEngine.UIElements.StyleSheets
+{
+    internal partial class StylePropertyReader
+    {
+        static public TransformOrigin ReadTransformOrigin(int valCount, StylePropertyValue val1, StylePropertyValue val2, StylePropertyValue zVvalue)
+        {
+            Length x = Length.Percent(50) , y = Length.Percent(50);
+            float z = 0;
+
+            switch (valCount)
+            {
+                case 1: //Single parameter, Could be x-offset(length or %) or offset-keyword (left, right, top, bottom, or center)
+                {
+                    var val = ReadTransformOriginEnum(val1, out bool isVertical, out bool isHorizontal);
+                    if (isHorizontal)     //We apply on X by default, except if we have top or bottom
+                        x = val;
+                    else
+                        y = val;
+                    break;
+                }
+                case 2: //two parameter ( x, y ) whether they are value or keyword. The order can be inverted if using keywords (ie top, left)
+                {
+                    var len1 = ReadTransformOriginEnum(val1, out bool isVertical1, out bool isHorizontal1);
+                    var len2 = ReadTransformOriginEnum(val2, out bool isVertical2, out bool isHorizontal2);
+
+                    if (!isHorizontal1 || !isVertical2)    //Argument probably are "swapped" if one of both cant be assigned "in order" to x, y
+                    {
+                        if (isHorizontal2 && isVertical1)
+                        {
+                            x = len2;
+                            y = len1;
+                        }
+                    }
+                    else
+                    {
+                        x = len1;
+                        y = len2;
+                    }
+
+                    break;
+                }
+                case 3: // xyz
+                    if (zVvalue.handle.valueType == StyleValueType.Dimension || zVvalue.handle.valueType == StyleValueType.Float)
+                    {
+                        var dimension = zVvalue.sheet.ReadDimension(zVvalue.handle);
+                        z = dimension.value;
+                    }
+
+                    goto case 2; //Go parse the first arguments
+            }
+
+
+            return new TransformOrigin(x, y, z);
+        }
+
+        static private Length ReadTransformOriginEnum(StylePropertyValue value, out bool isVertical, out bool isHorizontal)
+        {
+            if (value.handle.valueType == StyleValueType.Enum)
+            {
+                var enumValue = (TransformOriginOffset)ReadEnum(StyleEnumType.TransformOriginOffset, value);
+                switch (enumValue)
+                {
+                    case TransformOriginOffset.Left:
+                        isVertical = false; isHorizontal = true;
+                        return Length.Percent(0);
+                    case TransformOriginOffset.Top:
+                        isVertical = true; isHorizontal = false;
+                        return Length.Percent(0);
+                    case TransformOriginOffset.Center:
+                        isVertical = true; isHorizontal = true;
+                        return Length.Percent(50);
+                    case TransformOriginOffset.Right:
+                        isVertical = false; isHorizontal = true;
+                        return Length.Percent(100);
+                    case TransformOriginOffset.Bottom:
+                        isVertical = true; isHorizontal = false;
+                        return Length.Percent(100);
+                }
+            }
+            else if (value.handle.valueType == StyleValueType.Dimension || value.handle.valueType == StyleValueType.Float)
+            {
+                isVertical = true; isHorizontal = true;
+                return value.sheet.ReadDimension(value.handle).ToLength();
+            }
+
+            isVertical = false; isHorizontal = false; // should not matter because there would be no ambiguity
+            return Length.Percent(50);
+        }
+
+        static public Translate ReadTranslate(int valCount, StylePropertyValue val1, StylePropertyValue val2, StylePropertyValue val3)
+        {
+            if (val1.handle.valueType == StyleValueType.Keyword && (StyleValueKeyword)val1.handle.valueIndex == StyleValueKeyword.None)
+            {
+                return Translate.None();
+            }
+
+
+            Length x = 0, y = 0;
+            float z = 0;
+
+            switch (valCount)
+            {
+                case 1:// If only one argument, the translation is along both axes
+                    if (val1.handle.valueType == StyleValueType.Dimension || val1.handle.valueType == StyleValueType.Float)
+                    {
+                        x = val1.sheet.ReadDimension(val1.handle).ToLength();
+                        y = val1.sheet.ReadDimension(val1.handle).ToLength();
+                    }
+                    break;
+
+                case 2://X Y value
+                    if (val1.handle.valueType == StyleValueType.Dimension || val1.handle.valueType == StyleValueType.Float)
+                    {
+                        x = val1.sheet.ReadDimension(val1.handle).ToLength();
+                    }
+
+                    if (val2.handle.valueType == StyleValueType.Dimension || val2.handle.valueType == StyleValueType.Float)
+                    {
+                        y = val2.sheet.ReadDimension(val2.handle).ToLength();
+                    }
+                    break;
+
+                case 3: //X Y Z value
+                    if (val3.handle.valueType == StyleValueType.Dimension || val3.handle.valueType == StyleValueType.Float)
+                    {
+                        var dimension = val3.sheet.ReadDimension(val3.handle);
+                        z = dimension.value;
+                    }
+                    goto case 2; //Parse the first 2 parameters
+            }
+            return new Translate(x, y, z);
+        }
+
+        static public Scale ReadScale(int valCount, StylePropertyValue val1, StylePropertyValue val2, StylePropertyValue val3)
+        {
+            if (val1.handle.valueType == StyleValueType.Keyword && (StyleValueKeyword)val1.handle.valueIndex == StyleValueKeyword.None)
+            {
+                return Scale.None();
+            }
+
+            var scale = Vector3.one;
+
+            switch (valCount)
+            {
+                case 1: // If only one argument, the translation is along both axes
+                    if (val1.handle.valueType == StyleValueType.Dimension || val1.handle.valueType == StyleValueType.Float)
+                    {
+                        scale.x = val1.sheet.ReadFloat(val1.handle);
+                        scale.y = scale.x;
+                    }
+                    break;
+                case 2://X Y value
+                    if (val1.handle.valueType == StyleValueType.Dimension || val1.handle.valueType == StyleValueType.Float)
+                    {
+                        scale.x = val1.sheet.ReadFloat(val1.handle);
+                    }
+
+                    if (val2.handle.valueType == StyleValueType.Dimension || val2.handle.valueType == StyleValueType.Float)
+                    {
+                        scale.y = val2.sheet.ReadFloat(val2.handle);
+                    }
+                    break;
+                case 3: //X Y Z value
+                    if (val3.handle.valueType == StyleValueType.Dimension || val3.handle.valueType == StyleValueType.Float)
+                    {
+                        scale.z = val3.sheet.ReadFloat(val3.handle);
+                    }
+                    goto case 2; //Parse the first 2 parameters
+            }
+            return new Scale(scale);
+        }
+        static public Rotate ReadRotate(int valCount, StylePropertyValue val1, StylePropertyValue val2, StylePropertyValue val3, StylePropertyValue val4)
+        {
+            if (val1.handle.valueType == StyleValueType.Keyword && (StyleValueKeyword)val1.handle.valueIndex == StyleValueKeyword.None)
+            {
+                return Rotate.None();
+            }
+
+            var rot = Rotate.Initial();
+
+            switch (valCount)
+            {
+                case 1: // If only one argument, the only argument is an angle and the rotation is in Z
+                    if (val1.handle.valueType == StyleValueType.Dimension)
+                    {
+                        rot.angle = ReadAngle(val1);
+                        //we leave axis to the default value;
+                    }
+                    break;
+                case 2:// axis by name and an angle
+                    rot.angle = ReadAngle(val2);
+                    var enumValue = (Axis)ReadEnum(StyleEnumType.Axis, val1);
+                    switch (enumValue)
+                    {
+                        case Axis.X:
+                            rot.axis = new Vector3(1, 0, 0);
+                            break;
+                        case Axis.Y:
+                            rot.axis = new Vector3(0, 1, 0);
+                            break;
+                        case Axis.Z:
+                            rot.axis = new Vector3(0, 0, 1);
+                            break;
+                    }
+                    break;
+                case 4://vector+angle
+                    rot.angle = ReadAngle(val4);
+                    rot.axis = new(val1.sheet.ReadFloat(val1.handle), val1.sheet.ReadFloat(val2.handle), val1.sheet.ReadFloat(val3.handle)); ;
+                    break;
+            }
+            return rot;
+        }
+
+        static public Curvature ReadCurvature(int valCount, StylePropertyValue val1, StylePropertyValue val2)
+        {
+            if (val1.handle.valueType == StyleValueType.Keyword && (StyleValueKeyword)val1.handle.valueIndex == StyleValueKeyword.None)
+            {
+                return Curvature.None();
+            }
+
+            // One angle bends the horizontal axis only; two angles bend both. Sign selects concave vs. convex.
+            Angle x = ReadAngle(val1);
+            Angle y = valCount > 1 ? ReadAngle(val2) : new Angle(0);
+            return new Curvature(x, y);
+        }
+
+        static bool TryReadEnum(StyleEnumType enumType, StylePropertyValue value, out int intValue)
+        {
+            string enumString = null;
+            var handle = value.handle;
+
+            if (handle.valueType == StyleValueType.Keyword)
+            {
+                var keyword = value.sheet.ReadKeyword(handle);
+                enumString = keyword.ToUssString();
+            }
+            else
+            {
+                enumString = value.sheet.ReadEnum(handle);
+            }
+
+            return (StylePropertyUtil.TryGetEnumIntValue(enumType, enumString, out intValue));
+        }
+
+        static int ReadEnum(StyleEnumType enumType, StylePropertyValue value)
+        {
+            string enumString = null;
+            var handle = value.handle;
+
+            if (handle.valueType == StyleValueType.Keyword)
+            {
+                var keyword = value.sheet.ReadKeyword(handle);
+                enumString = keyword.ToUssString();
+            }
+            else
+            {
+                enumString = value.sheet.ReadEnum(handle);
+            }
+
+            StylePropertyUtil.TryGetEnumIntValue(enumType, enumString, out var intValue);
+            return intValue;
+        }
+
+        static public Angle ReadAngle(StylePropertyValue value)
+        {
+            if (value.handle.valueType == StyleValueType.Keyword)
+            {
+                var keyword = (StyleValueKeyword)value.handle.valueIndex;
+                switch (keyword)
+                {
+                    case StyleValueKeyword.None:
+                        return Angle.None();
+                    default:
+                        return new Angle();
+                }
+            }
+
+            var dimension = value.sheet.ReadDimension(value.handle);
+            return dimension.ToAngle();
+        }
+
+        static public BackgroundPosition ReadBackgroundPosition(int valCount, StylePropertyValue val1, StylePropertyValue val2, BackgroundPositionKeyword keyword)
+        {
+            if (valCount == 1)
+            {
+                if (val1.handle.valueType == StyleValueType.Enum)
+                {
+                    return new BackgroundPosition((BackgroundPositionKeyword)ReadEnum(StyleEnumType.BackgroundPositionKeyword, val1));
+                }
+                else if ((val1.handle.valueType == StyleValueType.Dimension) || (val1.handle.valueType == StyleValueType.Float))
+                {
+                    return new BackgroundPosition(keyword, val1.sheet.ReadDimension(val1.handle).ToLength());
+                }
+            }
+            else if (valCount == 2)
+            {
+                if ((val1.handle.valueType == StyleValueType.Enum) &&
+                    ((val2.handle.valueType == StyleValueType.Dimension) || (val2.handle.valueType == StyleValueType.Float)))
+                {
+                    return new BackgroundPosition(
+                        (BackgroundPositionKeyword)ReadEnum(StyleEnumType.BackgroundPositionKeyword, val1),
+                        val1.sheet.ReadDimension(val2.handle).ToLength());
+                }
+            }
+
+            return new BackgroundPosition();
+        }
+
+        static public BackgroundRepeat ReadBackgroundRepeat(int valCount, StylePropertyValue val1, StylePropertyValue val2)
+        {
+            var backgroundRepeat = new BackgroundRepeat();
+
+            if (valCount == 1)
+            {
+                int enumValue;
+                if (TryReadEnum(StyleEnumType.RepeatXY, val1, out enumValue))
+                {
+                    if ((RepeatXY)enumValue == RepeatXY.RepeatX)
+                    {
+                        backgroundRepeat.x = Repeat.Repeat;
+                        backgroundRepeat.y = Repeat.NoRepeat;
+                    }
+                    else if ((RepeatXY)enumValue == RepeatXY.RepeatY)
+                    {
+                        backgroundRepeat.x = Repeat.NoRepeat;
+                        backgroundRepeat.y = Repeat.Repeat;
+                    }
+                }
+                else
+                {
+                    backgroundRepeat.x = (Repeat)ReadEnum(StyleEnumType.Repeat, val1);
+                    backgroundRepeat.y = backgroundRepeat.x;
+                }
+            }
+            else
+            {
+                backgroundRepeat.x = (Repeat)ReadEnum(StyleEnumType.Repeat, val1);
+                backgroundRepeat.y = (Repeat)ReadEnum(StyleEnumType.Repeat, val2);
+            }
+
+            return backgroundRepeat;
+        }
+
+        static public BackgroundSize ReadBackgroundSize(int valCount, StylePropertyValue val1, StylePropertyValue val2)
+        {
+            var BackgroundSize = new BackgroundSize();
+
+            if (valCount == 1)
+            {
+                if (val1.handle.valueType == StyleValueType.Keyword)
+                {
+                    if ((StyleValueKeyword)val1.handle.valueIndex == StyleValueKeyword.Auto)
+                    {
+                        BackgroundSize.x = Length.Auto();
+                        BackgroundSize.y = Length.Auto();
+                    }
+                    else if ((StyleValueKeyword)val1.handle.valueIndex == StyleValueKeyword.Cover)
+                    {
+                        BackgroundSize.sizeType = BackgroundSizeType.Cover;
+                    }
+                    else if ((StyleValueKeyword)val1.handle.valueIndex == StyleValueKeyword.Contain)
+                    {
+                        BackgroundSize.sizeType = BackgroundSizeType.Contain;
+                    }
+                }
+                else if (val1.handle.valueType == StyleValueType.Enum)
+                {
+                    BackgroundSize.sizeType = (BackgroundSizeType)ReadEnum(StyleEnumType.BackgroundSizeType, val1);
+                }
+                else if (val1.handle.valueType == StyleValueType.Dimension)
+                {
+                    BackgroundSize.x = val1.sheet.ReadDimension(val1.handle).ToLength();
+                    BackgroundSize.y = Length.Auto();
+                }
+            }
+            else if (valCount == 2)
+            {
+                if (val1.handle.valueType == StyleValueType.Keyword)
+                {
+                    if ((StyleValueKeyword)val1.handle.valueIndex == StyleValueKeyword.Auto)
+                    {
+                        BackgroundSize.x = Length.Auto();
+                    }
+                }
+                else if (val1.handle.valueType == StyleValueType.Dimension)
+                {
+                    BackgroundSize.x = val1.sheet.ReadDimension(val1.handle).ToLength();
+                }
+
+                if (val2.handle.valueType == StyleValueType.Keyword)
+                {
+                    if ((StyleValueKeyword)val2.handle.valueIndex == StyleValueKeyword.Auto)
+                    {
+                        BackgroundSize.y = Length.Auto();
+                    }
+                }
+                else if (val2.handle.valueType == StyleValueType.Dimension)
+                {
+                    BackgroundSize.y = val2.sheet.ReadDimension(val2.handle).ToLength();
+                }
+            }
+
+            return BackgroundSize;
+        }
+
+        public static TextShadow ReadTextShadow(int valCount, StylePropertyValue val1, StylePropertyValue val2, StylePropertyValue val3, StylePropertyValue val4)
+        {
+            if (valCount < 2)
+                return default;
+
+            var readColorFirst = val1.handle.valueType is StyleValueType.Color or StyleValueType.Enum;
+
+            var value = new TextShadow{ color = Color.clear, offset = Vector2.zero, blurRadius = 0.0f };
+
+            switch (valCount)
+            {
+                // Offset with no blurRadius and no color
+                case 2:
+                {
+                    var offset = value.offset;
+                    if (val1.sheet.TryReadDimension(val1.handle, out var offsetX))
+                        offset.x = offsetX.value;
+
+                    if (val2.sheet.TryReadDimension(val2.handle, out var offsetY))
+                        offset.y = offsetY.value;
+                    value.offset = offset;
+                    break;
+                }
+                // Either color + offset or offset + color
+                case 3:
+                {
+                    var colorHandle = readColorFirst ? val1 : val3;
+                    var offsetXHandle = readColorFirst ? val2 : val1;
+                    var offsetYHandle = readColorFirst ? val3 : val2;
+
+                    if (colorHandle.sheet.TryReadColor(colorHandle.handle, out var color))
+                        value.color = color;
+
+                    var offset = default(Vector2);
+                    if (offsetXHandle.sheet.TryReadDimension(offsetXHandle.handle, out var offsetX))
+                        offset.x = offsetX.value;
+
+                    if (offsetYHandle.sheet.TryReadDimension(offsetYHandle.handle, out var offsetY))
+                        offset.y = offsetY.value;
+                    value.offset = offset;
+
+                    break;
+                }
+                // Either color + offset + blurRadius or offset + blurRadius + color
+                case >= 4:
+                {
+                    var colorHandle = readColorFirst ? val1 : val4;
+                    var offsetXHandle = readColorFirst ? val2 : val1;
+                    var offsetYHandle = readColorFirst ? val3 : val2;
+                    var blurRadiusHandle = readColorFirst ? val4 : val3;
+
+                    if (colorHandle.sheet.TryReadColor(colorHandle.handle, out var color))
+                        value.color = color;
+
+                    var offset = default(Vector2);
+                    if (offsetXHandle.sheet.TryReadDimension(offsetXHandle.handle, out var offsetX))
+                        offset.x = offsetX.value;
+
+                    if (offsetYHandle.sheet.TryReadDimension(offsetYHandle.handle, out var offsetY))
+                        offset.y = offsetY.value;
+                    value.offset = offset;
+
+                    if (blurRadiusHandle.sheet.TryReadDimension(blurRadiusHandle.handle, out var blurRadius))
+                        value.blurRadius = blurRadius.value;
+                    break;
+                }
+            }
+            return value;
+        }
+
+        public static TextAutoSize ReadTextAutoSize(int valCount, StylePropertyValue val1, StylePropertyValue val2, StylePropertyValue val3)
+        {
+            switch (valCount)
+            {
+                case 0:
+                case 1:
+                case 2:
+                    return TextAutoSize.None();
+                case 3:
+                    if (val2.handle.valueType == StyleValueType.Keyword && (StyleValueKeyword)val2.handle.valueIndex == StyleValueKeyword.None)
+                        return TextAutoSize.None();
+
+                    if (val1.handle.valueType == StyleValueType.Enum)
+                    {
+                        var enumValue = (TextAutoSizeMode)ReadEnum(StyleEnumType.TextAutoSizeMode, val1);
+                        if (enumValue == TextAutoSizeMode.None)
+                            return TextAutoSize.None();
+
+                        if (enumValue == TextAutoSizeMode.BestFit)
+                        {
+                            var autoSize = new TextAutoSize();
+                            autoSize.mode = enumValue;
+
+                            if (val2.sheet.TryReadDimension(val2.handle, out var minSize))
+                                autoSize.minSize = minSize.ToLength();
+                            if (val3.sheet.TryReadDimension(val3.handle, out var maxSize))
+                                autoSize.maxSize = maxSize.ToLength();
+
+                            return autoSize;
+                        }
+                    }
+                    break;
+            }
+
+            return TextAutoSize.None();
+        }
+
+        internal static Cursor ReadCursor(int valueCount, StylePropertyValue val1, StylePropertyValue val2, StylePropertyValue val3, float dpiScaling = 1.0f)
+        {
+            var cursor = new Cursor();
+
+            var valueType = val1.handle.valueType;
+            var isCustom = valueType is StyleValueType.ResourcePath or StyleValueType.AssetReference or StyleValueType.ScalableImage or StyleValueType.MissingAssetReference;
+            if (isCustom)
+            {
+                var source = new ImageSource();
+                if (TryGetImageSourceFromValue(val1, dpiScaling, out source))
+                {
+                    cursor.texture = source.texture;
+                    if (valueCount >= 3)
+                    {
+                        if (val2.handle.valueType != StyleValueType.Float ||
+                            val3.handle.valueType != StyleValueType.Float)
+                        {
+                            Debug.LogWarning("USS 'cursor' property requires two integers for the hot spot value.");
+                        }
+                        else
+                        {
+                            cursor.hotspot = new Vector2(
+                                val2.sheet.ReadFloat(val2.handle),
+                                val3.sheet.ReadFloat(val3.handle)
+                            );
+                        }
+                    }
+                }
+            }
+            else if (valueType == StyleValueType.Enum && getCursorIdFunc != null)
+            {
+                cursor.defaultCursorId = getCursorIdFunc(val1.sheet, val1.handle);
+            }
+
+            return cursor;
+        }
+
+        [VisibleToOtherModules("UnityEditor.UIBuilderModule", "UnityEditor.UIToolkitAuthoringModule")]
+        internal static bool TryGetImageSourceFromValue(StylePropertyValue propertyValue, float dpiScaling, out ImageSource source)
+        {
+            source = new ImageSource();
+
+            switch (propertyValue.handle.valueType)
+            {
+                case StyleValueType.ResourcePath:
+                {
+                    var resourcePath = propertyValue.sheet.ReadResourcePath(propertyValue.handle);
+                    if (resourcePath.isPathValid)
+                    {
+                        UnityEngine.Object obj = Resources.Load(resourcePath.path);
+                        if (obj != null)
+                        {
+                            var type = obj.GetType();
+                            if (type == typeof(Texture2D))
+                            {
+                                source.sprite = resourcePath.LoadResource<Sprite>(dpiScaling);
+                                if (source.IsNull())
+                                    source.texture = resourcePath.LoadResource<Texture2D>(dpiScaling);
+                            }
+                            else if (type == typeof(Sprite))
+                            {
+                                source.sprite = resourcePath.LoadResource<Sprite>(dpiScaling);
+                            }
+                            else if (type == typeof(VectorImage))
+                            {
+                                source.vectorImage = resourcePath.LoadResource<VectorImage>(dpiScaling);
+                            }
+                            else if (type == typeof(RenderTexture))
+                            {
+                                source.renderTexture = resourcePath.LoadResource<RenderTexture>(dpiScaling);
+                            }
+                        }
+
+                        //TODO: This will use GUIUtility.pixelsPerPoint as targetDpi, this may not be the best value for the current panel
+                        if (source.IsNull())
+                            source.sprite = resourcePath.LoadResource<Sprite>(dpiScaling);
+                        if (source.IsNull())
+                            source.texture = resourcePath.LoadResource<Texture2D>(dpiScaling);
+                        if (source.IsNull())
+                            source.vectorImage = resourcePath.LoadResource<VectorImage>(dpiScaling);
+                        if (source.IsNull())
+                            source.renderTexture = resourcePath.LoadResource<RenderTexture>(dpiScaling);
+                    }
+
+                    if (source.IsNull())
+                    {
+                        Debug.LogWarning(string.Format("Image not found for path: {0}", resourcePath.ToString()));
+                        return false;
+                    }
+                }
+                break;
+
+                case StyleValueType.AssetReference:
+                {
+                    var o = propertyValue.sheet.ReadAssetReference(propertyValue.handle);
+                    source.texture = o as Texture2D;
+                    source.sprite = o as Sprite;
+                    source.vectorImage = o as VectorImage;
+                    source.renderTexture = o as RenderTexture;
+                    if (source.IsNull())
+                    {
+                        Debug.LogWarning("Invalid image specified");
+                        return false;
+                    }
+                }
+                break;
+
+                case StyleValueType.MissingAssetReference:
+                    return false;
+
+                case StyleValueType.ScalableImage:
+                {
+                    var img = propertyValue.sheet.ReadScalableImage(propertyValue.handle);
+
+                    if (img.normalImage == null && img.highResolutionImage == null)
+                    {
+                        Debug.LogWarning("Invalid scalable image specified");
+                        return false;
+                    }
+
+                    if (dpiScaling > 1.0f)
+                    {
+                        source.texture = img.highResolutionImage;
+                        source.texture.pixelsPerPoint = 2.0f;
+                    }
+                    else
+                    {
+                        source.texture = img.normalImage;
+                    }
+
+                    if (!Mathf.Approximately(dpiScaling % 1.0f, 0))
+                    {
+                        source.texture.filterMode = FilterMode.Bilinear;
+                    }
+                }
+                break;
+
+                default:
+                    Debug.LogWarning("Invalid value for image texture " + propertyValue.handle.valueType);
+                    return false;
+            }
+
+            return true;
+        }
+    }
+}

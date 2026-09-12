@@ -1,0 +1,728 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+using System;
+using System.Collections.Generic;
+using System.IO;
+using UnityEngine;
+using UnityEditor;
+using UnityEditor.Build;
+using UnityEditorInternal;
+using UnityEngine.Analytics;
+using UnityEngine.Rendering;
+using UnityEngine.UIElements;
+using UnityEditor.Callbacks;
+using Unity.Scripting.LifecycleManagement;
+
+namespace UnityEditor
+{
+    [CustomEditor(typeof(MemorySettings))]
+    internal partial class MemorySettingsEditor : Editor
+    {
+        class ContentNonSearchable
+        {
+            public static readonly GUIContent kGeneralSettingsWarning = EditorGUIUtility.TrTextContent("Changing Memory setup values can cause severe performance degradation.");
+            public static readonly GUIContent kEditorSettingsWarning = EditorGUIUtility.TrTextContent("Changing the memory setup for editor will update the ProjectSettings/boot.config file. This file is loaded at Editor startup, so will take effect at next startup.");
+        }
+
+        class Content
+        {
+            public static readonly GUIContent kMainAllocatorsTitle = EditorGUIUtility.TrTextContent("Main Allocators");
+
+            public static readonly GUIContent kMainAllocatorTitle = EditorGUIUtility.TrTextContent("Main Allocator");
+            public static readonly GUIContent kMainAllocatorBlockSize = EditorGUIUtility.TrTextContent("Main Thread Block Size", "Block size used by main thread allocator");
+            public static readonly GUIContent kThreadAllocatorBlockSize = EditorGUIUtility.TrTextContent("Shared Thread Block Size", "Block size used by shared thread allocator");
+
+            public static readonly GUIContent kMainAllocatorMimallocEnabled = EditorGUIUtility.TrTextContent("Mimalloc enabled", "Use Mimalloc as main allocator");
+
+            public static readonly GUIContent kGfxAllocatorTitle = EditorGUIUtility.TrTextContent("Gfx Allocator");
+            public static readonly GUIContent kMainGfxBlockSize = EditorGUIUtility.TrTextContent("Main Thread Block Size", "Block size used by main thread for gfx allocations");
+            public static readonly GUIContent kThreadGfxBlockSize = EditorGUIUtility.TrTextContent("Shared Thread Block Size", "Block size used by shared threads for gfx allocations");
+
+            public static readonly GUIContent kExtraAllocatorTitle = EditorGUIUtility.TrTextContent("Other Allocators");
+            public static readonly GUIContent kCacheBlockSize = EditorGUIUtility.TrTextContent("File Cache Block Size", "Block size used by file cache allocator. Setting this value to 0 will cause the file cache allocations to be passed to the main allocator");
+            public static readonly GUIContent kTypetreeBlockSize = EditorGUIUtility.TrTextContent("Type Tree Block Size", "Block size used by the tree allocator. Setting this value to 0 will cause the type tree allocations to be passed to the main allocator");
+            public static readonly GUIContent kRemapperInitialCapacity = EditorGUIUtility.TrTextContent("Remapper Initial Capacity", "Initial capacity of the Remapper allocation");
+
+            public static readonly GUIContent kTempAllocatorTitle_Player = EditorGUIUtility.TrTextContent("Fast Per Thread Temporary Allocators", "Block size can grow to twice the initial size");
+            public static readonly GUIContent kTempAllocatorTitle_Editor = EditorGUIUtility.TrTextContent("Fast Per Thread Temporary Allocators", "Block size can grow to 8 times the initial size");
+            public static readonly GUIContent kTempAllocatorSizeMain = EditorGUIUtility.TrTextContent("Main Thread Block Size", "Initial size for main thread temp allocator");
+            public static readonly GUIContent kTempAllocatorSizeJobWorker = EditorGUIUtility.TrTextContent("Job Worker Block Size", "Block size for worker job temp allocators");
+            public static readonly GUIContent kTempAllocatorSizeBackgroundWorker = EditorGUIUtility.TrTextContent("Background Job Worker Block Size", "Block size for worker job temp allocators");
+            public static readonly GUIContent kTempAllocatorSizePreloadManager = EditorGUIUtility.TrTextContent("Preload Block Size", "Block size for worker job temp allocators");
+            public static readonly GUIContent kTempAllocatorSizeAudioWorker = EditorGUIUtility.TrTextContent("Audio Worker Block Size", "Block size for worker job temp allocators");
+            public static readonly GUIContent kTempAllocatorSizeCloudWorker = EditorGUIUtility.TrTextContent("Cloud Worker Block Size", "Block size for worker job temp allocators");
+            public static readonly GUIContent kTempAllocatorSizeGfx = EditorGUIUtility.TrTextContent("Gfx Thread Block Size", "Block size for worker job temp allocators");
+            public static readonly GUIContent kTempAllocatorSizeGIBakingWorker = EditorGUIUtility.TrTextContent("GI Baking Block Size", "Block size for GI baking workers temp allocators");
+            public static readonly GUIContent kTempAllocatorSizeNavMeshWorker = EditorGUIUtility.TrTextContent("NavMesh Worker Block Size", "Block size for worker job temp allocators");
+
+            // TODO: guard input parameters
+            public static readonly GUIContent kJobTempAllocatorTitle = EditorGUIUtility.TrTextContent("Fast Thread Shared Temporary Allocators");
+            public static readonly GUIContent kJobTempAllocatorBlockSize = EditorGUIUtility.TrTextContent("Job Allocator Block Size", "Block size for worker job temp allocators. Can grow to 64 blocks");
+            public static readonly GUIContent kBackgroundJobTempAllocatorBlockSize = EditorGUIUtility.TrTextContent("Background Job Allocator Block Size", "Block size for background worker job temp allocators. Can grow to 64 blocks");
+            public static readonly GUIContent kJobTempAllocatorReducedBlockSize = EditorGUIUtility.TrTextContent("Job Allocator Block Sizes on low memory platform", "Block sizes for job and background if platform has less than 2GB memory");
+
+            public static readonly GUIContent kBucketAllocatorTitle = EditorGUIUtility.TrTextContent("Shared Bucket Allocator");
+            public static readonly GUIContent kBucketAllocatorGranularity = EditorGUIUtility.TrTextContent("Bucket Allocator Granularity", "Bucket allocator bucket granularity");
+            public static readonly GUIContent kBucketAllocatorBucketsCount = EditorGUIUtility.TrTextContent("Bucket Allocator BucketCount", "Number of bucket size increments of bucket granularity");
+            public static readonly GUIContent kBucketAllocatorBlockSize = EditorGUIUtility.TrTextContent("Bucket Allocator Block Size", "Bucket allocator block size");
+            public static readonly GUIContent kBucketAllocatorBlockCount = EditorGUIUtility.TrTextContent("Bucket Allocator Block Count", "Bucket allocator block count");
+
+            public static readonly GUIContent kProfilerAllocatorTitle = EditorGUIUtility.TrTextContent("Profiler Allocators");
+            public static readonly GUIContent kProfilerBlockSize = EditorGUIUtility.TrTextContent("Profiler Block Size", "Block size used by main profiler allocations");
+            public static readonly GUIContent kProfilerEditorBlockSize = EditorGUIUtility.TrTextContent("Editor Profiler Block Size", "Editor only: Block size used by editor specific profiler allocations");
+
+            public static readonly GUIContent kProfilerBucketAllocatorTitle = EditorGUIUtility.TrTextContent("Shared Profiler Bucket Allocator");
+            public static readonly GUIContent kProfilerBucketAllocatorGranularity = EditorGUIUtility.TrTextContent("Bucket Allocator Granularity", "Bucket allocator bucket granularity");
+            public static readonly GUIContent kProfilerBucketAllocatorBucketsCount = EditorGUIUtility.TrTextContent("Bucket Allocator BucketCount", "Number of bucket size increments of bucket granularity");
+            public static readonly GUIContent kProfilerBucketAllocatorBlockSize = EditorGUIUtility.TrTextContent("Bucket Allocator Block Size", "Bucket allocator block size");
+            public static readonly GUIContent kProfilerBucketAllocatorBlockCount = EditorGUIUtility.TrTextContent("Bucket Allocator Block Count", "Bucket allocator block count");
+
+            public static readonly GUIContent kEntitiesAllocatorTitle = EditorGUIUtility.TrTextContent("Entities Allocators", "Memory allocators used by the Unity.Entities package");
+            public static readonly GUIContent kEntitiesArchetypeAllocatorBudget = EditorGUIUtility.TrTextContent("Archetype Allocator Budget", "Memory budget for Entity archetype metadata. Default is 16 MB.");
+            public static readonly GUIContent kEntitiesQueryAllocatorBudget = EditorGUIUtility.TrTextContent("Query Allocator Budget", "Memory budget for EntityQuery data. Default is 16 MB.");
+
+            public static readonly GUIContent kEditorLabel = EditorGUIUtility.TrTextContent("Editor", "Editor settings");
+            public static readonly GUIContent kPlayerLabel = EditorGUIUtility.TrTextContent("Players", "player settings");
+        }
+
+        class Styles
+        {
+            public static readonly GUIStyle lockButton = "IN LockButton";
+            public static readonly GUIStyle titleGroupHeader = new GUIStyle(EditorStyles.toolbar) { margin = new RectOffset() };
+            public static readonly GUIStyle settingsFramebox = new GUIStyle(EditorStyles.frameBox) { padding = new RectOffset(1, 1, 1, 0) };
+
+            public static readonly string warningDialogTitle = L10n.Tr("Edit memory settings", null);
+            public static readonly string warningDialogText = L10n.Tr("Changing default memory setting can have severe negative impact on performance. Are you sure you want to continue?", null);
+            public static readonly string okDialogButton = L10n.Tr("OK", null);
+            public static readonly string cancelDialogButton = L10n.Tr("Cancel", null);
+        }
+
+        const string kWarningDialogSessionKey = "MemorySettingsWarning";
+        const string kMainAllocatorMimallocEnabledPropertyName = "m_MainAllocatorMimallocEnabled";
+        const string kEntitiesPackageName = "com.unity.entities";
+
+        SerializedProperty m_PlatformMemorySettingsProperty;
+        SerializedProperty m_EditorMemorySettingsProperty;
+        SerializedProperty m_DefaultMemorySettingsProperty;
+
+        [NoAutoStaticsCleanup] // lazy Styles holder (GUIStyle/GUIContent); no user refs, safe to persist across code reload
+        static Styles s_Styles;
+        [AutoStaticsCleanupOnCodeReload]
+        static SettingsProvider s_SettingsProvider;
+
+        int m_SelectedPlatform = 0;
+        BuildPlatform[] m_ValidPlatforms;
+        const int kMaxGroupCount = 10;
+        bool[] m_ShowSettingsUI = new bool[kMaxGroupCount];
+        AnimatedValues.AnimBool[] m_SettingsAnimator = new AnimatedValues.AnimBool[kMaxGroupCount];
+
+        Dictionary<BuildTarget, SerializedProperty> m_MemorySettingsDictionary;
+
+        public void OnEnable()
+        {
+            m_ValidPlatforms = BuildPlatforms.instance.GetValidPlatforms(true).ToArray();
+
+            m_EditorMemorySettingsProperty = serializedObject.FindProperty("m_EditorMemorySettings");
+            m_PlatformMemorySettingsProperty = serializedObject.FindProperty("m_PlatformMemorySettings");
+            m_DefaultMemorySettingsProperty = serializedObject.FindProperty("m_DefaultMemorySettings");
+
+            m_MemorySettingsDictionary = new Dictionary<BuildTarget, SerializedProperty>();
+
+            foreach (SerializedProperty prop in m_PlatformMemorySettingsProperty)
+            {
+                m_MemorySettingsDictionary.Add((BuildTarget)prop.FindPropertyRelative("first").intValue, prop.FindPropertyRelative("second"));
+            }
+
+            for (var i = 0; i < m_SettingsAnimator.Length; i++)
+                m_SettingsAnimator[i] = new AnimatedValues.AnimBool(m_ShowSettingsUI[i], RepaintSettingsEditorWindow);
+        }
+
+        bool m_EditorSelected = true;
+        [NoAutoStaticsCleanup] // lazy GUIStyle; no user refs, safe to persist across code reload
+        static GUIStyle s_TabOnlyOne;
+        [NoAutoStaticsCleanup] // lazy GUIStyle; no user refs, safe to persist across code reload
+        static GUIStyle s_TabFirst;
+        [NoAutoStaticsCleanup] // lazy GUIStyle; no user refs, safe to persist across code reload
+        static GUIStyle s_TabMiddle;
+        [NoAutoStaticsCleanup] // lazy GUIStyle; no user refs, safe to persist across code reload
+        static GUIStyle s_TabLast;
+
+        static Rect GetTabRect(Rect rect, int tabIndex, int tabCount, out GUIStyle tabStyle)
+        {
+            if (s_TabOnlyOne == null)
+            {
+                s_TabOnlyOne = "Tab onlyOne";
+                s_TabFirst = "Tab first";
+                s_TabMiddle = "Tab middle";
+                s_TabLast = "Tab last";
+            }
+
+            tabStyle = s_TabMiddle;
+
+            if (tabCount == 1)
+            {
+                tabStyle = s_TabOnlyOne;
+            }
+            else if (tabIndex == 0)
+            {
+                tabStyle = s_TabFirst;
+            }
+            else if (tabIndex == (tabCount - 1))
+            {
+                tabStyle = s_TabLast;
+            }
+
+            float tabWidth = rect.width / tabCount;
+            int left = Mathf.RoundToInt(tabIndex * tabWidth);
+            int right = Mathf.RoundToInt((tabIndex + 1) * tabWidth);
+            return new Rect(rect.x + left, rect.y, right - left, EditorGUI.kTabButtonHeight);
+        }
+
+        void RepaintSettingsEditorWindow()
+        {
+            // Invoking a Repaint on an Editor instantiated via AssetSettingsProvider does not currently work due to a bug. So instead we store a reference to the settings provider and repaint it directly.
+            s_SettingsProvider?.Repaint();
+        }
+
+        private bool BeginGroup(int index, GUIContent title)
+        {
+            Debug.Assert(kMaxGroupCount > index, "Max group count in MemorySettings is too low");
+
+            var indentLevel = EditorGUI.indentLevel;
+            EditorGUILayout.BeginVertical(GUILayout.Height(20));
+
+            EditorGUILayout.BeginHorizontal((indentLevel == 0) ? Styles.titleGroupHeader : GUIStyle.none);
+            Rect r = GUILayoutUtility.GetRect(title, EditorStyles.inspectorTitlebarText);
+            r = EditorGUI.IndentedRect(r);
+            EditorGUI.indentLevel = 0;
+            m_ShowSettingsUI[index] = EditorGUI.FoldoutTitlebar(r, title, m_ShowSettingsUI[index], true, EditorStyles.inspectorTitlebarFlat, EditorStyles.inspectorTitlebarText);
+            EditorGUI.indentLevel = indentLevel;
+            EditorGUILayout.EndHorizontal();
+
+            m_SettingsAnimator[index].target = m_ShowSettingsUI[index];
+
+            var visible = EditorGUILayout.BeginFadeGroup(m_SettingsAnimator[index].faded);
+            EditorGUI.indentLevel++;
+            EditorGUILayout.Space();
+            return visible;
+        }
+
+        private void EndGroup()
+        {
+            EditorGUI.indentLevel--;
+            EditorGUILayout.Space();
+            EditorGUILayout.EndFadeGroup();
+            EditorGUILayout.EndVertical();
+        }
+
+        bool GetEffectiveMimallocEnabled(SerializedProperty settings)
+        {
+            var mimallocProperty = settings.FindPropertyRelative(kMainAllocatorMimallocEnabledPropertyName);
+            var defaultValueProperty = m_DefaultMemorySettingsProperty.FindPropertyRelative(kMainAllocatorMimallocEnabledPropertyName);
+            var resolvedValue = mimallocProperty.intValue < 0 ? defaultValueProperty.intValue : mimallocProperty.intValue;
+
+            return resolvedValue != 0;
+        }
+
+        static bool UsesDefaultMimallocSetting(SerializedProperty settings)
+        {
+            return settings.FindPropertyRelative(kMainAllocatorMimallocEnabledPropertyName).intValue < 0;
+        }
+
+        void ApplyChangesAndSendMimallocAnalytics(SerializedProperty currentSettings, bool previousMimallocEnabled, string buildTarget)
+        {
+            serializedObject.ApplyModifiedProperties();
+
+            var mimallocEnabled = GetEffectiveMimallocEnabled(currentSettings);
+            if (previousMimallocEnabled == mimallocEnabled)
+                return;
+
+            MemorySettingsAnalytics.SendMimallocSettingChanged(mimallocEnabled, UsesDefaultMimallocSetting(currentSettings), m_EditorSelected ? "editor" : "player", buildTarget);
+        }
+
+        enum SizeEnum
+        {
+            B,
+            KB,
+            MB,
+        }
+
+        private void OptionalBooleanField(SerializedProperty settings, string variableName, GUIContent label)
+        {
+            const int fieldSpacing = 2;
+            s_Styles ??= new Styles();
+
+            var valueProperty = settings.FindPropertyRelative(variableName);
+            var defaultValueProperty = m_DefaultMemorySettingsProperty.FindPropertyRelative(variableName);
+            var overrideContent = new GUIContent(string.Empty, "Override Default");
+
+            var lockToggleSize = EditorStyles.toggle.CalcSize(overrideContent);
+            var minWidth = EditorGUI.indent + EditorGUIUtility.labelWidth + EditorGUI.kSpacing + lockToggleSize.x + EditorGUI.kSpacing + EditorGUIUtility.fieldWidth;
+
+            var rowRect = GUILayoutUtility.GetRect(minWidth, EditorGUIUtility.singleLineHeight + fieldSpacing);
+            rowRect.height -= fieldSpacing;
+            rowRect = EditorGUI.IndentedRect(rowRect);
+
+            var indentLevel = EditorGUI.indentLevel;
+            EditorGUI.indentLevel = 0;
+
+            var labelRect = rowRect;
+            labelRect.width = EditorGUIUtility.labelWidth;
+            GUI.Label(labelRect, label);
+
+            var overrideRect = rowRect;
+            overrideRect.xMin = labelRect.xMax + EditorGUI.kSpacing;
+            overrideRect.size = lockToggleSize;
+
+            var usesDefault = valueProperty.intValue < 0;
+            var nextUsesDefault = GUI.Toggle(overrideRect, usesDefault, overrideContent, Styles.lockButton);
+
+            var valueRect = rowRect;
+            valueRect.xMin = overrideRect.xMax + EditorGUI.kSpacing;
+
+            var defaultInt = defaultValueProperty.intValue != 0 ? 1 : 0;
+
+            if (nextUsesDefault != usesDefault)
+            {
+                if (!nextUsesDefault)
+                {
+                    var confirmed = EditorUtility.DisplayDialog(
+                        Styles.warningDialogTitle,
+                        Styles.warningDialogText,
+                        Styles.okDialogButton,
+                        Styles.cancelDialogButton,
+                        DialogOptOutDecisionType.ForThisSession,
+                        kWarningDialogSessionKey);
+
+                    if (!confirmed)
+                        nextUsesDefault = true;
+                }
+
+                valueProperty.intValue = nextUsesDefault ? -1 : defaultInt;
+            }
+
+            if (nextUsesDefault)
+            {
+                using (new EditorGUI.DisabledScope(true))
+                    EditorGUI.Toggle(valueRect, defaultInt != 0);
+            }
+            else
+            {
+                var toggled = EditorGUI.Toggle(valueRect, valueProperty.intValue != 0);
+                valueProperty.intValue = toggled ? 1 : 0;
+            }
+
+            EditorGUI.indentLevel = indentLevel;
+        }
+
+        private void OptionalVariableField(SerializedProperty settings, string variablename, GUIContent label, bool useBytes = true, int minValue = 0, int maxValue = int.MaxValue)
+        {
+            const int k_FieldSpacing = 2;
+            if (s_Styles == null)
+                s_Styles = new Styles();
+
+            var prop = settings.FindPropertyRelative(variablename);
+            var defaultValueProp = m_DefaultMemorySettingsProperty.FindPropertyRelative(variablename);
+            var overrideText = new GUIContent(string.Empty, "Override Default");
+
+            var toggleSize = EditorStyles.toggle.CalcSize(overrideText);
+            var enumValue = SizeEnum.MB;
+            var sizeEnumWidth = EditorStyles.popup.CalcSize(GUIContent.Temp(enumValue.ToString())).x;
+            var minWidth = EditorGUI.indent + EditorGUIUtility.labelWidth + EditorGUI.kSpacing + toggleSize.x + EditorGUI.kSpacing + EditorGUIUtility.fieldWidth + EditorGUI.kSpacing + sizeEnumWidth;
+            var rect = GUILayoutUtility.GetRect(minWidth, EditorGUIUtility.singleLineHeight + k_FieldSpacing);
+            rect.height -= k_FieldSpacing;
+            rect = EditorGUI.IndentedRect(rect);
+            var indent = EditorGUI.indentLevel;
+            EditorGUI.indentLevel = 0;
+
+            var labelRect = rect;
+            labelRect.width = EditorGUIUtility.labelWidth;
+            GUI.Label(labelRect, label);
+
+            var toggleRect = rect;
+            toggleRect.xMin = labelRect.xMax + EditorGUI.kSpacing;
+            toggleRect.size = toggleSize;
+            var useDefault = prop.intValue < 0;
+            var newuseDefault = GUI.Toggle(toggleRect, useDefault, overrideText, Styles.lockButton);
+
+            var fieldRect = rect;
+            fieldRect.xMin = toggleRect.xMax + EditorGUI.kSpacing;
+            fieldRect.xMax = Mathf.Max(fieldRect.xMax - sizeEnumWidth - EditorGUI.kSpacing, fieldRect.xMin + EditorGUIUtility.fieldWidth);
+            var defaultValue = defaultValueProp.intValue;
+
+            var sizeEnumRect = rect;
+            sizeEnumRect.xMin = fieldRect.xMax + EditorGUI.kSpacing;
+            sizeEnumRect.width = sizeEnumWidth;
+
+            if (newuseDefault != useDefault)
+            {
+                if (!newuseDefault)
+                {
+                    var result = EditorUtility.DisplayDialog(Styles.warningDialogTitle, Styles.warningDialogText, Styles.okDialogButton, Styles.cancelDialogButton, DialogOptOutDecisionType.ForThisSession, kWarningDialogSessionKey);
+                    if (!result)
+                        newuseDefault = true;
+                }
+
+                prop.intValue = newuseDefault ? -1 : defaultValue;
+            }
+
+            if (newuseDefault)
+            {
+                using (new EditorGUI.DisabledScope(true))
+                {
+                    int displayValue = defaultValue;
+                    if (useBytes)
+                    {
+                        enumValue = SizeEnum.B;
+                        if ((defaultValue % (1024 * 1024)) == 0)
+                        {
+                            enumValue = SizeEnum.MB;
+                            displayValue /= 1024 * 1024;
+                        }
+                        else if ((defaultValue % 1024) == 0)
+                        {
+                            enumValue = SizeEnum.KB;
+                            displayValue /= 1024;
+                        }
+                    }
+                    EditorGUI.IntField(fieldRect, displayValue);
+                    if (useBytes)
+                        EditorGUI.EnumPopup(sizeEnumRect, enumValue);
+                }
+            }
+            else
+            {
+                int factor = 1;
+                enumValue = SizeEnum.B;
+                int oldIntValue = prop.intValue;
+                if (useBytes)
+                {
+                    if ((oldIntValue % (1024 * 1024)) == 0)
+                    {
+                        factor = 1024 * 1024;
+                        enumValue = SizeEnum.MB;
+                    }
+                    else if ((oldIntValue % 1024) == 0)
+                    {
+                        factor = 1024;
+                        enumValue = SizeEnum.KB;
+                    }
+                }
+                var newIntValue = factor * EditorGUI.DelayedIntField(fieldRect, oldIntValue / factor);
+                if (useBytes)
+                {
+                    SizeEnum newEnumValue = (SizeEnum)EditorGUI.EnumPopup(sizeEnumRect, enumValue);
+
+                    if (newEnumValue != enumValue)
+                    {
+                        if (newEnumValue == SizeEnum.MB)
+                        {
+                            if (enumValue == SizeEnum.KB)
+                                newIntValue *= 1024;
+                            else
+                                newIntValue *= 1024 * 1024;
+                        }
+                        if (newEnumValue == SizeEnum.KB)
+                        {
+                            if (enumValue == SizeEnum.MB)
+                                newIntValue /= 1024;
+                            else
+                                newIntValue *= 1024;
+                        }
+                        if (newEnumValue == SizeEnum.B)
+                        {
+                            if (enumValue == SizeEnum.MB)
+                                newIntValue /= 1024 * 1024;
+                            else
+                                newIntValue /= 1024;
+                        }
+                    }
+                }
+                prop.intValue = Mathf.Clamp(newIntValue, minValue, maxValue);
+            }
+
+            EditorGUI.indentLevel = indent;
+        }
+
+        public override void OnInspectorGUI()
+        {
+            serializedObject.Update();
+
+            EditorGUI.BeginChangeCheck();
+            EditorGUILayout.HelpBox(ContentNonSearchable.kGeneralSettingsWarning.text, MessageType.Warning, true);
+
+            Rect r = EditorGUILayout.BeginVertical(Styles.settingsFramebox);
+            GUIStyle buttonStyle = null;
+
+            Rect buttonRect = GetTabRect(r, 0, 2, out buttonStyle);
+            if (GUI.Toggle(buttonRect, m_EditorSelected, Content.kEditorLabel, buttonStyle))
+                m_EditorSelected = true;
+
+            buttonRect = GetTabRect(r, 1, 2, out buttonStyle);
+            if (GUI.Toggle(buttonRect, !m_EditorSelected, Content.kPlayerLabel, buttonStyle))
+                m_EditorSelected = false;
+
+            GUILayoutUtility.GetRect(10, EditorGUI.kTabButtonHeight);
+
+            EditorGUI.EndChangeCheck();
+
+            SerializedProperty currentSettings;
+            if (m_EditorSelected)
+            {
+                EditorGUI.BeginChangeCheck();
+                GUILayout.Label("Settings for Editor");
+                EditorGUILayout.HelpBox(ContentNonSearchable.kEditorSettingsWarning.text, MessageType.Warning, true);
+                EditorGUILayout.Space();
+                currentSettings = m_EditorMemorySettingsProperty;
+                MemorySettingsUtils.InitializeDefaultsForPlatform(-1);
+            }
+            else
+            {
+                GUILayout.Label("Settings for Players");
+                m_SelectedPlatform = EditorGUILayout.BeginPlatformGrouping(m_ValidPlatforms, null, Styles.settingsFramebox);
+                GUILayout.Label(string.Format(L10n.Tr("Settings for {0}", null), m_ValidPlatforms[m_SelectedPlatform].title.text));
+                if (!m_MemorySettingsDictionary.TryGetValue(m_ValidPlatforms[m_SelectedPlatform].defaultTarget, out currentSettings))
+                {
+                    MemorySettingsUtils.SetPlatformDefaultValues((int)m_ValidPlatforms[m_SelectedPlatform].defaultTarget);
+                    serializedObject.Update();
+                    OnEnable();
+                    m_MemorySettingsDictionary.TryGetValue(m_ValidPlatforms[m_SelectedPlatform].defaultTarget, out currentSettings);
+                }
+                MemorySettingsUtils.InitializeDefaultsForPlatform((int)m_ValidPlatforms[m_SelectedPlatform].defaultTarget);
+            }
+
+            var previousMimallocEnabled = GetEffectiveMimallocEnabled(currentSettings);
+            var buildTarget = m_EditorSelected ? "Editor" : m_ValidPlatforms[m_SelectedPlatform].defaultTarget.ToString();
+            // iOS/tvOS/visionOS never use mimalloc (the engine always selects the system allocator there),
+            // so the setting is shown disabled/off and emits no analytics.
+            bool isAppleNonDesktop = !m_EditorSelected &&
+                (m_ValidPlatforms[m_SelectedPlatform].defaultTarget == BuildTarget.iOS
+                || m_ValidPlatforms[m_SelectedPlatform].defaultTarget == BuildTarget.tvOS
+                || m_ValidPlatforms[m_SelectedPlatform].defaultTarget == BuildTarget.VisionOS);
+
+            if (BeginGroup(0, Content.kMainAllocatorsTitle))
+            {
+                if (BeginGroup(1, Content.kMainAllocatorTitle))
+                {
+                    var mimallocSettings = currentSettings.FindPropertyRelative("m_MainAllocatorMimallocEnabled");
+                    bool isMimallocEnabled = mimallocSettings != null && mimallocSettings.intValue == 1;
+
+                    using (new EditorGUI.DisabledScope(isMimallocEnabled))
+                    {
+                        OptionalVariableField(currentSettings, "m_MainAllocatorBlockSize", Content.kMainAllocatorBlockSize);
+                        OptionalVariableField(currentSettings, "m_ThreadAllocatorBlockSize", Content.kThreadAllocatorBlockSize);
+                    }
+
+                    if (isAppleNonDesktop)
+                    {
+                        // Not supported on iOS/tvOS/visionOS: show disabled + off, and clear any stored override.
+                        var mimallocProp = currentSettings.FindPropertyRelative(kMainAllocatorMimallocEnabledPropertyName);
+                        if (mimallocProp.intValue != -1)
+                            mimallocProp.intValue = -1;
+                        using (new EditorGUI.DisabledScope(true))
+                            EditorGUILayout.Toggle(Content.kMainAllocatorMimallocEnabled, false);
+                        EditorGUILayout.HelpBox("Mimalloc is not supported on iOS, tvOS and visionOS. These platforms always use the system allocator.", MessageType.Info);
+                    }
+                    else
+                    {
+                        OptionalBooleanField(currentSettings, kMainAllocatorMimallocEnabledPropertyName, Content.kMainAllocatorMimallocEnabled);
+                    }
+                }
+                EndGroup();
+                if (BeginGroup(2, Content.kGfxAllocatorTitle))
+                {
+                    OptionalVariableField(currentSettings, "m_MainGfxBlockSize", Content.kMainGfxBlockSize);
+                    OptionalVariableField(currentSettings, "m_ThreadGfxBlockSize", Content.kThreadGfxBlockSize);
+                }
+                EndGroup();
+                if (BeginGroup(3, Content.kExtraAllocatorTitle))
+                {
+                    OptionalVariableField(currentSettings, "m_CacheBlockSize", Content.kCacheBlockSize);
+                    OptionalVariableField(currentSettings, "m_TypetreeBlockSize", Content.kTypetreeBlockSize);
+                    OptionalVariableField(currentSettings, "m_RemapperInitialCapacity", Content.kRemapperInitialCapacity);
+                }
+                EndGroup();
+                if (BeginGroup(4, Content.kBucketAllocatorTitle))
+                {
+                    OptionalVariableField(currentSettings, "m_BucketAllocatorGranularity", Content.kBucketAllocatorGranularity);
+                    OptionalVariableField(currentSettings, "m_BucketAllocatorBucketsCount", Content.kBucketAllocatorBucketsCount, false);
+                    OptionalVariableField(currentSettings, "m_BucketAllocatorBlockSize", Content.kBucketAllocatorBlockSize);
+                    OptionalVariableField(currentSettings, "m_BucketAllocatorBlockCount", Content.kBucketAllocatorBlockCount, false);
+                }
+                EndGroup();
+            }
+            EndGroup();
+
+            if (BeginGroup(5, m_EditorSelected ? Content.kTempAllocatorTitle_Editor : Content.kTempAllocatorTitle_Player))
+            {
+                OptionalVariableField(currentSettings, "m_TempAllocatorSizeMain", Content.kTempAllocatorSizeMain);
+                OptionalVariableField(currentSettings, "m_TempAllocatorSizeJobWorker", Content.kTempAllocatorSizeJobWorker);
+                OptionalVariableField(currentSettings, "m_TempAllocatorSizeBackgroundWorker", Content.kTempAllocatorSizeBackgroundWorker);
+                OptionalVariableField(currentSettings, "m_TempAllocatorSizePreloadManager", Content.kTempAllocatorSizePreloadManager);
+                OptionalVariableField(currentSettings, "m_TempAllocatorSizeAudioWorker", Content.kTempAllocatorSizeAudioWorker);
+                OptionalVariableField(currentSettings, "m_TempAllocatorSizeCloudWorker", Content.kTempAllocatorSizeCloudWorker);
+                OptionalVariableField(currentSettings, "m_TempAllocatorSizeGfx", Content.kTempAllocatorSizeGfx);
+                OptionalVariableField(currentSettings, "m_TempAllocatorSizeGIBakingWorker", Content.kTempAllocatorSizeGIBakingWorker);
+                OptionalVariableField(currentSettings, "m_TempAllocatorSizeNavMeshWorker", Content.kTempAllocatorSizeNavMeshWorker);
+            }
+            EndGroup();
+            if (BeginGroup(6, Content.kJobTempAllocatorTitle))
+            {
+                OptionalVariableField(currentSettings, "m_JobTempAllocatorBlockSize", Content.kJobTempAllocatorBlockSize);
+                OptionalVariableField(currentSettings, "m_BackgroundJobTempAllocatorBlockSize", Content.kBackgroundJobTempAllocatorBlockSize);
+                OptionalVariableField(currentSettings, "m_JobTempAllocatorReducedBlockSize", Content.kJobTempAllocatorReducedBlockSize);
+            }
+            EndGroup();
+
+            if (BeginGroup(7, Content.kProfilerAllocatorTitle))
+            {
+                OptionalVariableField(currentSettings, "m_ProfilerBlockSize", Content.kProfilerBlockSize);
+                if (m_EditorSelected)
+                    OptionalVariableField(currentSettings, "m_ProfilerEditorBlockSize", Content.kProfilerEditorBlockSize);
+
+                if (BeginGroup(8, Content.kProfilerBucketAllocatorTitle))
+                {
+                    OptionalVariableField(currentSettings, "m_ProfilerBucketAllocatorGranularity", Content.kProfilerBucketAllocatorGranularity);
+                    OptionalVariableField(currentSettings, "m_ProfilerBucketAllocatorBucketsCount", Content.kProfilerBucketAllocatorBucketsCount, false);
+                    OptionalVariableField(currentSettings, "m_ProfilerBucketAllocatorBlockSize", Content.kProfilerBucketAllocatorBlockSize);
+                    OptionalVariableField(currentSettings, "m_ProfilerBucketAllocatorBlockCount", Content.kProfilerBucketAllocatorBlockCount, false);
+                }
+                EndGroup();
+            }
+            EndGroup();
+
+            if (PackageManager.PackageInfo.IsPackageRegistered(kEntitiesPackageName))
+            {
+                if (BeginGroup(9, Content.kEntitiesAllocatorTitle))
+                {
+                    const int kMinBudget = 1024 * 1024; // 1 MB minimum
+                    OptionalVariableField(currentSettings, "m_EntitiesArchetypeAllocatorBudget", Content.kEntitiesArchetypeAllocatorBudget, true, kMinBudget);
+                    OptionalVariableField(currentSettings, "m_EntitiesQueryAllocatorBudget", Content.kEntitiesQueryAllocatorBudget, true, kMinBudget);
+                }
+                EndGroup();
+            }
+
+            if (m_EditorSelected)
+            {
+                if (EditorGUI.EndChangeCheck())
+                {
+                    ApplyChangesAndSendMimallocAnalytics(currentSettings, previousMimallocEnabled, buildTarget);
+                    MemorySettingsUtils.WriteEditorMemorySettings();
+                }
+            }
+            else
+            {
+                EditorGUILayout.EndPlatformGrouping();
+                if (isAppleNonDesktop)
+                    serializedObject.ApplyModifiedProperties(); // persist the cleared override, but emit no analytics (mimalloc isn't a user choice here)
+                else
+                    ApplyChangesAndSendMimallocAnalytics(currentSettings, previousMimallocEnabled, buildTarget);
+            }
+
+            EditorGUILayout.EndVertical();
+        }
+
+        [SettingsProvider]
+        internal static SettingsProvider CreateProjectSettingsProvider()
+        {
+            var provider = AssetSettingsProvider.CreateProviderFromAssetPath(
+                "Project/Memory Settings", "ProjectSettings/MemorySettings.asset",
+                SettingsProvider.GetSearchKeywordsFromGUIContentProperties<Content>());
+            s_SettingsProvider = provider;
+            return provider;
+        }
+    }
+
+    internal interface IMemorySettingsAnalyticsService
+    {
+        AnalyticsResult SendAnalytic(IAnalytic analytic);
+    }
+
+    internal class MemorySettingsEditorAnalyticsService : IMemorySettingsAnalyticsService
+    {
+        AnalyticsResult IMemorySettingsAnalyticsService.SendAnalytic(IAnalytic analytic)
+        {
+            return EditorAnalytics.SendAnalytic(analytic);
+        }
+    }
+
+    internal static class MemorySettingsAnalytics
+    {
+        const string k_BuildTargetEditor = "Editor";
+        const string k_EventName = "mimallocSettingChanged";
+        const int k_MaxEventsPerHour = 100;
+        const string k_VendorKey = "unity.memory";
+        [NoAutoStaticsCleanup] // test-only hook, null in normal operation; safe to persist across code reload
+        static Action<bool, bool, string, string> s_TestEventCallback;
+
+        [Serializable]
+        internal struct MimallocSettingChangedData : IAnalytic.IData
+        {
+            public bool enabled;
+            public bool uses_default;
+            public string scope;
+            public string build_target;
+        }
+
+        [AnalyticInfo(eventName: k_EventName, vendorKey: k_VendorKey, version: 1, maxEventsPerHour: k_MaxEventsPerHour)]
+        internal class MimallocSettingChangedAnalytic : IAnalytic
+        {
+            readonly MimallocSettingChangedData m_Data;
+
+            public MimallocSettingChangedAnalytic(MimallocSettingChangedData data)
+            {
+                m_Data = data;
+            }
+
+            public bool TryGatherData(out IAnalytic.IData data, out Exception error)
+            {
+                data = m_Data;
+                error = null;
+                return true;
+            }
+        }
+
+        [NoAutoStaticsCleanup] // one-time-created editor analytics service (infrastructure singleton); no user refs, safe to persist
+        static IMemorySettingsAnalyticsService s_AnalyticsService;
+
+        static MemorySettingsAnalytics()
+        {
+            if (!InternalEditorUtility.inBatchMode && EditorAnalytics.enabled)
+                SetAnalyticsService(new MemorySettingsEditorAnalyticsService());
+        }
+
+        public static IMemorySettingsAnalyticsService SetAnalyticsService(IMemorySettingsAnalyticsService service)
+        {
+            var oldService = s_AnalyticsService;
+            s_AnalyticsService = service;
+            return oldService;
+        }
+
+        internal static Action<bool, bool, string, string> SetTestEventCallback(Action<bool, bool, string, string> callback)
+        {
+            var oldCallback = s_TestEventCallback;
+            s_TestEventCallback = callback;
+            return oldCallback;
+        }
+
+        public static void SendMimallocSettingChanged(bool enabled, bool usesDefault, string scope, string buildTarget)
+        {
+            var resolvedBuildTarget = string.IsNullOrEmpty(buildTarget) ? k_BuildTargetEditor : buildTarget;
+
+            s_TestEventCallback?.Invoke(enabled, usesDefault, scope, resolvedBuildTarget);
+
+            if (s_AnalyticsService == null)
+                return;
+
+            s_AnalyticsService.SendAnalytic(new MimallocSettingChangedAnalytic(new MimallocSettingChangedData
+            {
+                enabled = enabled,
+                uses_default = usesDefault,
+                scope = scope,
+                build_target = resolvedBuildTarget,
+            }));
+        }
+    }
+}

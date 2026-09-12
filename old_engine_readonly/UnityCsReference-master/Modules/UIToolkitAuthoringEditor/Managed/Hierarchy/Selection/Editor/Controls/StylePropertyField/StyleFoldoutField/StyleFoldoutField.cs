@@ -1,0 +1,65 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+#pragma warning disable UAL0015,UAL0018,UAL0019,UAL0020,UAL0021 // AutoStaticsCleanup usage analysis: UIToolkitAuthoringFramework not yet converted
+using UnityEditor;
+using UnityEngine.UIElements;
+
+namespace Unity.UIToolkit.Editor
+{
+    internal abstract class StyleFoldoutField<THeaderInputElement> : OverrideFoldout
+        where THeaderInputElement : VisualElement
+    {
+        static readonly string k_UssPath = "UIToolkitAuthoring/Inspector/Controls/StyleFoldoutField.uss";
+
+        protected static readonly string FoldoutFieldPropertyName = "unity-foldout-field";
+        protected static readonly string DraggerFieldUssClassName = FoldoutFieldPropertyName + "__dragger-field";
+        protected static readonly char FieldStringSeparator = ' '; // Formatting the header field with multiple values
+        protected static readonly string UssVariablePrefix = "--";
+
+        THeaderInputElement m_HeaderInputField;
+
+        public THeaderInputElement headerInputField => m_HeaderInputField;
+
+        public StyleFoldoutField() : this(null) { }
+
+        public StyleFoldoutField(string text)
+        {
+            styleSheets.Add(EditorGUIUtility.Load(k_UssPath) as StyleSheet);
+            AddToClassList(FoldoutFieldPropertyName);
+
+            m_HeaderInputField = CreateHeaderInputElement();
+            header.Add(m_HeaderInputField);
+
+            toggle.toggleOnLabelClick = true;
+            toggle.visualInput.Add(m_HeaderInputField);
+            toggle.AddToClassList(TextField.alignedFieldUssClassName);
+
+            if (!string.IsNullOrEmpty(text))
+            {
+                m_Toggle.label = text;
+                var checkmarkIndex = m_Toggle.visualInput.IndexOf(m_Toggle.m_CheckMark);
+                m_Toggle.visualInput.Insert(checkmarkIndex + 1, m_Toggle.labelElement);
+            }
+        }
+
+        protected abstract THeaderInputElement CreateHeaderInputElement();
+
+        /// <summary>
+        /// Override this method in inheritors to update the header field with the values from the child fields.
+        /// </summary>
+        public virtual void UpdateFromChildFields()
+        {
+        }
+
+        /// <summary>
+        /// Override this method to handle changes in the values of the child fields.
+        /// </summary>
+        protected virtual void Refresh()
+        {
+            UpdateFromChildFields();
+        }
+    }
+}
+#pragma warning restore UAL0015,UAL0018,UAL0019,UAL0020,UAL0021

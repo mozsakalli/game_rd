@@ -1,0 +1,1242 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+using Unity.Scripting.LifecycleManagement;
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using UnityEngine.Bindings;
+using UnityEngine.Serialization;
+using UnityEngine.TextCore.Text;
+using UnityEngine.UIElements.UIR;
+
+#pragma warning disable CS0618 // TextShaderUtilities, TextCoreShaderGUI, TextCoreShaderGUISDF, TextCoreShaderGUIBitmap are obsolete; handled natively by ATG
+
+namespace UnityEngine.UIElements
+{
+    /// <summary>
+    /// Options that specify how elements in the panel scale when the screen size changes. See <see cref="PanelSettings.scaleMode"/>.
+    /// </summary>
+    public enum PanelScaleMode
+    {
+        /// <summary>
+        /// Elements stay the same size, in pixels, regardless of screen size.
+        /// </summary>
+        ConstantPixelSize,
+        /// <summary>
+        /// Elements stay the same physical size (displayed size) regardless of screen size and resolution.
+        /// </summary>
+        ConstantPhysicalSize,
+        /// <summary>
+        /// Elements get bigger when the screen size increases, and smaller when it decreases.
+        /// </summary>
+        ScaleWithScreenSize
+    }
+
+    /// <summary>
+    /// Options that specify how to scale the panel area when the aspect ratio of the current screen resolution
+    /// does not match the reference resolution. See <see cref="PanelSettings.screenMatchMode"/>.
+    /// </summary>
+    public enum PanelScreenMatchMode
+    {
+        /// <summary>
+        /// Scales the panel area using width, height, or a mix of the two as a reference.
+        /// </summary>
+        MatchWidthOrHeight,
+        /// <summary>
+        /// Crops the panel area horizontally or vertically so the panel size never exceeds
+        /// the reference resolution.
+        /// </summary>
+        Shrink,
+        /// <summary>
+        /// Expand the panel area horizontally or vertically so the panel size is never
+        /// smaller than the reference resolution.
+        /// </summary>
+        Expand
+    }
+
+    /// <summary>
+    /// Determines how a panel is rendered.
+    /// </summary>
+    public enum PanelRenderMode
+    {
+        /// <summary>
+        /// Renders the panel as a 2D overlay on top of the screen, independent of any camera or world geometry.
+        /// </summary>
+        /// <remarks>
+        /// The panel is drawn last in the rendering order and always appears on top of the scene.
+        /// This mode is suitable for HUDs and other UI that should always be visible to the player.
+        /// </remarks>
+        ScreenSpaceOverlay,
+        /// <summary>
+        /// Renders the panel as an object within the 3D world.
+        /// </summary>
+        /// <remarks>
+        /// The panel is rendered by one or more cameras at a specified world-space position and can be
+        /// occluded by other objects in the scene. This mode is suitable for in-world UI such as
+        /// interactive screens, billboards, or diegetic interfaces. Depending on camera order, it can
+        /// also be used as an overlay if, for example, you only want to add the ability to have a 3D
+        /// rotation to the UI.
+        /// </remarks>
+        WorldSpace
+    }
+
+    /// <summary>
+    /// Options that specify how to update colliders for UI Documents in world space.
+    /// </summary>
+    internal enum ColliderUpdateMode
+    {
+        /// <summary>
+        /// Automatically adds a BoxCollider that matches the bounding box of the document contents.
+        /// </summary>
+        /// <remarks>
+        /// If the bounding box of the document changes, the collider will be automatically udpated
+        /// to match the new bounding box.
+        /// </remarks>
+        [InspectorName("Match 3-D bounding box")]
+        MatchBoundingBox = 0,
+        /// <summary>
+        /// Leave UI Document as is. Do not modify existing colliders or add new ones automatically.
+        /// </summary>
+        /// <remarks>
+        /// Elements in this document will not be interactable unless a collider is added manually to
+        /// the document.
+        /// </remarks>
+        /// <remarks>
+        /// This is the option that has the least impact on performance.
+        /// </remarks>
+        [InspectorName("Keep existing colliders (if any)")]
+        Keep = 1,
+        /// <summary>
+        /// Automatically adds a BoxCollider that matches the world bound rectangle of the document.
+        /// </summary>
+        /// <remarks>
+        /// The created collider is always a flat, 2-D collider aligned with the document's surface.
+        /// </remarks>
+        /// <remarks>
+        /// If the document contains elements that overflow outside of its (0, 0, width, height) rect,
+        /// these elements may not be interactable.
+        /// </remarks>
+        /// <remarks>
+        /// This option is better for performance than <see cref="ColliderUpdateMode.MatchBoundingBox"/>.
+        /// </remarks>
+        [InspectorName("Match 2-D document rect")]
+        MatchDocumentRect = 2,
+    }
+
+    [VisibleToOtherModules("UnityEditor.UIToolkitAuthoringModule")]
+    internal interface IPanelSettings
+    {
+        BindingLogLevel bindingLogLevel { get; }
+        Color colorClearValue { get; }
+        bool clearColor { get; }
+        bool clearDepthStencil { get; }
+        DynamicAtlasSettings dynamicAtlasSettings { get; }
+        float fallbackDpi { get; }
+        bool forceGammaRendering { get; }
+        float match { get; }
+        float pixelsPerUnit { get; }
+        float referenceDpi { get; }
+        Vector2Int referenceResolution { get; }
+        float referenceSpritePixelsPerUnit { get; }
+        PanelRenderMode renderMode { get; }
+        float resolvedScale { get; }
+        float scale { get; }
+        PanelScaleMode scaleMode { get; }
+        float screenDpi { get; }
+        PanelScreenMatchMode screenMatchMode { get; }
+        int targetDisplay { get; }
+        Rect targetRect { get; }
+        TextureSlotCount textureSlotCount { get; }
+        uint vertexBudget { get; }
+        ExtraVertexChannels extraVertexChannels { get; }
+    }
+
+    /// <summary>
+    /// Defines a Panel Settings asset that instantiates a panel at runtime. The panel makes it possible for Unity to display
+    /// UXML-file based UI in the Game view.
+    /// </summary>
+    /// <remarks>
+    /// The UIDocument component contains a reference to a PanelSettings object.
+    /// The PanelSettings contains the rendering settings for the UI, including the scale mode and the sort order.
+    /// Multiple UIDocument components can point to the same PanelSettings object, which optimizes performance when
+    /// using multiple UI screens in the same scene.
+    ///\\
+    /// For more information on the different properties of the PanelSettings object, refer to [[wiki:UIE-Runtime-Panel-Settings|Panel Settings properties reference]].
+    /// </remarks>
+    [HelpURL("UIE-Runtime-Panel-Settings")]
+    public partial class PanelSettings : ScriptableObject, IPanelSettings
+    {
+        private const int k_DefaultSortingOrder = 0;
+
+        private const float k_DefaultScaleValue = 1.0f;
+
+        internal const string k_DefaultStyleSheetPath =
+            "Packages/com.unity.ui/PackageResources/StyleSheets/Generated/Default.tss.asset";
+
+        private class RuntimePanelAccess
+        {
+            private readonly PanelSettings m_Settings;
+
+            internal RuntimePanelAccess(PanelSettings settings)
+            {
+                m_Settings = settings;
+            }
+
+            private BaseRuntimePanel m_RuntimePanel;
+
+            internal bool isInitialized => m_RuntimePanel != null;
+            internal bool isTransient { get; set; }
+
+            /// <summary>
+            /// Internal, typed access to the Panel used to draw UI of type Player.
+            /// </summary>
+            internal BaseRuntimePanel panel
+            {
+                get
+                {
+                    if (m_RuntimePanel == null)
+                    {
+                        m_RuntimePanel = isTransient ? RuntimePanel.Create(m_Settings) : CreateRelatedRuntimePanel();
+                        m_RuntimePanel.sortingPriority = m_Settings.m_SortingOrder;
+                        m_RuntimePanel.targetDisplay = m_Settings.m_TargetDisplay;
+                        m_RuntimePanel.panelChangeReceiver = m_Settings.GetPanelChangeReceiver();
+
+                        var root = m_RuntimePanel.visualTree;
+                        root.name = m_Settings.name;
+
+                        m_Settings.ApplyPanelSettings();
+                        m_Settings.ApplyThemeStyleSheet(root);
+
+                        if (m_Settings.m_TargetTexture != null)
+                        {
+                            m_RuntimePanel.targetTexture = m_Settings.m_TargetTexture;
+                        }
+
+                        if (m_Settings.m_AssignedScreenToPanel != null)
+                        {
+                            m_Settings.SetScreenToPanelSpaceFunction3D(m_Settings.m_AssignedScreenToPanel);
+                        }
+                    }
+
+                    return m_RuntimePanel;
+                }
+            }
+
+            internal void DisposePanel()
+            {
+                if (m_RuntimePanel != null)
+                {
+                    if (isTransient)
+                        m_RuntimePanel.Dispose(); // Never registered
+                    else
+                        DisposeRelatedPanel();
+                    m_RuntimePanel = null;
+                }
+            }
+
+            internal void SetTargetTexture()
+            {
+                if (m_RuntimePanel != null)
+                {
+                    m_RuntimePanel.targetTexture = m_Settings.targetTexture;
+                }
+            }
+
+            internal void SetSortingPriority()
+            {
+                if (m_RuntimePanel != null)
+                {
+                    m_RuntimePanel.sortingPriority = m_Settings.m_SortingOrder;
+                }
+            }
+
+            internal void SetTargetDisplay()
+            {
+                if (m_RuntimePanel != null)
+                {
+                    m_RuntimePanel.targetDisplay = m_Settings.m_TargetDisplay;
+                }
+            }
+
+            internal void SetPanelChangeReceiver()
+            {
+                if (m_RuntimePanel != null)
+                {
+                    m_RuntimePanel.panelChangeReceiver = m_Settings.m_PanelChangeReceiver;
+                }
+            }
+
+            private BaseRuntimePanel CreateRelatedRuntimePanel()
+            {
+                var newPanel = (RuntimePanel)UIElementsRuntimeUtility.FindOrCreateRuntimePanel(m_Settings, RuntimePanel.Create);
+                CreateRuntimePanelDebug?.Invoke(newPanel);
+                return newPanel;
+            }
+
+            private void DisposeRelatedPanel()
+            {
+                UIElementsRuntimeUtility.DisposeRuntimePanel(m_Settings);
+            }
+
+            internal void MarkPotentiallyEmpty()
+            {
+                UIElementsRuntimeUtility.MarkPotentiallyEmpty(m_Settings);
+            }
+        }
+
+        float GetScreenDpiForScaleResolution()
+        {
+            if (scaleMode == PanelScaleMode.ConstantPhysicalSize)
+            {
+                var gameViewInfo = GetGameViewRenderInfo?.Invoke(m_TargetDisplay);
+                if (gameViewInfo != null)
+                    return gameViewInfo.dpi;
+            }
+            return Screen.dpi;
+        }
+
+        [VisibleToOtherModules("UnityEditor.UIToolkitAuthoringModule")]
+        internal void CacheDisplayRectAndScale()
+        {
+            m_TargetRect = GetDisplayRect(); // Expensive to evaluate, so cache
+
+            if (renderMode == PanelRenderMode.WorldSpace)
+                m_ResolvedScale = 1.0f; // No panel scaling for world-space
+            else
+                m_ResolvedScale = PanelSettingsUtility.ResolveScale(this, m_TargetRect.size);
+        }
+
+        [SerializeField]
+        private ThemeStyleSheet themeUss;
+
+        /// <summary>
+        /// Specifies a style sheet that Unity applies to every UI Document attached to the panel.
+        /// </summary>
+        /// <remarks>
+        /// By default this is the main Unity style sheet, which contains default styles for Unity-supplied
+        /// elements such as buttons, sliders, and text fields.
+        /// </remarks>
+        public ThemeStyleSheet themeStyleSheet
+        {
+            get { return themeUss; }
+            set
+            {
+                themeUss = value;
+                ApplyThemeStyleSheet();
+            }
+        }
+
+        [SerializeField]
+        private bool m_DisableNoThemeWarning = false; // Used for graphics tests and shader graph preview.
+        internal bool disableNoThemeWarning
+        {
+            get => m_DisableNoThemeWarning;
+            set => m_DisableNoThemeWarning = value;
+        }
+
+        [SerializeField]
+        private RenderTexture m_TargetTexture;
+
+        /// <summary>
+        /// Specifies a Render Texture to render the panel's UI on.
+        /// </summary>
+        /// <remarks>
+        /// This can be used to display UI on a 3D geometry in the Scene, to perform manual UI post-processing, or
+        /// render the UI on a MSAA-enabled Render Texture.
+        ///
+        /// When the project color space is linear, you should use a Render Texture whose format is
+        /// GraphicsFormat.R8G8B8A8_SRGB.
+        ///
+        /// When the project color space is gamma, you should use a Render Texture whose format is
+        /// GraphicsFormat.R8G8B8A8_UNorm.
+        /// </remarks>
+        public RenderTexture targetTexture
+        {
+            get => m_TargetTexture;
+            set
+            {
+                var changed = m_TargetTexture != value;
+                m_TargetTexture = value;
+                m_PanelAccess.SetTargetTexture();
+
+                // An offscreen surface is not represented in the accessibility hierarchy.
+                if (changed)
+                    UITKAccessibilityBridge.OnPanelSettingsChanged(this);
+            }
+        }
+
+        [SerializeField]
+        private PanelRenderMode m_RenderMode = PanelRenderMode.ScreenSpaceOverlay;
+
+        /// <summary>
+        /// Determines how the panel is rendered.
+        /// Defaults to <see cref="PanelRenderMode.ScreenSpaceOverlay"/>.
+        /// </summary>
+        public PanelRenderMode renderMode
+        {
+            get => m_RenderMode;
+            set
+            {
+                var changed = m_RenderMode != value;
+                m_RenderMode = value;
+
+                // Only screen-space overlay panels participate in the accessibility hierarchy.
+                if (changed)
+                    UITKAccessibilityBridge.OnPanelSettingsChanged(this);
+            }
+        }
+
+        PanelRenderMode IPanelSettings.renderMode => renderMode;
+
+        [SerializeField, FormerlySerializedAs("m_WorldInputMode")]
+        private ColliderUpdateMode m_ColliderUpdateMode = ColliderUpdateMode.MatchBoundingBox;
+
+        /// <summary>
+        /// Determines how colliders are created and updated on world-space documents.
+        /// </summary>
+        internal ColliderUpdateMode colliderUpdateMode
+        {
+            get => m_ColliderUpdateMode;
+            set => m_ColliderUpdateMode = value;
+        }
+
+        [SerializeField]
+        private bool m_ColliderIsTrigger = true;
+
+        /// <summary>
+        /// Determines if colliders created around documents in world space are trigger colliders or not.
+        /// </summary>
+        internal bool colliderIsTrigger
+        {
+            get => m_ColliderIsTrigger;
+            set => m_ColliderIsTrigger = value;
+        }
+
+        [SerializeField]
+        private PanelScaleMode m_ScaleMode = PanelScaleMode.ConstantPhysicalSize;
+
+        /// <summary>
+        /// Determines how elements in the panel scale when the screen size changes.
+        /// </summary>
+        public PanelScaleMode scaleMode
+        {
+            get => m_ScaleMode;
+            set => m_ScaleMode = value;
+        }
+
+        /// <summary>
+        /// Sprites have a Pixels Per Unit value that controls the pixel density of the sprite.
+        /// For sprites that have the same Pixels Per Unit value as the Reference Pixels Per Unit value in the
+        /// PanelSettings asset, the pixel density will be one to one.
+        /// </summary>
+        public float referenceSpritePixelsPerUnit {
+            get { return m_ReferenceSpritePixelsPerUnit; }
+            set { m_ReferenceSpritePixelsPerUnit = value; }
+        }
+
+        [SerializeField]
+        private float m_ReferenceSpritePixelsPerUnit = 100;
+
+        internal float pixelsPerUnit {
+            get { return m_PixelsPerUnit; }
+            set { m_PixelsPerUnit = value; }
+        }
+
+        float IPanelSettings.pixelsPerUnit => pixelsPerUnit;
+
+        [SerializeField]
+        private float m_PixelsPerUnit = 100;
+
+        [SerializeField]
+        private float m_Scale = k_DefaultScaleValue;
+
+        /// <summary>
+        /// A uniform scaling factor that Unity applies to elements in the panel before
+        /// the panel transform.
+        /// </summary>
+        /// <remarks>
+        /// This value must be greater than 0.
+        /// </remarks>
+        public float scale
+        {
+            get => m_Scale;
+            set => m_Scale = value;
+        }
+
+        #region Scaling parameters
+
+        private const float DefaultDpi = 96;
+        [SerializeField]
+        private float m_ReferenceDpi = DefaultDpi;
+        [SerializeField]
+        private float m_FallbackDpi = DefaultDpi;
+
+        /// <summary>
+        /// The DPI that the UI is designed for.
+        /// </summary>
+        /// <remarks>
+        /// When <see cref="PanelSettings.scaleMode"/> is set to <c>ConstantPhysicalSize</c>, Unity compares
+        /// this value to the actual screen DPI, and scales the UI accordingly in the Game view.
+        ///
+        /// If Unity cannot determine the screen DPI, it uses the <see cref="PanelSettings.fallbackDpi"/> instead.
+        ///
+        /// In the editor, UI Builder and the Inspector use their own window scaling (IMGUI / editor pixels-per-point);
+        /// they are not the same context as play mode <see cref="UnityEngine.IGameViewRenderInfo"/> DPI used for Game view overlay panels.
+        /// </remarks>
+        public float referenceDpi
+        {
+            get => m_ReferenceDpi;
+            set => m_ReferenceDpi = (value >= 1.0f) ? value : DefaultDpi;
+        }
+
+        /// <summary>
+        /// The DPI value that Unity uses when it cannot determine the screen DPI.
+        /// </summary>
+        public float fallbackDpi
+        {
+            get => m_FallbackDpi;
+            set => m_FallbackDpi = (value >= 1.0f) ? value : DefaultDpi;
+        }
+
+        [SerializeField]
+        private Vector2Int m_ReferenceResolution = new Vector2Int(1200, 800);
+
+        /// <summary>
+        /// The resolution the UI is designed for.
+        /// </summary>
+        /// <remarks>
+        /// If the screen resolution is larger than the reference resolution, Unity scales
+        /// the UI up in the Game view. If it's smaller, Unity scales the UI down.
+        /// Unity scales the UI according to the <see cref="PanelSettings.screenMatchMode"/>.
+        /// </remarks>
+        public Vector2Int referenceResolution
+        {
+            get => m_ReferenceResolution;
+            set => m_ReferenceResolution = value;
+        }
+
+        [SerializeField]
+        private PanelScreenMatchMode m_ScreenMatchMode = PanelScreenMatchMode.MatchWidthOrHeight;
+
+        /// <summary>
+        /// Specifies how to scale the panel area when the aspect ratio of the current resolution
+        /// does not match the reference resolution.
+        /// </summary>
+        public PanelScreenMatchMode screenMatchMode
+        {
+            get => m_ScreenMatchMode;
+            set => m_ScreenMatchMode = value;
+        }
+
+        [SerializeField]
+        [Range(0f, 1f)]
+        private float m_Match = 0.0f;
+
+        /// <summary>
+        /// Determines whether Unity uses width, height, or a mix of the two as a reference when it scales the panel area.
+        /// </summary>
+        public float match
+        {
+            get => m_Match;
+            set => m_Match = value;
+        }
+
+        #endregion
+
+        [SerializeField]
+        private float m_SortingOrder = k_DefaultSortingOrder;
+
+        /// <summary>
+        /// When the Scene uses more than one panel, this value determines where this panel appears in the sorting
+        /// order relative to other panels.
+        /// </summary>
+        /// <remarks>
+        /// Unity renders panels with a higher sorting order value on top of panels with a lower value.
+        /// </remarks>
+        public float sortingOrder
+        {
+            get => m_SortingOrder;
+            set
+            {
+                var changed = m_SortingOrder != value;
+                m_SortingOrder = value;
+                ApplySortingOrder();
+
+                // Panel sorting decides the accessibility reading order across panels.
+                if (changed)
+                    UITKAccessibilityBridge.OnPanelSettingsChanged(this);
+            }
+        }
+
+        internal void ApplySortingOrder()
+        {
+            m_PanelAccess.SetSortingPriority();
+        }
+
+        [SerializeField]
+        private int m_TargetDisplay = 0;
+
+        /// <summary>
+        /// Set the display intended for the panel.
+        /// </summary>
+        /// <remarks>
+        /// This setting is relevant only when no render texture is applied, as the renderTexture takes precedence.
+        /// </remarks>
+        public int targetDisplay
+        {
+            get => m_TargetDisplay;
+            set
+            {
+                var changed = m_TargetDisplay != value;
+                m_TargetDisplay = value;
+                m_PanelAccess.SetTargetDisplay();
+
+                // Only main-window panels participate in the accessibility hierarchy.
+                if (changed)
+                    UITKAccessibilityBridge.OnPanelSettingsChanged(this);
+            }
+        }
+
+        [SerializeField]
+        BindingLogLevel m_BindingLogLevel;
+
+        /// <summary>
+        /// Sets the log level for bindings in panels using this PanelSettings asset.
+        /// </summary>
+        public BindingLogLevel bindingLogLevel
+        {
+            get => m_BindingLogLevel;
+            set
+            {
+                if (m_BindingLogLevel == value)
+                    return;
+
+                m_BindingLogLevel = value;
+                Binding.SetPanelLogLevel(panel, value);
+            }
+        }
+
+        [SerializeField]
+        bool m_ClearDepthStencil = true;
+
+        /// <summary>
+        /// Determines whether the depth/stencil buffer is cleared before the panel is rendered.
+        /// </summary>
+        /// <remarks>
+        /// Only the first panel (according to the sorting order) must clear the depth/stencil buffer.
+        /// Subsequent panels should not clear it. Unnecessary clearing can significantly degrade performance.
+        ///\\
+        ///\\
+        /// UI Toolkit uses the depth/stencil buffer to perform masking operations, refer to [[Overflow.Hidden]] for more inforamtion.
+        /// The renderer strategically positions masking shapes to intentionally fail the depth test.
+        /// This failure triggers efficient push/pop operations within the stencil buffer, enabling effective masking.
+        ///\\
+        /// To ensure this process functions correctly, the depth buffer values
+        /// must be within a predetermined range. When UI Toolkit clears the depth buffer, it leaves
+        /// a gap (controlled by [[PanelSettings.depthClearValue]]) where masks can be positioned to fail
+        /// the test. Additionally, UI Toolkit clears the stencil because the bits are used to store data
+        /// representing the stack of masking shapes.
+        ///\\
+        ///\\
+        /// An incorrect depth/stencil buffer clearing can cause malfunctions with the masking system. Such
+        /// as:
+        ///- Masking shapes might become visible
+        ///- Normal meshes might become invisible
+        ///- Complete masking failure
+        /// </remarks>
+        public bool clearDepthStencil
+        {
+            get => m_ClearDepthStencil;
+            set => m_ClearDepthStencil = value;
+        }
+
+        /// <summary>
+        /// The depth used to clear the depth/stencil buffer.
+        /// </summary>
+        public float depthClearValue
+        {
+            get => UIRUtility.k_ClearZ;
+        }
+
+        [SerializeField]
+        bool m_ClearColor;
+
+        /// <summary>
+        /// Determines whether the color buffer is cleared before the panel is rendered.
+        /// </summary>
+        /// <remarks>
+        /// This is typically used when a RenderTexture is assigned to [[PanelSettings.targetTexture]].
+        /// Otherwise, if a camera already clears the color of the render target, avoid redundant clearing to optimize performance.
+        /// </remarks>
+        public bool clearColor
+        {
+            get => m_ClearColor;
+            set => m_ClearColor = value;
+        }
+
+        [SerializeField]
+        Color m_ColorClearValue = Color.clear;
+
+        /// <summary>
+        /// The color used to clear the color buffer.
+        /// </summary>
+        /// <remarks>
+        /// The color is specified as a "straight" color but will internally be converted to "premultiplied" before
+        /// being applied.
+        /// </remarks>
+        public Color colorClearValue
+        {
+            get => m_ColorClearValue;
+            set => m_ColorClearValue = value;
+        }
+
+
+        [SerializeField]
+        UInt32 m_VertexBudget = 0;
+
+        /// <summary>
+        /// The expected number of vertices that will be used by this panel.
+        /// </summary>
+        /// <remarks>
+        /// A value of 0 means that the UI renderer will use its own default.
+        /// If this hint is set too high, extra CPU and GPU memory may be allocated without actually being used.
+        /// If set too low, more vertex buffers may be required, which may increase the number of draw calls and hinder performance.
+        /// Changing this setting after initialization should be avoided because it resets the UI renderer.
+        /// </remarks>
+        public UInt32 vertexBudget
+        {
+            get => m_VertexBudget;
+            set => m_VertexBudget = value;
+        }
+
+        [SerializeField]
+        ExtraVertexChannels m_ExtraVertexChannels = ExtraVertexChannels.None;
+
+        /// <summary>
+        /// Optional per-vertex channels that custom ShaderGraph shaders attached to this panel can read.
+        /// </summary>
+        /// <remarks>
+        /// Adds GPU memory per vertex for the enabled channels. Leave at <see cref="ExtraVertexChannels.None"/>
+        /// unless a shader requires the extra data. Changing this setting after initialization rebuilds the
+        /// panel's render chain.
+        /// </remarks>
+        /// <seealso cref="UIMesh"/>
+        public ExtraVertexChannels extraVertexChannels
+        {
+            get => m_ExtraVertexChannels;
+            set => m_ExtraVertexChannels = value;
+        }
+
+        [SerializeField]
+        TextureSlotCount m_TextureSlotCount = TextureSlotCount.Eight;
+
+        /// <summary>
+        /// The maximum number of textures that UI Toolkit can bind to the shader at once.
+        /// </summary>
+        /// <remarks>
+        /// If the shader uses more than one texture slot, it applies dynamic branching to select the texture
+        /// to read from. More texture slots can help decreasing the number of draw calls, which can improve CPU
+        /// performance. However, the extra branching operations can reduce GPU performance.
+        /// </remarks>
+        public TextureSlotCount textureSlotCount
+        {
+            get => m_TextureSlotCount;
+            set => m_TextureSlotCount = value;
+        }
+
+        [AutoStaticsCleanupOnCodeReload]
+        internal static Action<BaseRuntimePanel> CreateRuntimePanelDebug;
+
+        [VisibleToOtherModules("UnityEditor.VectorGraphicsModule")]
+        [AutoStaticsCleanupOnCodeReload]
+        internal static Func<ThemeStyleSheet> GetOrCreateDefaultTheme;
+        internal static Func<int, IGameViewRenderInfo> GetGameViewRenderInfo
+        {
+            get => GameViewRenderInfoQuery.getImplementation;
+            set => GameViewRenderInfoQuery.getImplementation = value;
+        }
+        [AutoStaticsCleanupOnCodeReload]
+        internal static Action<PanelSettings> SetPanelSettingsAssetDirty;
+        [AutoStaticsCleanupOnCodeReload] // re-registered by EditorDelegateRegistration on load
+        internal static Action RequestEditorPlayerLoopUpdate;
+
+        internal static void SetupLiveReloadPanelTrackers(bool isLiveReloadOn)
+        {
+            var allPanelSettings = Resources.FindObjectsOfTypeAll<PanelSettings>();
+
+            if (allPanelSettings == null)
+            {
+                return;
+            }
+
+            foreach (var panelSettings in allPanelSettings)
+            {
+                // We dump the existing panel of each PanelSettings instance and reload everything attached to it
+                // to guarantee 1- tracking is placed properly (or removed if off), and 2- every UXML/USS is up to date.
+                // When the new content gets attached to it, a new panel will be created.
+                panelSettings.m_PanelAccess.DisposePanel();
+
+                if (panelSettings.m_AttachedPanelComponentsList != null)
+                {
+                    // We need to work on a copy in case changes are made during invocation.
+                    var copy = new List<IPanelComponent>(panelSettings.m_AttachedPanelComponentsList.m_AttachedPanelComponents);
+                    foreach (var panelComponent in copy)
+                        panelComponent.OnLiveReloadOptionChanged();
+                }
+            }
+        }
+
+
+        private RuntimePanelAccess m_PanelAccess;
+
+        internal BaseRuntimePanel panel
+        {
+            [VisibleToOtherModules("UnityEditor.VectorGraphicsModule")]
+            get { return m_PanelAccess.panel; }
+        }
+
+        internal bool isInitialized => m_PanelAccess?.isInitialized ?? false;
+
+        [VisibleToOtherModules("UnityEditor.VectorGraphicsModule")]
+        internal bool isTransient { get => m_PanelAccess.isTransient; set => m_PanelAccess.isTransient = value; }
+
+        /// <summary>
+        /// The top level visual element.
+        /// </summary>
+        internal VisualElement visualTree => m_PanelAccess.panel.visualTree;
+
+        internal PanelComponentList m_AttachedPanelComponentsList;
+
+        [HideInInspector]
+        [SerializeField]
+        DynamicAtlasSettings m_DynamicAtlasSettings = DynamicAtlasSettings.defaults;
+
+        /// <summary>
+        /// Settings of the dynamic atlas.
+        /// </summary>
+        public DynamicAtlasSettings dynamicAtlasSettings { get => m_DynamicAtlasSettings; set => m_DynamicAtlasSettings = value; }
+
+        // References to shaders so they don't get stripped.
+        [SerializeField]
+        [HideInInspector]
+        private Shader m_AtlasBlitShader;
+
+        [SerializeField]
+        [HideInInspector]
+        private Shader m_DefaultShader;
+
+        [SerializeField]
+        [HideInInspector]
+        private Shader m_RuntimeGaussianBlurShader;
+
+        [SerializeField]
+        [HideInInspector]
+        private Shader m_RuntimeColorEffectShader;
+
+        [SerializeField]
+        [HideInInspector]
+        private Shader m_RuntimeDropShadowComposite;
+
+        [SerializeField]
+        [HideInInspector]
+        private Shader m_SDFShader;
+
+        [SerializeField]
+        [HideInInspector]
+        private Shader m_BitmapShader;
+
+        [SerializeField]
+        [HideInInspector]
+        private Shader m_SpriteShader;
+
+        [SerializeField]
+        [HideInInspector]
+        internal TextAsset m_ICUDataAsset;
+
+        /// <summary>
+        /// Forces the UI shader to output colors in the gamma color space.
+        /// </summary>
+        /// <remarks>
+        /// This is only applicable when the project is in linear color space and when the panel is being rendered into
+        /// a Render Texture with a compatible format (e.g. R8G8B8A8_UNORM). It has no effect when the project color
+        /// space is set to gamma.
+        ///
+        /// You can use this feature to combine the SRGB Render Texture from your camera with the UNORM Render Texture of the UI.
+        /// In an on-screen UI panel, use an ImmediateModeElement to draw a full-screen quad with a custom shader that blends both.
+        ///\\
+        ///\\
+        /// Additional notes:
+        ///
+        ///- Render Texture read/write operations require additional bandwidth. This could negatively impact performance.
+        ///- When a texture is sampled in the fragment shader, the shader will perform a linear-to-gamma color space conversion on the RGB channels. This could negatively impact performance.
+        ///- When sampling from a texture, the interpolation between texels or mip levels is still performed in linear color space. This might lead to some visual differences between this mode and the same UI in a gamma project.
+        /// </remarks>
+        [SerializeField]
+        public bool forceGammaRendering;
+
+        bool IPanelSettings.forceGammaRendering => forceGammaRendering;
+
+        /// <summary>
+        /// Specifies a <see cref="PanelTextSettings"/> that will be used by every UI Document attached to the panel.
+        /// </summary>
+        [SerializeField]
+        public PanelTextSettings textSettings;
+
+        private Rect m_TargetRect;
+        Rect IPanelSettings.targetRect => m_TargetRect;
+        private float m_ResolvedScale; // panel scaling factor (pixels <-> points)
+        float IPanelSettings.resolvedScale => m_ResolvedScale;
+
+        private StyleSheet m_OldThemeUss;
+
+        private PanelSettings()
+        {
+            m_PanelAccess = new RuntimePanelAccess(this);
+        }
+
+        private void Reset()
+        {
+            // We assume users will want their UIDocument to look as closely as possible to what they look like in the UIBuilder.
+            // This is no guarantee, but it's the best we can do at the moment.
+            // One-time authoring default from editor Screen.dpi (not game-view runtime DPI from CacheDisplayRectAndScale).
+            referenceDpi = Screen.dpi;
+            scaleMode = PanelScaleMode.ConstantPhysicalSize;
+            renderMode = PanelRenderMode.ScreenSpaceOverlay;
+            colliderUpdateMode = ColliderUpdateMode.MatchBoundingBox;
+            pixelsPerUnit = 100.0f;
+            themeUss = GetOrCreateDefaultTheme?.Invoke();
+            m_AtlasBlitShader = m_DefaultShader = null;
+
+            SetPanelSettingsAssetDirty?.Invoke(this);
+
+            InitializeShaders();
+            AssignICUData();
+        }
+
+        private void OnEnable()
+        {
+            InitializeShaders();
+            AssignICUData();
+
+            if (m_ICUDataAsset != null)
+                TextCore.Text.TextHandle.RegisterICUDataAsset(m_ICUDataAsset);
+        }
+
+        private void OnDisable()
+        {
+            m_PanelAccess.DisposePanel();
+        }
+
+        internal void DisposePanel()
+        {
+            m_PanelAccess.DisposePanel();
+        }
+
+        float IPanelSettings.screenDpi => GetScreenDpiForScaleResolution();
+
+        private IDebugPanelChangeReceiver m_PanelChangeReceiver = null;
+
+        /// <summary>
+        /// Sets a custom <see cref="IDebugPanelChangeReceiver"/> in the panelChangeReceiver setter to receive every change event.
+        /// This method is available only in development builds and the editor, as it is a debug feature to go along the profiling of an application.
+        /// </summary>
+        /// <remarks>
+        /// Note that the values returned may change over time when the underlying architecture is modified.
+        ///
+        /// As this is called at every change marked on any visual element of the panel, the overhead is not negligible.
+        /// The callback will not be called in release builds as the method is stripped.
+        ///
+        /// The following example uses the panelChangeReceiver in a game.
+        /// To test it, add the component to a GameObject and the Panel Setting asset linked in the component fields.
+        /// </remarks>
+        /// <example nocheck="true">
+        /// <code lang="cs"><![CDATA[{code Modules/UIElements/Tests/UIElementsExamples/Assets/Examples/ChangeLogger.cs}]]></code>
+        /// </example>
+        [Conditional("ENABLE_PROFILER")]
+        public void SetPanelChangeReceiver(IDebugPanelChangeReceiver value)
+        {
+            m_PanelChangeReceiver = value;
+            m_PanelAccess.SetPanelChangeReceiver();
+        }
+
+        internal IDebugPanelChangeReceiver GetPanelChangeReceiver() {return m_PanelChangeReceiver; }
+
+        private void ApplyThemeStyleSheet(VisualElement root = null)
+        {
+            if (!m_PanelAccess.isInitialized)
+            {
+                return;
+            }
+
+            if (root == null)
+            {
+                root = visualTree;
+            }
+
+            if (m_OldThemeUss != themeUss && m_OldThemeUss != null)
+            {
+                root?.styleSheets.Remove(m_OldThemeUss);
+            }
+
+            if (themeUss != null)
+            {
+
+                // Ensure that isDefaultStyleSheet is set to true even though isDefaultStyleSheet is defaulted to true for ThemeStyleSheet.
+                themeUss.isDefaultStyleSheet = true;
+                root?.styleSheets.Add(themeUss);
+            }
+            else
+            {
+                if (!m_DisableNoThemeWarning)
+                {
+                    // In the Editor, we only want this to run when in play mode, because otherwise users may get a false
+                    // alarm when the project is loading and the theme asset is not yet loaded. By keeping it here, we can
+                    // still inform them of a potential problem (it's also in the PanelSettings inspector).
+                    // On a built player, this will always show, so if they're UI is missing they can have a clue of why.
+                    if (UIDocument.IsEditorPlayingOrWillChangePlaymode())
+                    {
+                        Debug.LogWarning(
+                            "No Theme Style Sheet set to PanelSettings " + name + ", UI will not render properly", this);
+                    }
+                }
+            }
+
+
+            m_OldThemeUss = themeUss;
+        }
+
+        internal bool AssignICUData()
+        {
+            var old = m_ICUDataAsset;
+            s_AssignICUData?.Invoke(this);
+            return old != m_ICUDataAsset;
+        }
+
+        void InitializeShaders()
+        {
+            if (m_AtlasBlitShader == null)
+            {
+                m_AtlasBlitShader = Shader.Find(UIR.Shaders.k_AtlasBlit);
+            }
+            if (m_DefaultShader == null)
+            {
+                m_DefaultShader = Shader.Find(UIR.Shaders.k_Default);
+            }
+            if (m_RuntimeGaussianBlurShader == null)
+            {
+                m_RuntimeGaussianBlurShader = Shader.Find(UIR.Shaders.k_RuntimeGaussianBlur);
+            }
+            if (m_RuntimeColorEffectShader == null)
+            {
+                m_RuntimeColorEffectShader = Shader.Find(UIR.Shaders.k_RuntimeColorEffect);
+            }
+            if (m_RuntimeDropShadowComposite == null)
+            {
+                m_RuntimeDropShadowComposite = Shader.Find(UIR.Shaders.k_RuntimeDropShadowComposite);
+            }
+            if (m_SDFShader == null)
+            {
+                m_SDFShader = Shader.Find(TextShaderUtilities.k_SDFText);
+            }
+            if (m_BitmapShader == null)
+            {
+                m_BitmapShader = Shader.Find(TextShaderUtilities.k_BitmapText);
+            }
+            if (m_SpriteShader == null)
+            {
+                m_SpriteShader = Shader.Find(TextShaderUtilities.k_SpriteText);
+            }
+            m_PanelAccess.SetTargetTexture();
+        }
+
+        [VisibleToOtherModules("UnityEditor.VectorGraphicsModule")]
+        internal void ApplyPanelSettings()
+        {
+            CacheDisplayRectAndScale();
+            PanelSettingsUtility.ApplyPanelSettingsToPanel(this);
+        }
+
+        /// <summary>
+        /// Sets the function that handles the transformation from screen space to panel space. For overlay panels,
+        /// this function returns the input value.
+        /// </summary>
+        /// <remarks>
+        /// If the panel's targetTexture is applied to 3D objects, use a function that raycasts
+        /// against MeshColliders in the Scene. The function can first check whether the GameObject that the ray hits
+        /// has a MeshRenderer with a shader that uses this panel's target texture. It can then return the transformed
+        /// @@RaycastHit.textureCoord@@ in the texture's pixel space. Return a coordinate outside the panel to
+        /// skip incoming pointer events if the ray doesn't hit a valid target or location.
+        ///
+        /// A non-zero z value should be returned when the element at the given screen coordinate contains
+        /// 3-D transformations that make it overflow forward or backward out of the panel's surface.
+        /// This z value is used by pointer events when converting between panel position and local position.
+        /// </remarks>
+        /// <param name="screenToPanelSpaceFunction">The translation function. Set to @@null@@ to revert to the default behavior.</param>
+        public void SetScreenToPanelSpaceFunction3D(Func<Vector2, Vector3> screenToPanelSpaceFunction)
+        {
+            m_AssignedScreenToPanel = screenToPanelSpaceFunction;
+            panel.screenToPanelSpace = m_AssignedScreenToPanel;
+        }
+
+        /// <summary>
+        /// Sets the function that handles the transformation from screen space to panel space. For overlay panels,
+        /// this function returns the input value.
+        /// </summary>
+        /// <remarks>
+        /// If the panel's targetTexture is applied to 3D objects, use a function that raycasts
+        /// against MeshColliders in the Scene. The function can first check whether the GameObject that the ray hits
+        /// has a MeshRenderer with a shader that uses this panel's target texture. It can then return the transformed
+        /// @@RaycastHit.textureCoord@@ in the texture's pixel space. Return a coordinate outside the panel to
+        /// skip incoming pointer events if the ray doesn't hit a valid target or location.
+        ///
+        /// If the panel contains elements with
+        /// 3-D transformations that make them overflow forward or backward out of the panel's surface, use the other
+        /// <see cref="PanelSettings.SetScreenToPanelSpaceFunction3D"/> method instead.
+        /// </remarks>
+        /// <param name="screenToPanelSpaceFunction">The translation function. Set to @@null@@ to revert to the default behavior.</param>
+        /// <example>
+        /// <code source="../../../../Tests/EditModeAndPlayModeTests/UIElementsSamples/Assets/Runtime/Rendering/UITextureProjection.cs"/>
+        /// </example>
+        public void SetScreenToPanelSpaceFunction(Func<Vector2, Vector2> screenToPanelSpaceFunction)
+        {
+            m_AssignedScreenToPanel = p => (Vector3)screenToPanelSpaceFunction(p);
+            panel.screenToPanelSpace = m_AssignedScreenToPanel;
+        }
+
+        private Func<Vector2, Vector3> m_AssignedScreenToPanel;
+
+
+
+        internal Rect GetDisplayRect()
+        {
+            if (m_TargetTexture != null)
+            {
+                // Overlay to texture.
+                return new Rect(0, 0, m_TargetTexture.width, m_TargetTexture.height); // TODO: Support sub-rects
+            }
+
+            // In the Unity Editor, Display.displays is not supported; displays.Length always has a value of 1, regardless of how many displays you have connected.
+            var gameView = GetGameViewRenderInfo?.Invoke(m_TargetDisplay);
+            if (gameView != null)
+                return new Rect(Vector2.zero, gameView.targetSize);
+            return new Rect(Vector2.zero, new Vector2(Display.main.renderingWidth, Display.main.renderingHeight));
+        }
+
+        internal void AttachAndInsertPanelComponentToVisualTree(IPanelComponent panelComponent)
+        {
+            if (m_AttachedPanelComponentsList == null)
+            {
+                m_AttachedPanelComponentsList = new PanelComponentList();
+            }
+            else
+            {
+                m_AttachedPanelComponentsList.RemoveFromListAndFromVisualTree(panelComponent);
+            }
+
+            m_AttachedPanelComponentsList.AddToListAndToVisualTree(panelComponent, visualTree, false);
+
+            UITKAccessibilityBridge.OnPanelComponentAttached(panelComponent);
+        }
+
+        internal void DetachPanelComponent(IPanelComponent panelComponent)
+        {
+            if (m_AttachedPanelComponentsList == null)
+                return;
+
+            m_AttachedPanelComponentsList.RemoveFromListAndFromVisualTree(panelComponent);
+
+            UITKAccessibilityBridge.OnPanelComponentDetached(panelComponent);
+
+            if (m_AttachedPanelComponentsList.m_AttachedPanelComponents.Count == 0)
+                m_PanelAccess.MarkPotentiallyEmpty();
+        }
+
+        private float m_OldReferenceDpi;
+        private float m_OldFallbackDpi;
+        private RenderTexture m_OldTargetTexture;
+        private float m_OldSortingOrder;
+        private PanelRenderMode m_OldRenderMode;
+        private bool m_IsLoaded = false;
+        [AutoStaticsCleanupOnCodeReload]
+        internal static Action<PanelSettings> s_AssignICUData;
+
+        private void OnValidate()
+        {
+
+            bool isDirty = false;
+
+            if (m_IsLoaded)
+            {
+                // reassigning via the properties will re-run the value bounds check on the dpi values
+                if (m_OldReferenceDpi != m_ReferenceDpi)
+                {
+                    referenceDpi = m_ReferenceDpi;
+                    isDirty = true;
+                }
+                if (m_OldFallbackDpi != m_FallbackDpi)
+                {
+                    fallbackDpi = m_FallbackDpi;
+                    isDirty = true;
+                }
+
+                if (m_Scale < 0.0f || (m_ScaleMode != PanelScaleMode.ConstantPixelSize && m_Scale != k_DefaultScaleValue))
+                {
+                    m_Scale = k_DefaultScaleValue;
+                    isDirty = true;
+                }
+
+                if (m_OldThemeUss != themeUss)
+                {
+                    var root = visualTree;
+                    ApplyThemeStyleSheet(root); // m_OldThemeUss is updated in ApplyThemeStyleSheet
+                    isDirty = true;
+                }
+
+                if (m_OldTargetTexture != m_TargetTexture)
+                {
+                    targetTexture = m_TargetTexture;
+                    isDirty = true;
+                }
+
+                if (m_OldSortingOrder != m_SortingOrder)
+                {
+                    sortingOrder = m_SortingOrder;
+                    isDirty = true;
+                }
+
+                if (m_OldRenderMode != m_RenderMode)
+                {
+                    // World-space panels only refresh on a player-loop tick; request one so the change shows in the Scene view immediately.
+                    RequestEditorPlayerLoopUpdate?.Invoke();
+                    isDirty = true;
+                }
+
+                if (AssignICUData())
+                {
+                    isDirty = true;
+                }
+            }
+            else
+            {
+                m_IsLoaded = true;
+            }
+
+            m_OldReferenceDpi = m_ReferenceDpi;
+            m_OldFallbackDpi = m_FallbackDpi;
+            m_OldTargetTexture = m_TargetTexture;
+            m_OldSortingOrder = m_SortingOrder;
+            m_OldRenderMode = m_RenderMode;
+            m_OldThemeUss = themeUss;
+
+            if (isDirty)
+            {
+                SetPanelSettingsAssetDirty?.Invoke(this);
+            }
+        }
+
+    }
+}
+
+#pragma warning restore CS0618

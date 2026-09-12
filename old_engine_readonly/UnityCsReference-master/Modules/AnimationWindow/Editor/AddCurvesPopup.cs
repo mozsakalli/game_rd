@@ -1,0 +1,137 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+#pragma warning disable UAL0015,UAL0018,UAL0019,UAL0020,UAL0021 // AutoStaticsCleanup usage analysis: MecanimAnimation not yet converted
+using System.Collections.Generic;
+using UnityEditor;
+using UnityEditor.IMGUI.Controls;
+using UnityEngine;
+using Unity.Scripting.LifecycleManagement;
+
+namespace UnityEditorInternal
+{
+    partial class AddCurvesPopup : EditorWindow
+    {
+        #pragma warning disable UAL0015 // this side effect does not outlive the current call (global trigger / lazily-loaded asset re-fetched on next access); a stale reference is harmlessly replaced
+        AddCurvesPopup() {}
+        #pragma warning restore UAL0015
+
+        const float k_WindowPadding = 3;
+        const float k_SpaceForSlider = 16;
+
+        const float k_WindowMaxWidth = 450;
+        const float k_WindowMinWidth = 240;
+        const float k_WindowFixedHeight = 250;
+
+        [AutoStaticsCleanupOnCodeReload]
+        internal static AnimationWindowState s_State;
+
+        [AutoStaticsCleanupOnCodeReload]
+        private static AddCurvesPopup s_AddCurvesPopup;
+        [NoAutoStaticsCleanup]
+        private static long s_LastClosedTime;
+        [AutoStaticsCleanupOnCodeReload]
+        private static AddCurvesPopupHierarchy s_Hierarchy;
+
+        private SearchField m_SearchField;
+
+        public delegate void OnNewCurveAdded(AddCurvesPopupPropertyNode node);
+
+        Vector2 GetWindowSize()
+        {
+            float contentWidth = s_Hierarchy.GetContentWidth();
+            float width = Mathf.Clamp(contentWidth + k_SpaceForSlider + k_WindowPadding, k_WindowMinWidth, k_WindowMaxWidth);
+            return new Vector2(width, k_WindowFixedHeight);
+        }
+
+        void Init(Rect buttonRect)
+        {
+            s_Hierarchy = new AddCurvesPopupHierarchy();
+            s_Hierarchy.InitIfNeeded(this, new Rect(0, 0, k_WindowMinWidth, k_WindowFixedHeight));
+
+            buttonRect = GUIUtility.GUIToScreenRect(buttonRect);
+
+            m_SearchField = new SearchField();
+            m_SearchField.SetFocus();
+            ShowAsDropDown(buttonRect, GetWindowSize(), new[] { PopupLocation.Right });
+        }
+
+        void OnEnable()
+        {
+            AssemblyReloadEvents.beforeAssemblyReload += Close;
+        }
+
+        void OnDisable()
+        {
+            AssemblyReloadEvents.beforeAssemblyReload -= Close;
+            s_LastClosedTime = System.DateTime.Now.Ticks / System.TimeSpan.TicksPerMillisecond;
+            s_AddCurvesPopup = null;
+            s_Hierarchy = null;
+        }
+
+        internal static void AddNewCurve(AddCurvesPopupPropertyNode node)
+        {
+            AnimationWindowUtility.CreateDefaultCurves(s_State, node.curveBindings);
+        }
+
+        internal static void AddNewCurves(IReadOnlyCollection<AddCurvesPopupPropertyNode> nodes)
+        {
+            var count = 0;
+            foreach (var node in nodes)
+            {
+                count += node.curveBindings.Length;
+            }
+
+            EditorCurveBinding[] bindings = new EditorCurveBinding[count];
+            var index = 0;
+            foreach (var node in nodes)
+            {
+                node.curveBindings.CopyTo(bindings, index);
+                index += node.curveBindings.Length;
+            }
+
+            AnimationWindowUtility.CreateDefaultCurves(s_State, bindings);
+        }
+
+        internal static bool ShowAtPosition(Rect buttonRect, AnimationWindowState state)
+        {
+            // We could not use realtimeSinceStartUp since it is set to 0 when entering/exitting playmode, we assume an increasing time when comparing time.
+            long nowMilliSeconds = System.DateTime.Now.Ticks / System.TimeSpan.TicksPerMillisecond;
+            bool justClosed = nowMilliSeconds < s_LastClosedTime + 50;
+            if (!justClosed)
+            {
+                Event.current.Use();
+                if (s_AddCurvesPopup == null)
+                    s_AddCurvesPopup = ScriptableObject.CreateInstance<AddCurvesPopup>();
+
+                s_State = state;
+                s_AddCurvesPopup.Init(buttonRect);
+                return true;
+            }
+            return false;
+        }
+
+        internal void OnGUI()
+        {
+            // We do not use the layout event
+            if (Event.current.type == EventType.Layout)
+                return;
+
+            Vector2 windowSize = GetWindowSize();
+
+            var width = windowSize.x - 2 * k_WindowPadding;
+            var searchRect = new Rect(k_WindowPadding, k_WindowPadding, width, EditorGUIUtility.singleLineHeight);
+            var contentRect = new Rect(
+                k_WindowPadding,
+                searchRect.yMax + EditorGUIUtility.standardVerticalSpacing,
+                width,
+                windowSize.y - searchRect.height - EditorGUIUtility.standardVerticalSpacing - 2 * k_WindowPadding);
+
+            GUI.Box(new Rect(0, 0, windowSize.x, windowSize.y), GUIContent.none, "grey_border");
+            s_Hierarchy.searchString = m_SearchField.OnToolbarGUI(searchRect, s_Hierarchy.searchString);
+            s_Hierarchy.OnGUI(contentRect, this);
+        }
+    }
+}
+#pragma warning restore UAL0015,UAL0018,UAL0019,UAL0020,UAL0021

@@ -1,0 +1,2397 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+#pragma warning disable UAL0015,UAL0018,UAL0019,UAL0020,UAL0021 // AutoStaticsCleanup usage analysis: IMGUIControls not yet converted
+#pragma warning disable UAL0010,UAL0011,UAL0012,UAL0013,UAL0014 // AutoStaticsCleanup: IMGUIControls not yet converted
+using System;
+using System.Collections.Generic;
+using System.Reflection;
+using UnityEngine;
+using UnityEngine.UIElements;
+using UnityEditor.IMGUI.Controls;
+using UnityEditor.UIElements;
+using Unity.Scripting.LifecycleManagement;
+using TreeView = UnityEditor.IMGUI.Controls.TreeView<int>;
+using TreeViewItem = UnityEditor.IMGUI.Controls.TreeViewItem<int>;
+using TreeViewState = UnityEditor.IMGUI.Controls.TreeViewState<int>;
+
+namespace UnityEditor
+{
+// [CustomPropertyDrawer(typeof(Dictionary<,>))]  lives on the partial-class fragment in DictionaryDrawerUITK.cs.
+internal partial class DictionaryDrawer
+{
+    public override float GetPropertyHeight(SerializedProperty property, GUIContent label)
+    {
+        return DrawerInstanceIMGUI.GetPropertyHeight(this, property, label);
+    }
+
+    public override void OnGUI(Rect position, SerializedProperty property, GUIContent label)
+    {
+        DrawerInstanceIMGUI.OnGUI(this, position, property, label);
+    }
+
+    /// <summary>
+    /// Encapsulates all per-property IMGUI state, the keyed cache that maps a
+    /// (property, container) pair to its instance, and every method/inner type that
+    /// only the IMGUI backend needs. Mirrors the role of <see cref="DrawerInstance"/>
+    /// for UITK so the partial <see cref="DictionaryDrawer"/> ends up with only the
+    /// PropertyDrawer overrides delegating into here.
+    /// </summary>
+    sealed partial class DrawerInstanceIMGUI
+    {
+        // Per-(property, container) IMGUI state cache. In-memory, editor-process lifetime.
+        // Key: (propertyPath, targetEntityId, imguiContainerId).
+        // Eviction: automatic via DetachFromPanelEvent on the owning IMGUIContainer.
+        // Entries may be either fully-initialized (TreeView etc. built by the full
+        // constructor) or stubs allocated by short-circuit paths that only need
+        // availableWidth (see GetOrCreate with isMultiEdit: true). GetOrCreate promotes a
+        // stub to a full entry on demand while preserving any width already observed
+        // during a prior short-circuit frame.
+        [AutoStaticsCleanupOnCodeReload]
+        static readonly Dictionary<PropertyCacheKey, DrawerInstanceIMGUI> s_Cache = new();
+
+        internal static void InvalidateAllSortOrders()
+        {
+            foreach (var instance in s_Cache.Values)
+                instance.InvalidateSortOrder();
+        }
+
+        static class Styles
+        {
+            // k_TreeViewHeight caps the rows area so the IMGUI drawer doesn't grow unbounded
+            // with the dictionary's contents. Picked to roughly match the UITK DictionaryView,
+            // whose outer collection-view inherits a ~520px cap from
+            // .unity-property-field > .unity-collection-view; the IMGUI foldout +
+            // column header eat the remaining ~40px, so 480px for the rows area
+            // lands at the same visible overall height.
+            public const float k_TreeViewHeight = 480f;
+
+            public const float k_FooterHeight = 20f;
+            public const float k_FooterButtonWidth = 25f;
+            public const float k_FooterSpacing = 2f;
+            public const float k_KeyLeftMargin = 13f;
+            public const float k_RowVerticalPadding = 5f;
+            public const float k_CellHorizontalPadding = 8f;
+            public const float k_ValueLeftPadding = 16f;
+            public const float k_OneColumnValueIndent = 14f;
+            public const float k_StaticValueHeaderTopMargin = 2f;
+            public const float k_CellLabelWidthFraction = 0.35f;
+            public const float k_CellLabelMinWidth = 80f;
+            public const float k_CellControlMinWidth = 40f;
+            public const float k_KeyWarningIconLeftMargin = 4f;
+            public const float k_KeyWarningIconTopOffset = 2f;
+            public const float k_KeyWarningIconSize = 14f;
+            public const float k_HandleWidth = 6f;
+            public const float k_SortArrowSize = 12f;
+            public const float k_SelectionBorderWidth = 3f;
+            public const float k_VerticalScrollbarWidth = 16f;
+            public const float k_BoxBottomBorder = 1f;
+            public const float k_EmptyRowsAreaPadding = 8f;
+            public const float k_EmptyLabelIndent = 18f;
+            public const float k_IgnoredHelpBoxTopMargin = 4f;
+            public const float k_IgnoredHelpBoxBottomMargin = 4f;
+
+            public static readonly GUIStyle headerBackground = "RL Header";
+            public static readonly GUIStyle boxBackground = "RL Background";
+            public static readonly GUIStyle footerBackground = "RL Footer";
+            public static readonly GUIStyle footerButton = "RL FooterButton";
+            public static readonly GUIStyle columnLabel = "MultiColumnHeader";
+            public static readonly GUIStyle columnLabelClipped = new GUIStyle(columnLabel) { clipping = TextClipping.Ellipsis };
+
+            public static readonly GUIContent iconPlus = EditorGUIUtility.TrIconContent("Toolbar Plus");
+            public static readonly GUIContent iconMinus = EditorGUIUtility.TrIconContent("Toolbar Minus");
+
+            public static readonly Texture2D sortAscIcon = EditorGUIUtility.LoadIconRequired("UIPackageResources/Images/scrollup_uielements.png");
+            public static readonly Texture2D sortDescIcon = EditorGUIUtility.LoadIconRequired("UIPackageResources/Images/scrolldown_uielements.png");
+        }
+
+        readonly struct PropertyCacheKey : IEquatable<PropertyCacheKey>
+        {
+            public readonly string propertyPath;
+            public readonly EntityId targetEntityId;
+            public readonly uint imguiContainerId;
+
+            public PropertyCacheKey(string propertyPath, EntityId targetEntityId, uint imguiContainerId)
+            {
+                this.propertyPath = propertyPath;
+                this.targetEntityId = targetEntityId;
+                this.imguiContainerId = imguiContainerId;
+            }
+
+            public bool Equals(PropertyCacheKey other)
+                => imguiContainerId == other.imguiContainerId
+                && targetEntityId == other.targetEntityId
+                && propertyPath == other.propertyPath;
+
+            public override bool Equals(object obj) => obj is PropertyCacheKey other && Equals(other);
+
+            public override int GetHashCode() => HashCode.Combine(propertyPath, targetEntityId, imguiContainerId);
+        }
+
+        // Captured in the full constructor from the owning DictionaryDrawer so the
+        // instance never needs a back-reference to the drawer object — matches how
+        // UITK's DrawerInstance captures m_Drawer.fieldInfo once in Build().
+        readonly FieldInfo m_FieldInfo;
+
+        public readonly TreeViewState treeViewState;
+        public readonly DictionaryHeader header;
+        public readonly DictionaryTreeView treeView;
+        public readonly SerializedProperty dictionaryProperty;
+        public readonly SerializedProperty arrayProperty;
+        public SortedIndexMap sortedIndices = SortedIndexMap.Empty;
+        public readonly HashSet<int> duplicateEntryIndices = new HashSet<int>();
+        public readonly HashSet<int> nullKeyEntryIndices = new HashSet<int>();
+        // Count of items the TreeView is currently rendering. Equal to
+        // sortedIndices.Length by invariant; may differ from arrayProperty.arraySize
+        // between an external array mutation (Undo, script, prefab apply,
+        // cross-inspector edit) and the next deferred PerformReload. Use this for
+        // any UI-side count (foldout text, empty-state branch, height math) and as
+        // the previous-snapshot baseline when comparing against the live arraySize
+        // for change detection.
+        public int displayedItemCount => sortedIndices.Length;
+        // Snapshot of GetKeysContentHash(arrayProperty) taken at the moment
+        // sortedIndices was last rebuilt. RunDeferredStructuralWork compares the
+        // current hash against this to decide whether a TrackPropertyValue
+        // notification reflects an actual key change (full reload required) or
+        // a value-only edit (no work). Updated everywhere sortedIndices is
+        // rebuilt — the full constructor, PerformReload, AddEntry,
+        // RemoveSelectedEntries, and ResetToDefaults — so it is always paired
+        // with sortedIndices.
+        public ulong lastKnownKeysHash;
+        public bool needsReload;
+        public bool needsSortOrderRebuild;
+        public bool needsLayoutChange;
+        public bool needsDuplicate;
+        public readonly Type keyType;
+        public readonly Type valueType;
+        public readonly bool keyHasCustomDrawer;
+        public readonly bool valueHasCustomDrawer;
+        public bool variableRowHeight; // rows have non-uniform heights (enables per-row height tracking)
+        public bool dynamicRowHeight; // row heights can change at runtime (expandable children present)
+        public bool hasStaticInlineHeight; // inline compound type with fixed height (no expandable children)
+        public bool needsHeightClassification; // deferred until first element exists to inspect
+        public bool needsHeightRefresh; // a rendered row's measured height drifted from cached value
+        public bool needsHeightMeasure; // row-height measurement deferred to the next OnGUI Layout pass
+        public bool sortAscending = true;
+        // Single source of truth for the column layout; oneColumnMode/useValueFoldouts are
+        // derived views kept so the row-drawing code reads intent-named flags. The two
+        // OneColumn_* modes both stack key over value, differing only in the per-row foldout.
+        public DictionaryLayout layout = DictionaryLayout.TwoColumns;
+        public bool oneColumnMode => layout != DictionaryLayout.TwoColumns;
+        public bool useValueFoldouts => layout == DictionaryLayout.OneColumnWithValueFoldout;
+        // Default layout resolved from [DictionaryDisplay] (field- or assembly-level); the
+        // active layout falls back to this until the user overrides it from the context menu.
+        public readonly DictionaryLayout attributeLayout;
+        public readonly GUIContent valueLabelContent;
+        // Value-cell label when the value type is a collection ("Dictionary"/"Array"/"List"); null
+        // otherwise, so the cell draws with GUIContent.none. This is what gives a nested collection value
+        // its foldout title: it is forwarded as the label to the value's own drawer (a nested dictionary
+        // reads it as its OnGUI label, an array/list as its built-in foldout title).
+        public readonly GUIContent valueCollectionLabel;
+        public readonly float attributeKeyFraction;
+        public readonly Hash128 stateCacheKey;
+        public float availableWidth;
+        // Room the host has below the drawer. 0 means something outside can scroll and reveal the
+        // rows by itself, or that no Repaint has measured yet.
+        public float hostRoomForRows;
+
+        DictionaryState m_CachedViewState;
+        int m_CachedStateVersion = -1;
+
+        // Stubs allocated by GetOrCreate(..., isMultiEdit: true) leave treeView null;
+        // a null treeView is the stable marker that distinguishes a stub from a fully-
+        // initialized instance.
+        public bool isFullyInitialized => treeView != null;
+
+        // Deferred-work coordination. Cross-inspector key-edit notifications
+        // (TrackPropertyValue) and the sort-toggle click in the header arrive
+        // either between OnGUI passes or before the TreeView has drawn for the
+        // current frame, so they are funnelled through
+        // ScheduleDeferredStructuralWork → RunDeferredStructuralWork (driven by
+        // EditorApplication.delayCall) to run strictly between OnGUI passes.
+        // Mutating IMGUI-visible state mid-OnGUI shifts control IDs underneath
+        // the input system and mis-routes keystrokes/mouse events to the wrong
+        // cell.
+        //
+        // The footer Add/Remove buttons (and Cmd+D, processed via needsDuplicate
+        // after the TreeView OnGUI pass) do not need this gating because they
+        // run after the TreeView has already drawn for the current frame; they
+        // call AddEntry / RemoveSelectedEntries synchronously and let the next
+        // frame pick up the new state.
+        //
+        // deferredWorkScheduled coalesces multiple flag-sets within one frame into a
+        // single delayCall registration; the flags themselves describe what kind of
+        // work is pending. The pendingSortToggleSelectionArrayIndices snapshot
+        // captures the selection that was valid at request time so the deferred
+        // PerformSortToggle doesn't depend on selection that may have moved by
+        // the time it runs.
+        public bool deferredWorkScheduled;
+        public bool needsMarkerRefresh;
+        public bool pendingSortToggle;
+        public int[] pendingSortToggleSelectionArrayIndices;
+        public bool needsTreeViewFocus;
+        // Display index to (re)frame once row heights have settled. A structural mutation
+        // (AddEntry) runs before the deferred height measurement is consumed on the Layout
+        // pass, so framing right away scrolls against pre-measurement row rects and can miss
+        // the target — e.g. a freshly added bottom row not scrolled fully into view. We record
+        // the target here and frame it from GetExpandedPropertyHeight once heights are settled.
+        // -1 means nothing is pending.
+        public int pendingFrameDisplayIndex = -1;
+
+        // Interaction check. When RunDeferredStructuralWork finds needsReload but
+        // EditorInteractionMonitor.IsReadyToApplyDeferredChanges is false, we install a
+        // single EditorApplication.update handler that re-checks the gate at a coarse
+        // interval (k_InteractionCheckIntervalSeconds) instead of re-arming a
+        // delayCall every editor tick — the latter would re-enter
+        // RunDeferredStructuralWork at editor-update frequency (potentially hundreds of
+        // Hz) the entire time the user is typing or holds a hot control. The handler is
+        // captured here so StopInteractionCheck can unsubscribe; nextInteractionCheckTime
+        // is the EditorApplication.timeSinceStartup value of the next allowed re-check.
+        public EditorApplication.CallbackFunction interactionCheckHandler;
+        public double nextInteractionCheckTime;
+
+        // Captured in GetOrCreate so the deferred callback can request a repaint after
+        // mutating. Held strongly: the instance is removed from s_Cache when this
+        // container's DetachFromPanelEvent fires, so the ref doesn't outlive a normal
+        // Inspector lifecycle.
+        public IMGUIContainer imguiContainer;
+
+        // True once TrackPropertyValue has been hooked up on imguiContainer for the
+        // dictionary property. Survives stub-to-full promotion (a multi-edit stub has
+        // no dictionaryProperty to track; promotion replaces the instance, so the flag
+        // starts false on the new instance and registration runs once).
+        public bool propertyTrackingRegistered;
+
+        // Empty stub used by GetOrCreate(..., isMultiEdit: true): only availableWidth is
+        // ever read. treeView stays null so isFullyInitialized returns false and the
+        // stub is promoted on a multi-edit → single-edit transition.
+        DrawerInstanceIMGUI()
+        {
+        }
+
+        // Full constructor: builds dictionaryProperty / arrayProperty, resolves type
+        // metadata, restores any persisted column fraction / sort order,
+        // builds the TreeView, and primes the deferred-work caches.
+        DrawerInstanceIMGUI(FieldInfo fieldInfo, SerializedProperty property)
+        {
+            m_FieldInfo = fieldInfo;
+
+            dictionaryProperty = property.Copy();
+
+            // The property's static type is the closed Dictionary<K,V> for *this* field/value, which
+            // for a nested dictionary differs from m_FieldInfo.FieldType (the outer field). Prefer it
+            // for the key/value types and layout lookup; fall back to the field type if unavailable.
+            ScriptAttributeUtility.GetFieldInfoAndStaticTypeFromProperty(property, out var dictionaryType);
+            var genericArgs = dictionaryType != null && dictionaryType.IsGenericType
+                ? dictionaryType.GetGenericArguments()
+                : GetDictionaryGenericArguments(m_FieldInfo);
+            keyType = genericArgs[0];
+            valueType = genericArgs[1];
+            keyHasCustomDrawer = ScriptAttributeUtility.GetDrawerTypeForType(keyType, null) != null;
+            valueHasCustomDrawer = ScriptAttributeUtility.GetDrawerTypeForType(valueType, null) != null;
+
+            GetHeaderLabels(m_FieldInfo, dictionaryType, out var keyLabel, out var valueLabel, out var keyFraction);
+            attributeKeyFraction = keyFraction;
+            attributeLayout = ResolveDefaultLayout(m_FieldInfo, dictionaryType);
+            valueLabelContent = new GUIContent(valueLabel);
+            var collectionLabel = GetNestedCollectionValueLabel(valueType);
+            if (collectionLabel != null)
+                valueCollectionLabel = new GUIContent(collectionLabel);
+            stateCacheKey = ComputeStateCacheKey(property.propertyPath);
+
+            float effectiveFraction = GetActiveKeyColumnFraction(stateCacheKey, keyFraction);
+            layout = GetActiveLayout(stateCacheKey, attributeLayout);
+            var cachedState = s_StateCache.GetState(stateCacheKey);
+            if (cachedState != null)
+                sortAscending = cachedState.sortAscending;
+
+            header = new DictionaryHeader(keyLabel, valueLabel, effectiveFraction, stateCacheKey);
+            treeViewState = new TreeViewState();
+
+            arrayProperty = GetArrayProperty(dictionaryProperty);
+            sortedIndices = SortedIndexMap.Build(arrayProperty, sortAscending);
+            lastKnownKeysHash = GetKeysContentHash(arrayProperty);
+            TryRefreshDuplicateAndNullKeyIndicesInto(dictionaryProperty, duplicateEntryIndices, nullKeyEntryIndices);
+
+            treeView = new DictionaryTreeView(this);
+
+            ClassifyRowHeights();
+
+            treeView.Reload();
+        }
+
+        // Returns a DrawerInstanceIMGUI for the property/container pair. When isMultiEdit
+        // is true the short-circuit path only needs availableWidth, so any existing entry
+        // (stub or full) is reused and a missing entry is filled with a fresh stub
+        // (all reference fields null, isFullyInitialized == false). When isMultiEdit is
+        // false the main drawing path is entered, so a cached stub is promoted to a
+        // fully-initialized instance via the full constructor while preserving its
+        // availableWidth — a multi-edit → single-edit transition therefore does not
+        // reset the cached width.
+        //
+        // imguiContainer is resolved once at the OnGUI / GetPropertyHeight entry point
+        // and passed down so the IMGUIContainer.GetCurrentIMGUIContainer() call site
+        // stays visible there; this method assumes it is non-null.
+        public static DrawerInstanceIMGUI GetOrCreate(DictionaryDrawer drawer, SerializedProperty property, IMGUIContainer imguiContainer, bool isMultiEdit)
+        {
+            var key = BuildPropertyCacheKey(property, imguiContainer);
+
+            bool hadPriorEntry = s_Cache.TryGetValue(key, out var instance);
+            if (hadPriorEntry && (isMultiEdit || instance.isFullyInitialized))
+                return instance;
+
+            float preservedWidth = instance?.availableWidth ?? 0f;
+            instance = isMultiEdit
+                ? new DrawerInstanceIMGUI()
+                : new DrawerInstanceIMGUI(drawer.fieldInfo, property);
+            instance.availableWidth = preservedWidth;
+            instance.imguiContainer = imguiContainer;
+            s_Cache[key] = instance;
+
+            if (!hadPriorEntry)
+                RegisterCacheEvictionOnDetach(imguiContainer, key);
+
+            // Bind a property-change listener on the IMGUIContainer so any inspector
+            // showing this dictionary re-sorts and refreshes its key warning markers when
+            // the SerializedObject is mutated elsewhere (e.g. a key edit in a second
+            // inspector pinned to the same target). Stubs (multi-edit) have no
+            // dictionaryProperty to track, so we only register on fully-initialized
+            // instances; promotion from stub to full replaces the instance, so the flag
+            // starts false on the new instance and registration runs once.
+            if (!isMultiEdit
+                && !instance.propertyTrackingRegistered
+                && instance.dictionaryProperty != null)
+            {
+                instance.RegisterPropertyChangeTracking();
+                instance.propertyTrackingRegistered = true;
+            }
+
+            return instance;
+        }
+
+        public static float GetPropertyHeight(DictionaryDrawer drawer, SerializedProperty property, GUIContent label)
+        {
+            if (!property.isExpanded)
+                return EditorGUIUtility.singleLineHeight;
+
+            // Invariant: size is only ever computed inside an OnGUI pass, so an IMGUIContainer
+            // is always on the stack here. The deferred reload (delayCall / update) rebuilds row
+            // *structure* but never measures, so it can't reach this from a container-less
+            // context — including a nested dictionary's GetPropertyHeight queried via the parent
+            // drawer's row measurement, which now runs on the parent's OnGUI Layout pass.
+            var imguiContainer = IMGUIContainer.GetCurrentIMGUIContainer();
+            Debug.Assert(imguiContainer != null, Texts.ExpectedCurrentContainerMessage);
+
+            // Reserved height for the multi-edit HelpBox depends on the real content width, which we
+            // only know after OnGUI has run at least once. On the first frame we reserve just the
+            // foldout; OnGUI will cache the width into instance.availableWidth and request a repaint
+            // so the next frame reserves and draws the HelpBox with matching heights.
+            if (IsEditingMultipleObjects(property))
+            {
+                var stub = GetOrCreate(drawer, property, imguiContainer, isMultiEdit: true);
+                return stub.availableWidth > 0f
+                    ? EditorGUIUtility.singleLineHeight + 2f
+                        + CalcHelpBoxHeight(Texts.MultiEditUnsupportedMessage, MessageType.Info, stub.availableWidth)
+                    : EditorGUIUtility.singleLineHeight;
+            }
+
+            var instance = GetOrCreate(drawer, property, imguiContainer, isMultiEdit: false);
+            return instance.GetExpandedPropertyHeight();
+        }
+
+        public static void OnGUI(DictionaryDrawer drawer, Rect position, SerializedProperty property, GUIContent label)
+        {
+            var imguiContainer = IMGUIContainer.GetCurrentIMGUIContainer();
+            Debug.Assert(imguiContainer != null, Texts.ExpectedCurrentContainerMessage);
+
+            bool isMultiEdit = IsEditingMultipleObjects(property);
+            var instance = GetOrCreate(drawer, property, imguiContainer, isMultiEdit);
+            instance.OnGUI(position, property, label, isMultiEdit);
+        }
+
+        public bool HasFocus()
+        {
+            return treeView != null && treeView.HasFocus();
+        }
+
+        float GetExpandedPropertyHeight()
+        {
+            // Row heights are measured only on the OnGUI Layout pass, where an IMGUIContainer is
+            // guaranteed (the inspector calls GetPropertyHeight from its own OnGUI). The deferred
+            // reload rebuilds row *structure* and classifies cells, but never measures: measuring
+            // a custom-drawer cell (e.g. a nested dictionary) calls into that drawer's
+            // GetPropertyHeight, which needs the container. We measure here and let
+            // RefreshCustomRowHeights cache it so the Repaint / event passes of the same frame
+            // read a consistent total.
+            //
+            // For variable-height rows we measure *every* row, not just a sample: with custom row
+            // heights the TreeView's scroll view clamps scrollPos to (totalHeight - viewport)
+            // each frame, so a totalHeight that keeps changing as rows are lazily measured would
+            // repeatedly clamp the scroll and walk it away from a framed position. Measuring all
+            // rows once makes totalHeight exact and stable, so framing (and the scrollbar) hold.
+            MeasureRowHeightsIfNeeded();
+            
+            ApplyPendingFrameIfReady();
+
+            return GetHeightAroundRows() + GetRowsAreaHeight();
+        }
+
+        float GetHeightAroundRows()
+        {
+            // The help box is reserved with its margins; HasIgnoredHelpBox reports the box
+            // alone, since that is what DrawIgnoredHelpBox needs for the rect it draws into.
+            float heightOfHelpboxAndMargins = 0f;
+            if (HasIgnoredHelpBox(out float helpboxHeight, out _))
+                heightOfHelpboxAndMargins = Styles.k_IgnoredHelpBoxTopMargin + helpboxHeight + Styles.k_IgnoredHelpBoxBottomMargin;
+
+            return EditorGUIUtility.singleLineHeight
+                + header.height
+                + Styles.k_BoxBottomBorder
+                + Styles.k_FooterHeight + Styles.k_FooterSpacing
+                + heightOfHelpboxAndMargins;
+        }
+
+        float GetRowsAreaHeight()
+        {
+            if (displayedItemCount == 0)
+                return EditorGUIUtility.singleLineHeight + Styles.k_EmptyRowsAreaPadding;
+
+            return Mathf.Min(treeView.totalHeight, GetMaxRowsAreaHeight());
+        }
+
+        // GUI.BeginScrollView takes its scroll range from the rect it is given, so in a host that
+        // cannot scroll, rows below the part of that rect it can show would be unreachable. (UUM-149490)
+        float GetMaxRowsAreaHeight()
+        {
+            if (hostRoomForRows <= 0f)
+                return Styles.k_TreeViewHeight;
+
+            return Mathf.Clamp(hostRoomForRows - GetHeightAroundRows(),
+                EditorGUIUtility.singleLineHeight, Styles.k_TreeViewHeight);
+        }
+
+        // An enclosing IMGUI scroll view counts too: a nested dictionary sits inside the outer
+        // list's, and clamping it there would tie its height to the outer scroll position.
+        bool HostCanScroll()
+            => GUI.GetTopScrollView() != null
+            || imguiContainer?.GetFirstAncestorOfType<ScrollView>() != null;
+
+        void MeasureRowHeightsIfNeeded()
+        {
+            if (Event.current.type == EventType.Layout && displayedItemCount > 0 && needsHeightMeasure)
+            {
+                needsHeightMeasure = false;
+                if (variableRowHeight)
+                    treeView.MeasureAllRowHeights();
+                else if (hasStaticInlineHeight)
+                    treeView.ComputeFixedInlineRowHeight();
+                treeView.RefreshCustomRowHeights();
+            }
+
+            if ((dynamicRowHeight || hasStaticInlineHeight) && displayedItemCount > 0 && needsHeightRefresh)
+            {
+                treeView.RefreshCustomRowHeights();
+                needsHeightRefresh = false;
+            }
+        }
+
+        // Apply a deferred frame request (e.g. a newly added row) once row heights are settled —
+        // after MeasureRowHeightsIfNeeded has run on this Layout pass — so the scroll uses final
+        // row rects instead of the pre-measurement estimate. Repaint so the scroll position the
+        // frame sets is rendered.
+        void ApplyPendingFrameIfReady()
+        {
+            if (pendingFrameDisplayIndex < 0 || Event.current.type != EventType.Layout || needsHeightMeasure || needsHeightRefresh)
+                return;
+
+            if (pendingFrameDisplayIndex < displayedItemCount)
+            {
+                treeView.FrameItem(pendingFrameDisplayIndex);
+                HandleUtility.Repaint();
+            }
+            pendingFrameDisplayIndex = -1;
+        }
+
+        // True when the ignored-entries help box is rendered: something to report, and the content
+        // width is known (it is sampled from the first Repaint — see UpdateAvailableWidth). The
+        // height and the draw both go through here, so a block can't be drawn without being
+        // reserved, which would land it outside the drawer's rect and over the rest of the inspector.
+        bool HasIgnoredHelpBox(out float height, out string text)
+        {
+            height = 0f;
+            text = null;
+            int duplicateCount = duplicateEntryIndices.Count;
+            int nullKeyCount = nullKeyEntryIndices.Count;
+            if (duplicateCount + nullKeyCount == 0 || availableWidth <= 0f)
+                return false;
+
+            text = Texts.GetIgnoredHelpBoxText(duplicateCount, nullKeyCount);
+            height = DrawerEditorGUI.GetHelpBoxWithButtonHeight(MessageType.Warning, text, availableWidth);
+            return true;
+        }
+
+        void OnGUI(Rect position, SerializedProperty property, GUIContent label, bool isMultiEdit)
+        {
+            UpdateAvailableWidth(position);
+            RepaintIfNeeded();
+
+            // Only Repaint carries the drawer's final rect; a Layout pass hands out a dummy one.
+            if (Event.current.type == EventType.Repaint)
+                hostRoomForRows = HostCanScroll() ? 0f : GUIClip.visibleRect.yMax - position.y;
+
+            var foldoutRect = new Rect(position.x, position.y, position.width, EditorGUIUtility.singleLineHeight);
+
+            if (isMultiEdit)
+            {
+                // Multi-edit isn't supported because the sort order can't be reconciled across
+                // multiple targets; we render only the foldout + HelpBox. The HelpBox is drawn
+                // outside the BeginProperty scope so it doesn't pick up the array-level bold
+                // default font.
+                EditorGUI.BeginProperty(foldoutRect, label, property);
+                try
+                {
+                    property.isExpanded = EditorGUI.Foldout(foldoutRect, property.isExpanded, label, true);
+                }
+                finally
+                {
+                    EditorGUI.EndProperty();
+                }
+                DrawMultiEditHelpBoxIfExpanded(position, foldoutRect, property);
+                return;
+            }
+
+            SyncWithDictionaryViewState();
+
+            // Pick up external array-size changes (Undo, script, prefab apply, etc.)
+            // before drawing so the row-count text in the foldout reflects them this
+            // frame. The actual rebuild is deferred to PerformReload between OnGUI
+            // passes; until then we keep drawing with the previous sortedIndices /
+            // displayedItemCount and TryGetEntryProperties guards row access so a
+            // shrunk array can't throw.
+            ScheduleReloadIfArrayChanged();
+
+            // Always-visible foldout row (label + item-count / duplicates marker).
+            EditorGUI.BeginProperty(foldoutRect, label, property);
+            try
+            {
+                DrawFoldoutHeader(foldoutRect, property, label);
+            }
+            finally
+            {
+                EditorGUI.EndProperty();
+            }
+
+            if (!property.isExpanded)
+            {
+                // Drop any queued duplicate request — Cmd+D issued just before the
+                // user collapsed the foldout would otherwise replay on next expand.
+                needsDuplicate = false;
+                return;
+            }
+
+            MeasureRowHeightsIfNeeded();
+
+            // Expanded body: Two column header, rows (or empty label), footer and help box
+            DrawExpandedBody(position, foldoutRect.yMax, property);
+        }
+
+        static PropertyCacheKey BuildPropertyCacheKey(SerializedProperty property, IMGUIContainer imguiContainer)
+        {
+            return new PropertyCacheKey(
+                property.propertyPath,
+                property.serializedObject.targetObject.GetEntityId(),
+                imguiContainer.controlid
+                );
+        }
+
+        static void RegisterCacheEvictionOnDetach(IMGUIContainer imguiContainer, PropertyCacheKey key)
+        {
+            var capturedKey = key;
+            imguiContainer.RegisterCallback<DetachFromPanelEvent>(_ =>
+            {
+                // Stop any in-flight interaction check first; its handler closes over the
+                // instance and would otherwise keep it (and its captured SerializedProperty)
+                // alive past the inspector that produced it.
+                if (s_Cache.TryGetValue(capturedKey, out var cachedInstance))
+                    cachedInstance.StopInteractionCheck();
+                s_Cache.Remove(capturedKey);
+            });
+        }
+
+        // The TrackPropertyValue callback fires from the panel's binding updater for
+        // every container watching this property — including ones whose IMGUI input
+        // flow never saw the change (a second inspector pinned to the same target),
+        // and crucially also for value-only edits that can't change the sort order
+        // or the duplicate set. We deliberately do NOT compute the keys-content
+        // hash here: the callback can fire many times per frame (e.g. dragging a
+        // slider in a value field) and ScheduleDeferredStructuralWork already
+        // coalesces those bursts into a single deferred pass. The hash is computed
+        // once per pass inside RunDeferredStructuralWork, which then decides
+        // whether to commit to the full O(n log n) sort + treeView.Reload or to
+        // skip the work entirely.
+        void RegisterPropertyChangeTracking()
+        {
+            imguiContainer.TrackPropertyValue(dictionaryProperty, _ =>
+            {
+                if (!IsAlive())
+                    return;
+
+                needsReload = true;
+                ScheduleDeferredStructuralWork();
+
+                // Force this container to repaint so OnGUI runs and consumes the
+                // refreshed sortedIndices / duplicateEntryIndices that
+                // RunDeferredStructuralWork will produce. Without this, an unfocused
+                // inspector wouldn't repaint until the user hovered or clicked it.
+                imguiContainer?.MarkDirtyRepaint();
+            });
+        }
+
+        // The instance and its captured properties can outlive the inspector that produced
+        // them when a delayCall is in flight (e.g. user closes the inspector window or
+        // triggers a domain reload between request and run). Detect those cases up front
+        // so the deferred Perform* methods can assume valid inputs.
+        bool IsAlive()
+        {
+            if (dictionaryProperty == null)
+                return false;
+            try
+            {
+                var so = dictionaryProperty.serializedObject;
+                return so != null && so.targetObject != null;
+            }
+            catch
+            {
+                // SerializedObject can throw on access after disposal; treat as dead.
+                return false;
+            }
+        }
+
+        void ClearAllPendingFlags()
+        {
+            needsReload = false;
+            needsSortOrderRebuild = false;
+            needsLayoutChange = false;
+            needsMarkerRefresh = false;
+            pendingSortToggle = false;
+            pendingSortToggleSelectionArrayIndices = null;
+            StopInteractionCheck();
+        }
+
+        public void InvalidateSortOrder()
+        {
+            needsReload = true;
+            needsSortOrderRebuild = true;
+            ScheduleDeferredStructuralWork();
+        }
+
+        // Detect external array-size changes and (re-)arm the deferred reload.
+        // needsReload may already be set by a TrackPropertyValue notification; the
+        // OR keeps that pending request scheduled even on a frame where the size
+        // happens to match the cached value.
+        void ScheduleReloadIfArrayChanged()
+        {
+            int currentSize = arrayProperty.arraySize;
+            if (currentSize == displayedItemCount && !needsReload)
+                return;
+
+            needsReload = true;
+            ScheduleDeferredStructuralWork();
+        }
+
+        // Sibling dictionaries (elements sharing a normalized stateCacheKey) share one persisted
+        // DictionaryState. UITK links live views and pushes; IMGUI is immediate-mode, so each
+        // instance instead pulls the shared state each frame and applies any divergence. Structural
+        // changes (sort/layout) are deferred like every other reload; the column fraction is a pure
+        // draw-time value, so it's applied inline. StateCache hands back the same DictionaryState
+        // instance to every sibling, so a resize drag mutating that object in-memory (see
+        // HandleResize) is picked up here without a per-frame disk write.
+        void SyncWithDictionaryViewState()
+        {
+            // Only re-read when shared state changed; a default dictionary would otherwise run GetState -> File.Exists every event.
+            if (m_CachedStateVersion != StateVersion)
+            {
+                m_CachedViewState = GetCachedState(stateCacheKey);
+                m_CachedStateVersion = StateVersion;
+            }
+            var state = m_CachedViewState;
+
+            bool cachedSortAscending = state?.sortAscending ?? true;
+            if (cachedSortAscending != sortAscending && !pendingSortToggle)
+            {
+                sortAscending = cachedSortAscending;
+                needsReload = true;
+                needsSortOrderRebuild = true;
+                ScheduleDeferredStructuralWork();
+            }
+
+            var effectiveLayout = GetActiveLayout(state, attributeLayout);
+            if (effectiveLayout != layout)
+            {
+                layout = effectiveLayout;
+                needsLayoutChange = true;
+                ScheduleDeferredStructuralWork();
+            }
+
+            float effectiveFraction = GetActiveKeyColumnFraction(state, attributeKeyFraction);
+            if (!Mathf.Approximately(header.column1Fraction, effectiveFraction))
+            {
+                header.column1Fraction = effectiveFraction;
+                imguiContainer?.MarkDirtyRepaint();
+            }
+        }
+
+        // Coalescing entry point for every structural mutation. Caller flips a pending flag
+        // (or fills a snapshot) on the instance and then calls this; we register at most one
+        // EditorApplication.delayCall per instance per "burst", regardless of how many flags
+        // get set in the same OnGUI pass.
+        void ScheduleDeferredStructuralWork()
+        {
+            if (deferredWorkScheduled)
+                return;
+
+            deferredWorkScheduled = true;
+            EditorApplication.delayCall += RunDeferredStructuralWork;
+        }
+
+        // Set by RepaintForHeightChange, consumed on the next Repaint pass.
+        bool m_NeedsFollowUpRepaint;
+
+        // Use instead of MarkDirtyRepaint when the height from GetPropertyHeight changes with no
+        // user event left to settle the layout (deferred structural work, context-menu actions,
+        // first width sample). Two repaints are needed: whoever lays us out from a cached height
+        // — an enclosing ReorderableList, the IMGUIContainer's measured layout — only notices
+        // while repainting and drops the stale value after drawing that frame, so the first
+        // repaint lands against the old geometry and the second comes out right. Same reason
+        // moving the mouse over the Inspector fixes it.
+        void RepaintForHeightChange()
+        {
+            m_NeedsFollowUpRepaint = true;
+            imguiContainer?.MarkDirtyRepaint();
+        }
+
+        // Chained from a Repaint pass rather than requested up front, so it cannot be coalesced
+        // into the repaint RepaintForHeightChange already asked for.
+        void RepaintIfNeeded()
+        {
+            if (!m_NeedsFollowUpRepaint || Event.current.type != EventType.Repaint)
+                return;
+
+            m_NeedsFollowUpRepaint = false;
+            HandleUtility.Repaint();
+        }
+
+        // Installs a single EditorApplication.update handler that re-checks the
+        // EditorInteractionMonitor gate every k_InteractionCheckIntervalSeconds. Only one
+        // handler is registered per instance at a time; subsequent calls are no-ops while
+        // the check is active (the existing handler already covers the new request because
+        // needsReload remains set). The handler holds a strong ref to the instance through
+        // the closure, so StopInteractionCheck must be called on container detach to avoid
+        // keeping a dead inspector's instance alive.
+        void StartInteractionCheck()
+        {
+            if (interactionCheckHandler != null)
+                return;
+
+            nextInteractionCheckTime = EditorApplication.timeSinceStartup + k_SortRetryDelayMs * 1000.0;
+            interactionCheckHandler = RunInteractionCheck;
+            EditorApplication.update += interactionCheckHandler;
+        }
+
+        void StopInteractionCheck()
+        {
+            if (interactionCheckHandler == null)
+                return;
+
+            EditorApplication.update -= interactionCheckHandler;
+            interactionCheckHandler = null;
+        }
+
+        void RunInteractionCheck()
+        {
+            if (EditorApplication.timeSinceStartup < nextInteractionCheckTime)
+                return;
+
+            nextInteractionCheckTime = EditorApplication.timeSinceStartup + k_SortRetryDelayMs * 1000.0;
+
+            if (!IsAlive())
+            {
+                StopInteractionCheck();
+                ClearAllPendingFlags();
+                return;
+            }
+
+            if (!EditorInteractionMonitor.IsReadyToApplyDeferredChanges(null))
+                return;
+
+            // Gate is open — hand off to the normal deferred path. RunDeferredStructuralWork
+            // will re-call StopInteractionCheck once it actually performs the reload, but
+            // we also stop here so a second check tick can't slip in before the delayCall runs.
+            StopInteractionCheck();
+            ScheduleDeferredStructuralWork();
+        }
+
+        // Runs strictly between OnGUI passes. Order matters: sort toggle runs first
+        // because it rebuilds sortedIndices wholesale, which makes a subsequent gated
+        // reload either a no-op or correctly idempotent; needsReload then
+        // needsMarkerRefresh follow in decreasing structural impact. The
+        // interaction gate only applies to needsReload — SortToggle originates from
+        // an explicit user click that is itself the interaction, so re-arming would
+        // just spin.
+        void RunDeferredStructuralWork()
+        {
+            // Reset the coalescing flag first so any new request that arrives while
+            // we're running schedules a fresh delayCall instead of being dropped.
+            deferredWorkScheduled = false;
+
+            if (!IsAlive())
+            {
+                ClearAllPendingFlags();
+                return;
+            }
+
+            bool needsRepaint = false;
+
+            if (needsLayoutChange)
+            {
+                needsLayoutChange = false;
+                ClassifyRowHeights();
+                treeView.Reload();
+                needsRepaint = true;
+            }
+
+            if (pendingSortToggle)
+            {
+                PerformSortToggle();
+                pendingSortToggle = false;
+                pendingSortToggleSelectionArrayIndices = null;
+                needsRepaint = true;
+            }
+
+            if (needsReload)
+            {
+                int currentSize = arrayProperty.arraySize;
+                bool sizeChanged = currentSize != displayedItemCount;
+                bool keysChanged = sizeChanged || needsSortOrderRebuild || GetKeysContentHash(arrayProperty) != lastKnownKeysHash;
+
+                if (!keysChanged)
+                {
+                    // Pure value-only edit. Duplicates are determined solely by key
+                    // content, so a same-hash refresh would also be a no-op.
+                    needsReload = false;
+                    needsMarkerRefresh = false;
+                    StopInteractionCheck();
+                }
+                else if (EditorInteractionMonitor.IsReadyToApplyDeferredChanges(null))
+                {
+                    PerformReload();
+                    needsReload = false;
+                    // A full reload also recomputes both marker sets, so a pending
+                    // marker-only refresh is subsumed and can be cleared.
+                    needsMarkerRefresh = false;
+                    needsSortOrderRebuild = false;
+                    needsRepaint = true;
+                    StopInteractionCheck();
+                }
+                else
+                {
+                    // Interaction is in flight (text edit, hot control, picker open) so
+                    // start a EditorApplication.update handler that checks when
+                    // the user is done editing at a coarse interval and re-enters
+                    // ScheduleDeferredStructuralWork once the gate opens. The marker
+                    // refresh below still runs ungated so the per-row key warning
+                    // icons and the "X ignored" count keep updating live as the
+                    // user types.
+                    needsMarkerRefresh = true;
+                    StartInteractionCheck();
+                }
+            }
+
+            if (needsMarkerRefresh)
+            {
+                needsMarkerRefresh = false;
+                if (TryRefreshDuplicateAndNullKeyIndicesInto(dictionaryProperty, duplicateEntryIndices, nullKeyEntryIndices))
+                    needsRepaint = true;
+            }
+
+            // Every branch above changes our height: the row set (reload / sort / layout) or the
+            // ignored-entries help box (marker refresh), so this needs a re-layout, not a repaint.
+            if (needsRepaint)
+                RepaintForHeightChange();
+        }
+
+        static bool IsGenericInlineType(Type type, bool hasCustomDrawer)
+        {
+            if (type == null || hasCustomDrawer)
+                return false;
+            if (type.IsPrimitive || type == typeof(string) || type.IsEnum || typeof(UnityEngine.Object).IsAssignableFrom(type))
+                return false;
+            return true;
+        }
+
+        // True for a key/value type whose cell can render taller than a single line, so the
+        // row height must be derived from the property instead of using the default
+        // single-line height. Covers two cases the row classifier must treat alike:
+        //   - generic inline compounds (struct/class drawn by expanding their children), and
+        //   - types with a custom PropertyDrawer, which can be multi-line and/or expandable
+        //     (e.g. a nested Dictionary<,>). The bare IsGenericInlineType check excludes the
+        //     latter, which is why a nested dictionary value otherwise collapses to a single
+        //     row line and the nested drawer overlaps the rows below it.
+        // Simple single-line types (primitive, string, enum, Object reference) return false.
+        static bool IsComplexCellType(Type type, bool hasCustomDrawer)
+        {
+            if (type == null)
+                return false;
+            return hasCustomDrawer || IsGenericInlineType(type, false);
+        }
+
+        // Whether a cell's rendered height can change after the initial layout, which forces
+        // per-row lazy height tracking instead of a single fixed row height. A custom-drawer cell
+        // is always treated as dynamic because the drawer can expand (foldout) or resize at
+        // runtime (e.g. a nested Dictionary<,>) and its height at classification time — while
+        // collapsed — is not representative. An array/list cell is likewise dynamic: it has a
+        // foldout and a resizable element count. A generic inline compound is dynamic only when
+        // it contains expandable children.
+        static bool CellHeightCanChange(SerializedProperty prop, bool hasCustomDrawer)
+        {
+            if (hasCustomDrawer)
+                return true;
+            if (prop != null && prop.isArray)
+                return true;
+            return HasExpandableChildren(prop);
+        }
+
+        static bool HasExpandableChildren(SerializedProperty prop)
+        {
+            if (prop == null || !prop.isValid || prop.propertyType != SerializedPropertyType.Generic)
+                return false;
+
+            // Walk only visible children so [HideInInspector] members do not influence
+            // the row-height classification (they are not rendered, so they must not
+            // promote the row to dynamic-height either).
+            var end = prop.GetEndProperty();
+            var child = prop.Copy();
+            child.unsafeMode = true;
+            if (!child.NextVisible(true))
+                return false;
+
+            while (!SerializedProperty.EqualContents(child, end))
+            {
+                if (child.propertyType == SerializedPropertyType.Generic && child.hasVisibleChildren)
+                    return true;
+                if (!child.NextVisible(false))
+                    break;
+            }
+            return false;
+        }
+
+        void ClassifyRowHeights()
+        {
+            needsHeightClassification = false;
+
+            dynamicRowHeight = false;
+            variableRowHeight = false;
+            hasStaticInlineHeight = false;
+
+            // OneColumnWithValueFoldout: the per-row foldout is toggled at runtime, which changes
+            // the row height each time it expands/collapses, so these rows are always dynamic
+            // regardless of the key/value types — no element needs to be inspected.
+            if (useValueFoldouts)
+            {
+                dynamicRowHeight = true;
+                variableRowHeight = true;
+                needsHeightMeasure = true;
+                return;
+            }
+
+            bool keyIsComplex = IsComplexCellType(keyType, keyHasCustomDrawer);
+            bool valueIsComplex = IsComplexCellType(valueType, valueHasCustomDrawer);
+
+            // Simple key and value: every row is the same fixed height. Flag it static so
+            // ComputeFixedInlineRowHeight recomputes the shared rowHeight on each switch,
+            // keeping it correct for the current layout.
+            if (!keyIsComplex && !valueIsComplex)
+            {
+                hasStaticInlineHeight = true;
+                needsHeightMeasure = true;
+                return;
+            }
+
+            // A complex cell's height depends on the actual element, which can only be inspected
+            // once one exists. Callers classify eagerly — including on an empty dictionary, so the
+            // layout is ready before the first add — so defer the per-element analysis until the
+            // first entry exists.
+            if (displayedItemCount == 0)
+            {
+                needsHeightClassification = true;
+                return;
+            }
+
+            var element = arrayProperty.GetArrayElementAtIndex(0);
+            GetKeyAndValueProperties(element, out var keyProp, out var valueProp);
+            bool keyDynamic = keyIsComplex && CellHeightCanChange(keyProp, keyHasCustomDrawer);
+            bool valueDynamic = valueIsComplex && CellHeightCanChange(valueProp, valueHasCustomDrawer);
+
+            dynamicRowHeight = keyDynamic || valueDynamic;
+            variableRowHeight = dynamicRowHeight;
+            hasStaticInlineHeight = !dynamicRowHeight;
+
+            // Classification only decides the row-height *kind*. The actual measurement
+            // (fixed inline height or variable estimate) runs on the next OnGUI Layout pass —
+            // see GetExpandedPropertyHeight — so this stays safe to call from the deferred reload.
+            needsHeightMeasure = true;
+        }
+
+        // Calculates the rendered height of an EditorGUI.HelpBox(rect, message, type) at a given width
+        // without entering GUILayout. Matches the (GUI.Label + EditorStyles.helpBox) path used by
+        // EditorGUI.HelpBox, so the returned height is pixel-accurate for the same input.
+        static float CalcHelpBoxHeight(string message, MessageType messageType, float width)
+        {
+            var content = EditorGUIUtility.TempContent(message, EditorGUIUtility.GetHelpIcon(messageType));
+            return EditorStyles.helpBox.CalcHeight(content, width);
+        }
+
+        // Caches the inspector-provided width on the instance so GetPropertyHeight can
+        // reserve space for width-dependent content (e.g. the multi-edit HelpBox) on the
+        // next frame. Only Repaint events carry the final, drawable rect; Layout events
+        // may pass a dummy width (e.g. 1 px) that would poison the cache.
+        void UpdateAvailableWidth(Rect position)
+        {
+            if (Event.current.type != EventType.Repaint || position.width <= 1f)
+                return;
+            if (availableWidth == position.width)
+                return;
+
+            bool wasUnknown = availableWidth <= 0f;
+            availableWidth = position.width;
+
+            // First valid width sample: the width-dependent blocks (multi-edit / ignored-entries
+            // help boxes) reserve and draw nothing until now, so re-layout to pick them up.
+            if (wasUnknown)
+                RepaintForHeightChange();
+        }
+
+        // Multi-edit fallback: the dictionary drawer can't merge two TreeViews / sort
+        // orders, so when more than one target is selected we render only a foldout with
+        // an explanatory HelpBox in place of the rows. The HelpBox is drawn outside the
+        // foldout's BeginProperty scope by the OnGUI caller so it doesn't pick up the
+        // array-level bold default font. Width-dependent height is computed off the
+        // cached availableWidth so GetPropertyHeight matches what we draw here.
+        void DrawMultiEditHelpBoxIfExpanded(Rect position, Rect foldoutRect, SerializedProperty property)
+        {
+            if (!property.isExpanded || availableWidth <= 0f)
+                return;
+
+            float helpHeight = CalcHelpBoxHeight(Texts.MultiEditUnsupportedMessage, MessageType.Info, position.width);
+            var helpRect = new Rect(position.x, foldoutRect.yMax + 2f, position.width, helpHeight);
+            EditorGUI.HelpBox(helpRect, Texts.MultiEditUnsupportedMessage, MessageType.Info);
+        }
+
+        void DrawExpandedBody(Rect position, float startY, SerializedProperty property)
+        {
+            float headerH = header.height;
+            float contentH = GetRowsAreaHeight();
+
+            float y = startY;
+
+            // Backgrounds first so the column header / rows draw on top.
+            if (Event.current.type == EventType.Repaint)
+            {
+                var headerRect = new Rect(position.x, y, position.width, headerH);
+                var contentRect = new Rect(position.x, y + headerH, position.width, contentH + Styles.k_BoxBottomBorder);
+                Styles.headerBackground.Draw(headerRect, false, false, false, false);
+                Styles.boxBackground.Draw(contentRect, false, false, false, false);
+            }
+
+            // Column header (key / value labels, sort arrow, resize handle).
+            var headerContentRect = new Rect(position.x + 1, y, position.width - 2, headerH);
+            header.OnGUI(headerContentRect, this);
+            y += headerH;
+
+            SetTreeViewFocusIfRequested();
+
+            // Rows (or "empty dictionary" placeholder when there are no entries).
+            if (displayedItemCount == 0)
+            {
+                var emptyRect = new Rect(position.x + Styles.k_EmptyLabelIndent, y, position.width - Styles.k_EmptyLabelIndent, contentH);
+                EditorGUI.LabelField(emptyRect, Texts.EmptyDictionaryLabel);
+                y += emptyRect.height;
+            }
+            else
+            {
+                var treeRect = new Rect(position.x + 1, y, position.width - 2, contentH);
+
+                SetTreeViewFocusOnMouseEvents(treeRect);
+
+                treeView.OnGUI(treeRect);
+                y += contentH;
+            }
+            y += Styles.k_BoxBottomBorder;
+
+            // Cmd+D / context-menu duplicate is queued during the TreeView OnGUI and
+            // flushed here, after the rows have already drawn for this frame so we
+            // don't shift control IDs underneath the in-flight event.
+            if (needsDuplicate)
+            {
+                needsDuplicate = false;
+                AddEntry();
+            }
+
+            // Footer (+ / − buttons) sits below the box, separated by k_FooterSpacing.
+            var footerRect = new Rect(position.x, y + Styles.k_FooterSpacing - 1f, position.width, Styles.k_FooterHeight);
+            DrawFooter(footerRect, property);
+
+            if (HasIgnoredHelpBox(out float helpBoxHeight, out var helpBoxText))
+                DrawIgnoredHelpBox(position, footerRect.yMax, helpBoxHeight, helpBoxText);
+        }
+
+        void DrawIgnoredHelpBox(Rect position, float startY, float helpBoxHeight, string helpBoxText)
+        {
+            float helpBoxY = startY + Styles.k_IgnoredHelpBoxTopMargin;
+            var helpBoxRect = new Rect(position.x, helpBoxY, position.width, helpBoxHeight);
+
+            if (DrawerEditorGUI.HelpBoxWithButton(helpBoxRect, MessageType.Warning, helpBoxText, Texts.SelectFirstIgnoredButtonLabel))
+                SelectFirstIgnored();
+        }
+
+        void SelectFirstIgnored()
+        {
+            if (treeView == null)
+                return;
+
+            int firstDisplayIndex = FindFirstIgnoredDisplayIndex(duplicateEntryIndices, nullKeyEntryIndices, sortedIndices);
+            if (firstDisplayIndex < 0)
+                return;
+
+            treeView.SetSelection(new[] { firstDisplayIndex }, TreeViewSelectionOptions.RevealAndFrame);
+            treeView.SetFocus();
+        }
+
+        void DrawFoldoutHeader(Rect rect, SerializedProperty property, GUIContent label)
+        {
+            int duplicateCount = duplicateEntryIndices?.Count ?? 0;
+            int nullKeyCount = nullKeyEntryIndices?.Count ?? 0;
+            int ignoredCount = duplicateCount + nullKeyCount;
+            int itemCount = displayedItemCount;
+
+            string infoText;
+            if (DictionaryDrawer.ShowSerializedOrder)
+            {
+                infoText = Texts.ShowingSerializedOrderInfoLabel;
+            }
+            else
+            {
+                infoText = Texts.GetItemCountText(itemCount);
+                if (ignoredCount > 0)
+                    infoText += Texts.GetIgnoredCountText(ignoredCount);
+            }
+
+            var infoSize = EditorStyles.miniLabel.CalcSize(new GUIContent(infoText));
+            var infoRect = new Rect(rect.xMax - infoSize.x - 4f, rect.y, infoSize.x, rect.height);
+
+            property.isExpanded = EditorGUI.Foldout(rect, property.isExpanded, label, true);
+            using (new EditorGUI.DisabledScope(true))
+                EditorGUI.LabelField(infoRect, infoText, EditorStyles.miniLabel);
+        }
+
+        void DrawFooter(Rect rect, SerializedProperty property)
+        {
+            float rightEdge = rect.xMax - 10f;
+            float leftEdge = rightEdge - 8f - Styles.k_FooterButtonWidth * 2;
+            var bgRect = new Rect(leftEdge, rect.y, rightEdge - leftEdge, rect.height);
+            var addRect = new Rect(leftEdge + 4, rect.y, Styles.k_FooterButtonWidth, 16);
+            var removeRect = new Rect(rightEdge - 29, rect.y, Styles.k_FooterButtonWidth, 16);
+
+            if (Event.current.type == EventType.Repaint)
+                Styles.footerBackground.Draw(bgRect, false, false, false, false);
+
+            if (GUI.Button(addRect, Styles.iconPlus, Styles.footerButton))
+            {
+                AddEntry();
+            }
+
+            var selection = treeView.GetSelection();
+            using (new EditorGUI.DisabledScope(arrayProperty.arraySize == 0))
+            {
+                if (GUI.Button(removeRect, Styles.iconMinus, Styles.footerButton))
+                {
+                    RemoveSelectedEntries();
+                }
+            }
+        }
+
+        void SetTreeViewFocusOnMouseEvents(Rect treeRect)
+        {
+            // TreeView focus grab on ScrollWheel. Must be called before the TreeView's OnGUI().
+            //
+            // This ends an in-progress cell text edit when the user wheel-scrolls the list and
+            // hands focus (and the blue selection outline) to the treeview itself: SetFocus moves
+            // keyboardControl to the treeview and clears EditorGUIUtility.editingTextField.
+            //
+            // Note it is intentionally NOT done for plain MouseDown. Scrolling culls rows that
+            // leave the visible area, but the cells' control ids are position-keyed and stay
+            // stable across culling, so a focused cell is never rerouted to a different row —
+            // grabbing focus on MouseDown would only steal it from the cell the user just clicked,
+            // breaking caret placement (first click selects all, second could never place the caret).
+            //
+            // OnOptimizedInspectorGUI(Rect contentRect) clears GUIUtility.keyboardControl
+            // = 0 even when we have treeview focus, so the !HasFocus() check is needed
+            // here too — without it SetFocus would no-op when the user is just panning
+            // over the treeview and we want the blue outline back.
+            if (Event.current.type == EventType.ScrollWheel
+                && treeRect.Contains(Event.current.mousePosition)
+                && !treeView.HasFocus())
+                treeView.SetFocus();
+        }
+
+        void SetTreeViewFocusIfRequested()
+        {
+            if (!needsTreeViewFocus)
+                return;
+            needsTreeViewFocus = false;
+            treeView.SetFocus();
+        }
+
+        static SerializedProperty GetArrayProperty(SerializedProperty dictionaryProperty)
+        {
+            var arrayProp = dictionaryProperty.Copy();
+            arrayProp.Next(true);
+            return arrayProp;
+        }
+
+        // Add and Remove run synchronously from the footer button click handlers
+        // (and from the Cmd+D path via needsDuplicate, processed after the
+        // TreeView OnGUI). Both call sites are reached after the TreeView has
+        // already drawn for the current frame, so mutating sortedIndices /
+        // the underlying array here cannot shift control IDs underneath an
+        // in-flight event for the rows that were just rendered. The next frame
+        // picks up the new state via the regular GetPropertyHeight → OnGUI cycle.
+        // Mirrors the immediate model used by the UITK drawer's OnAddClicked /
+        // OnRemoveClicked.
+        void AddEntry()
+        {
+            var selection = treeView.GetSelection();
+            int singleSelectedDisplayIndex = selection.Count == 1 ? selection[0] : -1;
+            int lastIndex = InsertOrDuplicateSelectedEntry(arrayProperty, sortedIndices, singleSelectedDisplayIndex);
+
+            sortedIndices = SortedIndexMap.Build(arrayProperty, sortAscending);
+            lastKnownKeysHash = GetKeysContentHash(arrayProperty);
+            TryRefreshDuplicateAndNullKeyIndicesInto(dictionaryProperty, duplicateEntryIndices, nullKeyEntryIndices);
+            if (needsHeightClassification)
+                ClassifyRowHeights();
+            treeView.Reload();
+
+            SelectAndFrameAfterRebuild(new[] { sortedIndices.ToDisplayIndex(lastIndex) });
+            treeView.SetFocus();
+        }
+
+        void RemoveSelectedEntries()
+        {
+            var selection = treeView.GetSelection();
+            int newSelectedDisplayIndex = selection.Count == 1 ? selection[0] : -1;
+
+            var removed = selection.Count > 0
+                ? RemoveEntriesAtDisplayIndices(arrayProperty, selection, sortedIndices)
+                : RemoveEntryAtDisplayIndex(arrayProperty, arrayProperty.arraySize - 1, sortedIndices);
+            if (!removed)
+                return;
+
+            sortedIndices = SortedIndexMap.Build(arrayProperty, sortAscending);
+            lastKnownKeysHash = GetKeysContentHash(arrayProperty);
+            TryRefreshDuplicateAndNullKeyIndicesInto(dictionaryProperty, duplicateEntryIndices, nullKeyEntryIndices);
+            treeView.Reload();
+
+            if (displayedItemCount <= 0 || newSelectedDisplayIndex < 0)
+            {
+                treeView.SetSelection(Array.Empty<int>());
+            }
+            else
+            {
+                int clampedSelection = Mathf.Min(newSelectedDisplayIndex, displayedItemCount - 1);
+                SelectAndFrameAfterRebuild(new[] { clampedSelection });
+                needsTreeViewFocus = true;
+            }
+        }
+
+        // Snapshots the selection-as-array-indices now so the deferred PerformSortToggle
+        // can restore the selection by array index after the displayIndex mapping flips.
+        void RequestSortToggle()
+        {
+            var prevSelection = treeView.GetSelection();
+            pendingSortToggleSelectionArrayIndices = MapSelectionToArrayIndices(prevSelection, sortedIndices);
+            pendingSortToggle = true;
+            ScheduleDeferredStructuralWork();
+        }
+
+        void PerformSortToggle()
+        {
+            sortAscending = !sortAscending;
+
+            // Rebuild from the array rather than reversing the cached map: the native
+            // sort keeps the array-index tiebreaker ascending in both directions so
+            // duplicates always render below their original; a plain Reverse would
+            // invert the tiebreaker and put the duplicate on top in descending mode.
+            sortedIndices = SortedIndexMap.Build(arrayProperty, sortAscending);
+            header.PersistSortOrder(sortAscending);
+            treeView.Reload();
+            RevealSelectionAfterSort(pendingSortToggleSelectionArrayIndices ?? Array.Empty<int>());
+            needsTreeViewFocus = true;
+        }
+
+        // This function does the heavy work of sorting + rebuilding the treeview.
+        // It is called outside OnGUI in an update code path to not mess with controlID
+        // allocations.
+        void PerformReload()
+        {
+            var prevSelection = treeView.GetSelection();
+            int[] selectedArrayIndices = MapSelectionToArrayIndices(prevSelection, sortedIndices);
+
+            int currentSize = arrayProperty.arraySize;
+            sortedIndices = SortedIndexMap.Build(arrayProperty, sortAscending);
+            lastKnownKeysHash = GetKeysContentHash(arrayProperty);
+            TryRefreshDuplicateAndNullKeyIndicesInto(dictionaryProperty, duplicateEntryIndices, nullKeyEntryIndices);
+            // Classification only sets flags (which cells are dynamic); it never measures, so it
+            // is safe here in the deferred (container-less) path. It must run before Reload so
+            // InitializeLazyHeights allocates per-row tracking for a dictionary that became
+            // dynamic on this reload (e.g. its first entry was just added). The measurement that
+            // depends on these flags is deferred to the OnGUI Layout pass (GetExpandedPropertyHeight).
+            if (needsHeightClassification && currentSize > 0)
+                ClassifyRowHeights();
+            treeView.Reload();
+            RevealSelectionAfterSort(selectedArrayIndices);
+
+            // New sorting: we need to remove keyboard focus from any property field
+            // that caused the sorting. Otherwise, it can end up on an unrelated field
+            // due to controlId allocation order. Also, we want to show the focused blue
+            // selection outline of the treeview to show the user where the changed row
+            // went to. Delay the focus change to a OnGUI code path for it to be picked up.
+            needsTreeViewFocus = true;
+        }
+
+        void RevealSelectionAfterSort(int[] selectedArrayIndices)
+        {
+            if (selectedArrayIndices.Length == 0)
+                return;
+
+            var newSelection = new List<int>(selectedArrayIndices.Length);
+            foreach (var arrayIdx in selectedArrayIndices)
+            {
+                // ContainsArrayIndex bounds-checks against the reverse map, which
+                // lines up with displayedItemCount because sortedIndices is always
+                // a full permutation of [0, displayedItemCount).
+                if (sortedIndices.ContainsArrayIndex(arrayIdx))
+                    newSelection.Add(sortedIndices.ToDisplayIndex(arrayIdx));
+            }
+            SelectAndFrameAfterRebuild(newSelection);
+        }
+
+        void SelectAndFrameAfterRebuild(IList<int> displayIndices)
+        {
+            if (displayIndices.Count == 0)
+                return;
+
+            treeView.SetSelection(displayIndices);
+            pendingFrameDisplayIndex = displayIndices[displayIndices.Count - 1];
+        }
+
+        void ResetToDefaults()
+        {
+            ClearCachedState(stateCacheKey);
+
+            sortAscending = true;
+            header.ResetToDefaultFraction(attributeKeyFraction);
+            // Cache was just cleared, so the active layout reverts to the attribute default.
+            layout = attributeLayout;
+
+            sortedIndices = SortedIndexMap.Build(arrayProperty, sortAscending);
+            lastKnownKeysHash = GetKeysContentHash(arrayProperty);
+            ClassifyRowHeights();
+            treeView.Reload();
+            RepaintForHeightChange();
+        }
+
+        // Single entry point for every layout change from the context menu. Persists the
+        // user's choice (layoutSetByUser) so it wins over the attribute default, then
+        // reclassifies row heights and reloads the tree.
+        void SetLayout(DictionaryLayout newLayout)
+        {
+            if (layout == newLayout)
+                return;
+            layout = newLayout;
+            UpdateCachedState(stateCacheKey, state =>
+            {
+                state.layout = newLayout;
+                state.layoutSetByUser = true;
+            });
+            ApplyLayoutModeChange();
+        }
+
+        void ApplyLayoutModeChange()
+        {
+            ClassifyRowHeights();
+            treeView.Reload();
+            RepaintForHeightChange();
+        }
+
+        static int[] MapSelectionToArrayIndices(IList<int> displayIndices, SortedIndexMap sortedIndices)
+        {
+            var result = new List<int>(displayIndices.Count);
+            foreach (var displayIdx in displayIndices)
+            {
+                if (displayIdx >= 0 && displayIdx < sortedIndices.Length)
+                    result.Add(sortedIndices.ToArrayIndex(displayIdx));
+            }
+            return result.ToArray();
+        }
+
+        public class DictionaryHeader
+        {
+            float m_Column1Fraction;
+            readonly int m_ResizeHandleControlID;
+            readonly int m_SortToggleControlID;
+            readonly Hash128 m_StateCacheKey;
+            readonly GUIContent m_KeyLabel;
+            readonly GUIContent m_ValueLabel;
+            // One-column mode stacks key over value, so the single header spans both.
+            readonly GUIContent m_OneColumnLabel;
+
+            public float height => EditorGUIUtility.singleLineHeight + 2f;
+            public bool HasCachedState => DictionaryDrawer.HasCachedState(m_StateCacheKey);
+
+            public float column1Fraction
+            {
+                get => m_Column1Fraction;
+                set => m_Column1Fraction = value;
+            }
+
+            public DictionaryHeader(string keyLabel, string valueLabel, float initialFraction, Hash128 stateCacheKey)
+            {
+                m_KeyLabel = new GUIContent(keyLabel);
+                m_ValueLabel = new GUIContent(valueLabel);
+                m_OneColumnLabel = new GUIContent(Texts.GetOneColumnHeaderLabel(keyLabel, valueLabel));
+                m_Column1Fraction = initialFraction;
+                m_ResizeHandleControlID = GUIUtility.GetPermanentControlID();
+                m_SortToggleControlID = GUIUtility.GetPermanentControlID();
+                m_StateCacheKey = stateCacheKey;
+            }
+
+            public void OnGUI(Rect rect, DrawerInstanceIMGUI instance)
+            {
+                var evt = Event.current;
+                if (evt.type == EventType.MouseDown && rect.Contains(evt.mousePosition) && instance.treeView != null)
+                {
+                    instance.treeView.SetFocus();
+                }
+
+                if (instance.oneColumnMode)
+                {
+                    DrawOneColumnHeader(rect, instance);
+                    HandleContextMenu(rect, instance);
+                    HandleSortToggle(rect, instance);
+                    return;
+                }
+
+                // Use the effective dictionary width (floored at k_MinDictionaryPixelWidth)
+                // so col1Width can never collapse to zero/negative. The header overflows the
+                // inspector to the right when rect.width is below the floor, matching the
+                // row drawing path which uses the same effective width.
+                GetColumnPixelWidths(m_Column1Fraction, rect.width, out var col0Width, out var col1Width);
+                bool isAtMinimumWidth = IsAtMinimumDictionaryWidth(rect.width);
+
+                float keyLabelInset = Styles.k_KeyLeftMargin;
+                var col0ButtonRect = new Rect(rect.x, rect.y, col0Width - Styles.k_HandleWidth * 0.5f, rect.height);
+                var label0Rect = new Rect(rect.x + keyLabelInset, rect.y, col0Width - keyLabelInset, rect.height);
+                var label1Rect = new Rect(rect.x + col0Width + Styles.k_ValueLeftPadding - Styles.k_CellHorizontalPadding, rect.y, col1Width - Styles.k_ValueLeftPadding + Styles.k_CellHorizontalPadding, rect.height);
+
+                float arrowX = rect.x + col0Width - Styles.k_HandleWidth * 0.5f - Styles.k_SortArrowSize - 5f;
+                label0Rect.width = arrowX - label0Rect.x - 2f;
+                GUI.Label(label0Rect, m_KeyLabel, Styles.columnLabelClipped);
+
+                var arrowIcon = instance.sortAscending ? Styles.sortAscIcon : Styles.sortDescIcon;
+                if (arrowIcon != null && !DictionaryDrawer.ShowSerializedOrder)
+                {
+                    var arrowRect = new Rect(arrowX, label0Rect.y + (label0Rect.height - Styles.k_SortArrowSize) * 0.5f, Styles.k_SortArrowSize, Styles.k_SortArrowSize);
+                    GUI.DrawTexture(arrowRect, arrowIcon);
+                }
+
+                GUI.Label(label1Rect, m_ValueLabel, Styles.columnLabel);
+
+                float dividerX = rect.x + col0Width;
+                var dividerRect = new Rect(dividerX, rect.y, k_VerticalSplitterWidth, rect.height);
+                EditorGUI.DrawRect(dividerRect, SharedStyles.k_ResizerColor);
+
+                var handleRect = new Rect(dividerX - Styles.k_HandleWidth * 0.5f, rect.y, Styles.k_HandleWidth, rect.height);
+                // Skip cursor + resize hit-testing entirely when at the floor: the split
+                // can't move (both columns are pinned to their minimum), so a resize cursor
+                // and consumed mouse events would just lie to the user.
+                if (!isAtMinimumWidth)
+                {
+                    EditorGUIUtility.AddCursorRect(handleRect, MouseCursor.SplitResizeLeftRight);
+                    HandleResize(rect, rect.width, handleRect);
+                }
+                HandleContextMenu(rect, instance);
+                HandleSortToggle(col0ButtonRect, instance);
+            }
+
+            void DrawOneColumnHeader(Rect rect, DrawerInstanceIMGUI instance)
+            {
+                float keyLabelInset = Styles.k_KeyLeftMargin;
+                float arrowX = rect.xMax - Styles.k_SortArrowSize - 5f;
+                var label0Rect = new Rect(rect.x + keyLabelInset, rect.y, arrowX - (rect.x + keyLabelInset) - 2f, rect.height);
+                GUI.Label(label0Rect, m_OneColumnLabel, Styles.columnLabelClipped);
+
+                var arrowIcon = instance.sortAscending ? Styles.sortAscIcon : Styles.sortDescIcon;
+                if (arrowIcon != null && !DictionaryDrawer.ShowSerializedOrder)
+                {
+                    var arrowRect = new Rect(arrowX, rect.y + (rect.height - Styles.k_SortArrowSize) * 0.5f, Styles.k_SortArrowSize, Styles.k_SortArrowSize);
+                    GUI.DrawTexture(arrowRect, arrowIcon);
+                }
+            }
+
+            public void GetColumnRects(Rect rowRect, out Rect col0Rect, out Rect col1Rect)
+            {
+                GetColumnPixelWidths(m_Column1Fraction, rowRect.width, out var col0Width, out var col1Width);
+                col0Rect = new Rect(rowRect.x, rowRect.y, col0Width, rowRect.height);
+                col1Rect = new Rect(rowRect.x + col0Width, rowRect.y, col1Width, rowRect.height);
+            }
+
+            void HandleResize(Rect headerRect, float totalWidth, Rect handleRect)
+            {
+                var evt = Event.current;
+                switch (evt.GetTypeForControl(m_ResizeHandleControlID))
+                {
+                    case EventType.MouseDown:
+                        if (evt.button == 0 && handleRect.Contains(evt.mousePosition))
+                        {
+                            GUIUtility.hotControl = m_ResizeHandleControlID;
+                            evt.Use();
+                        }
+                        break;
+                    case EventType.MouseDrag:
+                        if (GUIUtility.hotControl == m_ResizeHandleControlID)
+                        {
+                            // The drag's pixel position is converted to a fraction and clipped
+                            // by the floor at the current totalWidth. Inspector resize after the
+                            // drag scales the fraction proportionally and only re-snaps to the
+                            // floor when the new totalWidth would force a column under it.
+                            float newCol0Fraction = (evt.mousePosition.x - headerRect.x) / totalWidth;
+                            m_Column1Fraction = ClampDraggedKeyColumnFraction(newCol0Fraction, totalWidth);
+                            var state = GetCachedState(m_StateCacheKey);
+                            if (state != null)
+                                state.keyColumnFractionSetByUser = m_Column1Fraction;
+                            else
+                                UpdateCachedState(m_StateCacheKey, cached => cached.keyColumnFractionSetByUser = m_Column1Fraction);
+                            evt.Use();
+                        }
+                        break;
+                    case EventType.MouseUp:
+                        if (GUIUtility.hotControl == m_ResizeHandleControlID)
+                        {
+                            GUIUtility.hotControl = 0;
+                            PersistFraction();
+                            evt.Use();
+                        }
+                        break;
+                }
+            }
+
+            void HandleSortToggle(Rect sortRect, DrawerInstanceIMGUI instance)
+            {
+                if (DictionaryDrawer.ShowSerializedOrder)
+                    return;
+
+                var evt = Event.current;
+                switch (evt.GetTypeForControl(m_SortToggleControlID))
+                {
+                    case EventType.MouseDown:
+                        if (evt.button == 0 && sortRect.Contains(evt.mousePosition))
+                        {
+                            GUIUtility.hotControl = m_SortToggleControlID;
+                            evt.Use();
+                        }
+                        break;
+                    case EventType.MouseDrag:
+                        if (GUIUtility.hotControl == m_SortToggleControlID)
+                            evt.Use();
+                        break;
+                    case EventType.MouseUp:
+                        if (GUIUtility.hotControl == m_SortToggleControlID)
+                        {
+                            GUIUtility.hotControl = 0;
+                            if (sortRect.Contains(evt.mousePosition))
+                                instance.RequestSortToggle();
+                            evt.Use();
+                        }
+                        break;
+                }
+            }
+
+            public void ResetToDefaultFraction(float defaultFraction)
+            {
+                m_Column1Fraction = defaultFraction;
+            }
+
+            void PersistFraction()
+            {
+                UpdateCachedState(m_StateCacheKey, cached => cached.keyColumnFractionSetByUser = m_Column1Fraction);
+            }
+
+            public void PersistSortOrder(bool sortAscending)
+            {
+                UpdateCachedState(m_StateCacheKey, cached => cached.sortAscending = sortAscending);
+            }
+
+            static void AddLayoutItem(GenericMenu menu, string label, DictionaryLayout layout, DrawerInstanceIMGUI instance)
+            {
+                menu.AddItem(new GUIContent(label), instance.layout == layout, () => instance.SetLayout(layout));
+            }
+
+            static void HandleContextMenu(Rect headerRect, DrawerInstanceIMGUI instance)
+            {
+                var evt = Event.current;
+                if (evt.type == EventType.ContextClick && headerRect.Contains(evt.mousePosition))
+                {
+                    var menu = new GenericMenu();
+
+                    // The three layouts form a radio group (the active one is checked),
+                    // followed by a separator and the "Reset to Defaults" action.
+                    AddLayoutItem(menu, Texts.TwoColumnsLayoutLabel, DictionaryLayout.TwoColumns, instance);
+                    AddLayoutItem(menu, Texts.OneColumnWithValueFoldoutLayoutLabel, DictionaryLayout.OneColumnWithValueFoldout, instance);
+                    AddLayoutItem(menu, Texts.OneColumnWithValueVisibleLayoutLabel, DictionaryLayout.OneColumnWithValueVisible, instance);
+                    menu.AddSeparator(string.Empty);
+
+                    menu.AddItem(new GUIContent(Texts.ShowSerializedOrderLabel), DictionaryDrawer.ShowSerializedOrder,
+                        () => DictionaryDrawer.SetShowSerializedOrder(!DictionaryDrawer.ShowSerializedOrder));
+                    menu.AddSeparator(string.Empty);
+
+                    if (instance.header.HasCachedState)
+                    {
+                        menu.AddItem(new GUIContent(Texts.ResetToDefaultsLabel), false, () =>
+                        {
+                            instance.ResetToDefaults();
+                        });
+                    }
+                    else
+                    {
+                        menu.AddDisabledItem(new GUIContent(Texts.ResetToDefaultsLabel));
+                    }
+
+                    menu.ShowAsContext();
+                    evt.Use();
+                }
+            }
+        }
+
+        public class DictionaryTreeView : TreeView
+        {
+            readonly DrawerInstanceIMGUI m_Instance;
+
+            // Per-row measured heights; -1 = unmeasured. Allocated only when variableRowHeight is
+            // true. Filled by MeasureAllRowHeights on the Layout pass after a reload so totalHeight
+            // is exact (a partially-measured total is unstable and fights the scroll view's clamp —
+            // see GetExpandedPropertyHeight). RowGUI keeps entries current via RecordRowHeight
+            // for runtime height changes (e.g. expanding an inline nested dictionary). Any row left
+            // unmeasured falls back to m_EstimatedRowHeight (the tallest measured row) in
+            // GetCustomRowHeight.
+            float[] m_LazyHeights;
+            float m_EstimatedRowHeight;
+
+            public new void RefreshCustomRowHeights() => base.RefreshCustomRowHeights();
+
+            public void ComputeFixedInlineRowHeight()
+            {
+                if (m_Instance.displayedItemCount == 0)
+                    return;
+
+                bool prevWideMode = EditorGUIUtility.wideMode;
+                EditorGUIUtility.wideMode = true;
+
+                var element = m_Instance.arrayProperty.GetArrayElementAtIndex(0);
+                GetKeyAndValueProperties(element, out var keyProp, out var valueProp);
+
+                // Static-inline rows are uniform, so row 0 represents them all.
+                // MeasureRowContentHeight accounts for the active layout — stacked key-over-value
+                // in one-column mode, max(key, value) in two-column — so the fixed height is
+                // correct for both.
+                rowHeight = MeasureRowContentHeight(keyProp, valueProp) + Styles.k_RowVerticalPadding * 2;
+
+                EditorGUIUtility.wideMode = prevWideMode;
+            }
+
+            // Measures every variable-height row into m_LazyHeights so totalHeight is exact and
+            // stable. We measure all rows (not just a sample) because the TreeView scroll view
+            // re-clamps scrollPos to (totalHeight - viewport) every frame: a totalHeight that
+            // keeps shrinking as rows are measured one-at-a-time would repeatedly clamp the scroll
+            // and walk it away from a framed row. Measures cell heights via GetPropertyHeight, so
+            // it must run inside an OnGUI pass — called from GetExpandedPropertyHeight on the
+            // Layout pass, never from the deferred reload.
+            public void MeasureAllRowHeights()
+            {
+                int count = m_Instance.displayedItemCount;
+                if (count == 0)
+                    return;
+
+                if (m_LazyHeights == null || m_LazyHeights.Length != count)
+                    m_LazyHeights = new float[count];
+
+                bool prevWideMode = EditorGUIUtility.wideMode;
+                EditorGUIUtility.wideMode = true;
+
+                float maxH = 0f;
+                for (int displayIndex = 0; displayIndex < count; displayIndex++)
+                {
+                    float h;
+                    if (TryGetEntryProperties(displayIndex, out var keyProp, out var valueProp, out _))
+                    {
+                        h = MeasureRowContentHeight(keyProp, valueProp) + Styles.k_RowVerticalPadding * 2;
+                    }
+                    else
+                    {
+                        h = rowHeight;
+                    }
+                    m_LazyHeights[displayIndex] = h;
+                    if (h > maxH)
+                        maxH = h;
+                }
+
+                EditorGUIUtility.wideMode = prevWideMode;
+
+                m_EstimatedRowHeight = maxH;
+            }
+
+            // Structure only — never measures. BuildRoot/Reload run from the deferred reload
+            // (delayCall / update) with no IMGUIContainer on the stack, so per-row heights (which
+            // for a custom-drawer cell call into that drawer's GetPropertyHeight) are measured
+            // later on the OnGUI Layout pass via MeasureAllRowHeights. Until then unmeasured rows
+            // fall back to the default rowHeight in GetCustomRowHeight.
+            void InitializeLazyHeights()
+            {
+                m_Instance.needsHeightMeasure = true;
+
+                int count = m_Instance.displayedItemCount;
+                if (!m_Instance.variableRowHeight || count == 0)
+                {
+                    m_LazyHeights = null;
+                    return;
+                }
+
+                m_EstimatedRowHeight = 0f;
+                m_LazyHeights = new float[count];
+                for (int i = 0; i < count; i++)
+                    m_LazyHeights[i] = -1f;
+            }
+
+            public DictionaryTreeView(DrawerInstanceIMGUI instance)
+                : base(instance.treeViewState)
+            {
+                m_Instance = instance;
+
+                showBorder = false;
+                showAlternatingRowBackgrounds = false;
+                drawSelection = false;
+                rowHeight = EditorGUIUtility.singleLineHeight + Styles.k_RowVerticalPadding * 2;
+                useScrollView = true;
+                m_TreeView.scrollViewStyle = GUIStyle.none; // Prevent the scroll view from drawing its own background which would stack on top of the Styles.boxBackground with the custom border we draw ourselves
+            }
+
+            protected override TreeViewItem BuildRoot()
+            {
+                InitializeLazyHeights();
+
+                var root = new TreeViewItem { id = -1, depth = -1, displayName = "Root" };
+                int count = m_Instance.sortedIndices.Length;
+                if (count == 0)
+                {
+                    root.children = new List<TreeViewItem>();
+                    return root;
+                }
+
+                var items = new List<TreeViewItem>(count);
+                for (int i = 0; i < count; i++)
+                    items.Add(new TreeViewItem(i, 0, i.ToString()));
+
+                SetupParentsAndChildrenFromDepths(root, items);
+                return root;
+            }
+
+            protected override float GetCustomRowHeight(int row, TreeViewItem item)
+            {
+                if (!m_Instance.variableRowHeight)
+                    return rowHeight;
+
+                if (m_LazyHeights != null && row >= 0 && row < m_LazyHeights.Length
+                    && m_LazyHeights[row] >= 0f)
+                    return m_LazyHeights[row];
+
+                return m_EstimatedRowHeight > 0f ? m_EstimatedRowHeight : rowHeight;
+            }
+
+            static float GetPropertyFieldHeight(SerializedProperty prop, Type type, bool hasCustomDrawer)
+            {
+                if (prop == null)
+                    return EditorGUIUtility.singleLineHeight;
+
+                if (ShouldInlineChildren(prop, hasCustomDrawer))
+                    return GetInlineChildrenHeight(prop);
+
+                return EditorGUI.GetPropertyHeight(prop, GUIContent.none, true);
+            }
+
+            static float GetInlineChildrenHeight(SerializedProperty parent)
+            {
+                if (parent == null || !parent.isValid || parent.propertyType != SerializedPropertyType.Generic)
+                    return EditorGUIUtility.singleLineHeight;
+
+                // Match DrawInlineChildren by iterating only visible children so the
+                // measured height matches what is actually drawn — invisible fields
+                // (e.g. [HideInInspector]) must not contribute to row height.
+                float totalHeight = 0f;
+                var end = parent.GetEndProperty();
+                var child = parent.Copy();
+                child.unsafeMode = true;
+                bool hasChild = child.NextVisible(true);
+                bool first = true;
+                while (hasChild && !SerializedProperty.EqualContents(child, end))
+                {
+                    if (!first)
+                        totalHeight += EditorGUIUtility.standardVerticalSpacing;
+                    totalHeight += EditorGUI.GetPropertyHeight(child, true);
+                    first = false;
+                    hasChild = child.NextVisible(false);
+                }
+
+                return Mathf.Max(totalHeight, EditorGUIUtility.singleLineHeight);
+            }
+
+            protected override void BeforeRowsGUI()
+            {
+                base.BeforeRowsGUI();
+                if (m_Instance.oneColumnMode)
+                    return;
+                GetColumnPixelWidths(m_Instance.header.column1Fraction, treeViewRect.width, out var col0Width, out _);
+                Rect lineRect = new Rect(col0Width, 0, k_VerticalSplitterWidth, totalHeight);
+                EditorGUI.DrawRect(lineRect, SharedStyles.k_RowsSplitColor);
+            }
+
+            protected override void RowGUI(RowGUIArgs args)
+            {
+                DrawAlternatingRowBackgroundIfNeeded(args);
+
+                int displayIndex = args.item.id;
+                if (!TryGetEntryProperties(displayIndex, out var keyProp, out var valueProp, out int arrayIndex))
+                    return;
+
+                var evt = Event.current;
+                bool wasMouseDownInRow = evt.type == EventType.MouseDown && evt.button == 0 && args.rowRect.Contains(evt.mousePosition);
+
+                float prevLabelWidth = EditorGUIUtility.labelWidth;
+                bool prevWideMode = EditorGUIUtility.wideMode;
+                EditorGUIUtility.wideMode = true;
+
+                // The args.rowRect is only the visible rect, to calculate the cell rects we want to
+                // use the full treeview rect width. This is needed when the dictionary drawer is
+                // overflowing in narrow Inspectors.
+                Rect fullRowRect = new Rect(args.rowRect.x, args.rowRect.y, treeViewRect.width, args.rowRect.height);
+
+                if (m_Instance.oneColumnMode)
+                {
+                    Rect oneColumnRect = fullRowRect;
+                    if (showingVerticalScrollBar)
+                        oneColumnRect.width = Mathf.Max(0f, oneColumnRect.width - Styles.k_VerticalScrollbarWidth);
+                    DrawOneColumnRow(oneColumnRect, keyProp, valueProp, arrayIndex);
+                }
+                else
+                {
+                    m_Instance.header.GetColumnRects(fullRowRect, out var keyRect, out var valueRect);
+
+                    if (showingVerticalScrollBar)
+                    {
+                        float visibleRightEdge = fullRowRect.xMax - Styles.k_VerticalScrollbarWidth;
+                        valueRect.xMax = Mathf.Max(valueRect.xMin, visibleRightEdge);
+                    }
+
+                    DrawKeyCell(keyRect, keyProp, arrayIndex);
+                    DrawValueCell(valueRect, valueProp);
+                }
+                RecordRowHeight(displayIndex, args.rowRect.height, keyProp, valueProp);
+
+                EditorGUIUtility.labelWidth = prevLabelWidth;
+                EditorGUIUtility.wideMode = prevWideMode;
+
+                if (wasMouseDownInRow)
+                    HandleRowSelectionClick(args);
+
+                DrawRowSelectionOutlineIfSelected(args);
+            }
+
+            void HandleRowSelectionClick(RowGUIArgs args)
+            {
+                // Rows should be selectable via clicks both within controls and in non-control areas.
+
+                // Drive selection through the TreeView's SelectionClick so we reuse the logic for
+                // handling multiselect with shift, ctrl/cmd as well as plain-click.
+                SelectionClick(args.item, keepMultiSelection: false);
+
+                // Property fields flip evt.type to Used when one consumes the click for its
+                // own control. In that case the cell already owns keyboard
+                // focus, and we leave it alone; otherwise the click hit empty row
+                // space, and we replicate the focus grab the TreeView's own
+                // HandleUnusedMouseEventsForItem path would have done — without it
+                // KeyEvent (F to frame, Cmd+D to duplicate) stops working.
+                if (Event.current.type == EventType.MouseDown)
+                    SetFocus();
+
+                // Always Use() the event. Without this guard a ctrl/cmd
+                // toggle would be immediately undone by the TreeView's own pass.
+                Event.current.Use();
+            }
+
+            static void DrawAlternatingRowBackgroundIfNeeded(RowGUIArgs args)
+            {
+                if (args.row % 2 != 0 && Event.current.type == EventType.Repaint)
+                    EditorGUI.DrawRect(args.rowRect, SharedStyles.k_AlternatingRowColor);
+            }
+
+            bool TryGetEntryProperties(int displayIndex, out SerializedProperty keyProp, out SerializedProperty valueProp, out int arrayIndex)
+            {
+                keyProp = null;
+                valueProp = null;
+                arrayIndex = -1;
+
+                if (displayIndex < 0 || displayIndex >= m_Instance.sortedIndices.Length)
+                    return false;
+
+                arrayIndex = m_Instance.sortedIndices.ToArrayIndex(displayIndex);
+                // Defensive guard: structural changes (size shrinks especially) are
+                // applied on the next editor tick via RunDeferredStructuralWork, so a
+                // single OnGUI pass can run with sortedIndices snapshotted from before
+                // the underlying array shrunk. Skip the row instead of letting
+                // GetArrayElementAtIndex throw; the deferred reload picks it up.
+                if (arrayIndex < 0 || arrayIndex >= m_Instance.arrayProperty.arraySize)
+                    return false;
+
+                var element = m_Instance.arrayProperty.GetArrayElementAtIndex(arrayIndex);
+                GetKeyAndValueProperties(element, out keyProp, out valueProp);
+                return true;
+            }
+
+            // Selects the entry a drop lands on (before the key ObjectField Uses() the DragPerform), so the deferred re-sort keeps it selected and frames it. Mirrors DictionaryView.OnRowDragPerform.
+            void SelectEntryOnKeyDrop(Rect keyCellRect, int arrayIndex)
+            {
+                if (Event.current.type != EventType.DragPerform || !keyCellRect.Contains(Event.current.mousePosition))
+                    return;
+                if (!m_Instance.sortedIndices.ContainsArrayIndex(arrayIndex))
+                    return;
+                SetSelection(new[] { m_Instance.sortedIndices.ToDisplayIndex(arrayIndex) });
+
+                // Grab view focus (a drag from another view left focus there) so the relocated row shows the active blue outline, not grey; keyboardControl is set by the reload's needsTreeViewFocus path.
+                GUIView.current?.Focus();
+            }
+
+            void DrawKeyCell(Rect keyRect, SerializedProperty keyProp, int arrayIndex)
+            {
+                keyRect.yMin += Styles.k_RowVerticalPadding;
+                keyRect.yMax -= Styles.k_RowVerticalPadding;
+                var markerKind = DictionaryKeyUtility.GetMarkerKind(arrayIndex, m_Instance.duplicateEntryIndices, m_Instance.nullKeyEntryIndices);
+                if (markerKind != DictionaryKeyUtility.KeyMarkerKind.None)
+                    DrawKeyWarningIcon(keyRect, DictionaryKeyUtility.GetMarkerTooltip(markerKind));
+                float keyLeft = Styles.k_KeyLeftMargin;
+                float minFieldWidth = GetCellMinFieldWidth(keyProp, m_Instance.keyHasCustomDrawer);
+                var keyFieldRect = BuildCellFieldRect(keyRect, keyLeft + Styles.k_CellHorizontalPadding, Styles.k_CellHorizontalPadding, minFieldWidth);
+                EditorGUIUtility.labelWidth = ComputeCellLabelWidth(keyFieldRect.width);
+                // Key edits no longer flip needsReload / needsMarkerRefresh from here.
+                // The TrackPropertyValue listener registered on the IMGUIContainer in
+                // GetOrCreate handles both same-inspector and cross-inspector
+                // updates uniformly, so this draw site only renders the field.
+                SelectEntryOnKeyDrop(keyRect, arrayIndex);
+                DrawClippedPropertyField(keyRect, keyFieldRect, keyProp, m_Instance.keyType, m_Instance.keyHasCustomDrawer);
+            }
+
+            void DrawValueCell(Rect cellRect, SerializedProperty valueProp)
+            {
+                cellRect.yMin += Styles.k_RowVerticalPadding;
+                cellRect.yMax -= Styles.k_RowVerticalPadding;
+                float minFieldWidth = GetCellMinFieldWidth(valueProp, m_Instance.valueHasCustomDrawer);
+                var fieldRect = BuildCellFieldRect(cellRect, Styles.k_ValueLeftPadding, Styles.k_CellHorizontalPadding, minFieldWidth);
+                EditorGUIUtility.labelWidth = ComputeCellLabelWidth(fieldRect.width);
+                DrawPropertyField(fieldRect, valueProp, m_Instance.valueType, m_Instance.valueHasCustomDrawer, m_Instance.valueCollectionLabel);
+            }
+
+            void DrawOneColumnRow(Rect rowRect, SerializedProperty keyProp, SerializedProperty valueProp, int arrayIndex)
+            {
+                float spacing = EditorGUIUtility.standardVerticalSpacing;
+                float contentLeft = Styles.k_KeyLeftMargin + Styles.k_CellHorizontalPadding;
+                float y = rowRect.y + Styles.k_RowVerticalPadding;
+
+                float keyH = GetPropertyFieldHeight(keyProp, m_Instance.keyType, m_Instance.keyHasCustomDrawer);
+                var keyCellRect = new Rect(rowRect.x, y, rowRect.width, keyH);
+                var markerKind = DictionaryKeyUtility.GetMarkerKind(arrayIndex, m_Instance.duplicateEntryIndices, m_Instance.nullKeyEntryIndices);
+                if (markerKind != DictionaryKeyUtility.KeyMarkerKind.None)
+                    DrawKeyWarningIcon(keyCellRect, DictionaryKeyUtility.GetMarkerTooltip(markerKind));
+                float keyMinFieldWidth = GetCellMinFieldWidth(keyProp, m_Instance.keyHasCustomDrawer);
+                var keyFieldRect = BuildCellFieldRect(keyCellRect, contentLeft, Styles.k_CellHorizontalPadding, keyMinFieldWidth);
+                EditorGUIUtility.labelWidth = ComputeCellLabelWidth(keyFieldRect.width);
+                SelectEntryOnKeyDrop(keyCellRect, arrayIndex);
+                DrawPropertyField(keyFieldRect, keyProp, m_Instance.keyType, m_Instance.keyHasCustomDrawer);
+                y += keyH + spacing;
+                y += Styles.k_StaticValueHeaderTopMargin;
+
+                float headerLine = EditorGUIUtility.singleLineHeight;
+                bool showValue = !m_Instance.useValueFoldouts || (valueProp != null && valueProp.isExpanded);
+                float labelX = rowRect.x + contentLeft;
+                float labelWidth = Mathf.Max(0f, rowRect.xMax - Styles.k_CellHorizontalPadding - labelX);
+                var labelRect = EditorGUI.IndentedRect(new Rect(labelX, y, labelWidth, headerLine));
+                if (m_Instance.useValueFoldouts)
+                {
+                    bool expanded = valueProp != null && valueProp.isExpanded;
+                    // Foldout picks where to put the arrow from the global EditorGUIUtility.hierarchyMode,
+                    // here we want full control of placement of the foldout, so pin the mode off and
+                    // position the rect ourselves. Foldout still owns the input handling: the row stays
+                    // expandable in a disabled Inspector, and a right-click keeps falling through to the
+                    // TreeView's row selection.
+                    Rect foldoutRect = Rect.MinMaxRect(rowRect.x + Styles.k_KeyWarningIconLeftMargin + 1, labelRect.y, labelRect.xMax, labelRect.yMax);
+                    bool newExpanded;
+                    using (new DrawerEditorGUI.HierarchyModeScope(false))
+                        newExpanded = EditorGUI.Foldout(foldoutRect, expanded, GUIContent.none, true);
+                    if (newExpanded != expanded && valueProp != null)
+                        valueProp.isExpanded = newExpanded;
+                    showValue = newExpanded;
+                }
+                GUI.Label(labelRect, m_Instance.valueLabelContent, EditorStyles.boldLabel);
+                y += headerLine;
+
+                if (showValue)
+                {
+                    y += spacing;
+                    float valH = GetPropertyFieldHeight(valueProp, m_Instance.valueType, m_Instance.valueHasCustomDrawer);
+                    var valueCellRect = new Rect(rowRect.x, y, rowRect.width, valH);
+                    float valueMinFieldWidth = GetCellMinFieldWidth(valueProp, m_Instance.valueHasCustomDrawer);
+                    float valueIndent = m_Instance.useValueFoldouts ? Styles.k_OneColumnValueIndent : 0f;
+                    var valueFieldRect = BuildCellFieldRect(valueCellRect, contentLeft + valueIndent, Styles.k_CellHorizontalPadding, valueMinFieldWidth);
+                    EditorGUIUtility.labelWidth = ComputeCellLabelWidth(valueFieldRect.width);
+                    DrawPropertyField(valueFieldRect, valueProp, m_Instance.valueType, m_Instance.valueHasCustomDrawer, m_Instance.valueCollectionLabel);
+                }
+            }
+
+            float MeasureRowContentHeight(SerializedProperty keyProp, SerializedProperty valueProp)
+            {
+                float keyH = GetPropertyFieldHeight(keyProp, m_Instance.keyType, m_Instance.keyHasCustomDrawer);
+
+                if (m_Instance.oneColumnMode)
+                {
+                    // GetPropertyFieldHeight recurses through every visible child field of the value,
+                    // which is wasted work when the value is hidden behind a collapsed foldout — defer
+                    // it until we know the value is shown (mirrors the deferral in DrawOneColumnRow).
+                    float spacing = EditorGUIUtility.standardVerticalSpacing;
+                    float total = keyH + spacing + EditorGUIUtility.singleLineHeight + Styles.k_StaticValueHeaderTopMargin;
+                    bool showValue = !m_Instance.useValueFoldouts || (valueProp != null && valueProp.isExpanded);
+                    if (showValue)
+                        total += spacing + GetPropertyFieldHeight(valueProp, m_Instance.valueType, m_Instance.valueHasCustomDrawer);
+                    return total;
+                }
+
+                float valH = GetPropertyFieldHeight(valueProp, m_Instance.valueType, m_Instance.valueHasCustomDrawer);
+                return Mathf.Max(keyH, valH);
+            }
+
+            // BuildCellFieldRect floors the field width at a non-zero minimum, so on a narrow
+            // column the field rect can overflow its cell horizontally — the key field would
+            // bleed into the value column, the value field into the inspector's scrollbar /
+            // padding strip. Clipping to the cell rect hides the overflow visually and (because
+            // GUI.BeginClip also masks events) routes clicks in the neighbouring cell to that
+            // cell's own controls instead of the overflowing one.
+            static void DrawClippedPropertyField(Rect cellRect, Rect fieldRect, SerializedProperty prop, Type type, bool hasCustomDrawer)
+            {
+                GUI.BeginClip(cellRect);
+                var fieldRectInClipSpace = new Rect(fieldRect.x - cellRect.x, fieldRect.y - cellRect.y, fieldRect.width, fieldRect.height);
+                DrawPropertyField(fieldRectInClipSpace, prop, type, hasCustomDrawer);
+                GUI.EndClip();
+            }
+
+            // The cell rect can become arbitrarily narrow (very narrow Inspector, narrow column
+            // fraction). Without a floor the field rect would shrink to a negative width and
+            // every label/control inside it would render with garbage geometry. Floor the field
+            // width at minFieldWidth; if the cell can't accommodate that, the field overflows
+            // the cell horizontally rather than squeezing the control out of existence — that
+            // is the documented trade-off for keeping the row usable at extreme widths.
+            static Rect BuildCellFieldRect(Rect cellRect, float leftPadding, float rightPadding, float minFieldWidth)
+            {
+                float width = Mathf.Max(minFieldWidth, cellRect.width - leftPadding - rightPadding);
+                return new Rect(cellRect.x + leftPadding, cellRect.y, width, cellRect.height);
+            }
+
+            // Returns the smallest acceptable field-rect width for a cell. The dictionary drawer
+            // dispatches in DrawPropertyField:
+            //   - inline children (ShouldInlineChildren) → DrawInlineChildren expands child
+            //     properties and each child's PropertyField reserves EditorGUIUtility.labelWidth
+            //     for its own label (e.g. "Color", "Target", "Vector"). The cell therefore needs
+            //     room for both a min label and a min control, plus the kPrefixPaddingRight gap
+            //     that PrefixLabel inserts between them.
+            //   - anything else (custom drawer, array/list, leaf) → EditorGUI.PropertyField is
+            //     called with GUIContent.none, so PrefixLabel's "no label" branch hands the entire
+            //     rect to the control and labelWidth is irrelevant. Only a min control width is needed.
+            // IMGUI labels default to TextClipping.Overflow, so simply setting labelWidth = 0
+            // does not hide the label — it keeps overflowing onto the control area. Reserving
+            // the right amount of space up front is the only way to keep both visible.
+            static float GetCellMinFieldWidth(SerializedProperty prop, bool hasCustomDrawer)
+            {
+                bool willInlineChildren = ShouldInlineChildren(prop, hasCustomDrawer);
+                return willInlineChildren
+                    ? Styles.k_CellLabelMinWidth + EditorGUI.kPrefixPaddingRight + Styles.k_CellControlMinWidth
+                    : Styles.k_CellControlMinWidth;
+            }
+
+            // Computes EditorGUIUtility.labelWidth for a cell. PrefixLabel splits the field rect
+            // as controlWidth = fieldWidth - labelWidth - kPrefixPaddingRight, so we clamp the
+            // configured label fraction to leave at least k_CellControlMinWidth for the control.
+            // When the field rect is too narrow even for the label minimum (which only happens
+            // for the "no outer label" cell path where labelWidth doesn't affect the visual),
+            // we collapse labelWidth to 0 so PrefixLabel's no-label branch applies.
+            static float ComputeCellLabelWidth(float fieldRectWidth)
+            {
+                float available = fieldRectWidth - EditorGUI.kPrefixPaddingRight;
+                float maxLabel = available - Styles.k_CellControlMinWidth;
+                if (maxLabel < Styles.k_CellLabelMinWidth)
+                    return 0f;
+                float desired = fieldRectWidth * Styles.k_CellLabelWidthFraction;
+                return Mathf.Clamp(desired, Styles.k_CellLabelMinWidth, maxLabel);
+            }
+
+            void RecordRowHeight(int displayIndex, float currentRowHeight, SerializedProperty keyProp, SerializedProperty valueProp)
+            {
+                if (!m_Instance.dynamicRowHeight && !m_Instance.hasStaticInlineHeight)
+                    return;
+
+                float measuredH = MeasureRowContentHeight(keyProp, valueProp) + Styles.k_RowVerticalPadding * 2;
+
+                if (m_Instance.dynamicRowHeight)
+                {
+                    if (m_LazyHeights != null && displayIndex >= 0 && displayIndex < m_LazyHeights.Length)
+                        m_LazyHeights[displayIndex] = measuredH;
+                }
+                else
+                {
+                    rowHeight = measuredH;
+                }
+
+                if (!m_Instance.needsHeightRefresh && Mathf.Abs(currentRowHeight - measuredH) > 0.5f)
+                {
+                    m_Instance.needsHeightRefresh = true;
+                    // The row was drawn at the wrong height (it used the estimate, or a child's
+                    // height just changed — e.g. a nested dictionary expanded, or a row scrolled
+                    // into view for the first time). The fix (RefreshCustomRowHeights) is applied
+                    // on the next Layout pass in GetExpandedPropertyHeight, so we must request a
+                    // repaint to make that pass happen; otherwise the rows only reflow when some
+                    // unrelated event (mouse move) repaints the inspector.
+                    HandleUtility.Repaint();
+                }
+            }
+
+            void DrawRowSelectionOutlineIfSelected(RowGUIArgs args)
+            {
+                if (args.selected && Event.current.type == EventType.Repaint)
+                    DrawSelectionOutline(args.rowRect, m_Instance.HasFocus());
+            }
+
+            static void DrawSelectionOutline(Rect rect, bool focused)
+            {
+                rect.height -= 1;
+                Color color = focused
+                    ? SharedStyles.k_SelectionOutlineColor.color
+                    : SharedStyles.k_SelectionOutlineColorInactive.color;
+                float w = Styles.k_SelectionBorderWidth;
+                EditorGUI.DrawRect(new Rect(rect.x, rect.y, rect.width, w), color);
+                EditorGUI.DrawRect(new Rect(rect.x, rect.yMax - w, rect.width, w), color);
+                EditorGUI.DrawRect(new Rect(rect.x, rect.y + w, w, rect.height - 2 * w), color);
+                EditorGUI.DrawRect(new Rect(rect.xMax - w, rect.y + w, w, rect.height - 2 * w), color);
+            }
+
+            // A cell expands its children inline (DrawInlineChildren) only for a plain serializable
+            // compound: Generic, no custom drawer, and NOT an array/list. Arrays and lists are
+            // Generic too, but must go through EditorGUI.PropertyField so they get their real
+            // drawer (foldout + size + element list / reorderable list). Iterating their raw
+            // children instead would draw the hidden size field and the elements flat, with no
+            // foldout and no way to resize — which is how array/list cells were rendering wrong.
+            static bool ShouldInlineChildren(SerializedProperty prop, bool hasCustomDrawer)
+            {
+                return prop != null
+                    && prop.propertyType == SerializedPropertyType.Generic
+                    && !hasCustomDrawer
+                    && !prop.isArray;
+            }
+
+            static void DrawPropertyField(Rect rect, SerializedProperty prop, Type type, bool hasCustomDrawer, GUIContent label = null)
+            {
+                if (prop == null)
+                    return;
+
+                if (ShouldInlineChildren(prop, hasCustomDrawer))
+                {
+                    DrawInlineChildren(rect, prop);
+                }
+                else
+                {
+                    // label is non-null only for collection value cells ("Array"/"List"); everything else
+                    // draws label-less so the value fills the cell (a nested dictionary supplies its own title).
+                    EditorGUI.PropertyField(rect, prop, label ?? GUIContent.none, true);
+                }
+            }
+
+            static void DrawInlineChildren(Rect rect, SerializedProperty parent)
+            {
+                if (parent == null || !parent.isValid || parent.propertyType != SerializedPropertyType.Generic)
+                    return;
+
+                // Iterate only visible children so [HideInInspector] members are not
+                // turned into editable IMGUI fields (matches the normal Inspector
+                // behaviour for hidden serialized fields).
+                var end = parent.GetEndProperty();
+                var child = parent.Copy();
+                child.unsafeMode = true;
+                bool hasChild = child.NextVisible(true);
+                float y = rect.y;
+                while (hasChild && !SerializedProperty.EqualContents(child, end))
+                {
+                    float h = EditorGUI.GetPropertyHeight(child, true);
+                    var childRect = new Rect(rect.x, y, rect.width, h);
+                    EditorGUI.PropertyField(childRect, child, true);
+                    y += h + EditorGUIUtility.standardVerticalSpacing;
+                    hasChild = child.NextVisible(false);
+                }
+            }
+
+            // Draws a fixed-size warning icon at the top of the key column gutter for
+            // rows excluded from the runtime dictionary (duplicate or null key). Position and
+            // size mirror UITK .unity-dictionary-view__duplicate-key-icon so both backends look identical. The
+            // GUI.Label call paints nothing on its own (GUIStyle.none + empty text) but
+            // registers the hit area for the hover tooltip.
+            static void DrawKeyWarningIcon(Rect cellRect, string tooltip)
+            {
+                var icon = EditorGUIUtility.GetHelpIcon(MessageType.Warning);
+                if (icon == null)
+                    return;
+
+                var iconRect = new Rect(
+                    cellRect.x + Styles.k_KeyWarningIconLeftMargin,
+                    cellRect.y + Styles.k_KeyWarningIconTopOffset,
+                    Styles.k_KeyWarningIconSize,
+                    Styles.k_KeyWarningIconSize);
+                GUI.DrawTexture(iconRect, icon, ScaleMode.ScaleToFit);
+                GUI.Label(iconRect, EditorGUIUtility.TempContent(string.Empty, tooltip), GUIStyle.none);
+            }
+
+            protected override bool CanMultiSelect(TreeViewItem item)
+            {
+                return true;
+            }
+
+            protected override void KeyEvent()
+            {
+                var evt = Event.current;
+                if (evt.type != EventType.KeyDown)
+                    return;
+
+                if (evt.keyCode == KeyCode.F && !evt.control && !evt.command && !evt.alt)
+                {
+                    var selection = GetSelection();
+                    if (selection.Count > 0)
+                    {
+                        FrameItem(selection[0]);
+                        evt.Use();
+                    }
+                }
+                else if (evt.keyCode == KeyCode.D && (evt.command || evt.control))
+                {
+                    if (GetSelection().Count == 1)
+                    {
+                        m_Instance.needsDuplicate = true;
+                        evt.Use();
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Helper class that complement EditorGUI. Lives next to the IMGUI dictionary drawer
+// because that's the only consumer today, but contains no dictionary-specific knowledge
+// and can be reused by any property drawer that needs the same visual treatment.
+internal static class DrawerEditorGUI
+{
+    // Vertical gap between the helpbox text and the overlaid button area, both rendered
+    // inside the same EditorStyles.helpBox rect.
+    const float k_HelpBoxButtonGap = 5f;
+    const float k_HelpBoxButtonHeight = 20f;
+    const float k_HelpBoxButtonMinWidth = 60f;
+    const float k_HelpBoxButtonInset = 4f;
+
+    // EditorStyles.helpBox uses MiddleLeft vertical alignment, which would vertically
+    // center the icon+text inside the (intentionally taller-than-text) HelpBoxWithButton
+    // rect and push the last lines of text underneath the overlaid button. We render the
+    // same style with UpperLeft so the content stays anchored to the top, leaving the
+    // bottom-right corner clear for the button overlay. Lazy-init: EditorStyles.helpBox
+    // is not safe to access during static class reload.
+    [NoAutoStaticsCleanup] // lazy GUIStyle cache guarded by == null; re-created on first access, safe to persist
+    static GUIStyle s_HelpBoxUpperLeft;
+    static GUIStyle helpBoxUpperLeft
+    {
+        get
+        {
+            if (s_HelpBoxUpperLeft == null)
+                s_HelpBoxUpperLeft = new GUIStyle(EditorStyles.helpBox) { alignment = TextAnchor.UpperLeft };
+            return s_HelpBoxUpperLeft;
+        }
+    }
+
+    // Total inner height needed to render HelpBoxWithButton at the given width: the
+    // helpbox text height plus the gap and button row that overlay it. Callers add any
+    // outer top/bottom margins themselves.
+    public static float GetHelpBoxWithButtonHeight(MessageType messageType, string message, float width)
+    {
+        var content = EditorGUIUtility.TempContent(message, EditorGUIUtility.GetHelpIcon(messageType));
+        float textHeight = helpBoxUpperLeft.CalcHeight(content, width);
+        return textHeight + k_HelpBoxButtonGap + k_HelpBoxButtonHeight;
+    }
+
+    // Draws an EditorGUI.HelpBox-styled box (with the icon for the given MessageType)
+    // and overlays a button at the bottom-right of the same rect. Returns true on the frame the
+    // button is pressed. Button width auto-fits the button text (clamped to k_HelpBoxButtonMinWidth)
+    // using the same style we draw it with, so longer labels stay readable without truncation.
+    public static bool HelpBoxWithButton(Rect position, MessageType messageType, string message, string buttonText)
+    {
+        var content = EditorGUIUtility.TempContent(message, EditorGUIUtility.GetHelpIcon(messageType));
+        GUI.Label(position, content, helpBoxUpperLeft);
+
+        var buttonContent = EditorGUIUtility.TempContent(buttonText);
+        float buttonWidth = Mathf.Max(k_HelpBoxButtonMinWidth, GUI.skin.button.CalcSize(buttonContent).x);
+        var buttonRect = new Rect(
+            position.xMax - buttonWidth - k_HelpBoxButtonInset,
+            position.yMax - k_HelpBoxButtonHeight - k_HelpBoxButtonInset,
+            buttonWidth,
+            k_HelpBoxButtonHeight);
+        return GUI.Button(buttonRect, buttonContent);
+    }
+
+
+    // Hierarchy-mode scope helper
+    public readonly struct HierarchyModeScope : IDisposable
+    {
+        readonly bool m_PreviousHierarchyMode;
+
+        public HierarchyModeScope(bool hierarchyMode)
+        {
+            m_PreviousHierarchyMode = EditorGUIUtility.hierarchyMode;
+            EditorGUIUtility.hierarchyMode = hierarchyMode;
+        }
+
+        public void Dispose()
+        {
+            EditorGUIUtility.hierarchyMode = m_PreviousHierarchyMode;
+        }
+    }    
+}
+
+} // end of namespace
+#pragma warning restore UAL0010,UAL0011,UAL0012,UAL0013,UAL0014
+#pragma warning restore UAL0015,UAL0018,UAL0019,UAL0020,UAL0021

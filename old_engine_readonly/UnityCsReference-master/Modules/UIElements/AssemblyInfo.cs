@@ -1,0 +1,118 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+using System.Runtime.CompilerServices;
+
+// OK: "friend" and test assemblies from the same product area, evolving in lockstep with this module
+
+[assembly: InternalsVisibleTo("Unity.UIElements.Tests")]
+[assembly: InternalsVisibleTo("Unity.UIElements.PlayModeTests")]
+[assembly: InternalsVisibleTo("Unity.UIElements.RuntimeTests")]
+[assembly: InternalsVisibleTo("Unity.UIElements.RuntimeTests.Controls")]
+[assembly: InternalsVisibleTo("Unity.UIElements.TestComponents")]
+[assembly: InternalsVisibleTo("Assembly-CSharp-testable")]
+
+[assembly: InternalsVisibleTo("Unity.UI.TestFramework.Runtime")] // for UI Test Framework
+[assembly: InternalsVisibleTo("Unity.UI.TestFramework.Runtime.InternalAccessTests")] // for UI Test Framework tests that need internal access
+[assembly: InternalsVisibleTo("UnityEngine.UIElements.Tests.Base")]
+[assembly: InternalsVisibleTo("UnityEngine.UIElements.Tests.Bindings")]
+[assembly: InternalsVisibleTo("UnityEngine.UIElements.Tests.Controls")]
+[assembly: InternalsVisibleTo("UnityEngine.UIElements.Tests.StyleSheets")]
+[assembly: InternalsVisibleTo("UnityEngine.UIElements.Tests.Utils")]
+[assembly: InternalsVisibleTo("UnityEngine.UIElements.Tests.UXML")]
+[assembly: InternalsVisibleTo("Unity.Modules.InputForUI.Tests.Playmode")]
+
+[assembly: InternalsVisibleTo("DynamicProxyGenAssembly2")] // for Moq
+
+[assembly: InternalsVisibleTo("UnityEditor.StyleSheetsModule")]
+[assembly: InternalsVisibleTo("UnityEditor.UIBuilderModule")]
+[assembly: InternalsVisibleTo("UnityEditor.UIElementsModule")]
+[assembly: InternalsVisibleTo("UnityEditor.UIToolkitAuthoringModule")]
+[assembly: InternalsVisibleTo("Unity.Modules.UIToolkitAuthoring.Tests.Editor")]
+
+[assembly: InternalsVisibleTo("Unity.Modules.Core.InspectorWindow.Tests.Editor")]
+
+[assembly: InternalsVisibleTo("Unity.UIElements.EditorTests")]
+[assembly: InternalsVisibleTo("Unity.UIElements.TestComponents.Editor")]
+[assembly: InternalsVisibleTo("Assembly-CSharp-Editor-testable")]
+[assembly: InternalsVisibleTo("Unity.UIElements.EditorResources.Authoring")]
+[assembly: InternalsVisibleTo("Unity.UIElements.EditorResources.EditorTests")]
+[assembly: InternalsVisibleTo("Unity.UI.Builder.EditorTests")]
+[assembly: InternalsVisibleTo("Test.UILibraryVisibility")]
+[assembly: InternalsVisibleTo("Test.UILibraryVisibleNamespace")]
+[assembly: InternalsVisibleTo("Test.UILibraryVisibleAssembly")]
+[assembly: InternalsVisibleTo("Unity.UXMLReferenceGenerator.Bridge")]
+[assembly: InternalsVisibleTo("Unity.UI.TestFramework.Editor")] // for UI Test Framework
+[assembly: InternalsVisibleTo("Unity.UI.TestFramework.Editor.InternalAccessTests")] // for UI Test Framework tests that need internal access
+[assembly: InternalsVisibleTo("Unity.Core.EditorWindowManagement.Tests.Editor")]
+[assembly: InternalsVisibleTo("Unity.Modules.Core.Settings.Tests.Editor")]
+
+[assembly: InternalsVisibleTo("Unity.Modules.InputForUI.Tests.Common")]
+[assembly: InternalsVisibleTo("Unity.Modules.InputForUI.Tests.Editor")]
+[assembly: InternalsVisibleTo("Unity.Modules.Input.Tests.Editor")]
+
+
+
+
+// TOLERATED: modules or core packages evolving in lockstep with this module
+// Reducing this list means to improve the API design of this module.
+
+[assembly: InternalsVisibleTo("UnityEngine.UI")] // com.unity.ugui
+[assembly: InternalsVisibleTo("UnityEngine.HierarchyModule")] // Unity.Hierarchy module, for HierarchyView control
+[assembly: InternalsVisibleTo("Unity.Hierarchy.PerformanceTests")] // Hierarchy performance tests
+[assembly: InternalsVisibleTo("UnityEngine.VectorGraphicsModule")] // VectorImage
+[assembly: InternalsVisibleTo("UnityEngine.LocalizationRuntimeModule")] // LocalizedReference overrides the CustomBinding hooks
+[assembly: InternalsVisibleTo("Unity.Modules.VectorGraphics.Tests.Editor")]
+[assembly: InternalsVisibleTo("Unity.RenderPipelines.Universal.Runtime")]
+[assembly: InternalsVisibleTo("Unity.RenderPipelines.Universal.2D.Runtime")]
+[assembly: InternalsVisibleTo("Unity.RenderPipelines.Universal.Editor")]
+
+// XR integration
+[assembly: InternalsVisibleTo("Unity.XR.Interaction.Toolkit")]
+[assembly: InternalsVisibleTo("Unity.XR.Interaction.Toolkit.Editor")]
+[assembly: InternalsVisibleTo("Unity.XR.Interaction.Toolkit.Samples.StarterAssets")]
+[assembly: InternalsVisibleTo("Unity.XR.Interaction.Toolkit.Samples.StarterAssets.Editor")]
+[assembly: InternalsVisibleTo("Unity.XR.Interaction.Toolkit.Samples.UIToolkit")]
+
+[assembly: InternalsVisibleTo("Unity.Modules.PackageManagerUI.Tests.Editor")]
+[assembly: InternalsVisibleTo("UnityEditor.CoreModule")]
+[assembly: InternalsVisibleTo("UnityEditor.EditorToolbarModule")]
+[assembly: InternalsVisibleTo("UnityEditor.GraphViewModule")]
+[assembly: InternalsVisibleTo("UnityEditor.Graphs")]
+[assembly: InternalsVisibleTo("Unity.ShaderGraph.Editor")] // com.unity.shadergraph
+[assembly: InternalsVisibleTo("UnityEditor.GridAndSnapModule")] // ButtonStripField
+[assembly: InternalsVisibleTo("UnityEditor.PresetsModule")]
+[assembly: InternalsVisibleTo("UnityEditor.PresetsUIModule")]
+[assembly: InternalsVisibleTo("UnityEditor.QuickSearchModule")]
+[assembly: InternalsVisibleTo("UnityEditor.SceneTemplateModule")]
+[assembly: InternalsVisibleTo("UnityEditor.SceneViewModule")]
+[assembly: InternalsVisibleTo("UnityEditor.UnityConnectModule")]
+[assembly: InternalsVisibleTo("UnityEditor.UIElementsSamplesModule")]
+[assembly: InternalsVisibleTo("UnityEditor.UI.EditorTests")]
+[assembly: InternalsVisibleTo("UnityEditor.HierarchyModule")] // Unity.HierarchyEditor module, for HierarchyWindow
+[assembly: InternalsVisibleTo("Unity.Hierarchy.Editor.Tests")] // Hierarchy tests
+[assembly: InternalsVisibleTo("Unity.Hierarchy.Editor.PerformanceTests")] // Hierarchy performance tests
+[assembly: InternalsVisibleTo("UnityEditor.VectorGraphicsModule")] // VectorImage
+
+
+[assembly: InternalsVisibleTo("Unity.Modules.VectorGraphics.Tests.Editor")]
+[assembly: InternalsVisibleTo("Unity.Modules.Licensing.Tests.Editor")]
+[assembly: InternalsVisibleTo("Unity.Modules.SceneTemplateEditor.Tests.Editor")]
+
+
+
+// NOT TOLERATED: assemblies distributed in packages not evolving in lockstep with this module
+// Until this list is empty, your internal API is included in your public API, and changing internal APIs is considered a breaking change.
+
+[assembly: InternalsVisibleTo("Unity.InternalAPIEngineBridge.001")] // com.unity.2d.common: VisualElement.pseudoStates, PseudoStates
+[assembly: InternalsVisibleTo("Unity.InternalAPIEngineBridge.002")] // com.unity.entities: VisualElementBridge.cs, ListViewBridge.cs
+[assembly: InternalsVisibleTo("Unity.InternalAPIEngineBridge.003")] // com.unity.vectorgraphics: VectorImage, GradientSettings
+
+
+[assembly: InternalsVisibleTo("Unity.2D.Sprite.Editor")] // com.unity.2d.sprite: FocusController.IsFocused
+[assembly: InternalsVisibleTo("Unity.2D.Tilemap.Editor")] // com.unity.2d.tilemap: AbstractGenericMenu
+[assembly: InternalsVisibleTo("Unity.2D.Tilemap.EditorTests")] // com.unity.2d.tilemap.tests: UIElementsUtility
+[assembly: InternalsVisibleTo("UnityEditor.GraphToolkitModule")]
+[assembly: InternalsVisibleTo("UnityEditor.Purchasing")] // com.unity.purchasing, VisualElement.AddStyleSheetPath
+

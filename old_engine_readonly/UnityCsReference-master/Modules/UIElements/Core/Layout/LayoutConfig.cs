@@ -1,0 +1,61 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+using System.Runtime.InteropServices;
+using UnityEngine.UIElements.Unmanaged;
+
+namespace UnityEngine.UIElements.Layout;
+
+[StructLayout(LayoutKind.Sequential)]
+readonly struct LayoutConfig
+{
+    public static LayoutConfig Undefined => new LayoutConfig(default, UnmanagedDataHandle.Undefined);
+
+    readonly LayoutDataAccess m_Access;
+    readonly UnmanagedDataHandle m_Handle;
+
+    internal LayoutConfig(LayoutDataAccess access, UnmanagedDataHandle handle)
+    {
+        m_Access = access;
+        m_Handle = handle;
+    }
+
+    /// <summary>
+    /// Returns <see langword="true"/> if this is an invalid/undefined node.
+    /// </summary>
+    public bool IsUndefined => m_Handle.Equals(UnmanagedDataHandle.Undefined);
+
+    /// <summary>
+    /// Returns the handle for this node.
+    /// </summary>
+    public UnmanagedDataHandle Handle => m_Handle;
+
+    /// <summary>
+    /// Gets or sets the shared point scale factor for configured nodes.
+    /// </summary>
+    public ref float PointScaleFactor => ref m_Access.GetConfigData(m_Handle).PointScaleFactor;
+
+    public ref bool ShouldLog => ref m_Access.GetConfigData(m_Handle).ShouldLog;
+
+    public ref PanelTransformFlags TransformFlags => ref m_Access.GetPanelTransformData(m_Handle).Flags;
+
+    /// <summary>
+    /// Gets or sets the custom measure function for this config.
+    /// </summary>
+    public LayoutMeasureFunction Measure
+    {
+        get => m_Access.GetMeasureFunction(m_Handle);
+        set => m_Access.SetMeasureFunction(m_Handle, value);
+    }
+
+
+    /// <summary>
+    /// Gets or sets the custom baseline function for this config.
+    /// </summary>
+    public LayoutBaselineFunction Baseline
+    {
+        get => m_Access.GetBaselineFunction(m_Handle);
+        set => m_Access.SetBaselineFunction(m_Handle, value);
+    }
+}

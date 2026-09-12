@@ -1,0 +1,183 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+#pragma warning disable UAL0015,UAL0018,UAL0019,UAL0020,UAL0021 // AutoStaticsCleanup usage analysis: InspectorFramework not yet converted
+using System;
+using System.Linq;
+using Unity.Scripting.LifecycleManagement;
+using UnityEditor.IMGUI.Controls;
+using UnityEngine;
+using UnityEngine.Scripting;
+
+namespace UnityEditor.AddComponent
+{
+    [InitializeOnLoad]
+    internal class AddComponentWindow : AdvancedDropdownWindow
+    {
+        #pragma warning disable UAL0015 // this side effect does not outlive the current call (global trigger / lazily-loaded asset re-fetched on next access); a stale reference is harmlessly replaced
+        static AddComponentWindow() { }
+        #pragma warning restore UAL0015
+
+        internal const string OpenAddComponentDropdown = "OpenAddComponentDropdown";
+        [Serializable]
+        internal class AnalyticsEventData
+        {
+            public string name;
+            public string filter;
+            public bool isNewScript;
+        }
+
+        private GameObject[] m_GameObjects;
+        private DateTime m_ComponentOpenTime;
+        private const string kComponentSearch = "ComponentSearchString";
+        private const int kMaxWindowHeight = 395 - 80;
+        [NoAutoStaticsCleanup] // dropdown UI state intentionally persisted across reloads
+        private static AdvancedDropdownState s_State = new AdvancedDropdownState();
+
+        protected override bool setInitialSelectionPosition { get; } = false;
+
+        protected override bool isSearchFieldDisabled
+        {
+            get
+            {
+                var child = state.GetSelectedChild(renderedTreeItem);
+                if (child != null)
+                    return child is NewScriptDropdownItem;
+                return false;
+            }
+        }
+
+        internal static bool Show(Rect rect, GameObject[] gos)
+        {
+            CloseAllOpenWindows<AddComponentWindow>();
+            var window = CreateInstance<AddComponentWindow>();
+            window.dataSource = new AddComponentDataSource(s_State, gos);
+            window.gui = new AddComponentGUI(window.dataSource, window.OnCreateNewScript);
+            window.state = s_State;
+            window.m_GameObjects = gos;
+            window.m_ComponentOpenTime = DateTime.UtcNow;
+            window.Init(rect);
+            window.searchString = EditorPrefs.GetString(kComponentSearch, "");
+            return true;
+        }
+
+        protected override void OnEnable()
+        {
+            base.OnEnable();
+            showHeader = true;
+            selectionChanged += OnItemSelected;
+        }
+
+        private void OnItemSelected(AdvancedDropdownItem item)
+        {
+            if (item is ComponentDropdownItem cdi && !string.IsNullOrEmpty(cdi.menuPath))
+            {
+                SendUsabilityAnalyticsEvent(new AnalyticsEventData
+                {
+                    name = item.name,
+                    filter = searchString,
+                    isNewScript = false
+                });
+
+                var gos = m_GameObjects;
+                EditorApplication.ExecuteMenuItemOnGameObjects(cdi.menuPath, gos);
+            }
+        }
+
+        protected override void OnDisable()
+        {
+            EditorPrefs.SetString(kComponentSearch, searchString);
+        }
+
+        internal new void OnGUI()
+        {
+            if (Array.Exists(m_GameObjects, g => !g))
+            {
+                // Close the popup window if one of the object is now invalid (i.e. deleted from an undo operation)
+                Close();
+                GUIUtility.ExitGUI();
+                return;
+            }
+
+            base.OnGUI();
+        }
+
+        protected override Vector2 CalculateWindowSize(Rect buttonRect)
+        {
+            return new Vector2(buttonRect.width, kMaxWindowHeight);
+        }
+
+        protected override bool SpecialKeyboardHandling(Event evt)
+        {
+            var createScriptMenu = state.GetSelectedChild(renderedTreeItem);
+            if (createScriptMenu is NewScriptDropdownItem nsdi)
+            {
+                // When creating new script name we want to dedicate both left/right arrow and backspace
+                // to editing the script name so they can't be used for navigating the menus.
+                // The only way to get back using the keyboard is pressing Esc.
+                if (evt.keyCode == KeyCode.Return || evt.keyCode == KeyCode.KeypadEnter)
+                {
+                    OnCreateNewScript(nsdi);
+                    evt.Use();
+                    GUIUtility.ExitGUI();
+                }
+
+                if (evt.keyCode == KeyCode.Escape)
+                {
+                    GoToParent();
+                    evt.Use();
+                }
+
+                return true;
+            }
+            return false;
+        }
+
+        void OnCreateNewScript(NewScriptDropdownItem item)
+        {
+            item.Create(m_GameObjects, searchString);
+            SendUsabilityAnalyticsEvent(new AnalyticsEventData
+            {
+                name = item.className,
+                filter = searchString,
+                isNewScript = true
+            });
+            Close();
+        }
+
+        internal void SendUsabilityAnalyticsEvent(AnalyticsEventData eventData)
+        {
+            var openTime = m_ComponentOpenTime;
+            UsabilityAnalytics.SendEvent("executeAddComponentWindow", openTime, DateTime.UtcNow - openTime, false, eventData);
+        }
+
+        [UsedByNativeCode]
+        internal static bool ValidateAddComponentMenuItem()
+        {
+            if (FirstInspectorWithGameObject() != null)
+                return true;
+            return false;
+        }
+
+        [UsedByNativeCode]
+        internal static void ExecuteAddComponentMenuItem()
+        {
+            var insp = FirstInspectorWithGameObject();
+            if (insp != null)
+            {
+                insp.ShowTab();
+                insp.m_OpenAddComponentMenu = true;
+            }
+        }
+
+        private static InspectorWindow FirstInspectorWithGameObject()
+        {
+            foreach (var insp in InspectorWindow.GetInspectors())
+                if (insp.GetInspectedObject() is GameObject)
+                    return insp;
+            return null;
+        }
+    }
+}
+#pragma warning restore UAL0015,UAL0018,UAL0019,UAL0020,UAL0021

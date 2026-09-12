@@ -1,0 +1,30 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+using System;
+using Unity.Collections.LowLevel.Unsafe;
+using UnityEngine.Bindings;
+
+namespace UnityEngine
+{
+    [global::UnityEngine.NativeClass("TextAsset", PersistentTypeId = 49)]
+    [NativeHeader("Runtime/Scripting/TextAsset.h")]
+    public partial class TextAsset : Object
+    {
+        // The raw bytes of the text asset. (RO)
+        public extern byte[] bytes { [return:UnityMarshalAs(NativeType.ScriptingObjectPtr)] get; }
+
+        [return: UnityMarshalAs(NativeType.ScriptingObjectPtr)]
+        extern byte[] GetPreviewBytes(int maxByteCount);
+
+        extern static void Internal_CreateInstance([Writable] TextAsset self, string text);
+
+        extern static void Internal_CreateInstanceFromBytes([Writable] TextAsset self, ReadOnlySpan<byte> bytes);
+
+        extern IntPtr GetDataPtr();
+        extern long GetDataSize();
+
+        static extern AtomicSafetyHandle GetSafetyHandle(TextAsset self);
+    }
+}

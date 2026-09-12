@@ -1,0 +1,193 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+using System;
+using System.Collections.Generic;
+
+namespace UnityEditor.PackageManager.UI.Internal
+{
+    internal partial class PackageFactory
+    {
+        private void RegisterEventsForAssetStorePackages()
+        {
+            m_UnityConnect.onUserLoginStateChange += OnUserLoginStateChange;
+
+            m_AssetStoreCache.onLocalInfosChanged += OnLocalInfosChanged;
+            m_AssetStoreCache.onPurchaseInfosChanged += OnPurchaseInfosChanged;
+            m_AssetStoreCache.onProductInfoChanged += OnProductInfoChanged;
+            m_AssetStoreCache.onUpdateInfosChanged += OnUpdateInfosChanged;
+            m_AssetStoreCache.onImportedPackagesChanged += OnImportedPackagesChanged;
+
+            m_AssetStoreDownloadManager.onDownloadFinalized += OnDownloadFinalized;
+            m_AssetStoreDownloadManager.onDownloadError += OnDownloadError;
+            m_AssetStoreDownloadManager.onBeforeDownloadStart += OnBeforeDownloadStart;
+
+            m_FetchStatusTracker.onProductInfoFetchStatusChanged += OnProductInfoFetchStatusChanged;
+        }
+
+        private void UnregisterEventsForAssetStorePackages()
+        {
+            m_UnityConnect.onUserLoginStateChange -= OnUserLoginStateChange;
+
+            m_AssetStoreCache.onLocalInfosChanged -= OnLocalInfosChanged;
+            m_AssetStoreCache.onPurchaseInfosChanged -= OnPurchaseInfosChanged;
+            m_AssetStoreCache.onProductInfoChanged -= OnProductInfoChanged;
+            m_AssetStoreCache.onUpdateInfosChanged -= OnUpdateInfosChanged;
+            m_AssetStoreCache.onImportedPackagesChanged -= OnImportedPackagesChanged;
+
+            m_AssetStoreDownloadManager.onDownloadFinalized -= OnDownloadFinalized;
+            m_AssetStoreDownloadManager.onDownloadError -= OnDownloadError;
+            m_AssetStoreDownloadManager.onBeforeDownloadStart -= OnBeforeDownloadStart;
+
+            m_FetchStatusTracker.onProductInfoFetchStatusChanged -= OnProductInfoFetchStatusChanged;
+        }
+
+        private void OnUserLoginStateChange(bool _, bool loggedIn)
+        {
+            if (loggedIn)
+                return;
+
+            m_AssetStoreCache.ClearOnlineCache();
+            m_FetchStatusTracker.ClearProductInfoFetchStatuses();
+
+            var packageUniqueIdsToRemove = new List<string>();
+            var productIdsToGenerate = new List<long>();
+            foreach (var p in m_PackageDatabase.allPackages)
+            {
+                if (p.product == null)
+                    continue;
+
+                if (p.versions.imported == null && p.versions.installed == null)
+                    packageUniqueIdsToRemove.Add(p.uniqueId);
+                else
+                    productIdsToGenerate.Add(p.product.id);
+            }
+
+            if (packageUniqueIdsToRemove.Count > 0)
+                m_PackageDatabase.UpdatePackages(toRemove: packageUniqueIdsToRemove);
+
+            GeneratePackagesAndTriggerChangeEvent(productIdsToGenerate);
+        }
+
+        private void AddPackageError(Package package, UIError error)
+        {
+            AddError(package, error);
+            m_PackageDatabase.OnPackagesModified(new[] { package });
+        }
+
+        private void OnBeforeDownloadStart(long productId)
+        {
+            var package = m_PackageDatabase.GetPackage(productId) as Package;
+            if (package == null)
+                return;
+
+            // When we start a new download, we want to clear past operation errors to give it a fresh start.
+            // Eventually we want a better design on how to show errors, to be further addressed in https://jira.unity3d.com/browse/PAX-1332
+            // We need to clear errors before calling download because Download can fail right away
+            var numErrorsRemoved = ClearErrors(package, e => e.errorCode == UIErrorCode.AssetStoreOperationError);
+            if (numErrorsRemoved > 0)
+                m_PackageDatabase.OnPackagesModified(new[] { package });
+        }
+
+        private void OnDownloadFinalized(AssetStoreDownloadOperation operation)
+        {
+            var package = m_PackageDatabase.GetPackage(operation.packageUniqueId) as Package;
+            if (package == null)
+                return;
+
+            if (operation.state == DownloadState.Error)
+                AddPackageError(package, new UIError(UIErrorCode.AssetStoreOperationError, operation.errorMessage, UIError.Attribute.Clearable));
+            else if (operation.state == DownloadState.Aborted)
+                m_PackageDatabase.OnPackagesModified(new[] { package });
+        }
+
+        private void OnDownloadError(AssetStoreDownloadOperation operation, UIError error)
+        {
+            var package = m_PackageDatabase.GetPackage(operation.packageUniqueId) as Package;
+            if (package == null)
+                return;
+
+            AddPackageError(package, error);
+        }
+
+        private void OnLocalInfosChanged(IReadOnlyCollection<AssetStoreLocalInfo> addedOrUpdated, IReadOnlyCollection<AssetStoreLocalInfo> removed)
+        {
+            // Since users could have way more locally downloaded .unitypackages than what's in their purchase list
+            // we don't want to trigger change events for all of them, only the ones we already checked before (the ones with productInfos)
+            var productIds = new List<long>(addedOrUpdated.Count + removed.Count);
+            foreach (var info in addedOrUpdated.Join(removed))
+                if (m_AssetStoreCache.GetProductInfo(info.productId) != null)
+                    productIds.Add(info.productId);
+            GeneratePackagesAndTriggerChangeEvent(productIds);
+        }
+
+        private void OnImportedPackagesChanged(IReadOnlyCollection<AssetStoreImportedPackage> addedOrUpdated, IReadOnlyCollection<AssetStoreImportedPackage> removed)
+        {
+            var productIds = new List<long>(addedOrUpdated.Count + removed.Count);
+            foreach (var info in addedOrUpdated.Join(removed))
+                productIds.Add(info.productId);
+            GeneratePackagesAndTriggerChangeEvent(productIds);
+        }
+
+        private void OnUpdateInfosChanged(IReadOnlyCollection<AssetStoreUpdateInfo> updateInfos)
+        {
+            // Right now updateInfo goes hands in hands with localInfo, so we handle it the same way as localInfo changes
+            // and only check packages we already checked before (the ones with productInfos). This behaviour might change in the future
+            var productIds = new List<long>(updateInfos.Count);
+            foreach (var info in updateInfos)
+                if (m_AssetStoreCache.GetProductInfo(info.productId) != null)
+                    productIds.Add(info.productId);
+            GeneratePackagesAndTriggerChangeEvent(productIds);
+        }
+
+        private void OnProductInfoChanged(AssetStoreProductInfo productInfo)
+        {
+            GeneratePackagesAndTriggerChangeEvent(new [] { productInfo.productId });
+        }
+
+        private void OnPurchaseInfosChanged(IReadOnlyCollection<AssetStorePurchaseInfo> purchaseInfos)
+        {
+            GeneratePackagesAndTriggerChangeEvent(purchaseInfos.SelectToNewArray(info => info.productId));
+        }
+
+        private void OnProductInfoFetchStatusChanged(long productId)
+        {
+            GeneratePackagesAndTriggerChangeEvent(new [] { productId });
+        }
+
+        private IPackage CreateAssetStorePackage(long productId, AssetStorePurchaseInfo purchaseInfo, AssetStoreProductInfo productInfo, AssetStoreImportedPackage importedPackage)
+        {
+            if (purchaseInfo == null && productInfo == null && importedPackage == null)
+                return null;
+
+            var productFetchStatus = m_FetchStatusTracker.GetProductInfoFetchStatus(productId);
+            Package package;
+            if (importedPackage == null && productInfo == null)
+            {
+                var version = new PlaceholderPackageVersion(productId.ToString(), purchaseInfo.displayName, tag: PackageTag.LegacyFormat, error: productFetchStatus.error);
+                package = CreatePackage(string.Empty, new PlaceholderVersionList(version), new Product(productId, null, null));
+            }
+            else
+            {
+                if (importedPackage != null && productInfo == null && productFetchStatus is { inProgress: false, error: null })
+                {
+                    m_BackgroundFetchHandler.AddToFetchPurchaseInfoQueue(productId);
+                    m_BackgroundFetchHandler.AddToFetchProductInfoQueue(productId);
+                    m_BackgroundFetchHandler.PushToCheckUpdateStack(productId);
+                }
+
+                var isDeprecated = productInfo?.state.Equals("deprecated", StringComparison.InvariantCultureIgnoreCase) ?? false;
+                var localInfo = m_AssetStoreCache.GetLocalInfo(productId);
+                var updateInfo = m_AssetStoreCache.GetUpdateInfo(productId);
+                var versionList = new AssetStoreVersionList(productInfo, localInfo, importedPackage, updateInfo);
+                package = CreatePackage(string.Empty, versionList, new Product(productId, purchaseInfo, productInfo), isDeprecated: isDeprecated);
+                if (productFetchStatus.error != null)
+                    AddError(package, productFetchStatus.error);
+            }
+
+            SetProgress(package, m_PackageProgressTracker.GetProgress(productId.ToString()));
+            return package;
+        }
+    }
+}

@@ -1,0 +1,814 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.Runtime.CompilerServices;
+using Unity.Jobs.LowLevel.Unsafe;
+using Unity.Scripting.LifecycleManagement;
+using UnityEngine.Bindings;
+
+namespace UnityEngine.TextCore.Text
+{
+    [DebuggerDisplay("{settings.text}")]
+    [VisibleToOtherModules("UnityEngine.IMGUIModule", "UnityEngine.UIElementsModule", "UnityEditor.QuickSearchModule")] //Search uses GetCursorPositionFromStringIndexUsingLineHeight
+    internal partial class TextHandle
+    {
+        [NoAutoStaticsCleanup] // Singleton cache infrastructure; the cache object itself persists safely across reload.
+        [VisibleToOtherModules("UnityEngine.UIElementsModule")]
+        internal static TextHandleTemporaryCache s_TemporaryCache = new TextHandleTemporaryCache();
+        [NoAutoStaticsCleanup] // Singleton cache infrastructure; the cache object itself persists safely across reload.
+        [VisibleToOtherModules("UnityEngine.UIElementsModule")]
+        internal static TextHandlePermanentCache s_PermanentCache = new TextHandlePermanentCache();
+
+        [VisibleToOtherModules("UnityEngine.IMGUIModule", "UnityEngine.UIElementsModule")]
+        internal static void InitThreadArrays()
+        {
+            if (s_Settings != null && s_Generators != null && s_TextInfosCommon != null)
+                return;
+
+            InitArray(ref s_Settings, () => new TextGenerationSettings());
+            InitArray(ref s_Generators, () => new TextGenerator());
+            InitArray(ref s_TextInfosCommon, () => new TextInfo());
+        }
+
+        [AutoStaticsCleanupOnCodeReload]
+        static TextGenerationSettings[] s_Settings;
+        internal static TextGenerationSettings[] settingsArray
+        {
+            get
+            {
+                if (s_Settings == null)
+                {
+                    InitArray(ref s_Settings, () => new TextGenerationSettings());
+                }
+                return s_Settings;
+            }
+        }
+
+        [AutoStaticsCleanupOnCodeReload]
+        static TextGenerator[] s_Generators;
+        internal static TextGenerator[] generators
+        {
+            get
+            {
+                if (s_Generators == null)
+                {
+                    InitArray(ref s_Generators, () => new TextGenerator());
+                }
+                return s_Generators;
+            }
+        }
+
+        [AutoStaticsCleanupOnCodeReload]
+        static TextInfo[] s_TextInfosCommon;
+        internal static TextInfo[] textInfosCommon
+        {
+            get
+            {
+                if (s_TextInfosCommon == null)
+                {
+                    InitArray(ref s_TextInfosCommon, () => new TextInfo());
+                }
+                return s_TextInfosCommon;
+            }
+        }
+
+        private static void InitArray<T>(ref T[] array, Func<T> createInstance)
+        {
+            if (array != null)
+                return;
+            array = new T[JobsUtility.ThreadIndexCount];
+            for (int i = 0; i < JobsUtility.ThreadIndexCount; i++)
+            {
+                array[i] = createInstance();
+            }
+        }
+        internal static TextInfo textInfoCommon => textInfosCommon[JobsUtility.ThreadIndex];
+        static TextGenerator generator => generators[JobsUtility.ThreadIndex];
+
+        internal static TextGenerationSettings settings
+        {
+            [VisibleToOtherModules("UnityEngine.IMGUIModule", "UnityEngine.UIElementsModule")]
+            get => settingsArray [JobsUtility.ThreadIndex];
+        }
+
+        [VisibleToOtherModules("UnityEngine.IMGUIModule", "UnityEngine.UIElementsModule")]
+        internal NativeTextGenerationSettings nativeSettings = NativeTextGenerationSettings.Default;
+
+        // scaled pixel
+        internal Vector2 preferredSize
+        {
+            [VisibleToOtherModules("UnityEngine.IMGUIModule", "UnityEngine.UIElementsModule")]
+            get => PixelsToPoints(pixelPreferedSize );
+        }
+
+        protected Vector2 pixelPreferedSize;
+
+        protected float PointsToPixels(float point)
+        {
+            return point * GetPixelsPerPoint();
+        }
+
+        protected float PixelsToPoints(float pixel)
+        {
+            return pixel / GetPixelsPerPoint();
+        }
+
+        protected internal Vector2 PointsToPixels(Vector2 point)
+        {
+            return point * GetPixelsPerPoint();
+        }
+
+        protected internal Vector2 PixelsToPoints(Vector2 pixel)
+        {
+            return pixel / GetPixelsPerPoint();
+        }
+
+
+        // Both UITK and IMGUI always work in scaled pixels and not real pixels onto the screen
+        // Because freetype values are actually meant to represent pixel on screen, we need to
+        // convert at some point between the two coordinate system. Considering that
+        // both ATG and TextCore have different scaling, and that theres is less code where the
+        // conversion would be needed in textHandle compared to every access to Freetype values during
+        // the text generation, we do the conversion here.
+        // Public API is usually in scaled pixels, while everything internal stays in real pixels as much as possible.
+        protected virtual float GetPixelsPerPoint() => 1.0f;
+        private Rect m_ScreenRect; //real pixel
+        private float m_LineHeightDefault; //real pixel
+        private bool m_IsPlaceholder;
+        protected bool m_IsElided;
+
+        private int m_CreateGenerationIteration;
+        private IntPtr m_TextGenerationInfo;
+
+        [VisibleToOtherModules("UnityEngine.IMGUIModule", "UnityEngine.UIElementsModule")]
+        internal IntPtr textGenerationInfo
+        {
+            get
+            {
+                if (IsCachedPermanentATG)
+                    Debug.Assert(m_TextGenerationInfo != IntPtr.Zero, "Internal Text Error: element is marked in permanent cache but the cache doesn't exist");
+
+                if (!IsCachedPermanentATG && m_CreateGenerationIteration != TextGenerationInfo.CurrentGenerationIteration)
+                    m_TextGenerationInfo = IntPtr.Zero;
+
+                return m_TextGenerationInfo;
+            }
+            set
+            {
+
+                // We dont want to swap from one info to another without going by null.
+                Debug.Assert((value == IntPtr.Zero) || (m_TextGenerationInfo == IntPtr.Zero), "Internal Text Error: Transitioning from one cache structure to another directly. This might cause a memory leak");
+
+                m_TextGenerationInfo = value;
+
+                //skip the flag getter as it does checks and they would fail while we are doing the setup
+                bool isCachePermanentATG = m_TextHandleFlags.HasFlag(TextHandleFlags.IsCachedPermanentATG);
+                //Set the generation to something that would be higly unprobable instead of the current one to see if it makes a difference
+                m_CreateGenerationIteration = TextGenerationInfo.CurrentGenerationIteration;
+            }
+        }
+
+        internal LinkedListNode<TextCacheEntry> TextInfoNode { get; set; }
+
+        [VisibleToOtherModules("UnityEngine.UIElementsModule")]
+        protected internal bool IsCachedPermanent => (m_TextHandleFlags & (TextHandleFlags.IsCachedPermanentTextCore | TextHandleFlags.IsCachedPermanentATG)) != 0;
+
+        [VisibleToOtherModules("UnityEngine.IMGUIModule", "UnityEngine.UIElementsModule")]
+        internal bool IsCachedPermanentATG {
+            get
+            {
+                bool isCacheATG = m_TextHandleFlags.HasFlag(TextHandleFlags.IsCachedPermanentATG);
+
+                //For ATG, textInfo can be allocated during the frame generation wihout being in permanent cache
+                if (isCacheATG)
+                    Debug.Assert(m_TextGenerationInfo != IntPtr.Zero, "Internal Text Error : The element is marked as being in the permanent cache without having the cache assigned");
+
+                return isCacheATG;
+            }
+            set
+            {
+                if (value)
+                    m_TextHandleFlags |= TextHandleFlags.IsCachedPermanentATG;
+                else
+                    m_TextHandleFlags ^= TextHandleFlags.IsCachedPermanentATG;
+            }
+        }
+
+        [VisibleToOtherModules("UnityEngine.UIElementsModule")]
+        internal bool IsCachedPermanentTextCore
+        {
+            get
+            {
+                bool isCacheTextCore = m_TextHandleFlags.HasFlag(TextHandleFlags.IsCachedPermanentTextCore);
+                if (!IsCachedTemporary && isCacheTextCore != (TextInfoNode != null))
+                    Debug.AssertFormat(false, "TextHandle : TextCore Permanent cache mismatch. isCache {0} but {1}", isCacheTextCore, TextInfoNode == null ? " has no node": "has a node");
+
+                return isCacheTextCore;
+            }
+            set
+            {
+                if (value)
+                    m_TextHandleFlags |= TextHandleFlags.IsCachedPermanentTextCore;
+                else
+                    m_TextHandleFlags ^= TextHandleFlags.IsCachedPermanentTextCore;
+            }
+
+        }
+
+        [VisibleToOtherModules("UnityEngine.UIElementsModule")]
+        internal bool IsCachedTemporary { get; set; }
+
+        [Flags]
+        protected private enum TextHandleFlags
+        {
+            IsCachedPermanentTextCore = 1<<1,
+            IsCachedPermanentATG = 1<<2,
+        }
+
+        protected private TextHandleFlags m_TextHandleFlags;
+
+
+        internal bool useAdvancedText
+        {
+            [VisibleToOtherModules("UnityEngine.IMGUIModule", "UnityEngine.UIElementsModule")]
+            get { return IsAdvancedTextEnabledForElement(); }
+        }
+
+        internal int characterCount
+        {
+            [VisibleToOtherModules("UnityEngine.IMGUIModule", "UnityEngine.UIElementsModule")]
+            get
+            {
+                return useAdvancedText ? TextLib.GetCharacterCount(textGenerationInfo) : textInfo.characterCount;
+            }
+        }
+
+        public virtual void AddToPermanentCacheAndGenerateMesh()
+        {
+            // IsCachedPermanent = true; should be set here, but the method is overriden for ATG and there is a different way to add to the permanent cache in ATG that would not generate immediatly the mesh.
+
+            if (useAdvancedText)
+            {
+                throw new InvalidOperationException("Method is virtual and should be overriden in ATGTextHanle, the only valid handle for ATG");
+            }
+            else
+            {
+                s_PermanentCache.AddToCache(this);
+            }
+        }
+
+        public virtual void AddToPermanentCache()
+        {
+            if (!useAdvancedText)
+            {
+                throw new InvalidOperationException("Method is not implemented for TextCore.");
+            }
+        }
+
+        public void AddTextInfoToTemporaryCache(int hashCode)
+        {
+            if (useAdvancedText)
+                return;
+            s_TemporaryCache.AddTextInfoToCache(this, hashCode);
+        }
+
+        public void RemoveFromTemporaryCache()
+        {
+            s_TemporaryCache.RemoveFromCache(this);
+        }
+
+        public void RemoveFromPermanentCache()
+        {
+            RemoveFromPermanentCacheATG();
+            RemoveFromPermanentCacheTextCore();
+        }
+
+        public void RemoveFromPermanentCacheTextCore()
+        {
+            s_PermanentCache.RemoveFromCache(this);
+        }
+
+        public virtual void RemoveFromPermanentCacheATG()
+        {
+            DestroyPermanentCachedGenerationInfo();
+        }
+
+        // Finalizer-safe: TextGenerationInfo.Destroy is thread-safe, unlike the overrides above, which also free NativeArray-backed buffers.
+        protected void DestroyPermanentCachedGenerationInfo()
+        {
+            if (IsCachedPermanentATG)
+            {
+                TextGenerationInfo.Destroy(textGenerationInfo);
+                textGenerationInfo = IntPtr.Zero;
+                IsCachedPermanentATG = false;
+            }
+        }
+
+        public static void UpdateCurrentFrame()
+        {
+            s_TemporaryCache.UpdateCurrentFrame();
+        }
+
+        /// <summary>
+        /// The TextInfo instance, use from this instead of the m_TextInfo member.
+        /// References a cached textInfo if dynamic, or a static instance (textInfoCommon) if not cached.
+        /// </summary>
+        internal TextInfo textInfo
+        {
+            [VisibleToOtherModules("UnityEngine.IMGUIModule", "UnityEngine.UIElementsModule")]
+            get
+            {
+                if (useAdvancedText)
+                    Debug.LogError("TextHandle.textInfo should not be used with Advanced Text, use textGenerationInfo instead.");
+
+                if (TextInfoNode == null)
+                    return textInfoCommon;
+                else
+                    return TextInfoNode.Value.textInfo;
+            }
+        }
+
+        // For testing purposes
+        internal bool IsTextInfoAllocated()
+        {
+            return textInfo != null;
+        }
+
+        [VisibleToOtherModules("UnityEngine.UIElementsModule")]
+        internal int m_PreviousGenerationSettingsHash;
+
+        protected bool isDirty;
+        public virtual void SetDirty()
+        {
+            isDirty = true;
+        }
+
+        public bool IsDirty(int hashCode)
+        {
+            if (m_PreviousGenerationSettingsHash == hashCode && !isDirty && (IsCachedTemporary || IsCachedPermanent))
+                return false;
+
+            return true;
+        }
+
+        public float ComputeTextWidth(TextGenerationSettings tgs)
+        {
+            UpdatePreferredValues(tgs);
+            return preferredSize.x;//Value already in scaled pixels
+        }
+
+        public float ComputeTextHeight(TextGenerationSettings tgs)
+        {
+            UpdatePreferredValues(tgs);
+            return preferredSize.y; //Value already in scaled pixels
+        }
+
+        public virtual bool IsPlaceholder
+        {
+            get => m_IsPlaceholder;
+        }
+
+        protected void UpdatePreferredValues(TextGenerationSettings tgs)
+        {
+            pixelPreferedSize = generator.GetPreferredValues(tgs, textInfoCommon);
+        }
+
+        [VisibleToOtherModules("UnityEngine.IMGUIModule", "UnityEngine.UIElementsModule")]
+        internal TextInfo Update()
+        {
+            if (useAdvancedText)
+            {
+                Debug.LogError("TextHandle.Update should not be used with Advanced Text, use TextHandle.ComputeSettingsAndUpdate() instead.");
+                return null;
+            }
+                
+            return UpdateWithHash(settings.GetHashCode());
+        }
+
+        [VisibleToOtherModules("UnityEngine.IMGUIModule", "UnityEngine.UIElementsModule")]
+        internal TextInfo UpdateWithHash(int hashCode)
+        {
+            m_ScreenRect = settings.screenRect;
+            m_LineHeightDefault = GetLineHeightDefault(settings.fontAsset, settings.fontSize);
+            m_IsPlaceholder = settings.isPlaceholder;
+            if (!IsDirty(hashCode))
+                return textInfo;
+
+            if (settings.fontAsset == null)
+            {
+                Debug.LogWarning("Can't Generate Mesh, No Font Asset has been assigned.");
+                return textInfo;
+            }
+
+            generator.GenerateText(settings, textInfo);
+            m_PreviousGenerationSettingsHash = hashCode;
+            isDirty = false;
+            m_IsElided = generator.isTextTruncated;
+
+            return textInfo;
+        }
+
+        [VisibleToOtherModules("UnityEngine.IMGUIModule", "UnityEngine.UIElementsModule")]
+        internal bool PrepareFontAsset()
+        {
+            if (settings.fontAsset == null)
+                return false;
+
+            if (!IsDirty(settings.GetHashCode()))
+                return true;
+
+            bool success = generator.PrepareFontAsset(settings);
+            return success;
+        }
+
+		[VisibleToOtherModules("UnityEngine.IMGUIModule")]
+        internal void UpdatePreferredSize()
+        {
+            if (textInfo.characterCount <= 0)
+                return;
+
+            var maxAscender = float.MinValue;
+            var maxDescender = textInfo.textElementInfo[textInfo.characterCount - 1].descender;
+            var renderedWidth = 0f;
+            var renderedHeight = 0f;
+
+            for (var i = 0; i < textInfo.lineCount; i++)
+            {
+                var lineInfo = textInfo.lineInfo[i];
+                maxAscender = Mathf.Max(maxAscender, textInfo.textElementInfo[lineInfo.firstVisibleCharacterIndex].ascender);
+                maxDescender = Mathf.Min(maxDescender, textInfo.textElementInfo[lineInfo.firstVisibleCharacterIndex].descender);
+
+                // UUM-46147: For IMGUI rendered width includes xAdvance for backward compatibility
+                renderedWidth = settings.isIMGUI ? Mathf.Max(renderedWidth, lineInfo.length) : Mathf.Max(renderedWidth, lineInfo.lineExtents.max.x - lineInfo.lineExtents.min.x);
+            }
+            renderedHeight = maxAscender - maxDescender;
+
+            // Round Preferred Values to nearest 1/100.
+            // The cast is now ok as we are working with real pixels values
+            // The operation should also do nothing for bitmaps fonts as they are already aligned.
+            renderedWidth = (int)(renderedWidth * 100 + 1f) / 100f;
+            renderedHeight = (int)(renderedHeight * 100 + 1f) / 100f;
+
+            pixelPreferedSize = new Vector2(renderedWidth, renderedHeight);
+        }
+
+        [VisibleToOtherModules("UnityEngine.UIElementsModule")]
+        internal static float ConvertPixelUnitsToTextCoreRelativeUnits(float fontSize, FontAsset fontAsset)
+        {
+            // Convert the text settings pixel units to TextCore relative units
+            float paddingPercent = 1.0f / fontAsset.atlasPadding;
+            float pointSizeRatio = ((float)fontAsset.faceInfo.pointSize) / fontSize;
+            return paddingPercent * pointSizeRatio;
+        }
+
+        // Warning: return the ligne height in real pixels, not in scaled pixels
+        [VisibleToOtherModules("UnityEngine.IMGUIModule")]
+        internal static float GetLineHeightDefault(FontAsset fontAsset, int fontSize)
+        {
+            if (fontAsset != null)
+            {
+                return fontAsset.faceInfo.lineHeight / fontAsset.faceInfo.pointSize * fontSize;
+            }
+            return 0.0f;
+        }
+
+        public virtual Vector2 GetCursorPositionFromStringIndexUsingCharacterHeight(int index, bool inverseYAxis = true)
+        {
+            AddToPermanentCacheAndGenerateMesh();
+            var unscaled = useAdvancedText ? TextSelectionService.GetCursorPositionFromLogicalIndex(textGenerationInfo, index) : textInfo.GetCursorPositionFromStringIndexUsingCharacterHeight(index, m_ScreenRect, m_LineHeightDefault, inverseYAxis);
+            return PixelsToPoints(unscaled);
+        }
+
+        public Vector2 GetCursorPositionFromStringIndexUsingLineHeight(int index, bool useXAdvance = false, bool inverseYAxis = true)
+        {
+            AddToPermanentCacheAndGenerateMesh();
+            var unscaled =  useAdvancedText ? TextSelectionService.GetCursorPositionFromLogicalIndex(textGenerationInfo, index) : textInfo.GetCursorPositionFromStringIndexUsingLineHeight(index, m_ScreenRect, m_LineHeightDefault, useXAdvance, inverseYAxis);
+            return PixelsToPoints(unscaled);
+        }
+
+        [VisibleToOtherModules("UnityEngine.IMGUIModule", "UnityEngine.UIElementsModule")]
+        internal Rect[] GetHighlightRectangles(int cursorIndex, int selectIndex)
+        {
+            if (!useAdvancedText)
+            {
+                Debug.LogError("Cannot use GetHighlightRectangles while using Standard Text");
+                return Array.Empty<Rect>();
+            }
+            var result = TextSelectionService.GetHighlightRectangles(textGenerationInfo, cursorIndex, selectIndex);
+
+            var pointsPerPixelCache = 1/GetPixelsPerPoint();
+            for ( int i =0; i< result.Length; i++)
+             {
+
+                result[i].x *= pointsPerPixelCache;
+                result[i].y *= pointsPerPixelCache;
+                result[i].width *= pointsPerPixelCache;
+                result[i].height *= pointsPerPixelCache;
+            }
+            return result;
+        }
+
+        //TODO add special handling for 1 character...
+        // Add support for world space.
+        //The position is in scaled GUI space
+        public int GetCursorIndexFromPosition(Vector2 position, bool inverseYAxis = true)
+        {
+            position = PointsToPixels(position);
+            return useAdvancedText ? TextSelectionService.GetCursorLogicalIndexFromPosition(textGenerationInfo, position)
+                : textInfo.GetCursorIndexFromPosition(position, m_ScreenRect, inverseYAxis);
+        }
+
+        public int LineDownCharacterPosition(int originalLogicalPos)
+        {
+            return textInfo.LineDownCharacterPosition(originalLogicalPos);
+        }
+
+        public int LineUpCharacterPosition(int originalLogicalPos)
+        {
+            return textInfo.LineUpCharacterPosition(originalLogicalPos);
+        }
+
+        // This could be improved if TextElementInfo had a reference to the word index.
+        public int FindWordIndex(int cursorIndex)
+        {
+            if (useAdvancedText)
+            {
+                Debug.LogError("Cannot use FindWordIndex while using Advanced Text");
+                return 0;
+            }
+            return textInfo.FindWordIndex(cursorIndex);
+        }
+
+        public int FindNearestLine(Vector2 position)
+        {
+            position = PointsToPixels(position);
+            if (useAdvancedText)
+            {
+                Debug.LogError("Cannot use FindNearestLine while using Advanced Text");
+                return 0;
+            }
+            return textInfo.FindNearestLine(position);
+        }
+
+        public int FindNearestCharacterOnLine(Vector2 position, int line, bool visibleOnly)
+        {
+            if (useAdvancedText)
+            {
+                Debug.LogError("Cannot use FindNearestCharacterOnLine while using Advanced Text");
+                return 0;
+            }
+            position = PointsToPixels(position);
+            return textInfo.FindNearestCharacterOnLine(position, line, visibleOnly);
+        }
+
+        /// <summary>
+        /// Function returning the index of the Link at the given position (if any).
+        /// </summary>
+        /// <returns></returns>
+        public int FindIntersectingLink(Vector3 position, bool inverseYAxis = true)
+        {
+            if (useAdvancedText)
+            {
+                return TextLib.FindIntersectingLink(position, textGenerationInfo);
+            }
+            position = PointsToPixels(position);
+            return textInfo.FindIntersectingLink(position, m_ScreenRect, inverseYAxis);
+        }
+
+        public int GetCorrespondingStringIndex(int index)
+        {
+            return textInfo.GetCorrespondingStringIndex(index);
+        }
+
+        public int GetCorrespondingCodePointIndex(int stringIndex)
+        {
+            return textInfo.GetCorrespondingCodePointIndex(stringIndex);
+        }
+
+        public LineInfo GetLineInfoFromCharacterIndex(int index)
+        {
+            if (useAdvancedText)
+            {
+                Debug.LogError("Cannot use GetLineInfoFromCharacterIndex while using Advanced Text");
+                return new LineInfo();
+            }
+
+            return textInfo.GetLineInfoFromCharacterIndex(index);
+        }
+
+        public int GetLineNumber(int index)
+        {
+            return useAdvancedText ? TextSelectionService.GetLineNumber(textGenerationInfo, index) : textInfo.GetLineNumber(index);
+        }
+
+        public float GetLineHeight(int lineNumber)
+        {
+            return PixelsToPoints(useAdvancedText ? TextGenerationInfo.GetLineHeight(textGenerationInfo, lineNumber) : textInfo.GetLineHeight(lineNumber));
+        }
+
+        public float GetLineHeightFromCharacterIndex(int index)
+        {
+            return PixelsToPoints(useAdvancedText ? TextSelectionService.GetCharacterHeightFromIndex(textGenerationInfo, index) : textInfo.GetLineHeightFromCharacterIndex(index));
+        }
+
+        public float GetCharacterHeightFromIndex(int index)
+        {
+            return PixelsToPoints(useAdvancedText ? TextSelectionService.GetCharacterHeightFromIndex(textGenerationInfo, index) : textInfo.GetCharacterHeightFromIndex(index));
+        }
+
+
+        /// <summary>
+        /// Retrieves a substring from this instance.
+        /// </summary>
+        public string Substring(int startIndex, int length)
+        {
+            return textInfo.Substring(startIndex, length);
+        }
+
+        public int GetFirstCharacterIndexOnLine(int currentIndex)
+        {
+            LineInfo li = GetLineInfoFromCharacterIndex(currentIndex);
+            return li.firstCharacterIndex;
+        }
+
+        public int GetLastCharacterIndexOnLine(int currentIndex)
+        {
+            LineInfo li = GetLineInfoFromCharacterIndex(currentIndex);
+            return li.lastCharacterIndex;
+        }
+
+        /// <summary>
+        /// Reports the zero-based index of the first occurrence of the specified Unicode character in this string.
+        /// The search starts at a specified character position.
+        /// </summary>
+        /// <remarks>
+        /// The search is case sensitive.
+        /// </remarks>
+        public int IndexOf(char value, int startIndex)
+        {
+            if (useAdvancedText)
+            {
+                Debug.LogError("Cannot use IndexOf while using Advanced Text");
+                return 0;
+            }
+            return textInfo.IndexOf(value, startIndex);
+        }
+
+        /// <summary>
+        /// Reports the zero-based index position of the last occurrence of a specified Unicode character within this
+        /// instance. The search starts at a specified character position and proceeds backward toward the beginning of the string.
+        /// </summary>
+        /// <remarks>
+        /// The search is case sensitive.
+        /// </remarks>
+        public int LastIndexOf(char value, int startIndex)
+        {
+            if (useAdvancedText)
+            {
+                Debug.LogError("Cannot use LastIndexOf while using Advanced Text");
+                return 0;
+            }
+            return textInfo.LastIndexOf(value, startIndex);
+        }
+
+        internal virtual bool IsAdvancedTextEnabledForElement() { return false; }
+
+
+        //This method assumes the textInfo is populated (TextCore) or text is generated (ATG).
+        [VisibleToOtherModules("UnityEngine.IMGUIModule", "UnityEngine.UIElementsModule")]
+        internal int GetTextElementCount()
+        {
+            if (useAdvancedText)
+                return characterCount;
+
+            return textInfo.textElementInfo.Length;
+        }
+
+        [VisibleToOtherModules("UnityEngine.IMGUIModule", "UnityEngine.UIElementsModule")]
+        internal RichTextLinkInfo[] m_Links;
+
+        [VisibleToOtherModules("UnityEngine.IMGUIModule", "UnityEngine.UIElementsModule")]
+        internal int m_HoveredTag = (int)HoveredTag.None;
+
+        [VisibleToOtherModules("UnityEngine.IMGUIModule", "UnityEngine.UIElementsModule")]
+        internal virtual UnityEngine.TextAsset GetICUAsset() { return null; }
+
+        [VisibleToOtherModules("UnityEngine.IMGUIModule", "UnityEngine.UIElementsModule")]
+        internal static void RegisterICUDataAsset(UnityEngine.TextAsset icuDataAsset)
+        {
+            if (icuDataAsset == null)
+                return;
+
+            if (s_TextLib == null)
+                s_TextLib = new TextLib(icuDataAsset.bytes);
+            else
+                TextLib.TryLoadICUData(icuDataAsset.bytes);
+        }
+
+        [VisibleToOtherModules("UnityEngine.IMGUIModule", "UnityEngine.UIElementsModule")]
+        //This method uses the asset in the editor if available, or try to find any asset that would be included in the resource folder for builds
+        internal static UnityEngine.TextAsset GetICUAssetStaticFalback()
+        {
+            if (TextLib.GetICUAssetEditorDelegate != null)
+            {
+                //Editor will load the ICU library before the scene, so we need to check in the asset database as the asset may not be loaded yet.
+                var asset = TextLib.GetICUAssetEditorDelegate();
+                if (asset != null)
+                    return asset;
+            }
+            // Dont know about the panelSettings class existence here so we must filter by name
+            foreach (var t in Resources.FindObjectsOfTypeAll<UnityEngine.TextAsset>())
+            {
+                if (t.name == "icudt73l")
+                    return t;
+            }
+
+            return null;
+        }
+
+        [NoAutoStaticsCleanup] // Lazy native ICU wrapper rebuilt from the persistent ICU asset on first access; safe to persist across reload.
+        static TextLib s_TextLib;
+
+        [VisibleToOtherModules("UnityEngine.IMGUIModule", "UnityEngine.UIElementsModule")]
+        internal protected TextLib textLib
+        {
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            get
+            {
+                InitTextLib();
+                return s_TextLib;
+            }
+        }
+
+        [VisibleToOtherModules("UnityEngine.IMGUIModule", "UnityEngine.UIElementsModule")]
+        internal protected void InitTextLib()
+        {
+            if (s_TextLib != null)
+                return;
+
+            // A missing ICU data asset is not fatal: the native side falls back
+            // to minimal text segmentation (basic line breaking rules only).
+            var icuAsset = GetICUAsset();
+            s_TextLib = new TextLib(icuAsset != null ? icuAsset.bytes : Array.Empty<byte>());
+        }
+
+        [VisibleToOtherModules("UnityEngine.IMGUIModule", "UnityEngine.UIElementsModule")]
+        internal RichTextLinkInfo ATGFindIntersectingLink(Vector2 point)
+        {
+            Debug.Assert(useAdvancedText);
+
+            if (textGenerationInfo == IntPtr.Zero)
+            {
+                Debug.LogError("TextGenerationInfo pointer is null.");
+                return new RichTextLinkInfo { id = -1 };
+            }
+
+            int id = TextLib.FindIntersectingLink(point * GetPixelsPerPoint(), textGenerationInfo);
+
+            if (m_Links == null || id < 0 || id >= m_Links.Length)
+                return new RichTextLinkInfo { id = -1 };
+
+            return m_Links[id];
+        }
+
+        [VisibleToOtherModules("UnityEngine.IMGUIModule", "UnityEngine.UIElementsModule")]
+        public void CacheTextGenerationInfo()
+        {
+            if (!useAdvancedText)
+            {
+                Debug.LogError("CacheTextGenerationInfo should only be called for ATG.");
+                return;
+            }
+
+            bool isCacheATG = m_TextHandleFlags.HasFlag(TextHandleFlags.IsCachedPermanentATG);
+            if (isCacheATG)
+                return;
+
+            // We need to recreate it with the good memory labels
+            if (textGenerationInfo != IntPtr.Zero)
+            {
+                TextGenerationInfo.Destroy(textGenerationInfo);
+                textGenerationInfo = IntPtr.Zero;
+            }
+
+            IsCachedPermanentATG = true;
+            textGenerationInfo = TextGenerationInfo.Create(IsCachedPermanent);
+        }
+
+        internal bool IsMainDirectionRTL()
+        {
+            if (!useAdvancedText)
+            {
+                Debug.LogError("IsMainDirectionRTL should only be called for ATG.");
+                return false;
+            }
+
+            return TextLib.IsMainDirectionRTL(textGenerationInfo);
+        }
+    }
+}
+

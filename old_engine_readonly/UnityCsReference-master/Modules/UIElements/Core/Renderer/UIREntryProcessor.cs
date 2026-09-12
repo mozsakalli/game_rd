@@ -1,0 +1,746 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Runtime.CompilerServices;
+using Unity.Collections;
+using Unity.Collections.LowLevel.Unsafe;
+using Unity.Profiling;
+
+namespace UnityEngine.UIElements.UIR
+{
+    partial class EntryProcessor
+    {
+        struct MaskMesh
+        {
+            public RawSlice vertices;
+            public NativeSlice<ushort> indices;
+            public int indexOffset; // From the beginning of the "real" index buffer to the first index actually being read
+        }
+
+        EntryPreProcessor m_PreProcessor = new EntryPreProcessor();
+
+        RenderTreeManager m_RenderTreeManager;
+        RenderData m_CurrentRenderData;
+
+        ExtraVertexChannels m_PanelExtras;
+        IntPtr m_NoUserExtrasTemplatePtr;
+
+        int m_MaskDepth; // The currently used depth
+        int m_MaskDepthPopped;
+        int m_MaskDepthPushed;
+
+        int m_StencilRef; // The currently used stencil ref
+        int m_StencilRefPopped;
+        int m_StencilRefPushed;
+
+        BMPAlloc m_ClipRectId; // The currently used clip rect
+        BMPAlloc m_ClipRectIdPopped;
+        BMPAlloc m_ClipRectIdPushed;
+
+        bool m_IsDrawingMask;
+        Stack<MaskMesh> m_MaskMeshes = new Stack<MaskMesh>(1);
+
+        // Vertex data, lazily computed
+        bool m_RequestedElementId;
+        bool m_ElementIdValid; // false when the id pool is exhausted; the mesh is discarded
+        ushort m_TextCoreId;
+
+        // Invariant within an alloc
+        MeshHandle m_Mesh;              // The current destination mesh
+        RawSlice m_Verts;       // The current destination vertex+extras slice
+        NativeSlice<UInt16> m_Indices;  // The current destination index slice
+        ushort m_IndexOffset;           // The index offset provided by the render device for the current sub-alloc
+        int m_AllocVertexCount;         // Number of vertices in the current alloc
+        int m_AllocIndex;               // Index of the current alloc in the list of allocs
+
+        // Increases as we fill the alloc
+        int m_VertsFilled;
+        int m_IndicesFilled;
+
+        // Per entry
+        VertexFlags m_RenderType;
+        bool m_RemapUVs;
+        Rect m_AtlasRect;
+        ushort m_GradientSettingIndexOffset;
+        bool m_IsTail;
+
+        // First command is always a dummy
+        RenderChainCommand m_FirstCommand;
+        RenderChainCommand m_LastCommand;
+
+        public RenderChainCommand firstHeadCommand { get; private set; }
+        public RenderChainCommand lastHeadCommand { get; private set; }
+        public RenderChainCommand firstTailCommand { get; private set; }
+        public RenderChainCommand lastTailCommand { get; private set; }
+
+        public void Init(Entry root, RenderTreeManager renderTreeManager, RenderData renderData)
+        {
+            UIRenderDevice device = renderTreeManager.device;
+            m_RenderTreeManager = renderTreeManager;
+            m_CurrentRenderData = renderData;
+            m_PanelExtras = device.extraVertexChannels;
+            m_NoUserExtrasTemplatePtr = device.noUserExtrasTemplatePtr;
+
+            m_PreProcessor.PreProcess(root);
+
+            // Free the allocated meshes, if necessary
+            if (m_PreProcessor.headAllocs.Count == 0 && renderData.headMesh != null)
+            {
+                device.Free(renderData.headMesh);
+                renderData.headMesh = null;
+            }
+
+            if (m_PreProcessor.tailAllocs.Count == 0 && renderData.tailMesh != null)
+            {
+                device.Free(renderData.tailMesh);
+                renderData.tailMesh = null;
+            }
+
+            if (renderData.hasExtraMeshes)
+                renderTreeManager.FreeExtraMeshes(renderData);
+
+            renderTreeManager.ResetGraphicEntries(renderData);
+
+            var parent = renderData.parent;
+            bool isGroupTransform = renderData.isGroupTransform;
+
+            if (parent != null)
+            {
+                // A z-index element's render parent differs from its visual parent; its draws inherit clip and masking from the visual parent.
+                var inheritanceParent = renderData.GetInheritanceParent(parent);
+                m_MaskDepthPopped = inheritanceParent.childrenMaskDepth;
+                m_StencilRefPopped = inheritanceParent.childrenStencilRef;
+                m_ClipRectIdPopped = isGroupTransform ? ShaderInfoAllocator.infiniteClipRect : inheritanceParent.clipRectID;
+            }
+            else
+            {
+                m_MaskDepthPopped = 0;
+                m_StencilRefPopped = 0;
+                m_ClipRectIdPopped = ShaderInfoAllocator.infiniteClipRect;
+            }
+
+            m_MaskDepthPushed = m_MaskDepthPopped + 1;
+            m_StencilRefPushed = m_MaskDepthPopped;
+            m_ClipRectIdPushed = renderData.clipRectID;
+
+            m_MaskDepth = m_MaskDepthPopped;
+            m_StencilRef = m_StencilRefPopped;
+            m_ClipRectId = m_ClipRectIdPopped;
+
+            // Vertex data, lazily computed
+            m_RequestedElementId = false;
+            m_ElementIdValid = true;
+            m_TextCoreId = 0;
+
+            m_MaskMeshes.Clear();
+            m_IsDrawingMask = false;
+        }
+
+        // Clear important references to prevent memory retention
+        public void ClearReferences()
+        {
+            m_PreProcessor.ClearReferences();
+
+            m_RenderTreeManager = null;
+            m_CurrentRenderData = null;
+            m_Mesh = null;
+
+            m_FirstCommand = null;
+            m_LastCommand = null;
+            firstHeadCommand = null;
+            lastHeadCommand = null;
+            firstTailCommand = null;
+            lastTailCommand = null;
+        }
+
+        public void ProcessHead()
+        {
+            m_IsTail = false;
+
+            ProcessFirstAlloc(m_PreProcessor.headAllocs, ref m_CurrentRenderData.headMesh);
+
+            m_FirstCommand = null;
+            m_LastCommand = null;
+
+            ProcessRange(0, m_PreProcessor.childrenIndex - 1);
+
+            firstHeadCommand = m_FirstCommand;
+            lastHeadCommand = m_LastCommand;
+        }
+
+        public void ProcessTail()
+        {
+            m_IsTail = true;
+
+            ProcessFirstAlloc(m_PreProcessor.tailAllocs, ref m_CurrentRenderData.tailMesh);
+
+            m_FirstCommand = null;
+            m_LastCommand = null;
+
+            ProcessRange(m_PreProcessor.childrenIndex + 1, m_PreProcessor.flattenedEntries.Count - 1);
+
+            firstTailCommand = m_FirstCommand;
+            lastTailCommand = m_LastCommand;
+
+            Debug.Assert(m_MaskDepth == m_MaskDepthPopped);
+            Debug.Assert(m_MaskMeshes.Count == 0);
+            Debug.Assert(!m_IsDrawingMask);
+        }
+
+        void ProcessRange(int first, int last)
+        {
+            List<Entry> entries = m_PreProcessor.flattenedEntries;
+            for (int i = first; i <= last; ++i)
+            {
+                var entry = entries[i];
+                switch (entry.type)
+                {
+                    case EntryType.DrawSolidMesh:
+                    {
+                        m_RenderType = VertexFlags.RenderTypeSolid;
+                        ProcessMeshEntry(entry, TextureId.invalid);
+                        break;
+                    }
+                    case EntryType.DrawTexturedMesh:
+                    {
+                        Texture texture = entry.texture;
+                        TextureId textureId = TextureId.invalid;
+                        if (texture != null)
+                        {
+                            // Attempt to override with an atlas
+                            bool skipAtlas = (entry.flags & (EntryFlags.SkipDynamicAtlas | EntryFlags.IsPremultiplied)) != 0;
+                            if (!skipAtlas && m_RenderTreeManager.atlas != null && m_RenderTreeManager.atlas.TryGetAtlas(m_CurrentRenderData.owner, texture as Texture2D, out textureId, out RectInt atlasRect))
+                            {
+                                m_RenderType = VertexFlags.RenderTypeDynamicTexture;
+                                m_AtlasRect = new Rect(atlasRect.x, atlasRect.y, atlasRect.width, atlasRect.height);
+                                m_RemapUVs = true;
+                                m_RenderTreeManager.InsertTexture(m_CurrentRenderData, texture, textureId, true);
+                            }
+                            else
+                            {
+                                m_RenderType = VertexFlags.RenderTypeTexture;
+                                textureId = TextureRegistry.instance.Acquire(texture);
+                                m_RenderTreeManager.InsertTexture(m_CurrentRenderData, texture, textureId, false);
+                            }
+                        }
+                        else
+                            m_RenderType = VertexFlags.RenderTypeSolid;
+
+                        ProcessMeshEntry(entry, textureId);
+                        m_RemapUVs = false;
+                        break;
+                    }
+                    case EntryType.DrawDynamicTexturedMesh:
+                    {
+                        m_RenderType = VertexFlags.RenderTypeTexture;
+                        ProcessMeshEntry(entry, entry.textureId);
+                        break;
+                    }
+                    case EntryType.DrawTextMesh:
+                    {
+                        m_RenderType = VertexFlags.RenderTypeText;
+                        TextureId textureId = TextureRegistry.instance.Acquire(entry.texture);
+                        m_RenderTreeManager.InsertTexture(m_CurrentRenderData, entry.texture, textureId, false);
+                        ProcessMeshEntry(entry, textureId);
+                        break;
+                    }
+                    case EntryType.DrawGradients:
+                    {
+                        m_RenderType = VertexFlags.RenderTypeSvgGradient;
+                        TextureId textureId;
+
+                        // The vector image has embedded textures/gradients and we have a manager that can accept the settings.
+                        // Register the settings and assume that it works.
+                        m_RenderTreeManager.InsertVectorImage(m_CurrentRenderData, entry.gradientsOwner);
+                        m_RenderTreeManager.backgroundGradientBaker.AddUser(entry.gradientsOwner); // no-op for non-baker VIs
+
+                        var gradientRemap = m_RenderTreeManager.vectorImageManager.AddUser(entry.gradientsOwner, m_CurrentRenderData.owner);
+                        m_GradientSettingIndexOffset = (ushort)gradientRemap.destIndex;
+                        if (gradientRemap.atlas != TextureId.invalid)
+
+                            // The textures/gradients themselves have also been atlased
+                            textureId = gradientRemap.atlas;
+                        else
+                        {
+                            // Only the settings were atlased
+                            textureId = TextureRegistry.instance.Acquire(entry.gradientsOwner.atlas);
+                            m_RenderTreeManager.InsertTexture(m_CurrentRenderData, entry.gradientsOwner.atlas, textureId, false);
+                        }
+
+                        ProcessMeshEntry(entry, textureId);
+                        // The convert job adds this unconditionally; reset so it doesn't
+                        // leak into subsequent non-SVG entries.
+                        m_GradientSettingIndexOffset = 0;
+                        break;
+                    }
+                    case EntryType.DrawImmediate:
+                    {
+                        var cmd = m_RenderTreeManager.AllocCommand();
+                        cmd.type = CommandType.Immediate;
+                        cmd.owner = m_CurrentRenderData;
+                        cmd.callback = entry.immediateCallback;
+                        AppendCommand(cmd);
+                        break;
+                    }
+                    case EntryType.DrawImmediateCull:
+                    {
+                        var cmd = m_RenderTreeManager.AllocCommand();
+                        cmd.type = CommandType.ImmediateCull;
+                        cmd.owner = m_CurrentRenderData;
+                        cmd.callback = entry.immediateCallback;
+                        AppendCommand(cmd);
+                        break;
+                    }
+                    case EntryType.DrawChildren: // We should only be processing entries BEFORE or AFTER this one
+                    case EntryType.DedicatedPlaceholder: // These should have been filtered out by pre-processing
+                        Debug.Assert(false);
+                        break;
+                    case EntryType.BeginStencilMask:
+                    {
+                        Debug.Assert(m_MaskDepth == m_MaskDepthPopped); // For now, we only support 1 masking level per element
+                        Debug.Assert(!m_IsDrawingMask); // We can't begin a mask while we're not fully done pushing the previous
+                        m_IsDrawingMask = true;
+
+                        // If we're already at a masking depth of ref+1, this should increment ref
+                        m_StencilRef = m_StencilRefPushed;
+
+                        // We can only push when mask depth is at ref
+                        Debug.Assert(m_MaskDepth == m_StencilRef);
+                        break;
+                    }
+                    case EntryType.EndStencilMask:
+                    {
+                        Debug.Assert(m_IsDrawingMask);
+                        m_IsDrawingMask = false;
+                        m_MaskDepth = m_MaskDepthPushed;
+                        break;
+                    }
+                    case EntryType.PopStencilMask:
+                    {
+                        // We can only pop when mask depth is at ref+1
+                        Debug.Assert(m_MaskDepth == m_StencilRef + 1);
+                        DrawReverseMask();
+                        m_MaskDepth = m_MaskDepthPopped;
+                        m_StencilRef = m_StencilRefPopped;
+                        break;
+                    }
+                    case EntryType.PushClippingRect:
+                        m_ClipRectId = m_ClipRectIdPushed;
+                        break;
+                    case EntryType.PopClippingRect:
+                        m_ClipRectId = m_ClipRectIdPopped;
+                        break;
+                    case EntryType.PushScissors:
+                    {
+                        var cmd = m_RenderTreeManager.AllocCommand();
+                        cmd.type = CommandType.PushScissor;
+                        cmd.owner = m_CurrentRenderData;
+                        AppendCommand(cmd);
+                        break;
+                    }
+                    case EntryType.PopScissors:
+                    {
+                        var cmd = m_RenderTreeManager.AllocCommand();
+                        cmd.type = CommandType.PopScissor;
+                        cmd.owner = m_CurrentRenderData;
+                        AppendCommand(cmd);
+                        break;
+                    }
+                    case EntryType.PushGroupMatrix:
+                    {
+                        var cmd = m_RenderTreeManager.AllocCommand();
+                        cmd.type = CommandType.PushView;
+                        cmd.owner = m_CurrentRenderData;
+                        AppendCommand(cmd);
+                        break;
+                    }
+                    case EntryType.PopGroupMatrix:
+                    {
+                        var cmd = m_RenderTreeManager.AllocCommand();
+                        cmd.type = CommandType.PopView;
+                        cmd.owner = m_CurrentRenderData;
+                        AppendCommand(cmd);
+                        break;
+                    }
+                    case EntryType.PushDefaultMaterial:
+                    {
+                        var cmd = m_RenderTreeManager.AllocCommand();
+                        cmd.type = CommandType.PushDefaultMaterial;
+                        cmd.owner = m_CurrentRenderData;
+                        cmd.material = entry.material;
+                        cmd.userProps = entry.userProps;
+                        AppendCommand(cmd);
+                        break;
+                    }
+                    case EntryType.PopDefaultMaterial:
+                    {
+                        var cmd = m_RenderTreeManager.AllocCommand();
+                        cmd.type = CommandType.PopDefaultMaterial;
+                        cmd.owner = m_CurrentRenderData;
+                        AppendCommand(cmd);
+                        break;
+                    }
+                    case EntryType.CutRenderChain:
+                    {
+                        var cmd = m_RenderTreeManager.AllocCommand();
+                        cmd.type = CommandType.CutRenderChain;
+                        cmd.owner = m_CurrentRenderData;
+                        AppendCommand(cmd);
+                        break;
+                    }
+                    case EntryType.BeginPanelComponent:
+                    {
+                        var cmd = m_RenderTreeManager.AllocCommand();
+                        cmd.owner = m_CurrentRenderData;
+                        cmd.type = CommandType.BeginPanelComponent;
+                        cmd.panelComponentId = entry.panelComponentId;
+                        AppendCommand(cmd);
+                        break;
+                    }
+                    case EntryType.EndPanelComponent:
+                    {
+                        var cmd = m_RenderTreeManager.AllocCommand();
+                        cmd.owner = m_CurrentRenderData;
+                        cmd.type = CommandType.EndPanelComponent;
+                        AppendCommand(cmd);
+                        break;
+                    }
+                    case EntryType.GenerateBackdropFilterTexture:
+                    {
+                        var cmd = m_RenderTreeManager.AllocCommand();
+                        cmd.type = CommandType.GenerateBackdropFilterTexture;
+                        cmd.owner = m_CurrentRenderData;
+                        AppendCommand(cmd);
+                        break;
+                    }
+                    default:
+                        throw new NotImplementedException();
+                }
+            }
+        }
+
+        unsafe void ProcessMeshEntry(Entry entry, TextureId textureId)
+        {
+            int entryVertexCount = entry.vertices.Length;
+            int entryIndexCount = entry.indices.Length;
+
+            Debug.Assert(entryVertexCount > 0 == entryIndexCount > 0);
+            if (entryVertexCount > 0 && entryIndexCount > 0)
+            {
+                if (m_VertsFilled + entryVertexCount > m_AllocVertexCount)
+                {
+                    ProcessNextAlloc();
+                    Debug.Assert(m_VertsFilled + entryVertexCount <= m_AllocVertexCount);
+                }
+
+                if (!m_RequestedElementId)
+                {
+                    m_ElementIdValid = m_RenderTreeManager.EnsureElementId(m_CurrentRenderData);
+                    m_RequestedElementId = true;
+                }
+
+                if (!m_ElementIdValid)
+                    return; // Couldn't acquire an id, discard meshes
+
+                ushort clipRectId = ShaderInfoAllocator.BMPAllocToId(m_ClipRectId);
+                bool usesPerGlyphTextCoreSettings = (entry.flags & EntryFlags.UsesPerGlyphTextCoreSettings) != 0;
+                bool usesTextCoreSettings = (entry.flags & EntryFlags.UsesTextCoreSettings) != 0;
+                if (usesTextCoreSettings && !usesPerGlyphTextCoreSettings)
+                {
+                    // Avoid writing the textcore id when the vertices aren't for text:
+                    // the slot is shared with the vector graphics gradient index.
+                    m_TextCoreId = ShaderInfoAllocator.BMPAllocToId(m_CurrentRenderData.textCoreSettingsID);
+                }
+
+                var targetVerticesSlice = m_Verts.Slice(m_VertsFilled, entryVertexCount);
+
+                int entryIndexOffset = m_VertsFilled + m_IndexOffset;
+                var targetIndicesSlice = m_Indices.Slice(m_IndicesFilled, entryIndexCount);
+                bool shapeWindingIsClockwise = UIRUtility.ShapeWindingIsClockwise(m_MaskDepth, m_StencilRef);
+                bool transformFlipsWinding = m_CurrentRenderData.worldFlipsWinding;
+
+                Material currentMaterial = null;
+                if (entry.material != null)
+                {
+                    currentMaterial = entry.material;
+                }
+                else
+                {
+                    currentMaterial = (Material)Resources.EntityIdToObject(m_CurrentRenderData.owner.computedStyle.unityMaterial.material);
+                }
+
+                var job = new ConvertMeshJobData
+                {
+                    vertSrc = (IntPtr)entry.vertices.GetUnsafePtr(),
+                    vertDst = targetVerticesSlice.GetUnsafePtr(),
+                    vertCount = entryVertexCount,
+                    vertStride = targetVerticesSlice.Stride,
+                    clipRectId = clipRectId,
+                    elementId = m_CurrentRenderData.elementId,
+                    dynamicColorOrTextCoreId = m_TextCoreId,
+                    flags = m_RenderType,
+                    textureId = (ushort)textureId.index,
+                    gradientSettingsIndexOffset = m_GradientSettingIndexOffset,
+                    usesTextCoreSettings = usesPerGlyphTextCoreSettings ? TextCoreSettingsMode.PerGlyph :
+                                           usesTextCoreSettings ? TextCoreSettingsMode.PerElement :
+                                           TextCoreSettingsMode.None,
+
+                    indexSrc = (IntPtr)entry.indices.GetUnsafePtr(),
+                    indexDst = (IntPtr)targetIndicesSlice.GetUnsafePtr(),
+                    indexCount = targetIndicesSlice.Length,
+                    indexOffset = entryIndexOffset,
+
+                    flipIndices = shapeWindingIsClockwise == transformFlipsWinding ? 1 : 0,
+                    forceZ = m_RenderTreeManager.isFlat ? 1 : 0,
+                    positionZ = m_IsDrawingMask ? UIRUtility.k_MaskPosZ : UIRUtility.k_MeshPosZ,
+
+                    remapUVs = m_RemapUVs ? 1 : 0,
+                    atlasRect = m_AtlasRect,
+                    layoutSize = (currentMaterial != null) ? m_CurrentRenderData.owner.layoutSize : new Vector2(0, 0)
+                };
+
+                if (m_PanelExtras != ExtraVertexChannels.None)
+                {
+                    if ((entry.flags & EntryFlags.HasExtras) != 0)
+                    {
+                        ConvertMeshExtrasData* extras = m_RenderTreeManager.jobManager.AllocConvertMeshExtras();
+
+                        FillExtrasChannel(ref extras->normalSrc,    ref extras->normalSrcStride,    ref extras->normalDstOffset,    entry.normal,    ExtraVertexChannels.Normal,    m_PanelExtras);
+                        FillExtrasChannel(ref extras->tangentSrc,   ref extras->tangentSrcStride,   ref extras->tangentDstOffset,   entry.tangent,   ExtraVertexChannels.Tangent,   m_PanelExtras);
+                        FillExtrasChannel(ref extras->texCoord1Src, ref extras->texCoord1SrcStride, ref extras->texCoord1DstOffset, entry.texCoord1, ExtraVertexChannels.TexCoord1, m_PanelExtras);
+                        FillExtrasChannel(ref extras->texCoord2Src, ref extras->texCoord2SrcStride, ref extras->texCoord2DstOffset, entry.texCoord2, ExtraVertexChannels.TexCoord2, m_PanelExtras);
+                        FillExtrasChannel(ref extras->texCoord3Src, ref extras->texCoord3SrcStride, ref extras->texCoord3DstOffset, entry.texCoord3, ExtraVertexChannels.TexCoord3, m_PanelExtras);
+
+                        job.extras = (IntPtr)extras;
+                    }
+                    else
+                        job.extras = m_NoUserExtrasTemplatePtr;
+                }
+
+                m_RenderTreeManager.jobManager.Add(ref job);
+
+                if (m_IsDrawingMask)
+                {
+                    m_MaskMeshes.Push(new MaskMesh
+                    {
+                        vertices = targetVerticesSlice,
+                        indices = targetIndicesSlice,
+                        indexOffset = entryIndexOffset
+                    });
+                }
+
+                var cmd = CreateMeshDrawCommand(m_Mesh, entryIndexCount, m_IndicesFilled, entry.material, textureId);
+                AppendCommand(cmd);
+
+                if (entry.type == EntryType.DrawTextMesh)
+                {
+                    // Set font atlas texture gradient scale
+                    cmd.sdfScale = entry.textScale;
+                    cmd.sharpness = entry.fontSharpness;
+                }
+
+                if ((entry.flags & EntryFlags.IsPremultiplied) != 0)
+                    cmd.flags |= CommandFlags.IsPremultiplied;
+
+                if ((entry.flags & EntryFlags.SamplesGammaSource) != 0)
+                    cmd.flags |= CommandFlags.SkipForceGamma;
+
+                m_VertsFilled += entryVertexCount;
+                m_IndicesFilled += entryIndexCount;
+            }
+        }
+
+        // dstOffset == -1: channel not enabled (job skips). src == IntPtr.Zero: enabled but no data (job zero-fills).
+        static unsafe void FillExtrasChannel<T>(ref IntPtr src, ref int stride, ref int dstOffset,
+            NativeSlice<T> slice, ExtraVertexChannels channel, ExtraVertexChannels panelMask) where T : struct
+        {
+            src = IntPtr.Zero;
+            stride = 0;
+            dstOffset = -1;
+
+            if ((panelMask & channel) == 0)
+                return;
+
+            int offset = 0;
+            foreach (var c in UIRUtility.k_ExtrasChannelOrder)
+            {
+                if (c == channel)
+                    break;
+                if ((panelMask & c) != 0)
+                    offset += UIRUtility.k_ExtrasChannelBytes;
+            }
+            dstOffset = offset;
+
+            if (slice.Length > 0)
+            {
+                src = (IntPtr)slice.GetUnsafeReadOnlyPtr();
+                stride = slice.Stride;
+            }
+        }
+
+        void DrawReverseMask()
+        {
+            while (m_MaskMeshes.TryPop(out MaskMesh mesh))
+            {
+                Debug.Assert(mesh.indices.Length > 0 == mesh.vertices.Length > 0);
+                if (mesh.indices.Length > 0 && mesh.vertices.Length > 0)
+                {
+                    // At this point, the destination mesh has already been allocated but the data isn't
+                    // copied yet. It's not a problem, we can create the command nonetheless.
+                    var cmd = CreateMeshDrawCommand(m_Mesh, mesh.indices.Length, m_IndicesFilled, null, TextureId.invalid);
+                    AppendCommand(cmd);
+
+                    // Now we need to copy the data
+                    unsafe
+                    {
+                        RawSlice dstVertices = m_Verts.Slice(m_VertsFilled, mesh.vertices.Length);
+                        NativeSlice<ushort> dstIndices = m_Indices.Slice(m_IndicesFilled, mesh.indices.Length);
+
+                        var job = new CopyMeshJobData
+                        {
+                            vertSrc = mesh.vertices.GetUnsafeReadOnlyPtr(),
+                            vertDst = dstVertices.GetUnsafePtr(),
+                            vertCount = mesh.vertices.Length,
+                            vertStride = dstVertices.Stride,
+                            indexSrc = (IntPtr)mesh.indices.GetUnsafePtr(),
+                            indexDst = (IntPtr)dstIndices.GetUnsafePtr(),
+                            indexCount = mesh.indices.Length,
+                            indexOffset = m_IndexOffset + m_VertsFilled - mesh.indexOffset
+                        };
+                        m_RenderTreeManager.jobManager.Add(ref job);
+                    }
+
+                    m_IndicesFilled += mesh.indices.Length;
+                    m_VertsFilled += mesh.vertices.Length;
+                }
+            }
+        }
+
+        RenderChainCommand CreateMeshDrawCommand(MeshHandle mesh, int indexCount, int indexOffset, Material material, TextureId texture)
+        {
+            var cmd = m_RenderTreeManager.AllocCommand();
+            cmd.type = CommandType.Draw;
+            cmd.material = material;
+            cmd.texture = texture;
+            cmd.stencilRef = m_StencilRef;
+            cmd.mesh = mesh;
+            cmd.indexOffset = indexOffset;
+            cmd.indexCount = indexCount;
+            cmd.owner = m_CurrentRenderData;
+
+            if ((m_CurrentRenderData.owner.renderHints & RenderHints.LargePixelCoverage) != 0)
+            {
+                switch(m_RenderType)
+                {
+                    case VertexFlags.RenderTypeSolid:
+                        cmd.flags |= CommandFlags.ForceRenderTypeSolid;
+                        break;
+                    case VertexFlags.RenderTypeText:
+                        cmd.flags |= CommandFlags.ForceRenderTypeText;
+                        break;
+                    case VertexFlags.RenderTypeTexture:
+                    case VertexFlags.RenderTypeDynamicTexture:
+                        cmd.flags |= CommandFlags.ForceRenderTypeTextured;
+                        break;
+                    case VertexFlags.RenderTypeSvgGradient:
+                        cmd.flags |= CommandFlags.ForceRenderTypeSvgGradient;
+                        break;
+                    default:
+                        Debug.LogError($"Unknown Render Type '{m_RenderType}'");
+                        break;
+                }
+
+                cmd.flags |= CommandFlags.ForceSingleTextureSlot;
+            }
+
+            return cmd;
+        }
+
+        [MethodImpl(MethodImplOptionsEx.AggressiveInlining)]
+        void AppendCommand(RenderChainCommand next)
+        {
+            if (m_FirstCommand == null)
+            {
+                m_FirstCommand = next;
+                m_LastCommand = next;
+            }
+            else
+            {
+                next.prev = m_LastCommand;
+                m_LastCommand.next = next;
+                m_LastCommand = next;
+            }
+        }
+
+        void ProcessFirstAlloc(List<EntryPreProcessor.AllocSize> allocList, ref MeshHandle mesh)
+        {
+            if (allocList.Count > 0)
+            {
+                EntryPreProcessor.AllocSize allocSize = allocList[0];
+                UpdateOrAllocate(ref mesh, allocSize.vertexCount, allocSize.indexCount, m_RenderTreeManager.device, out m_Verts, out m_Indices, out m_IndexOffset, ref m_RenderTreeManager.statsByRef);
+                m_AllocVertexCount = (int)mesh.allocVerts.size;
+            }
+            else
+            {
+                Debug.Assert(mesh == null); // It should have been cleared during the init
+                m_Verts = default;
+                m_Indices = new NativeSlice<ushort>();
+                m_IndexOffset = 0;
+                m_AllocVertexCount = 0;
+            }
+
+            m_Mesh = mesh;
+            m_VertsFilled = 0;
+            m_IndicesFilled = 0;
+            m_AllocIndex = 0;
+        }
+
+        // This is only called for extra allocs, after the first alloc has been filled. Extra allocs are very infrequent,
+        // so we don't need to optimize this code path as much.
+        void ProcessNextAlloc()
+        {
+            List<EntryPreProcessor.AllocSize> allocList = m_IsTail ? m_PreProcessor.tailAllocs : m_PreProcessor.headAllocs;
+            Debug.Assert(m_AllocIndex < allocList.Count - 1);
+
+            EntryPreProcessor.AllocSize allocSize = allocList[++m_AllocIndex];
+            m_Mesh = null; // Extra allocations have been previously freed, so we don't have any mesh to update
+            UpdateOrAllocate(ref m_Mesh, allocSize.vertexCount, allocSize.indexCount, m_RenderTreeManager.device, out m_Verts, out m_Indices, out m_IndexOffset, ref m_RenderTreeManager.statsByRef);
+            m_AllocVertexCount = (int)m_Mesh.allocVerts.size;
+
+            m_RenderTreeManager.InsertExtraMesh(m_CurrentRenderData, m_Mesh);
+
+            m_VertsFilled = 0;
+            m_IndicesFilled = 0;
+        }
+
+        static void UpdateOrAllocate(ref MeshHandle data, int vertexCount, int indexCount, UIRenderDevice device, out RawSlice verts, out NativeSlice<UInt16> indices, out UInt16 indexOffset, ref ChainBuilderStats stats)
+        {
+            if (data != null)
+            {
+                // Try to fit within the existing allocation, optionally we can change the condition
+                // to be an exact match of size to guarantee continuity in draw ranges
+                if (data.allocVerts.size >= vertexCount && data.allocIndices.size >= indexCount)
+                {
+                    device.Update(data, (uint)vertexCount, (uint)indexCount, out verts, out indices, out indexOffset);
+                    stats.updatedMeshAllocations++;
+                }
+                else
+                {
+                    // Won't fit in the existing allocated region, free the current one
+                    device.Free(data);
+                    data = device.Allocate((uint)vertexCount, (uint)indexCount, out verts, out indices, out indexOffset);
+                    stats.newMeshAllocations++;
+                }
+            }
+            else
+            {
+                data = device.Allocate((uint)vertexCount, (uint)indexCount, out verts, out indices, out indexOffset);
+                stats.newMeshAllocations++;
+            }
+        }
+    }
+}

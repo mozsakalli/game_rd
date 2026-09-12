@@ -1,0 +1,245 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+#pragma warning disable UAL0015,UAL0018,UAL0019,UAL0020,UAL0021 // AutoStaticsCleanup usage analysis: InspectorFramework not yet converted
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using UnityEngine;
+using UnityEngine.UIElements;
+using Object = UnityEngine.Object;
+
+namespace UnityEditor
+{
+    internal static class InspectorWindowUtils
+    {
+        internal class DismissableDeprecationHelpBox : HelpBox
+        {
+            private Action<bool> m_OnPreferenceChanged;
+
+            public DismissableDeprecationHelpBox(string message, HelpBoxMessageType messageType)
+                : base(message, messageType)
+            {
+                // Set up the dismiss button
+                buttonText = L10n.Tr("Dismiss...", null);
+                onButtonClicked += OnDismissClicked;
+
+                // Store the callback so we can unsubscribe later
+                m_OnPreferenceChanged = OnPreferenceChanged;
+
+                // Subscribe to preference changes
+                #pragma warning disable UAL0015 // rebuilt/resubscribed wholesale on the next reload via this object's own lifecycle; a stale value in the interim is never observed
+                PreferencesProvider.hideDeprecationWarningsChanged += m_OnPreferenceChanged;
+                #pragma warning restore UAL0015
+
+                // Set initial visibility
+                UpdateVisibility();
+
+                // Clean up when removed from hierarchy
+                RegisterCallback<DetachFromPanelEvent>(OnDetachedFromPanel);
+            }
+
+            private void OnPreferenceChanged(bool hide)
+            {
+                UpdateVisibility();
+            }
+
+            private void UpdateVisibility()
+            {
+                style.display = PreferencesProvider.hideDeprecationWarnings
+                    ? DisplayStyle.None
+                    : DisplayStyle.Flex;
+            }
+
+            private void OnDismissClicked()
+            {
+                if (EditorUtility.DisplayDialog(L10n.Tr("Hide deprecation warnings?", null),
+                    L10n.Tr("Do you want to hide the deprecation warnings for deprecated components? You can re-enable the warnings in the Preferences window at any time.", null),
+                    L10n.Tr("Hide All", null), L10n.Tr("Cancel", null)))
+                {
+                    PreferencesProvider.hideDeprecationWarnings = true;
+                }
+            }
+
+            private void OnDetachedFromPanel(DetachFromPanelEvent evt)
+            {
+                // Clean up all subscriptions to prevent memory leaks
+                PreferencesProvider.hideDeprecationWarningsChanged -= m_OnPreferenceChanged;
+                onButtonClicked -= OnDismissClicked;
+                UnregisterCallback<DetachFromPanelEvent>(OnDetachedFromPanel);
+
+                m_OnPreferenceChanged = null;
+            }
+        }
+
+        public struct LayoutGroupChecker : IDisposable
+        {
+            // cache the layout group we expect to have at the end of drawing this editor
+            GUILayoutGroup m_ExpectedGroup;
+            GUILayoutGroup expectedGroup => m_ExpectedGroup ?? (m_ExpectedGroup = GUILayoutUtility.current.topLevel);
+
+            public void Dispose()
+            {
+                if (GUIUtility.guiIsExiting)
+                {
+                    return; //Something has already requested an ExitGUI
+                }
+
+                // Check and try to cleanup layout groups.
+                if (GUILayoutUtility.current.topLevel != expectedGroup)
+                {
+                    if (!GUILayoutUtility.current.layoutGroups.Contains(expectedGroup))
+                    {
+                        // We can't recover from this, so we error.
+                        Debug.LogError("Expected top level layout group missing! Too many GUILayout.EndScrollView/EndVertical/EndHorizontal?");
+                        GUIUtility.ExitGUI();
+                    }
+                    else
+                    {
+                        // We can recover from this, so we warning.
+                        Debug.LogWarning("Unexpected top level layout group! Missing GUILayout.EndScrollView/EndVertical/EndHorizontal?");
+
+                        while (GUILayoutUtility.current.topLevel != expectedGroup)
+                            GUILayoutUtility.EndLayoutGroup();
+                    }
+                }
+            }
+        }
+
+        public static void GetPreviewableTypes(out Dictionary<Type, List<Type>> previewableTypes)
+        {
+            // We initialize this list once per InspectorWindow, instead of globally.
+            // This means that if the user is debugging an IPreviewable structure,
+            // the InspectorWindow can be closed and reopened to refresh this list.
+
+            previewableTypes = new Dictionary<Type, List<Type>>();
+            foreach (var type in TypeCache.GetTypesDerivedFrom<IPreviewable>())
+            {
+                // we don't want Editor classes with preview here.
+                if (type.IsSubclassOf(typeof(Editor)))
+                {
+                    continue;
+                }
+
+                if (type.GetConstructor(Type.EmptyTypes) == null)
+                {
+                    Debug.LogError($"{type} does not contain a default constructor, it will not be registered as a " +
+                                   $"preview handler. Use the Initialize function to set up your object instead.");
+                    continue;
+                }
+
+                // Record only the types with a CustomPreviewAttribute.
+                var attrs = type.GetCustomAttributes(typeof(CustomPreviewAttribute), false);
+                foreach (CustomPreviewAttribute previewAttr in attrs)
+                {
+                    if (previewAttr.m_Type == null)
+                    {
+                        continue;
+                    }
+
+#pragma warning disable UAC2001 // Avoid Linq
+                    foreach (var customPreviewType in new[] { previewAttr.m_Type }.Concat(TypeCache.GetTypesDerivedFrom(previewAttr.m_Type)))
+#pragma warning restore UAC2001
+                    {
+                        if (!previewableTypes.TryGetValue(customPreviewType, out var types))
+                        {
+                            types = new List<Type>();
+                            previewableTypes.Add(customPreviewType, types);
+                        }
+
+                        types.Add(type);
+                    }
+                }
+            }
+        }
+
+        public static Editor GetFirstNonImportInspectorEditor(Editor[] editors)
+        {
+            foreach (Editor e in editors)
+            {
+                // Check for target rather than the editor type itself,
+                // because some importers use default inspector
+                if (e.target is AssetImporter)
+                {
+                    continue;
+                }
+
+                return e;
+            }
+
+            return null;
+        }
+
+        internal static bool TryCreateObsoleteHelpBox(Editor editor, out HelpBox helpBox)
+        {
+            helpBox = null;
+
+            if (!ObsoleteMessageHelper.TryGetObsoleteMessage(editor, out var messageContainer))
+                return false;
+
+            // If there is no replacement, just show the message and a dismiss button.
+            if (messageContainer.replacementType == null)
+            {
+                helpBox = new DismissableDeprecationHelpBox(messageContainer.message, messageContainer.messageType);
+                return true;
+            }
+
+            helpBox = new HelpBox(messageContainer.message, messageContainer.messageType);
+            // If we have a replacement, show the message and a button to add the new component to the inspected objects.
+            helpBox.buttonText = messageContainer.buttonText;
+            helpBox.onButtonClicked += () =>
+            {
+                foreach (var target in editor.targets)
+                {
+                    if (target is Component component)
+                        Undo.AddComponent(component.gameObject, messageContainer.replacementType);
+                }
+            };
+
+            // The HelpBox button defaults to nowrap and won't shrink, and its bottom container
+            // is sized to its content (align-self: flex-end), so a long button label
+            // (e.g. "Add Decal Projector SRP") overflows in narrow Inspectors. Stretch the
+            // container to the helpbox width and let the button wrap and shrink within it.
+            var bottomContainer = helpBox.Q(className: HelpBox.bottomContainerUssClassName);
+            if (bottomContainer != null)
+            {
+                bottomContainer.style.alignSelf = Align.Stretch;
+                bottomContainer.style.justifyContent = Justify.FlexEnd;
+            }
+            var actionButton = helpBox.Q<Button>(className: HelpBox.buttonUssClassName);
+            if (actionButton != null)
+            {
+                actionButton.style.whiteSpace = WhiteSpace.Normal;
+                actionButton.style.flexShrink = 1;
+                actionButton.style.maxWidth = Length.Percent(100);
+            }
+            return true;
+        }
+
+        internal static bool IsExcludedClass(Object target)
+        {
+            return ModuleMetadata.GetModuleIncludeSettingForObject(target) == ModuleIncludeSetting.ForceExclude;
+        }
+
+        public static void DrawAddedComponentBackground(Rect position, Object[] targets, float adjust = 0)
+        {
+            if (Event.current.type == EventType.Repaint && targets.Length == 1)
+            {
+                Component comp = targets[0] as Component;
+                if (comp != null &&
+                    EditorGUIUtility.comparisonViewMode == EditorGUIUtility.ComparisonViewMode.None &&
+                    PrefabUtility.GetCorrespondingConnectedObjectFromSource(comp.gameObject) != null &&
+                    PrefabUtility.GetCorrespondingObjectFromSource(comp) == null)
+                {
+                    // Ensure colored margin here for component body doesn't overlap colored margin from InspectorTitlebar,
+                    // and extends down to exactly touch the separator line between/after components.
+                    EditorGUI.DrawOverrideBackgroundApplicable(new Rect(position.x, position.y + 3 + adjust,
+                        position.width,
+                        position.height - 2));
+                }
+            }
+        }
+    }
+}
+#pragma warning restore UAL0015,UAL0018,UAL0019,UAL0020,UAL0021

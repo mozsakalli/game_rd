@@ -1,0 +1,120 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+using System;
+
+namespace UnityEngine.UIElements
+{
+    class ReusableListViewItem : ReusableCollectionItem
+    {
+        static readonly string k_SortingDisablesReorderingTooltip = "Reordering is disabled when the collection is being sorted.";
+
+        VisualElement m_Container;
+        VisualElement m_DragHandle;
+        VisualElement m_ItemContainer;
+
+        public override VisualElement rootElement => m_Container ?? bindableElement;
+
+        public void Init(VisualElement item, bool usesAnimatedDragger)
+        {
+            base.Init(item);
+
+            var root = new VisualElement() { name = BaseListView.reorderableItemUssClassName };
+            UpdateHierarchy(root, bindableElement, usesAnimatedDragger);
+        }
+
+        protected void UpdateHierarchy(VisualElement root, VisualElement item, bool usesAnimatedDragger)
+        {
+            if (usesAnimatedDragger)
+            {
+                if (m_Container != null)
+                    return;
+
+                m_Container = root;
+                m_Container.AddToClassList(BaseListView.reorderableItemUssClassNameUnique);
+
+                m_DragHandle = new VisualElement { name = BaseListView.reorderableItemHandleUssClassName };
+                m_DragHandle.AddToClassList(BaseListView.reorderableItemHandleUssClassNameUnique);
+
+                var handle1 = new VisualElement { name = BaseListView.reorderableItemHandleBarUssClassName };
+                handle1.AddToClassList(BaseListView.reorderableItemHandleBarUssClassNameUnique);
+                m_DragHandle.Add(handle1);
+                var handle2 = new VisualElement { name = BaseListView.reorderableItemHandleBarUssClassName };
+                handle2.AddToClassList(BaseListView.reorderableItemHandleBarUssClassNameUnique);
+                m_DragHandle.Add(handle2);
+
+                m_ItemContainer = new VisualElement { name = BaseListView.reorderableItemContainerUssClassName };
+                m_ItemContainer.AddToClassList(BaseListView.reorderableItemContainerUssClassNameUnique);
+                m_ItemContainer.Add(item);
+
+                m_Container.Add(m_DragHandle);
+                m_Container.Add(m_ItemContainer);
+            }
+            else
+            {
+                if (m_Container == null)
+                    return;
+
+                m_Container.RemoveFromHierarchy();
+                m_Container = null;
+            }
+        }
+
+        public void UpdateDragHandle(bool needsDragHandle)
+        {
+            if (needsDragHandle)
+            {
+                if (m_DragHandle.parent == null)
+                {
+                    rootElement.Insert(0, m_DragHandle);
+                    rootElement.AddToClassList(BaseListView.reorderableItemUssClassNameUnique);
+                }
+            }
+            else
+            {
+                if (m_DragHandle?.parent != null)
+                {
+                    m_DragHandle.RemoveFromHierarchy();
+                    rootElement.RemoveFromClassList(BaseListView.reorderableItemUssClassNameUnique);
+                }
+            }
+        }
+
+        public void SetDragHandleEnabled(bool enabled)
+        {
+            if (m_DragHandle != null)
+            {
+                m_DragHandle.SetEnabled(enabled);
+                m_DragHandle.tooltip = enabled ? null : k_SortingDisablesReorderingTooltip;
+            }
+        }
+
+        public override void PreAttachElement()
+        {
+            base.PreAttachElement();
+            rootElement.AddToClassList(BaseListView.itemUssClassNameUnique);
+        }
+
+        public override void DetachElement()
+        {
+            base.DetachElement();
+            rootElement.RemoveFromClassList(BaseListView.itemUssClassNameUnique);
+        }
+
+        public override void SetDragGhost(bool dragGhost)
+        {
+            base.SetDragGhost(dragGhost);
+            if (m_DragHandle != null)
+            {
+                m_DragHandle.EnableInClassList(UIElementsUtility.hiddenClassNameUnique, isDragGhost);
+            }
+        }
+
+        protected override void OnGeometryChanged(GeometryChangedEvent evt)
+        {
+            base.OnGeometryChanged(evt);
+            m_ItemContainer?.UpdateWorldTransform();
+        }
+    }
+}

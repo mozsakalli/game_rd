@@ -1,0 +1,2126 @@
+// Unity C# reference source
+// Copyright (c) Unity Technologies. For terms of use, see
+// https://unity3d.com/legal/licenses/Unity_Reference_Only_License
+
+#pragma warning disable UAL0015,UAL0018,UAL0019,UAL0020,UAL0021 // AutoStaticsCleanup usage analysis: Search not yet converted
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Reflection;
+using System.Text;
+using System.Text.RegularExpressions;
+using UnityEngine;
+using UnityEngine.SceneManagement;
+using UnityEngine.Pool;
+using UnityEditor.Search.Providers;
+using UnityEditor.Utils;
+using UnityEngine.Search;
+using Unity.Collections;
+using Unity.Loading;
+using Unity.Scripting.LifecycleManagement;
+
+using UnityEditor.SceneManagement;
+
+namespace UnityEditor.Search
+{
+    /// <summary>
+    /// Utilities used by multiple components of QuickSearch.
+    /// </summary>
+    public static partial class SearchUtils
+    {
+        private static readonly string[] k_Dots = { ".", "..", "..." };
+        internal static readonly char[] KeywordsValueDelimiters = new[] { ':', '=', '<', '>', '!', '|' };
+
+        /// <summary>
+        /// Separators used to split an entry into indexable tokens.
+        /// </summary>
+        public static readonly char[] entrySeparators = { '/', ' ', '_', '-', '.' };
+
+        [NoAutoStaticsCleanup]
+        private static readonly Stack<StringBuilder> _SbPool = new Stack<StringBuilder>();
+
+        /// <summary>
+        /// Extract all variations on a word.
+        /// </summary>
+        /// <param name="word"></param>
+        /// <returns></returns>
+        public static string[] FindShiftLeftVariations(string word)
+        {
+            if (word.Length <= 1)
+                return Array.Empty<string>();
+
+            var variations = new List<string>(word.Length) { word };
+            for (int i = 1, end = word.Length - 1; i < end; ++i)
+            {
+                word = word.Substring(1);
+                variations.Add(word);
+            }
+
+            return variations.ToArray();
+        }
+
+        public static Texture2D GetSceneObjectPreview(GameObject obj, Vector2 size, FetchPreviewOptions options, Texture2D thumbnail)
+        {
+            return Utils.GetSceneObjectPreview(null, obj, size, options, thumbnail);
+        }
+
+        public static Texture2D GetSceneObjectPreview(SearchContext ctx, GameObject obj, Vector2 size, FetchPreviewOptions options, Texture2D thumbnail)
+        {
+            return GetSceneObjectPreview(null, obj, size, options, thumbnail);
+        }
+
+        /// <summary>
+        /// Tokenize a string each Capital letter.
+        /// </summary>
+        /// <param name="source"></param>
+        /// <returns></returns>
+        static readonly Regex s_CamelCaseSplit = new Regex(@"(?<!^)(?=[A-Z])", RegexOptions.Compiled);
+        public static string[] SplitCamelCase(string source)
+        {
+            return s_CamelCaseSplit.Split(source);
+        }
+
+        internal static string UppercaseFirst(string s)
+        {
+            // Check for empty string.
+            if (string.IsNullOrEmpty(s))
+            {
+                return string.Empty;
+            }
+            // Return char and concat substring.
+            return char.ToUpper(s[0]) + s.Substring(1);
+        }
+
+        internal static string LowercaseFirst(string s)
+        {
+            // Check for empty string.
+            if (string.IsNullOrEmpty(s))
+            {
+                return string.Empty;
+            }
+            // Return char and concat substring.
+            return char.ToLower(s[0]) + s.Substring(1);
+        }
+
+        internal static string ToPascalWithSpaces(string s, bool uppercaseFirstWordOnly = false)
+        {
+            // Check for empty string.
+            if (string.IsNullOrEmpty(s))
+            {
+                return string.Empty;
+            }
+
+            #pragma warning disable UAC2001 // Avoid Linq
+            var tokens = Regex.Split(s, @"-+|_+|\s+|(?<!^)(?=[A-Z0-9])")
+#pragma warning restore UAC2001
+                .Where(t => !string.IsNullOrWhiteSpace(t))
+                .Select((word, index) =>
+                {
+                    if (uppercaseFirstWordOnly && index != 0)
+                        return LowercaseFirst(word);
+                    return UppercaseFirst(word);
+                });
+            return string.Join(" ", tokens);
+        }
+        /// <summary>
+        /// Split an entry according to a specified list of separators.
+        /// </summary>
+        /// <param name="entry">Entry to split.</param>
+        /// <param name="entrySeparators">List of separators that indicate split points.</param>
+        /// <returns>Returns list of tokens in lowercase</returns>
+        public static IEnumerable<string> SplitEntryComponents(string entry, char[] entrySeparators)
+        {
+            return SplitEntryComponents(entry, entrySeparators, 1);
+        }
+
+        internal static IEnumerable<string> SplitEntryComponents(string entry, char[] entrySeparators, int minTokenLength)
+        {
+            return SplitEntryComponents(entry, entrySeparators, minTokenLength, splitPath: false, splitCamelCase: true, splitFuzzy: true);
+        }
+
+        /// <summary>
+        /// Split a file entry according to a list of separators and find all the variations on the entry name.
+        /// </summary>
+        /// <param name="path"></param>
+        /// <param name="entrySeparators"></param>
+        /// <returns>Returns list of tokens and variations in lowercase</returns>
+        public static IEnumerable<string> SplitFileEntryComponents(string path, in char[] entrySeparators)
+        {
+            return SplitFileEntryComponents(path, entrySeparators, 1);
+        }
+
+        public static IEnumerable<string> SplitFileEntryComponents(string path, in char[] entrySeparators, int minTokenLength)
+        {
+            return SplitEntryComponents(path, entrySeparators, minTokenLength, splitPath:true, splitCamelCase:true, splitFuzzy:true);
+        }
+
+        [NoAutoStaticsCleanup] // reusable scratch buffer, Clear()ed at the start of each use; holds only strings, no user refs, not reload-dependent
+        static readonly HashSet<string> k_EntryComponents = new();
+        internal static IEnumerable<string> SplitEntryComponents(string strValue, char[] entrySeparators, int minTokenLength, bool splitPath, bool splitCamelCase, bool splitFuzzy)
+        {
+            k_EntryComponents.Clear();
+            var strValueLowered = strValue.ToLowerInvariant();
+            if (splitPath)
+            {
+                // Split dir, filename, ext
+                Utils.SplitPath(strValueLowered, out var dir, out var fileNameWithoutExtension, out var extension);
+                if (fileNameWithoutExtension != strValueLowered)
+                {
+                    var entries = strValueLowered.Split(entrySeparators);
+                    k_EntryComponents.UnionWith(entries);
+                    k_EntryComponents.Add(extension);
+                    strValueLowered = fileNameWithoutExtension;
+                    var startFileName = strValue.Length - fileNameWithoutExtension.Length - extension.Length - (extension.Length > 0 ? 1 : 0);
+                    strValue = strValue.Substring(startFileName, fileNameWithoutExtension.Length);
+                }
+            }
+
+            IEnumerable<string> nameTokensLowered = strValueLowered.Split(entrySeparators);
+            k_EntryComponents.UnionWith(nameTokensLowered);
+
+            if (splitCamelCase)
+            {
+                #pragma warning disable UAC2001 // Avoid Linq
+                var camelCaseSplitTokens = strValue.Split(entrySeparators).SelectMany(s => UnityEditor.Search.SearchUtils.SplitCamelCase(s)).Where(s => s.Length > 0).Select(s => s.ToLowerInvariant());
+#pragma warning restore UAC2001
+                k_EntryComponents.UnionWith(camelCaseSplitTokens);
+                nameTokensLowered = camelCaseSplitTokens;
+            }
+
+            if (splitFuzzy)
+            {
+                #pragma warning disable UAC2001 // Avoid Linq
+                var fcc = nameTokensLowered.Aggregate(string.Empty, (current, s) => current + s[0]);
+#pragma warning restore UAC2001
+                var shiftVariations = SearchUtils.FindShiftLeftVariations(fcc);
+                k_EntryComponents.UnionWith(shiftVariations);
+            }
+
+            foreach (var token in k_EntryComponents)
+            {
+                if (token.Length >= minTokenLength)
+                    yield return token;
+            }
+        }
+
+        /// <summary>
+        /// Format the pretty name of a Transform component by appending all the parents hierarchy names.
+        /// </summary>
+        /// <param name="tform">Transform to extract name from.</param>
+        /// <returns>Returns a transform name using "/" as hierarchy separator.</returns>
+        public static string GetTransformPath(Transform tform)
+        {
+            if (tform.parent == null)
+                return "/" + tform.name;
+            return GetTransformPath(tform.parent) + "/" + tform.name;
+        }
+
+        /// <summary>
+        /// Get the path of a Unity Object. If it is a GameObject or a Component it is the <see cref="SearchUtils.GetTransformPath(Transform)"/>. Else it is the asset name.
+        /// </summary>
+        /// <param name="obj"></param>
+        /// <returns>Returns the path of an object.</returns>
+        public static string GetObjectPath(UnityEngine.Object obj)
+        {
+            return GetObjectPath(obj, false);
+        }
+
+        internal static string GetObjectPath(UnityEngine.Object obj, bool subAssetUseGlobalObjectId)
+        {
+            if (!obj)
+                return string.Empty;
+            if (obj is Component c)
+                return GetTransformPath(c.gameObject.transform);
+            var assetPath = AssetDatabase.GetAssetPath(obj);
+            if (!string.IsNullOrEmpty(assetPath))
+            {
+                if ((subAssetUseGlobalObjectId && !AssetDatabase.IsMainAsset(obj)) || Utils.IsBuiltInResource(assetPath))
+                    return GlobalObjectId.GetGlobalObjectIdSlow(obj).ToString();
+                return assetPath;
+            }
+            if (obj is GameObject go)
+                return GetTransformPath(go.transform);
+            return obj.name;
+        }
+
+        static ulong GetStableHash(in UnityEngine.Object obj, in ulong assetHash = 0)
+        {
+            var fileIdHint = Utils.GetFileIDHint(obj);
+            if (fileIdHint == 0)
+                fileIdHint = EntityId.ToULong(obj.GetEntityId());
+            return fileIdHint * 1181783497276652981UL + assetHash;
+        }
+
+        /// <summary>
+        /// Return a unique document key owning the object
+        /// </summary>
+        internal static ulong GetDocumentKey(in UnityEngine.Object obj)
+        {
+            if (!obj)
+                return ulong.MaxValue;
+            if (obj is GameObject go)
+                return GetStableHash(go, (ulong)(GetHierarchyAssetPath(go)?.GetHashCode() ?? 0));
+            if (obj is Component c)
+                return GetDocumentKey(c.gameObject);
+            var assetPath = AssetDatabase.GetAssetPath(obj);
+            if (string.IsNullOrEmpty(assetPath))
+                return ulong.MaxValue;
+            return AssetDatabase.AssetPathToGUID(assetPath).GetHashCode64();
+        }
+
+        /// <summary>
+        /// Get the hierarchy path of a GameObject possibly including the scene name.
+        /// </summary>
+        /// <param name="gameObject">GameObject to extract a path from.</param>
+        /// <param name="includeScene">If true, will append the scene name to the path.</param>
+        /// <returns>Returns the path of a GameObject.</returns>
+        public static string GetHierarchyPath(GameObject gameObject, bool includeScene = true)
+        {
+            if (gameObject == null)
+                return String.Empty;
+
+            StringBuilder sb;
+            if (_SbPool.Count > 0)
+            {
+                sb = _SbPool.Pop();
+                sb.Clear();
+            }
+            else
+            {
+                sb = new StringBuilder(200);
+            }
+
+            try
+            {
+                if (includeScene)
+                {
+                    var sceneName = gameObject.scene.name;
+                    if (sceneName == string.Empty)
+                    {
+                        var prefabStage = PrefabStageUtility.GetPrefabStage(gameObject);
+                        if (prefabStage != null)
+                            sceneName = "Prefab Stage";
+                        else
+                            sceneName = "Unsaved Scene";
+                    }
+
+                    sb.Append("<b>" + sceneName + "</b>");
+                }
+
+                sb.Append(GetTransformPath(gameObject.transform));
+
+                var path = sb.ToString();
+                sb.Clear();
+                return path;
+            }
+            finally
+            {
+                _SbPool.Push(sb);
+            }
+        }
+
+        /// <summary>
+        /// Get the path of the scene (or prefab) containing a GameObject.
+        /// </summary>
+        /// <param name="gameObject">GameObject to find the scene path.</param>
+        /// <param name="prefabOnly">If true, will return a path only if the GameObject is a prefab.</param>
+        /// <returns>Returns the path of a scene or prefab</returns>
+        public static string GetHierarchyAssetPath(GameObject gameObject, bool prefabOnly = false)
+        {
+            if (gameObject == null)
+                return String.Empty;
+
+            bool isPrefab = PrefabUtility.GetPrefabAssetType(gameObject.gameObject) != PrefabAssetType.NotAPrefab;
+            if (isPrefab)
+                return PrefabUtility.GetPrefabAssetPathOfNearestInstanceRoot(gameObject);
+
+            if (prefabOnly)
+                return null;
+
+            return gameObject.scene.path;
+        }
+
+        /// <summary>
+        /// Select and ping multiple objects in the Project Browser.
+        /// </summary>
+        /// <param name="items">Search Items to select and ping.</param>
+        /// <param name="focusProjectBrowser">If true, will focus the project browser before pinging the objects.</param>
+        /// <param name="pingSelection">If true, will ping the selected objects.</param>
+        public static void SelectMultipleItems(IEnumerable<SearchItem> items, bool focusProjectBrowser = false, bool pingSelection = true)
+        {
+            #pragma warning disable UAC2001 // Avoid Linq
+            Selection.objects = items.Select(i => i.ToObject()).Where(o => o).ToArray();
+#pragma warning restore UAC2001
+            if (Selection.objects.Length == 0)
+            {
+                #pragma warning disable UAC2011 // Avoid Linq
+                var firstItem = items.FirstOrDefault();
+#pragma warning restore UAC2011
+                if (firstItem != null)
+                    EditorUtility.OpenWithDefaultApp(firstItem.id);
+                return;
+            }
+            EditorApplication.delayCall += () =>
+            {
+                if (focusProjectBrowser)
+                    EditorWindow.FocusWindowIfItsOpen(Utils.GetProjectBrowserWindowType());
+                if (pingSelection)
+                    EditorApplication.delayCall += () => EditorGUIUtility.PingObject(Selection.objects.LastOrDefault());
+            };
+        }
+
+        /// <summary>
+        /// Helper function to match a string against the SearchContext. This will try to match the search query against each tokens of content (similar to the AddComponent menu workflow)
+        /// </summary>
+        /// <param name="context">Search context containing the searchQuery that we try to match.</param>
+        /// <param name="content">String content that will be tokenized and use to match the search query.</param>
+        /// <param name="ignoreCase">Perform matching ignoring casing.</param>
+        /// <returns>Has a match occurred.</returns>
+        public static bool MatchSearchGroups(SearchContext context, string content, bool ignoreCase = false)
+        {
+            return MatchSearchGroups(context.searchQuery, context.searchWords, content, out _, out _,
+                ignoreCase ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
+        }
+
+        internal static bool MatchSearchGroups(string searchContext, string[] tokens, string content, out int startIndex, out int endIndex, StringComparison sc = StringComparison.OrdinalIgnoreCase)
+        {
+            startIndex = endIndex = -1;
+            if (String.IsNullOrEmpty(content))
+                return false;
+
+            if (string.IsNullOrEmpty(searchContext))
+                return false;
+
+            if (searchContext == content)
+            {
+                startIndex = 0;
+                endIndex = content.Length - 1;
+                return true;
+            }
+
+            return MatchSearchGroups(tokens, content, out startIndex, out endIndex, sc);
+        }
+
+        internal static bool MatchSearchGroups(string[] tokens, string content, out int startIndex, out int endIndex, StringComparison sc = StringComparison.OrdinalIgnoreCase)
+        {
+            startIndex = endIndex = -1;
+            if (String.IsNullOrEmpty(content))
+                return false;
+
+            // Each search group is space separated
+            // Search group must match in order and be complete.
+            var searchGroups = tokens;
+            var startSearchIndex = 0;
+            foreach (var searchGroup in searchGroups)
+            {
+                if (searchGroup.Length == 0)
+                    continue;
+
+                startSearchIndex = content.IndexOf(searchGroup, startSearchIndex, sc);
+                if (startSearchIndex == -1)
+                {
+                    return false;
+                }
+
+                startIndex = startIndex == -1 ? startSearchIndex : startIndex;
+                startSearchIndex = endIndex = startSearchIndex + searchGroup.Length - 1;
+            }
+
+            return startIndex != -1 && endIndex != -1;
+        }
+
+        /// <summary>
+        /// Utility function to fetch all the game objects in a particular scene.
+        /// </summary>
+        /// <param name="scene">Scene to get objects from.</param>
+        /// <returns>The array of game objects in the scene.</returns>
+        public static GameObject[] FetchGameObjects(Scene scene)
+        {
+            var goRoots = new List<UnityEngine.Object>();
+            if (!scene.IsValid() || !scene.isLoaded)
+                return Array.Empty<GameObject>();
+            var sceneRootObjects = scene.GetRootGameObjects();
+            if (sceneRootObjects != null && sceneRootObjects.Length > 0)
+                goRoots.AddRange(sceneRootObjects);
+
+            return SceneModeUtility.GetObjects(goRoots.ToArray(), true);
+        }
+
+        /// <summary>
+        /// Utility function to fetch all the game objects for the current stage (i.e. scene or prefab)
+        /// </summary>
+        /// <returns>The array of game objects in the current stage.</returns>
+        public static IEnumerable<GameObject> FetchGameObjects()
+        {
+            var prefabStage = PrefabStageUtility.GetCurrentPrefabStage();
+            if (prefabStage != null)
+                return SceneModeUtility.GetObjects(new[] { prefabStage.prefabContentsRoot }, true);
+
+            void AddScene(Scene scene, List<Scene> outScenes)
+            {
+                if (!scene.IsValid() || !scene.isLoaded)
+                    return;
+                outScenes.Add(scene);
+            }
+
+            using var scenesPoolHandle = ListPool<Scene>.Get(out var scenes);
+            var stage = StageUtility.GetCurrentStage();
+            if (stage is not MainStage)
+            {
+                for (int i = 0, c = stage.sceneCount; i < c; ++i)
+                {
+                    var scene = stage.GetSceneAt(i);
+                    AddScene(scene, scenes);
+                }
+            }
+            else
+            {
+                for (int i = 0; i < SceneManager.sceneCount; ++i)
+                {
+                    var scene = SceneManager.GetSceneAt(i);
+                    AddScene(scene, scenes);
+                }
+
+                if (EditorApplication.isPlaying)
+                    AddScene(EditorSceneManager.GetDontDestroyOnLoadScene(), scenes);
+            }
+
+            using var gameObjectRootPoolHandle = ListPool<UnityEngine.Object>.Get(out var goRoots);
+            using var sceneRootGameObjectPoolHandle = ListPool<GameObject>.Get(out var sceneRootObjects);
+            foreach (var scene in scenes)
+            {
+                scene.GetRootGameObjects(sceneRootObjects);
+                if (sceneRootObjects.Count > 0)
+                    goRoots.AddRange(sceneRootObjects);
+            }
+
+            #pragma warning disable UAC2001 // Avoid Linq
+            return SceneModeUtility.GetObjects(goRoots.ToArray(), true)
+#pragma warning restore UAC2001
+                .Where(o => (o.hideFlags & HideFlags.HideInHierarchy) != HideFlags.HideInHierarchy);
+        }
+
+        internal static ISet<string> GetReferences(UnityEngine.Object obj, int level = 1)
+        {
+            var refs = new HashSet<string>();
+
+            var objPath = AssetDatabase.GetAssetPath(obj);
+            if (!string.IsNullOrEmpty(objPath))
+                refs.UnionWith(AssetDatabase.GetDependencies(objPath));
+
+            if (obj is GameObject go)
+            {
+                foreach (var c in go.GetComponents<Component>())
+                {
+                    using (var so = new SerializedObject(c))
+                    {
+                        var p = so.GetIterator();
+                        var next = p.NextVisible(true);
+                        while (next)
+                        {
+                            if (p.propertyType == SerializedPropertyType.ObjectReference && p.objectReferenceValue)
+                            {
+                                var refValue = AssetDatabase.GetAssetPath(p.objectReferenceValue);
+                                if (!String.IsNullOrEmpty(refValue))
+                                    refs.Add(refValue);
+                            }
+
+                            next = p.NextVisible(!p.isArray && !p.isFixedBuffer);
+                        }
+                    }
+                }
+            }
+
+            var lvlRefs = refs;
+            while (level-- > 0)
+            {
+                var nestedRefs = new HashSet<string>();
+
+                foreach (var r in lvlRefs)
+                    nestedRefs.UnionWith(AssetDatabase.GetDependencies(r, false));
+
+                lvlRefs = nestedRefs;
+                lvlRefs.ExceptWith(refs);
+                refs.UnionWith(nestedRefs);
+            }
+
+            refs.Remove(objPath);
+
+            return refs;
+        }
+
+        [AutoStaticsCleanupOnCodeReload]
+        static readonly Dictionary<string, SearchProvider> s_GroupProviders = new Dictionary<string, SearchProvider>();
+        public static SearchProvider CreateGroupProvider(SearchProvider templateProvider, string groupId, int groupPriority, bool cacheProvider = false)
+        {
+            if (cacheProvider && s_GroupProviders.TryGetValue(groupId, out var groupProvider))
+                return groupProvider;
+
+            groupProvider = new SearchProvider(GetGroupProviderId(groupId), groupId, templateProvider, groupPriority);
+
+            if (cacheProvider)
+                s_GroupProviders[groupId] = groupProvider;
+
+            return groupProvider;
+        }
+
+        internal static string GetGroupProviderId(string groupId)
+        {
+            return $"_group_provider_{groupId}";
+        }
+
+        public static string GetAssetPath(in SearchItem item)
+        {
+            if (item.provider.type == Providers.AssetProvider.type)
+                return Providers.AssetProvider.GetAssetPath(item);
+            if (item.provider.type == "dep")
+                return AssetDatabase.GUIDToAssetPath(item.id);
+            return null;
+        }
+
+        [AutoStaticsCleanupOnCodeReload]
+        internal static Dictionary<Type, List<Type>> s_BaseTypes = new ();
+        internal static IEnumerable<SearchProposition> FetchTypePropositions<T>(string category = "Types", Type blockType = null, int priority = -1444) where T : UnityEngine.Object
+        {
+            if (category != null)
+            {
+                // Note: since GameObject is NOT the same as prefab, we chose not to set any data and blocktype so the propsition must use the replacement text:
+                yield return new SearchProposition(category: category, label: "Prefabs", replacement: "t=prefab",
+                    icon: GetTypeIcon(typeof(GameObject)), data: null, type: null, priority: priority, color: QueryColors.type);
+            }
+
+            if (string.Equals(category, "Types", StringComparison.Ordinal))
+            {
+                yield return new SearchProposition(category: "Types", label: "Scripts", replacement: "t=script",
+                    icon: GetTypeIcon(typeof(MonoScript)), data: typeof(MonoScript), type: blockType, priority: priority, color: QueryColors.type);
+                yield return new SearchProposition(category: "Types", label: "Scenes", replacement: "t=scene",
+                    icon: GetTypeIcon(typeof(SceneAsset)), data: typeof(SceneAsset), type: blockType, priority: priority, color: QueryColors.type);
+                yield return new SearchProposition(category: "Types", label: "Presets", replacement: "t=preset",
+                    icon: GetTypeIcon(typeof(Presets.Preset)), data: typeof(Presets.Preset), type: blockType, priority: priority, color: QueryColors.type);
+            }
+
+            if (!s_BaseTypes.TryGetValue(typeof(T), out var types))
+            {
+                #pragma warning disable UAC2001 // Avoid Linq
+                types = TypeCache.GetTypesDerivedFrom<T>()
+#pragma warning restore UAC2001
+                .Where(TypePredicate)
+                #pragma warning disable UAC2001 // Avoid Linq
+                .SelectMany(t => t.GetInterfaces().Where(TypePredicate).Append(t))
+#pragma warning restore UAC2001
+                .Distinct().ToList();
+                s_BaseTypes[typeof(T)] = types;
+            }
+            foreach (var t in types)
+            {
+                yield return new SearchProposition(
+                    priority: t.Name[0] + priority,
+                    category: category,
+                    label: t.Name,
+                    replacement: $"t={t.Name}",
+                    data: t,
+                    help: $"Search {ObjectNames.NicifyVariableName(t.Name)}",
+                    type: blockType,
+                    icon: GetTypeIcon(t),
+                    color: QueryColors.type);
+            }
+        }
+
+        [AutoStaticsCleanupOnCodeReload] // caches editor Assembly instances which become stale after a domain/code reload; re-run initializer to refresh
+        static Assembly[] s_IgnoredAssemblies = new[]
+        {
+            typeof(EditorApplication).Assembly,
+            typeof(UnityEditorInternal.InternalEditorUtility).Assembly
+        };
+        static bool TypePredicate(Type t)
+        {
+            return !t.IsGenericType &&
+                     !s_IgnoredAssemblies.Contains(t.Assembly) &&
+                     !typeof(Editor).IsAssignableFrom(t) &&
+                     !typeof(EditorWindow).IsAssignableFrom(t) &&
+                     t.Assembly.GetName().Name.IndexOf("Editor", StringComparison.Ordinal) == -1;
+        }
+
+        [NoAutoStaticsCleanup] // fixed-size reusable scratch array overwritten on each call; holds only strings, no user refs
+        static string[] s_Tokens = new string[10];
+        static bool GetKeywordTokens(in string keyword, out string fieldName, out string displayName, out string helpText, out string propertyType, out string ownerTypeStr, out string propositionOptions)
+        {
+            fieldName = displayName = helpText = propertyType = ownerTypeStr = propositionOptions = "";
+            if (string.IsNullOrEmpty(keyword))
+                return false;
+            var tokenCount = SplitTokens(keyword, '|', s_Tokens);
+            if (tokenCount < 5)
+                return false;
+            fieldName = s_Tokens[0];
+            displayName = s_Tokens[1];
+            helpText = s_Tokens[2];
+            propertyType = s_Tokens[3];
+            ownerTypeStr = s_Tokens[4];
+            if (tokenCount > 5)
+                propositionOptions = s_Tokens[5];
+            return true;
+        }
+
+        internal static SearchProposition CreateKeywordProposition(in string keyword)
+        {
+            if (!GetKeywordTokens(keyword, out var fieldName, out var displayName, out var help, out var valueType, out var ownerTypeStr, out var propositionsOptions ))
+                return SearchProposition.invalid;
+
+            var replacement = ParseBlockContent(valueType, fieldName, out Type blockType);
+            var ownerType = FindType<UnityEngine.Object>(ownerTypeStr);
+            if (ownerType == null)
+                return SearchProposition.invalid;
+            var generationOptions = SearchPropositionGenerationOptions.None;
+            if (!string.IsNullOrWhiteSpace(propositionsOptions))
+            {
+                if (Utils.TryParse<int>(propositionsOptions, out var temp))
+                {
+                    generationOptions = (SearchPropositionGenerationOptions)temp;
+                }
+            }
+
+            var icon = blockType != null
+                ? GetTypeIcon(blockType, null) ?? GetTypeIcon(ownerType)
+                : GetTypeIcon(ownerType);
+            return new SearchProposition(
+                category: $"Properties/{ObjectNames.NicifyVariableName(ownerType.Name)}",
+                label: $"{displayName} ({blockType?.Name ?? valueType})",
+                replacement: replacement,
+                help: help,
+                priority: (ownerType.Name[0] << 4) + displayName[0],
+                moveCursor: TextCursorPlacement.MoveAutoComplete,
+                icon: icon,
+                type: null,
+                data: null,
+                color: replacement.StartsWith("#", StringComparison.Ordinal) ? QueryColors.property : QueryColors.filter,
+                generationOptions: generationOptions
+                );
+        }
+
+        internal static IEnumerable<SearchProposition> FetchEnumPropositions<T>(string category = null, string replacementId = null, string replacementOp = null, Type blockType = null, int priority = 0, Texture2D icon = null, Color color = default) where T : Enum
+        {
+            var type = typeof(T);
+            return FetchEnumPropositions(type, category, replacementId, replacementOp, blockType, priority, icon, color);
+        }
+
+        internal static IEnumerable<SearchProposition> FetchEnumPropositions(Type enumType, string category = null, string replacementId = null, string replacementOp = null, Type blockType = null, int priority = 0, Texture2D icon = null, Color color = default)
+        {
+            if (!enumType?.IsEnum ?? true)
+                throw new ArgumentException("Type should of an enum.", nameof(enumType));
+
+            if (blockType == null)
+                blockType = typeof(QueryFilterBlock);
+
+            var replacementBase = $"{replacementId}{replacementOp}";
+
+            var enumNames = Array.ConvertAll(Enum.GetNames(enumType), Utils.FastToLower);
+            var fields = enumType.GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Static | BindingFlags.Instance);
+            foreach (var fieldInfo in fields)
+            {
+                if (fieldInfo.FieldType != enumType)
+                    continue;
+
+                var enumName = fieldInfo.Name;
+                var label = ToPascalWithSpaces(enumName, true);
+                var data = Utils.FastToLower(enumName);
+                var replacement = label;
+                if (blockType == typeof(QueryFilterBlock))
+                {
+                    replacement = $"{replacementBase}<$enum:{enumName},{enumType.FullName}$>";
+                }
+                else if (blockType == typeof(QueryListMarkerBlock))
+                {
+                    replacement = $"{replacementBase}{GetListMarkerReplacementText(data, enumNames, Utils.GetIconSkinAgnosticName(icon), color)}";
+                    data = replacement;
+                }
+
+                string help = null;
+                var descriptionAttribute = fieldInfo.GetCustomAttribute<System.ComponentModel.DescriptionAttribute>();
+                if (descriptionAttribute != null)
+                    help = descriptionAttribute.Description;
+
+                yield return new SearchProposition(category: category, label: label, replacement: replacement, help: help,
+                    data: data, priority: priority, icon: icon, type: blockType, color: color);
+            }
+        }
+
+        [AutoStaticsCleanupOnCodeReload]
+        static readonly Dictionary<Type, Texture2D> s_TypeIcons = new Dictionary<Type, Texture2D>();
+        [AutoStaticsCleanupOnCodeReload] // lazy-loaded icon texture; recreated on reload
+        static Texture2D s_DefaultIcon;
+        public static Texture2D GetTypeIcon(in Type type)
+        {
+            if (!s_DefaultIcon)
+                s_DefaultIcon = AssetPreview.GetMiniTypeThumbnail(typeof(MonoScript));
+            return GetTypeIcon(type, s_DefaultIcon);
+        }
+
+        internal static Texture2D GetTypeIcon(in Type type, Texture2D defaultIcon)
+        {
+            if (s_TypeIcons.TryGetValue(type, out var typeIcon))
+                return typeIcon ?? defaultIcon;
+            if (!type.IsAbstract && typeof(MonoBehaviour) != type && typeof(MonoBehaviour).IsAssignableFrom(type))
+            {
+                var script = EditorGUIUtility.GetScript(type.Name);
+                if (!script)
+                {
+                    typeIcon = AssetPreview.GetMiniTypeThumbnail(type) ?? AssetPreview.GetMiniTypeThumbnail(typeof(DefaultAsset));
+                }
+                else
+                {
+                    var obj = EditorUtility.EntityIdToObject(script.GetEntityId());
+                    typeIcon = AssetPreview.GetMiniThumbnail(obj);
+                }
+            }
+            else
+            {
+                typeIcon = AssetPreview.GetMiniTypeThumbnail(type);
+            }
+            s_TypeIcons[type] = typeIcon;
+            return typeIcon ?? defaultIcon;
+        }
+
+        internal static IEnumerable<SearchProposition> EnumeratePropertyPropositions(IEnumerable<UnityEngine.Object> objs, Func<SerializedObject, IEnumerable<SerializedProperty>> nonVisiblePropertyIterator = null)
+        {
+            #pragma warning disable UAC2001 // Avoid Linq
+            return EnumeratePropertyKeywords(objs, nonVisiblePropertyIterator).Select(k => CreateKeywordProposition(k));
+#pragma warning restore UAC2001
+        }
+
+        internal static void IterateSupportedProperties(SerializedObject so, Action<SerializedProperty> handler)
+        {
+            var p = so.GetIterator();
+            var next = p.NextVisible(true);
+            while (next)
+            {
+                var supported = SearchUtils.IsPropertyTypeSupported(p);
+                if (supported)
+                {
+                    handler(p);
+                }
+                next = p.NextVisible(IterateSupportedProperties_EnterChildren(p));
+            }
+        }
+
+        internal static bool IterateSupportedProperties_EnterChildren(SerializedProperty p)
+        {
+            switch (p.propertyType)
+            {
+                case SerializedPropertyType.AnimationCurve:
+                case SerializedPropertyType.Bounds:
+                case SerializedPropertyType.Gradient:
+                case SerializedPropertyType.Vector3Int:
+                case SerializedPropertyType.Vector2Int:
+                case SerializedPropertyType.Vector2:
+                case SerializedPropertyType.Vector3:
+                case SerializedPropertyType.Vector4:
+                case SerializedPropertyType.Quaternion:
+                    return false;
+            }
+
+            if (p.propertyType == SerializedPropertyType.Generic)
+            {
+                if (string.Equals(p.type, "map", StringComparison.Ordinal))
+                    return false;
+                if (string.Equals(p.type, "Matrix4x4f", StringComparison.Ordinal))
+                    return false;
+            }
+
+            return (p.propertyType == SerializedPropertyType.String || !p.isArray) && !p.isFixedBuffer && p.propertyPath.LastIndexOf('[') == -1;
+        }
+
+        internal static string CleanEnumName(string enumName)
+        {
+            return enumName.Replace(" ", "").Replace("-", "");
+        }
+
+        internal static int GetEnumValueIndex(SerializedProperty p)
+        {
+            return p.propertyType == SerializedPropertyType.Enum ? p.enumValueIndex : p.intValue;
+        }
+
+        internal static SearchValue GetEnumSearchValue(SerializedProperty p)
+        {
+            var enumValue = string.Join(",", GetEnumFlags(p));
+            var enumValueIndex = GetEnumValueIndex(p);
+            if (enumValueIndex < 0 || p.enumValueFlag > 0)
+            {
+                return new SearchValue(p.enumValueFlag, enumValue);
+            }
+
+            return new SearchValue(enumValueIndex, enumValue);
+        }
+
+        internal static IEnumerable<string> GetEnumFlags(SerializedProperty p)
+        {
+            var enumValueIndex = GetEnumValueIndex(p);
+            var managedType = p.GetManagedType();
+            if (managedType != null && managedType.IsEnum)
+            {
+                var enumData = EnumDataUtility.GetCachedEnumData(managedType, excludeObsolete:false);
+                if (enumValueIndex < 0 || enumData.flags)
+                {
+                    var hasNothingValue = enumData.flagValues[0] == 0;
+                    if (p.enumValueFlag == 0)
+                    {
+                        if (hasNothingValue)
+                        {
+                            yield return CleanEnumName(enumData.names[0]);
+                        }
+                        else
+                        {
+                            yield return "None";
+                        }
+
+                        yield break;
+                    }
+
+                    var enumFlagValue = p.enumValueFlag;
+                    for (var i = 0; i < enumData.flagValues.Length; ++i)
+                    {
+                        var flagValue = enumData.flagValues[i];
+                        if ((flagValue & enumFlagValue) > 0)
+                        {
+                            yield return CleanEnumName(enumData.names[i]);
+                        }
+                    }
+                }
+                else if (enumValueIndex < enumData.names.Length)
+                {
+                    yield return CleanEnumName(enumData.names[enumValueIndex]);
+                }
+            }
+            else if (p.propertyType == SerializedPropertyType.Enum)
+            {
+                if (enumValueIndex < 0)
+                {
+                    // With native type there is no way of knowing if the first enumNames corresponds to None/NoValue/Nothing. Assume We check for None.
+                    var hasNoneValue = p.enumNames[0] == "None";
+                    var nameIndex = hasNoneValue ? 1 : 0;
+                    for (var flagShift = 0; nameIndex < p.enumNames.Length; ++flagShift, ++nameIndex)
+                    {
+                        var flag = 1 << flagShift;
+                        if ((flag & p.enumValueFlag) > 0)
+                        {
+                            yield return CleanEnumName(p.enumNames[nameIndex]);
+                        }
+                    }
+                }
+                else if (enumValueIndex < p.enumNames.Length)
+                {
+                    yield return CleanEnumName(p.enumNames[enumValueIndex]);
+                }
+            }
+        }
+
+        internal static string GetPropertyNamePrefix(UnityEngine.Object obj)
+        {
+            var objType = obj.GetType();
+            var isComponent = typeof(Component).IsAssignableFrom(objType);
+            return isComponent ? objType.Name + "." : null;
+        }
+
+        internal static IEnumerable<string> EnumeratePropertyKeywords(IEnumerable<UnityEngine.Object> objs, Func<SerializedObject, IEnumerable<SerializedProperty>> nonVisiblePropertyIterator = null)
+        {
+            var templates = GetTemplates(objs);
+            foreach (var obj in templates)
+            {
+                var propertyPrefix = GetPropertyNamePrefix(obj);
+                using (var so = new SerializedObject(obj))
+                {
+                    if (nonVisiblePropertyIterator != null)
+                    {
+                        foreach (var serializedProperty in nonVisiblePropertyIterator(so))
+                        {
+                            if (!IsPropertyTypeSupported(serializedProperty)) continue;
+                            var propertyType = GetPropertyManagedTypeString(serializedProperty);
+                            if (propertyType != null)
+                            {
+                                var keyword = CreateKeyword(serializedProperty, propertyType, propertyPrefix);
+                                yield return keyword;
+                            }
+                        }
+                    }
+
+                    var p = so.GetIterator();
+                    var next = p.NextVisible(true);
+                    while (next)
+                    {
+                        var supported = SearchUtils.IsPropertyTypeSupported(p);
+                        var propertyType = supported ? GetPropertyManagedTypeString(p) : null;
+                        if (propertyType != null)
+                        {
+                            var keyword = CreateKeyword(p, propertyType, propertyPrefix);
+                            yield return keyword;
+                        }
+                        next = p.NextVisible(IterateSupportedProperties_EnterChildren(p));
+                    }
+                }
+            }
+        }
+
+        private static string CreateKeyword(in SerializedProperty p, in string propertyType, in string namePrefix = null)
+        {
+            var path = p.propertyPath;
+            if (path.IndexOf(' ') != -1)
+                path = p.name;
+            return $"#{(string.IsNullOrEmpty(namePrefix) ? "" : namePrefix)}{path.Replace(" ", "")}|{p.displayName}|{p.tooltip}|{propertyType}|{p.serializedObject?.targetObject?.GetType().AssemblyQualifiedName}";
+        }
+
+        internal static string GetPropertyManagedTypeString(in SerializedProperty p)
+        {
+            Type managedType;
+            switch (p.propertyType)
+            {
+                case SerializedPropertyType.Vector2:
+                case SerializedPropertyType.Vector3:
+                case SerializedPropertyType.Vector4:
+                case SerializedPropertyType.Boolean:
+                case SerializedPropertyType.String:
+                    return p.propertyType.ToString();
+
+                case SerializedPropertyType.Integer:
+                    managedType = p.GetManagedType();
+                    if (managedType != null && !managedType.IsPrimitive)
+                        return managedType.AssemblyQualifiedName;
+                    return "Number";
+
+                case SerializedPropertyType.Character:
+                case SerializedPropertyType.ArraySize:
+                case SerializedPropertyType.LayerMask:
+                case SerializedPropertyType.RenderingLayerMask:
+                case SerializedPropertyType.Float:
+                    return "Number";
+
+                case SerializedPropertyType.Generic:
+                    if (p.isArray)
+                        return "Count";
+                    return null;
+
+                case SerializedPropertyType.LoadableSceneId:
+                    return typeof(SceneAsset).AssemblyQualifiedName;
+
+                case SerializedPropertyType.ObjectReference:
+                    if (p.objectReferenceValue)
+                        return p.objectReferenceValue.GetType().AssemblyQualifiedName;
+                    if (p.type.StartsWith("PPtr<", StringComparison.Ordinal) && TryFindType<UnityEngine.Object>(p.type.Substring(5, p.type.Length - 6), out managedType))
+                        return managedType.AssemblyQualifiedName;
+                    managedType = p.GetManagedType();
+                    if (managedType != null && !managedType.IsPrimitive)
+                        return managedType.AssemblyQualifiedName;
+                    return null;
+            }
+
+            if (p.isArray)
+                return "Count";
+
+            managedType = p.GetManagedType();
+            if (managedType != null && !managedType.IsPrimitive)
+                return managedType.AssemblyQualifiedName;
+
+            return p.propertyType.ToString();
+        }
+
+        internal static bool IsPropertyTypeSupported(SerializedProperty p)
+        {
+            var isAsset = !string.IsNullOrEmpty(AssetDatabase.GetAssetPath(p.serializedObject.targetObject));
+            return IsPropertyTypeSupported(p, isAsset);
+        }
+
+        internal static bool IsPropertyTypeSupported(SerializedProperty p, bool isOwnerAsset)
+        {
+            var isSupported = isOwnerAsset ? ObjectIndexer.IsIndexableProperty(p.propertyType) && SupportsFindByPropertiesInProject() : SearchValue.IsSearchableProperty(p.propertyType);
+            return isSupported && (p.propertyType == SerializedPropertyType.String || !p.isArray) && !p.isFixedBuffer && p.propertyPath.LastIndexOf('[') == -1;
+        }
+
+        internal static IEnumerable<UnityEngine.Object> GetTemplates(IEnumerable<UnityEngine.Object> objects)
+        {
+            var seenTypes = new HashSet<Type>();
+            foreach (var obj in objects)
+            {
+                if (!obj)
+                    continue;
+                var ct = obj.GetType();
+                if (!seenTypes.Contains(ct))
+                {
+                    seenTypes.Add(ct);
+                    yield return obj;
+                }
+
+                if (obj is GameObject go)
+                {
+                    foreach (var comp in go.GetComponents<Component>())
+                    {
+                        if (!comp)
+                            continue;
+                        ct = comp.GetType();
+                        if (!seenTypes.Contains(ct))
+                        {
+                            seenTypes.Add(ct);
+                            yield return comp;
+                        }
+                    }
+                }
+
+                var path = AssetDatabase.GetAssetPath(obj);
+                if (!string.IsNullOrEmpty(path))
+                {
+                    var importer = AssetImporter.GetAtPath(path);
+                    if (importer)
+                    {
+                        var it = importer.GetType();
+                        if (it != typeof(AssetImporter) && !seenTypes.Contains(it))
+                        {
+                            seenTypes.Add(it);
+                            yield return importer;
+                        }
+                    }
+                }
+            }
+        }
+
+        internal static string ParseSearchText(string searchText, IEnumerable<SearchProvider> providers, out SearchProvider filteredProvider)
+        {
+            filteredProvider = null;
+            var searchQuery = searchText.TrimStart();
+            if (string.IsNullOrEmpty(searchQuery))
+                return searchQuery;
+
+            foreach (var p in providers)
+            {
+                if (searchQuery.StartsWith(p.filterId, StringComparison.OrdinalIgnoreCase))
+                {
+                    filteredProvider = p;
+                    searchQuery = searchQuery.Remove(0, p.filterId.Length).TrimStart();
+                    break;
+                }
+            }
+            return searchQuery;
+        }
+
+        static string ParseBlockContent(string type, in string content, out Type valueType)
+        {
+            var replacement = content;
+            var del = content.LastIndexOf(':');
+            if (del != -1)
+                replacement = content.Substring(0, del);
+
+            valueType = FindType<UnityEngine.Object>(type);
+            type = valueType?.Name ?? type;
+
+            if (QueryListBlockAttribute.TryGetReplacement(replacement, type, ref valueType, out var replacementText))
+                return replacementText;
+
+            switch (type)
+            {
+                case "Enum":
+                    return $"{replacement}=0";
+                case "String":
+                    return $"{replacement}:\"\"";
+                case "Boolean":
+                    return $"{replacement}=true";
+                case "Array":
+                case "Count":
+                    return $"{replacement}>=1";
+                case "Integer":
+                case "Float":
+                case "Number":
+                    return $"{replacement}>0";
+                case "Color":
+                    return $"{replacement}=#00ff00";
+                case "Vector2":
+                    return $"{replacement}=(,)";
+                case "Vector3":
+                case "Quaternion":
+                    return $"{replacement}=(,,)";
+                case "Vector4":
+                    return $"{replacement}=(,,,)";
+
+                default:
+                    if (valueType != null)
+                    {
+                        if (typeof(UnityEngine.Object).IsAssignableFrom(valueType))
+                            return $"{replacement}=<$object:none,{valueType.FullName}$>";
+                        if (valueType.IsEnum)
+                        {
+                            var enums = valueType.GetEnumValues();
+                            if (enums.Length > 0)
+                                return $"{replacement}=<$enum:{enums.GetValue(0)},{valueType.FullName}$>";
+                        }
+                    }
+                    break;
+            }
+
+            return replacement;
+        }
+
+        internal static bool TryFindType<T>(in string typeString, out Type type)
+        {
+            type = FindType<T>(typeString);
+            return type != null;
+        }
+
+        [AutoStaticsCleanupOnCodeReload]
+        static readonly Dictionary<string, Type> s_CachedTypes = new();
+        internal static Type FindType<T>(in string typeString)
+        {
+            if (s_CachedTypes.TryGetValue(typeString, out var foundType))
+                return foundType;
+
+            var selfType = typeof(T);
+            if (string.Equals(selfType.Name, typeString, StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(selfType.FullName, typeString, StringComparison.Ordinal))
+                return s_CachedTypes[typeString] = selfType;
+
+            var type = Type.GetType(typeString);
+            if (type != null)
+                return s_CachedTypes[typeString] = type;
+            foreach (var t in TypeCache.GetTypesDerivedFrom<T>())
+            {
+                if (!t.IsVisible)
+                    continue;
+                if (t.GetAttribute<ObsoleteAttribute>() != null)
+                    continue;
+                if (string.Equals(t.Name, typeString, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(t.FullName, typeString, StringComparison.Ordinal))
+                {
+                    return s_CachedTypes[typeString] = t;
+                }
+            }
+            return s_CachedTypes[typeString] = null;
+        }
+
+        internal static IEnumerable<Type> FindTypes<T>(string typeString)
+        {
+            foreach (var t in TypeCache.GetTypesDerivedFrom<T>())
+            {
+                if (!t.IsVisible)
+                    continue;
+                if (t.GetAttribute<ObsoleteAttribute>() != null)
+                    continue;
+                if (string.Equals(t.Name, typeString, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(t.FullName, typeString, StringComparison.Ordinal))
+                {
+                    yield return t;
+                }
+            }
+        }
+
+        internal static string GetListMarkerReplacementText(string currentValue, IEnumerable<string> choices, string iconName = null, Color? color = null)
+        {
+            var sb = new StringBuilder($"<$list:{currentValue}, [{string.Join(", ", choices)}]");
+            if (!string.IsNullOrEmpty(iconName))
+                sb.Append($", {iconName}");
+            if (color.HasValue)
+                sb.Append($", #{ColorUtility.ToHtmlStringRGBA(color.Value)}");
+
+            sb.Append("$>");
+
+            return sb.ToString();
+        }
+
+        public static ISearchQuery CreateQuery(in string name, SearchContext context, SearchTable tableConfig)
+        {
+            return new SearchQuery()
+            {
+                name = name,
+                viewState = new SearchViewState(context),
+                displayName = name
+            };
+        }
+
+        public static ISearchQuery FindQuery(string guid)
+        {
+            #pragma warning disable UAC2001 // Avoid Linq
+            return SearchQuery.searchQueries.FirstOrDefault(sq => sq.guid == guid);
+#pragma warning restore UAC2001
+        }
+
+        public static ISearchView OpenQuery(ISearchQuery sq, SearchFlags flags)
+        {
+            return SearchQuery.Open(sq, flags);
+        }
+
+        public static IEnumerable<ISearchQuery> EnumerateAllQueries()
+        {
+            #pragma warning disable UAC2001 // Avoid Linq
+            return SearchQuery.searchQueries.Cast<ISearchQuery>().Concat(SearchQueryAsset.savedQueries);
+#pragma warning restore UAC2001
+        }
+
+        public static SearchItem CreateSceneResult(SearchContext context, SearchProvider sceneProvider, GameObject go)
+        {
+            return Providers.SceneProvider.AddResult(context, sceneProvider, go);
+        }
+
+        public static void ShowIconPicker(Action<Texture2D, bool> iconSelectedHandler)
+        {
+            var pickIconContext = SearchService.CreateContext(new[] { "adb", "asset" }, "", SearchFlags.WantsMore);
+            var viewState = SearchViewState.CreatePickerState("Icon", pickIconContext,
+                (newIcon, canceled) => iconSelectedHandler(newIcon as Texture2D, canceled),
+                null,
+                "Texture",
+                typeof(Texture2D));
+            SearchService.ShowPicker(viewState);
+        }
+
+        public static void ShowColumnSelector(Action<IEnumerable<SearchColumn>, int> columnsAddedHandler, IEnumerable<SearchColumn> columns, Vector2 mousePosition, int activeColumnIndex)
+        {
+            ColumnSelector.AddColumns(columnsAddedHandler, columns, mousePosition, activeColumnIndex);
+        }
+
+        [Obsolete("IMGUI support has been removed", error: false)] // 2023.1
+        public static EditorWindow ShowColumnEditor(IMGUI.Controls.MultiColumnHeaderState.Column column, Action<IMGUI.Controls.MultiColumnHeaderState.Column> editHandler)
+        {
+            throw new NotSupportedException("Search IMGUI support has been removed");
+        }
+
+        public static bool TryParse<T>(string expression, out T result)
+        {
+            return Utils.TryParse<T>(expression, out result);
+        }
+
+        public static string FormatCount(ulong count)
+        {
+            return Utils.FormatCount(count);
+        }
+
+        public static string FormatBytes(long byteCount)
+        {
+            return Utils.FormatBytes(byteCount);
+        }
+
+        [Obsolete("GetMainAssetInstanceID is obsolete, use GetMainAssetEntityId instead", true)]
+        public static int GetMainAssetInstanceID(string assetPath) => GetMainAssetEntityId(assetPath);
+        public static EntityId GetMainAssetEntityId(string assetPath) => Utils.GetMainAssetEntityId(assetPath);
+
+        public static void PingAsset(string assetPath)
+        {
+            Utils.PingAsset(assetPath);
+        }
+
+        public static void StartDrag(UnityEngine.Object[] objects, string label = null)
+        {
+            Utils.StartDrag(objects, label);
+        }
+
+        public static void StartDrag(UnityEngine.Object[] objects, string[] paths, string label = null)
+        {
+            Utils.StartDrag(objects, paths, label);
+        }
+
+        public static Rect GetMainWindowCenteredPosition(Vector2 size)
+        {
+            return Utils.GetMainWindowCenteredPosition(size);
+        }
+
+        public static Texture2D GetAssetThumbnailFromPath(SearchContext context, string path)
+        {
+            return Utils.GetAssetThumbnailFromPath(context, path);
+        }
+
+        public static Texture2D GetAssetThumbnailFromPath(string path)
+        {
+            return GetAssetThumbnailFromPath(null, path);
+        }
+
+        public static Texture2D GetAssetPreviewFromPath(string path, FetchPreviewOptions previewOptions)
+        {
+            return GetAssetPreviewFromPath(null, path, previewOptions);
+        }
+
+        public static Texture2D GetAssetPreviewFromPath(SearchContext context, string path, FetchPreviewOptions previewOptions, Vector2 previewSize = new())
+        {
+            return Utils.GetAssetPreviewFromPath(context, path, previewSize == Vector2.zero ? new Vector2(128, 128) : previewSize, previewOptions);
+        }
+
+        public static Texture2D GetAssetPreviewFromPath(string path, Vector2 previewSize, FetchPreviewOptions previewOptions)
+        {
+            return GetAssetPreviewFromPath(null, path, previewOptions, previewSize);
+        }
+
+        public static void FrameAssetFromPath(string path)
+        {
+            Utils.FrameAssetFromPath(path);
+        }
+
+        internal static void OpenPreferences()
+        {
+            SettingsService.OpenUserPreferences(SearchSettings.settingsPreferencesKey);
+            SearchAnalytics.SendEvent(null, SearchAnalytics.GenericEventType.QuickSearchOpenPreferences);
+        }
+
+        internal static IEnumerable<SearchProvider> GetActiveProviders(IEnumerable<SearchProvider> providers)
+        {
+            #pragma warning disable UAC2001 // Avoid Linq
+            return providers.Where(p => p.active);
+#pragma warning restore UAC2001
+        }
+
+        internal static IEnumerable<SearchProvider> SortProvider(IEnumerable<SearchProvider> providers)
+        {
+            #pragma warning disable UAC2001 // Avoid Linq
+            return providers.OrderBy(p => p.priority + (p.isExplicitProvider ? 100000 : 0));
+#pragma warning restore UAC2001
+        }
+
+        internal static IEnumerable<SearchProvider> GetMergedProviders(IEnumerable<SearchProvider> initialProviders, IEnumerable<string> providerIds)
+        {
+            var providers = SearchService.GetProviders(providerIds);
+            if (initialProviders == null)
+                return providers;
+
+            #pragma warning disable UAC2001 // Avoid Linq
+            return initialProviders.Concat(providers).Distinct();
+#pragma warning restore UAC2001
+        }
+
+        internal static bool SearchViewSyncEnabled(string groupId)
+        {
+            switch (groupId)
+            {
+                case "asset":
+                    return UnityEditor.SearchService.ProjectSearch.HasEngineOverride();
+                case "scene":
+                    return UnityEditor.SearchService.SceneSearch.HasEngineOverride();
+                default:
+                    return false;
+            }
+        }
+
+        internal static string FormatStatusMessage(SearchContext context, int totalCount)
+        {
+            #pragma warning disable UAC2001 // Avoid Linq
+            var providers = context.providers.ToList();
+#pragma warning restore UAC2001
+            if (providers.Count == 0)
+                return L10n.Tr("There is no activated search provider", null);
+
+            var msg = "Searching ";
+            if (providers.Count > 1)
+                #pragma warning disable UAC2001 // Avoid Linq
+                msg += Utils.FormatProviderList(providers.Where(p => !p.isExplicitProvider), showFetchTime: !context.searchInProgress);
+#pragma warning restore UAC2001
+            else
+                msg += Utils.FormatProviderList(providers);
+
+            if (totalCount > 0)
+            {
+                msg += $" and found <b>{totalCount}</b> result";
+                if (totalCount > 1)
+                    msg += "s";
+                if (!context.searchInProgress)
+                {
+                    if (context.searchElapsedTime > 1.0)
+                        msg += $" in {PrintTime(context.searchElapsedTime)}";
+                }
+                else
+                    msg += " so far";
+            }
+            else if (!string.IsNullOrEmpty(context.searchQuery))
+            {
+                if (!context.searchInProgress)
+                    msg += " and found nothing";
+            }
+
+            if (context.searchInProgress)
+                msg += k_Dots[(int)EditorApplication.timeSinceStartup % k_Dots.Length];
+
+            return msg;
+        }
+
+        private static string PrintTime(double timeMs)
+        {
+            if (timeMs >= 1000)
+                return $"{Math.Round(timeMs / 1000.0)} seconds";
+            return $"{Math.Round(timeMs)} ms";
+        }
+
+        internal static void SetupColumns(SearchContext context, SearchExpression expression)
+        {
+            if (context.searchView == null || context.searchView.displayMode != DisplayMode.Table)
+                return;
+
+            if (expression.evaluator.name == nameof(Evaluators.Select))
+            {
+                #pragma warning disable UAC2001 // Avoid Linq
+                var selectors = expression.parameters.Skip(1).Where(e => Evaluators.IsSelectorLiteral(e));
+#pragma warning restore UAC2001
+                #pragma warning disable UAC2001 // Avoid Linq
+                var tableViewFields = new List<SearchField>(selectors.Select(s => new SearchField(s.innerText.ToString(), s.alias.ToString())));
+#pragma warning restore UAC2001
+                context.searchView.SetupColumns(tableViewFields);
+            }
+        }
+
+        internal static DisplayMode GetDisplayModeFromItemSize(float itemSize)
+        {
+            if (itemSize <= (float)DisplayMode.Compact)
+                return DisplayMode.Compact;
+
+            if (itemSize <= (float)DisplayMode.List)
+                return DisplayMode.List;
+
+            if (itemSize <= (float)DisplayMode.Limit)
+                return DisplayMode.Grid;
+
+            if (itemSize == (float)DisplayMode.Table)
+                return DisplayMode.Table;
+
+            // Default View:
+            return DisplayMode.Grid;
+        }
+
+        internal static float GetItemSizeFromDisplayMode(DisplayMode displayMode)
+        {
+            if (displayMode == DisplayMode.None)
+                return (float)DisplayMode.List;
+            return (float)displayMode;
+        }
+
+        internal static string CreateFindObjectReferenceQuery(UnityEngine.Object obj)
+        {
+            var objPath = GetObjectPath(obj);
+            if (string.IsNullOrEmpty(objPath))
+                return null;
+            var query = $"ref:{EscapeLiteralString(objPath)}";
+            return query;
+        }
+
+        internal static bool ValidateAssetPath(ref string path, string requiredExtensionWithDot, out string errorMessage)
+        {
+            if (!Paths.IsValidAssetPath(path, requiredExtensionWithDot, out errorMessage))
+            {
+                errorMessage = $"Save Search Query has failed. {errorMessage}";
+                return false;
+            }
+            path = Utils.CleanPath(path);
+            var fileName = Utils.GetFileName(path);
+
+            // On Mac Path.GetInvalidFileNameChars() doesn't include <,> but these characters are invalid for ADB.
+            if (fileName.IndexOfAny(Utils.k_AdbInvalidCharacters) >= 0)
+            {
+                errorMessage = $"Filename has invalid characters.";
+                return false;
+            }
+
+            var directory = Utils.CleanPath(Path.GetDirectoryName(path));
+            if (!System.IO.Directory.Exists(directory))
+            {
+                errorMessage = $"Directory does not exists {directory}";
+                return false;
+            }
+
+            if (!Utils.IsPathUnderProject(path))
+            {
+                errorMessage = $"Path is not under the project or packages: {path}";
+                return false;
+            }
+
+            path = Utils.GetPathUnderProject(path);
+
+            return true;
+        }
+
+        [CommandHandler("OpenToFindReferenceOnObject")]
+        internal static void OpenToFindReferenceOnObject(CommandExecuteContext c)
+        {
+            var obj = c.GetArgument<UnityEngine.Object>(0);
+            if(obj == null)
+                return;
+            OpenToFindReferenceOnObject(obj);
+        }
+
+        internal static ISearchView OpenToFindReferenceOnObject(UnityEngine.Object obj, string[] providers = null)
+        {
+            var query = CreateFindObjectReferenceQuery(obj);
+            if (string.IsNullOrEmpty(query))
+                return OpenDefaultQuickSearch();
+
+            providers ??= new [] { AssetProvider.type, BuiltInSceneObjectsProvider.type};
+
+            return OpenWithContextualProviders(query,
+                providers,
+                contextualFlags: OpenWithContextualProvidersFlags.None,
+                eventContext: "FindReferences");
+        }
+
+        [CommandHandler("OpenToSearchByProperty")]
+        internal static void OpenToSearchByProperty(CommandExecuteContext c)
+        {
+            var prop = c.GetArgument<SerializedProperty>(0);
+            if (prop == null)
+                return;
+            OpenToSearchByProperty(prop);
+        }
+
+        [CommandHandler("IsPropertyValidForQuery")]
+        internal static void IsPropertyValidForQuery(CommandExecuteContext c)
+        {
+            var prop = c.GetArgument<SerializedProperty>(0);
+            if (prop == null)
+            {
+                c.result = false;
+                return;
+            }
+            c.result = IsPropertyValidForQuery(prop) && FormatPropertyQuery(prop, out var _) != null;
+        }
+
+        internal static bool IsPropertyValidForQuery(SerializedProperty prop)
+        {
+            var valid = !(prop == null ||
+                prop.serializedObject == null ||
+                !prop.serializedObject.isValid ||
+                !prop.serializedObject.targetObject ||
+                prop.serializedObject.targetObject == null);
+            return valid && IsPropertyTypeSupported(prop);
+        }
+
+        readonly static string[] kAsset_PropertyQueryProviders = new[] { Providers.AssetProvider.type };
+        readonly static string[] kScene_PropertyQueryProviders = new[] { Providers.BuiltInSceneObjectsProvider.type };
+
+        internal static ISearchView OpenToSearchByProperty(SerializedProperty prop)
+        {
+            if (!IsPropertyValidForQuery(prop))
+                return OpenDefaultQuickSearch();
+
+            var query = FormatPropertyQuery(prop, out var isAssetQuery);
+            if (query == null)
+                return OpenDefaultQuickSearch();
+
+            return OpenWithContextualProviders(query, isAssetQuery ? kAsset_PropertyQueryProviders : kScene_PropertyQueryProviders,
+                contextualFlags: OpenWithContextualProvidersFlags.UseExplicitProvidersAsNormalProviders | OpenWithContextualProvidersFlags.AddActiveProvidersToContext);
+        }
+
+        internal static string GetPropertyValueForQuery(SerializedProperty prop)
+        {
+            var value = PropertySelectors.GetSerializedPropertyValue(prop);
+            switch(prop.propertyType)
+            {
+                case SerializedPropertyType.Color:
+                    return $"#{ColorUtility.ToHtmlStringRGBA((Color)value)}";
+                case SerializedPropertyType.ObjectReference:
+                case SerializedPropertyType.ManagedReference:
+                case SerializedPropertyType.ExposedReference:
+                    {
+                        if (value == null)
+                            return "none";
+
+                        var path = GetObjectPath(value as UnityEngine.Object, subAssetUseGlobalObjectId: true);
+                        return EscapeLiteralString(path);
+                    }
+                case SerializedPropertyType.LoadableObjectId:
+                    {
+                        var loadableObj = UnityEditor.LoadableObjectIdEditorUtility.LoadableObjectIdToObject(prop.loadableObjectIdValue);
+                        if (loadableObj == null)
+                            return "none";
+                        var path = GetObjectPath(loadableObj, subAssetUseGlobalObjectId: true);
+                        return EscapeLiteralString(path);
+                    }
+                case SerializedPropertyType.LoadableSceneId:
+                    {
+                        if (value == null)
+                            return "none";
+
+                        var path = GetObjectPath(value as SceneAsset, subAssetUseGlobalObjectId: true);
+                        return EscapeLiteralString(path);
+                    }
+                case SerializedPropertyType.String:
+                    // Always escape the string value so any of our TypeParser will parse it back as a string.
+                    return $"\"{value}\"";
+                default:
+                    // TODO Number: When returning a numerical values used in a query, ensure the value uses an explicit formatter.
+                    return value switch
+                    {
+                        null => null,
+                        float f => Utils.FormatFloatString(f),
+                        double d => d.ToString(Utils.k_DoubleQueryFormatter),
+                        _ => value.ToString()
+                    };
+            }
+        }
+
+        internal static string GetPropertyOperator(SerializedProperty prop)
+        {
+            switch (prop.propertyType)
+            {
+                case SerializedPropertyType.Float:
+                    return ":";
+                default:
+                    return "=";
+            }
+        }
+
+        internal static string GetPropertyName(SerializedProperty prop, bool isAsset)
+        {
+            var propertyName = isAsset ? ObjectIndexer.GetFieldName(prop.displayName) : prop.propertyPath.Replace(" ", "").ToLowerInvariant();
+            var propertyPrefix = GetPropertyNamePrefix(prop.serializedObject.targetObject) ?? "";
+            return $"{propertyPrefix}{propertyName}";
+        }
+
+        internal static string FormatPropertyQuery(SerializedProperty prop, out bool isAssetQuery)
+        {
+            string query = null;
+            isAssetQuery = false;
+            if (!IsPropertyValidForQuery(prop))
+                return query;
+
+            var target = prop.serializedObject.targetObject;
+            var assetPath = AssetDatabase.GetAssetPath(target);
+            isAssetQuery = !string.IsNullOrEmpty(assetPath);
+            var propertyName = GetPropertyName(prop, isAssetQuery);
+            var propertyValue = GetPropertyValueForQuery(prop);
+            var operatorStr = GetPropertyOperator(prop);
+            var propertyQuery = $"{propertyName}{operatorStr}{propertyValue}";
+            if (isAssetQuery)
+            {
+                // Format asset Query;
+                return $"{AssetProvider.filterId}{propertyQuery}";
+            }
+
+            if (target is UnityEngine.GameObject || target is MonoBehaviour || target is Component)
+            {
+                // Format Hierarchy Query:
+                return $"{BuiltInSceneObjectsProvider.filterId}#{propertyQuery}";
+            }
+            return null;
+        }
+
+        internal static SearchProvider[] GetProviderForContextualSearch(IEnumerable<SearchProvider> providers)
+        {
+            #pragma warning disable UAC2001 // Avoid Linq
+            return providers.Where(p => p.isEnabledForContextualSearch?.Invoke() ?? false).ToArray();
+#pragma warning restore UAC2001
+        }
+
+        internal static ISearchView OpenNewWindow()
+        {
+            var newContext = SearchService.CreateContext("", SearchFlags.OpenDefault);
+            var viewState = new SearchViewState(newContext, SearchViewFlags.IgnoreSavedSearches);
+            viewState.LoadDefaults();
+            var window = SearchService.ShowWindow(viewState) as SearchWindow;
+            SearchAnalytics.SendEvent(window.state.sessionId, SearchAnalytics.GenericEventType.QuickSearchOpen, "NewWindow");
+            return window;
+        }
+
+        internal static ISearchView OpenTransientWindow()
+        {
+            var newContext = SearchService.CreateContext("", SearchFlags.GeneralSearchWindow | SearchFlags.Multiselect);
+            var viewState = new SearchViewState(newContext);
+            viewState.LoadDefaults();
+            var window = SearchWindow.Create(viewState).ShowWindow(newContext.options) as SearchWindow;
+            SearchAnalytics.SendEvent(window.state.sessionId, SearchAnalytics.GenericEventType.QuickSearchOpen, "TransientWindow");
+            return window;
+        }
+
+        internal static ISearchView OpenDefaultQuickSearch()
+        {
+            var window = SearchWindow.Open(flags: SearchFlags.OpenGlobal);
+            SearchAnalytics.SendEvent(window.state.sessionId, SearchAnalytics.GenericEventType.QuickSearchOpen, "Default");
+            return window;
+        }
+
+        const SearchFlags kWithProviderDefaultFlags = SearchFlags.Multiselect | SearchFlags.Dockable | SearchFlags.OpenContextual | SearchFlags.AllProvidersAvailable;
+
+        internal static ISearchView OpenWithContextualProviders(params string[] providerIds)
+        {
+            return OpenWithContextualProviders("", providerIds);
+        }
+
+        internal static SearchWindow FindReusableWindow(SearchViewState compatibleState)
+        {
+            if (EditorWindow.HasOpenInstances<SearchWindow>())
+            {
+#pragma warning disable UAC2001, UAC2011 // Avoid Linq
+                return Resources.FindObjectsOfTypeAll<SearchWindow>()
+#pragma warning restore UAC2001, UAC2011
+                    .Where(w => w.state.searchFlags.HasAny(SearchFlags.ReuseExistingWindow)
+                        || (w.context?.options.HasAny(SearchFlags.ReuseExistingWindow) ?? false))
+                    .FirstOrDefault();
+            }
+            return null;
+        }
+
+        [Flags]
+        internal enum OpenWithContextualProvidersFlags
+        {
+            None = 0,
+            UseExplicitProvidersAsNormalProviders = 1 << 0,
+            AddContextualFilterIdToQuery = 1 << 1,
+            AddActiveProvidersToContext = 1 << 2,
+            SyncSearch = 1 << 3,
+
+            Default = AddContextualFilterIdToQuery | AddActiveProvidersToContext
+        }
+
+        internal static ISearchView OpenWithContextualProviders(string query, string[] providerIds,
+            SearchFlags flags = kWithProviderDefaultFlags,
+            OpenWithContextualProvidersFlags contextualFlags = OpenWithContextualProvidersFlags.Default,
+            string title = null,
+            string sessionName = null,
+            SearchAnalytics.GenericEventType eventType = SearchAnalytics.GenericEventType.QuickSearchOpen, string eventContext = "Contextual")
+        {
+            var contextualProviders = SearchService.GetProviders(providerIds);
+            #pragma warning disable UAC2002 // Avoid Linq
+            if (!contextualProviders.Any())
+#pragma warning restore UAC2002
+            {
+                return OpenDefaultQuickSearch();
+            }
+
+            #pragma warning disable UAC2001 // Avoid Linq
+            title = title ?? string.Join(", ", contextualProviders.Select(p => p.name.ToLower()));
+#pragma warning restore UAC2001
+            #pragma warning disable UAC2010 // Avoid Linq
+            var mainProvider = contextualProviders.First();
+#pragma warning restore UAC2010
+
+            if (flags.HasFlag(SearchFlags.GeneralSearchWindow))
+            {
+                flags |= SearchWindow.GetAdditionalGeneralSearchWindowFlags();
+            }
+            var useSessionSettings = flags.HasFlag(SearchFlags.UseSessionSettings);
+            if (contextualFlags.HasFlag(OpenWithContextualProvidersFlags.AddContextualFilterIdToQuery) &&
+                (!string.IsNullOrEmpty(query) || !useSessionSettings))
+            {
+                if (query == null)
+                    query = "";
+                query = $"{mainProvider.filterId}{query}";
+            }
+
+            var providers = contextualProviders;
+            if (contextualFlags.HasFlag(OpenWithContextualProvidersFlags.AddActiveProvidersToContext))
+            {
+                #pragma warning disable UAC2001 // Avoid Linq
+                providers = providers.Concat(SearchService.GetActiveProviders()).Distinct();
+#pragma warning restore UAC2001
+            }
+
+            var context = SearchService.CreateContext(providers, query);
+            context.useExplicitProvidersAsNormalProviders = contextualFlags.HasFlag(OpenWithContextualProvidersFlags.UseExplicitProvidersAsNormalProviders);
+            context.options |= flags;
+            var viewState = new SearchViewState(context) { title = null };
+            viewState.LoadDefaults(flags);
+            viewState.title = title;
+            viewState.group = mainProvider.id;
+            viewState.ignoreSaveSearches = !useSessionSettings;
+            viewState.sessionName = sessionName;
+            viewState.searchFlags = flags;
+            var searchWindow = SearchWindow.Create(viewState) as SearchWindow;
+            searchWindow.ShowWindow(flags: flags);
+            ((ISearchView)searchWindow).syncSearch = contextualFlags.HasFlag(OpenWithContextualProvidersFlags.SyncSearch);
+
+            searchWindow.SendEvent(eventType, searchWindow.currentGroup, eventContext);
+            return searchWindow;
+        }
+
+        internal static ISearchView OpenFromContextWindow(EditorWindow window = null)
+        {
+            var query = "";
+            var focusWindow = window ?? EditorWindow.focusedWindow;
+            if (window != null)
+            {
+                window.Focus();
+            }
+            if (focusWindow is ISearchableContainer searchable)
+            {
+                query = searchable.SearchText;
+            }
+
+            return OpenFromContextWindow(query, "Help/Search Contextual");
+        }
+
+        internal static ISearchView OpenFromContextWindow(string query, string sourceContext)
+        {
+            var contextualProviders = Array.ConvertAll(GetProviderForContextualSearch(SearchService.Providers), p => p.id);
+            return OpenWithContextualProviders(query, contextualProviders, kWithProviderDefaultFlags,
+                contextualFlags: OpenWithContextualProvidersFlags.AddActiveProvidersToContext | OpenWithContextualProvidersFlags.AddContextualFilterIdToQuery | OpenWithContextualProvidersFlags.SyncSearch,
+                eventType: SearchAnalytics.GenericEventType.QuickSearchJumpToSearch, eventContext: sourceContext);
+        }
+
+        internal static bool IsGroupValid(SearchViewState viewState, string groupId)
+        {
+            var isGroupInvalid = groupId == null ||
+                                 (groupId == GroupedSearchList.allGroupId && viewState.hideAllGroup) ||
+                                 #pragma warning disable UAC2005 // Avoid Linq
+                                 (groupId == GroupedSearchList.allGroupId && viewState.context.providers.Count() == 1) ||
+#pragma warning restore UAC2005
+                                 #pragma warning disable UAC2001 // Avoid Linq
+                                 (groupId != GroupedSearchList.allGroupId && viewState.context.providers.FirstOrDefault(provider => provider.id == groupId) == null);
+#pragma warning restore UAC2001
+            return !isGroupInvalid;
+        }
+
+        internal static string GetValidGroupForState(SearchViewState viewState, string groupId)
+        {
+            groupId = viewState.group;
+            if (viewState.isPicker)
+            {
+                if (!viewState.hideTabs && groupId == null && viewState.selectedIds.Length > 0)
+                {
+                    var id = viewState.selectedIds[0];
+                    groupId = SearchUtils.GetGroupFromId(id);
+                }
+                #pragma warning disable UAC2001 // Avoid Linq
+                else if (groupId != GroupedSearchList.allGroupId && viewState.context.providers.FirstOrDefault(provider => provider.id == groupId) == null)
+#pragma warning restore UAC2001
+                {
+                    // If we have an invalid group, default to all if we can.
+                    if (viewState.hideAllGroup)
+                    {
+                        #pragma warning disable UAC2010 // Avoid Linq
+                        groupId = viewState.context.providers.First().id;
+#pragma warning restore UAC2010
+                    }
+                    else
+                    {
+                        groupId = GroupedSearchList.allGroupId;
+                    }
+                }
+
+                return groupId;
+            }
+
+            if (!IsGroupValid(viewState, groupId))
+            {
+                var providers = viewState.context.providers;
+                #pragma warning disable UAC2005 // Avoid Linq
+                if (viewState.hideAllGroup || providers.Count() == 1)
+#pragma warning restore UAC2005
+                {
+                    #pragma warning disable UAC2010 // Avoid Linq
+                    groupId = providers.First().id;
+#pragma warning restore UAC2010
+                }
+                else
+                {
+                    groupId = GroupedSearchList.allGroupId;
+                }
+            }
+
+            return groupId;
+        }
+
+        internal static string ToEngineeringNotation(double d, bool printSign = false)
+        {
+            var sign = !printSign || d < 0 ? "" : "+";
+            if (Math.Abs(d) >= 1)
+                return $"{sign}{d.ToString("###.0", System.Globalization.CultureInfo.InvariantCulture)}";
+
+            if (Math.Abs(d) > 0)
+            {
+                double exponent = Math.Log10(Math.Abs(d));
+                switch ((int)Math.Floor(exponent))
+                {
+                    case -1: case -2: case -3: return $"{sign}{(d * 1e3):###.0} m";
+                    case -4: case -5: case -6: return $"{sign}{(d * 1e6):###.0} µ";
+                    case -7: case -8: case -9: return $"{sign}{(d * 1e9):###.0} n";
+                    case -10: case -11: case -12: return $"{sign}{(d * 1e12):###.0} p";
+                    case -13: case -14: case -15: return $"{sign}{(d * 1e15):###.0} f";
+                    case -16: case -17: case -18: return $"{sign}{(d * 1e15):###.0} a";
+                    case -19: case -20: case -21: return $"{sign}{(d * 1e15):###.0} z";
+                    default: return $"{sign}{(d * 1e15):###.0} y";
+                }
+            }
+
+            return "0";
+        }
+
+        internal static string GetGroupFromId(EntityId instanceID)
+        {
+            var path = AssetDatabase.GetAssetPath((EntityId)instanceID);
+            if (string.IsNullOrEmpty(path))
+            {
+                // Check if this is a scene object or something else
+                var obj = EditorUtility.EntityIdToObject(instanceID);
+                if (!obj || !(obj is GameObject))
+                    return GroupedSearchList.allGroupId;
+            }
+            return GetGroupFromPath(path);
+        }
+
+        internal static string GetGroupFromPath(string path)
+        {
+            if (string.IsNullOrEmpty(path))
+                return Search.Providers.BuiltInSceneObjectsProvider.type;
+
+            if (AdbProvider.IsResourcePath(path))
+                return GetGroupProviderId(AdbProvider.resourcesItemTag);
+
+            if (path.StartsWith("Packages/"))
+                return GetGroupProviderId("Packages");
+
+            return Search.Providers.AssetProvider.type;
+        }
+
+        internal static void GetQueryParts(IQueryNode n, List<IFilterNode> filters, List<ISearchNode> searches)
+        {
+            if (n == null)
+                return;
+            if (n is IFilterNode filterNode)
+            {
+                filters.Add(filterNode);
+            }
+            else if (n is ISearchNode searchNode)
+            {
+                searches.Add(searchNode);
+            }
+
+            if (n.children != null)
+            {
+                foreach (var child in n.children)
+                {
+                    GetQueryParts(child, filters, searches);
+                }
+            }
+        }
+
+        internal static string EscapeLiteralString(in string sv, bool explicitQuotes = false)
+        {
+            if (string.IsNullOrEmpty(sv))
+                return "\"\"";
+            if (sv[0] == '"' || sv[sv.Length - 1] == '"')
+                return sv;
+            if (explicitQuotes || sv.IndexOfAny(new[] { ' ', '/', '*' }) != -1)
+                return '"' + sv + '"';
+            return sv;
+        }
+
+        [CommandHandler("SupportsFindDependenciesInProject")]
+        internal static void SupportsFindDependenciesInProject(CommandExecuteContext c)
+        {
+            c.result = SupportsFindDependenciesInProject();
+        }
+
+        internal static bool SupportsFindDependenciesInProject()
+        {
+            return SupportsFindByInProject(null, db => db.settings.options.dependencies);
+        }
+
+        internal static bool SupportsFindByPropertiesInProject()
+        {
+            return SupportsFindByInProject(null, db => db.settings.options.properties);
+        }
+
+        internal static bool SupportsFindByInProject(IEnumerable<SearchDatabase> dbs, Func<SearchDatabase, bool> predicate)
+        {
+            dbs ??= SearchDatabase.EnumerateAll();
+            if (dbs == null)
+                return false;
+
+#pragma warning disable UAC2005 // Avoid Linq
+            int dbsCount = dbs.Count();
+#pragma warning restore UAC2005
+            if (dbsCount == 0)
+                return false;
+
+            if (dbsCount == 1)
+            {
+                #pragma warning disable UAC2010 // Avoid Linq
+                return predicate(dbs.First());
+#pragma warning restore UAC2010
+            }
+
+#pragma warning disable UAC2001 // Avoid Linq
+            var defaultDb = dbs.FirstOrDefault(db => db.path == "UserSettings/Search.index");
+#pragma warning restore UAC2001
+            if (defaultDb != null && predicate(defaultDb))
+            {
+                return true;
+            }
+
+            foreach (var db in dbs)
+            {
+                if (predicate(db))
+                    return true;
+            }
+
+            return false;
+        }
+
+        internal static string UnescapeLiteralString(in string value)
+        {
+            if (value != null && value.Length > 2 && value[0] == '"' && value[value.Length - 1] == '"')
+                return value.Substring(1, value.Length - 2);
+            return value;
+        }
+
+        internal static string GetNiceDisplayLabel(string label)
+        {
+            label = SearchUtils.UnescapeLiteralString(label);
+            label = ObjectNames.NicifyVariableName(label);
+            return label;
+        }
+
+        internal static int SplitTokens(string source, char c, string[] tokens)
+        {
+            var start = 0;
+            var tokenCount = 0;
+            for (var i = 0; i < source.Length; ++i)
+            {
+                if (source[i] == c)
+                {
+                    tokens[tokenCount++] = source.Substring(start, i - start);
+                    if (tokenCount == tokens.Length)
+                        break;
+                    start = i + 1;
+                }
+            }
+
+            if (tokenCount < tokens.Length)
+            {
+                tokens[tokenCount++] = start < source.Length ? source.Substring(start) : "";
+            }
+            return tokenCount;
+        }
+
+        internal static void GetSplitIndices(string source, ReadOnlySpan<char> splitChars, List<int> outIndices)
+        {
+            // Early out if there is nothing to split on
+            if (string.IsNullOrEmpty(source) || splitChars.IsEmpty)
+                return;
+
+            var lastIndexOf = 0;
+            do
+            {
+                var sourceSpan = source.AsSpan(lastIndexOf);
+                var oldLastIndexOf = lastIndexOf;
+                lastIndexOf = sourceSpan.IndexOfAny(splitChars);
+                if (lastIndexOf >= 0)
+                {
+                    // Adjust index to be relative to source string
+                    lastIndexOf += oldLastIndexOf;
+                    outIndices.Add(lastIndexOf);
+                    lastIndexOf++;
+                }
+            } while (lastIndexOf >= 0 && lastIndexOf < source.Length);
+        }
+
+        internal static string BuildUnionTypeQuery(Type[] types)
+        {
+            var query = types.Length > 1 ? "(" : string.Empty;
+            for (int i = 0; i < types.Length; ++i)
+            {
+                query += $"t:{types[i].Name.ToLowerInvariant()}";
+                if (i + 1 < types.Length)
+                    query += " or ";
+            }
+
+            if (types.Length > 1)
+            {
+                query += ")";
+            }
+            return query;
+        }
+
+        internal static void SaveQueryToClipboard(in string query)
+        {
+            var trimmedQuery = Utils.TrimText(query);
+            Debug.LogFormat(LogType.Log, LogOption.NoStacktrace, null, "{0}", query);
+            EditorGUIUtility.systemCopyBuffer = Utils.TrimText(trimmedQuery);
+        }
+    }
+}
+
+#pragma warning restore UAL0015,UAL0018,UAL0019,UAL0020,UAL0021

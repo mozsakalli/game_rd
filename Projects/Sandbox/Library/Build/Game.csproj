@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <AssemblyName>Sandbox.Game</AssemblyName>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <OutputPath>bin</OutputPath>
+    <ProduceReferenceAssembly>false</ProduceReferenceAssembly>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="DigitoyEngine"><HintPath>C:\Work\digitoygames\game_rd\editor\bin\Debug\net9.0\DigitoyEngine.dll</HintPath></Reference>
+    <Compile Include="C:\Work\digitoygames\game_rd\Projects\Sandbox\Assets\Scripts\ApplePlatformOnly.cs" />
+    <Compile Include="C:\Work\digitoygames\game_rd\Projects\Sandbox\Assets\Scripts\GameSettings.cs" />
+    <Compile Include="C:\Work\digitoygames\game_rd\Projects\Sandbox\Assets\Scripts\Spinner.cs" />
+    <Compile Include="C:\Work\digitoygames\game_rd\Projects\Sandbox\Assets\Scripts\StressOrb.cs" />
+  </ItemGroup>
+</Project>
