@@ -5,6 +5,13 @@ namespace DigitoyEngine;
 public enum LayoutMode { None = 0, Horizontal = 1, Vertical = 2 }
 public enum LayoutAlign { Start = 0, Center = 1, End = 2 }
 
+// Eksen basina tasma davranisi (CSS overflow benzeri; Grow = mevcut varsayilan):
+// Grow    = icerik kutuyu buyutur (preferred = max(authored, icerik)).
+// Visible = kutu authored boyutta kalir, tasan icerik CIZILIR (CSS visible).
+// Hidden  = kutu authored boyutta kalir, tasan icerik KIRPILIR (CSS hidden).
+// Scroll (Hidden + icerik ofseti) 2. faz.
+public enum OverflowMode { Grow = 0, Visible = 1, Hidden = 2 }
+
 // Unity DrivenRectTransformTracker'in sorgu-tabanli muadili: bir component kendi
 // GO'sunun transform'unu suruyorsa editor/araclar bunu JENERIK ogrenir — editor
 // core somut tipleri (LayoutBox vs) tanimaz, yalniz bu arayuzu bilir.
@@ -66,19 +73,17 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
     [SerializeField] float padLeft, padTop, padRight, padBottom;
     [SerializeField] LayoutAlign alignChildren = LayoutAlign.Start;
     [SerializeField] bool reverse;
+    [SerializeField] OverflowMode overflowX;   // Grow degilse icerik bu ekseni buyutmez
+    [SerializeField] OverflowMode overflowY;
 
     // --- stil (StyleBox) ---
-    [SerializeField] Color fillColor = Color.Transparent;
-    [SerializeField] Color fillColor2 = Color.Transparent; // gradient=true iken alt renk
-    [SerializeField] bool gradient;
+    [SerializeField] Gradient fill = new(Color.Transparent);
     [SerializeField] float borderLeft, borderTop, borderRight, borderBottom;
-    [SerializeField] Color borderColor = Color.Transparent;
-    [SerializeField] Color borderColor2 = Color.Transparent; // borderGradient=true iken alt renk
-    [SerializeField] bool borderGradient;
+    [SerializeField] Gradient borderFill = new(Color.Transparent);
     [SerializeField] float radiusTL, radiusTR, radiusBR, radiusBL;
 
     // --- doku (opsiyonel arkaplan resmi; slice9* > 0 ise 9-slice) ---
-    [SerializeField] Texture texture;
+    [SerializeField] Sprite sprite;
     [SerializeField] float slice9Left, slice9Top, slice9Right, slice9Bottom; // kaynak doku pikseli
 
     // --- golge (alpha > 0 ise kutunun altina yumusak kopya cizilir) ---
@@ -117,27 +122,26 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
     public float PadBottom { get => padBottom; set { if (padBottom != value) { padBottom = value; MarkDirty(); } } }
     public LayoutAlign AlignChildren { get => alignChildren; set { if (alignChildren != value) { alignChildren = value; MarkDirty(); } } }
     public bool Reverse { get => reverse; set { if (reverse != value) { reverse = value; MarkDirty(); } } }
+    public OverflowMode OverflowX { get => overflowX; set { if (overflowX != value) { overflowX = value; MarkDirty(); } } }
+    public OverflowMode OverflowY { get => overflowY; set { if (overflowY != value) { overflowY = value; MarkDirty(); } } }
+    public OverflowMode Overflow { get => overflowX; set { OverflowX = value; OverflowY = value; } }
 
     // Stil degisimi layout'u ETKILEMEZ; quad emisyonu her frame stil alanlarindan
     // okur — cache yok, kirletme gerekmez.
-    public Color FillColor { get => fillColor; set => fillColor = value; }
-    public Color FillColor2 { get => fillColor2; set => fillColor2 = value; }
-    public bool Gradient { get => gradient; set => gradient = value; }
+    public Gradient Fill { get => fill; set => fill = value; }
     public float BorderLeft { get => borderLeft; set => borderLeft = value; }
     public float BorderTop { get => borderTop; set => borderTop = value; }
     public float BorderRight { get => borderRight; set => borderRight = value; }
     public float BorderBottom { get => borderBottom; set => borderBottom = value; }
     public float BorderWidth { get => borderLeft; set { borderLeft = borderTop = borderRight = borderBottom = value; } }
-    public Color BorderColor { get => borderColor; set => borderColor = value; }
-    public Color BorderColor2 { get => borderColor2; set => borderColor2 = value; }
-    public bool BorderGradient { get => borderGradient; set => borderGradient = value; }
+    public Gradient BorderFill { get => borderFill; set => borderFill = value; }
     public float RadiusTL { get => radiusTL; set => radiusTL = value; }
     public float RadiusTR { get => radiusTR; set => radiusTR = value; }
     public float RadiusBR { get => radiusBR; set => radiusBR = value; }
     public float RadiusBL { get => radiusBL; set => radiusBL = value; }
     public float CornerRadius { get => radiusTL; set { radiusTL = radiusTR = radiusBR = radiusBL = value; } }
 
-    public Texture Texture { get => texture; set => texture = value; }
+    public Sprite Sprite { get => sprite; set => sprite = value; }
     public float Slice9Left { get => slice9Left; set => slice9Left = value; }
     public float Slice9Top { get => slice9Top; set => slice9Top = value; }
     public float Slice9Right { get => slice9Right; set => slice9Right = value; }
@@ -243,15 +247,29 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
         return b != null && b._enabled && !b._destroyed ? b : null;
     }
 
+    // fitScreen kaynagi: sahnenin main kamerasinin gorus rect'i (kutu projeksiyon
+    // tipini bilmez); kamera yoksa eski davranis (0,0,Screen boyutu).
+    bool FitRect(out float x, out float y, out float w, out float h)
+    {
+        var s = _gameObject?._scene;
+        if (s == null) { x = y = w = h = 0; return false; }
+        var cam = s.MainCamera;
+        if (cam != null)
+            cam.GetWorldRect(s.ScreenWidth, s.ScreenHeight, out x, out y, out w, out h);
+        else { x = 0; y = 0; w = s.ScreenWidth; h = s.ScreenHeight; }
+        return true;
+    }
+
+    // Son uygulanan fit rect orijini (boyut _rw/_rh'de) — degisim tespiti icin.
+    float _fitX, _fitY;
+
     public void ResolveIfDirty()
     {
-        // Ekran kutusu boyut degisimini cozumde yakalar (resize frame'inde pull da dogru okur).
-        if (fitScreen)
-        {
-            var s = _gameObject?._scene;
-            if (s != null && (_rw != s.ScreenWidth || _rh != s.ScreenHeight))
-                _dirty = true;
-        }
+        // Ekran kutusu kamera rect degisimini cozumde yakalar (resize/pan/zoom
+        // frame'inde pull da dogru okur). Maliyet: birkac float kiyasi.
+        if (fitScreen && FitRect(out float fx, out float fy, out float fw, out float fh)
+            && (_rw != fw || _rh != fh || _fitX != fx || _fitY != fy))
+            _dirty = true;
         if (!_dirty)
             return;
         var top = this;
@@ -269,13 +287,14 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
         var parent = ParentBox();
         if (fitScreen)
         {
-            var s = _gameObject?._scene;
-            if (s != null)
+            if (FitRect(out float fx, out float fy, out float fw, out float fh))
             {
-                _rw = s.ScreenWidth;
-                _rh = s.ScreenHeight;
-                // Ekran (0,0)-(w,h) dunya rect'ini kaplasin: pivot noktasi pivot*boyut.
-                SetPos(pivot.x * _rw, pivot.y * _rh);
+                _rw = fw;
+                _rh = fh;
+                _fitX = fx;
+                _fitY = fy;
+                // Kamera gorus rect'ini kaplasin: pivot noktasi rect orijini + pivot*boyut.
+                SetPos(fx + pivot.x * fw, fy + pivot.y * fh);
             }
         }
         else if (parent != null)
@@ -299,6 +318,9 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
 
     float PreferredW()
     {
+        // Grow disinda icerik kutuyu buyutmez: eksen boyutu salt authored.
+        if (overflowX != OverflowMode.Grow)
+            return width;
         // Icerik = cocuk kutular + metin (max(authored, icerik) sozlesmesi).
         float aw = MathF.Max(width, TextPreferredW());
         if (layout == LayoutMode.None)
@@ -332,6 +354,8 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
 
     float PreferredH()
     {
+        if (overflowY != OverflowMode.Grow)
+            return height;
         float ah = MathF.Max(height, TextPreferredH());
         if (layout == LayoutMode.None)
             return ah;
@@ -507,6 +531,61 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
 
     // --- StyleBox cizimi (SDF parca quad-emitter) ---
 
+    // --- overflow klip penceresi (her Encode basinda kurulur) ---
+    // Ata kutularin Hidden eksenlerinden gelen kirpma, BU kutunun lokal uzayina
+    // cevrilmis pencere. Kirpma GEOMETRIK: EmitQuad quad'i pencereye kirpar, UV +
+    // dikey gradient orantili remap edilir — scissor yok, batch kirilmasi yok,
+    // her kamerada dogru. SINIR: donmus (rotation'li) kutu/ata eksen-hizali
+    // varsayimi bozar — o halkada klip sessizce devre disi kalir.
+    bool _hasClip;
+    float _clX0, _clY0, _clX1, _clY1;
+
+    void ComputeClip(in Mat4 wm)
+    {
+        _hasClip = false;
+        // Kendi uzayimiz eksen-hizali degilse dunya penceresi lokale cevrilemez.
+        if (MathF.Abs(wm.m[1]) > 1e-4f || MathF.Abs(wm.m[4]) > 1e-4f
+            || wm.m[0] == 0 || wm.m[5] == 0)
+            return;
+        float wx0 = float.MinValue, wy0 = float.MinValue;
+        float wx1 = float.MaxValue, wy1 = float.MaxValue;
+        for (var p = ParentBox(); p != null; p = p.ParentBox())
+        {
+            bool hx = p.overflowX == OverflowMode.Hidden;
+            bool hy = p.overflowY == OverflowMode.Hidden;
+            if (!hx && !hy)
+                continue;
+            ref var pm = ref p.transform._getWorldMatrix();
+            if (MathF.Abs(pm.m[1]) > 1e-4f || MathF.Abs(pm.m[4]) > 1e-4f)
+                continue; // donmus ata kirpamaz (bilinen sinir)
+            float lx0 = -p.pivot.x * p._rw, ly0 = -p.pivot.y * p._rh;
+            float ax = pm.m[0] * lx0 + pm.m[12], bx = pm.m[0] * (lx0 + p._rw) + pm.m[12];
+            float ay = pm.m[5] * ly0 + pm.m[13], by = pm.m[5] * (ly0 + p._rh) + pm.m[13];
+            if (hx) { wx0 = MathF.Max(wx0, MathF.Min(ax, bx)); wx1 = MathF.Min(wx1, MathF.Max(ax, bx)); }
+            if (hy) { wy0 = MathF.Max(wy0, MathF.Min(ay, by)); wy1 = MathF.Min(wy1, MathF.Max(ay, by)); }
+            _hasClip = true;
+        }
+        if (!_hasClip)
+            return;
+        // Dunya penceresi -> lokal uzay (eksen-hizali: yalniz olcek+tasima;
+        // negatif olcekte min/max takasi). Sinirsiz eksen inf'e tasar — zararsiz.
+        float inv0 = 1f / wm.m[0], inv5 = 1f / wm.m[5];
+        float lxA = (wx0 - wm.m[12]) * inv0, lxB = (wx1 - wm.m[12]) * inv0;
+        float lyA = (wy0 - wm.m[13]) * inv5, lyB = (wy1 - wm.m[13]) * inv5;
+        _clX0 = MathF.Min(lxA, lxB); _clX1 = MathF.Max(lxA, lxB);
+        _clY0 = MathF.Min(lyA, lyB); _clY1 = MathF.Max(lyA, lyB);
+    }
+
+    // Kendi Hidden ekseni metni kirpmadan once klip penceresini acar (ata yoksa sinirsiz).
+    void EnsureClip()
+    {
+        if (_hasClip)
+            return;
+        _hasClip = true;
+        _clX0 = _clY0 = float.MinValue;
+        _clX1 = _clY1 = float.MaxValue;
+    }
+
     static Material _styleMat;
     static Texture _white;
 
@@ -526,15 +605,13 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
 
     internal static Texture StyleWhite { get { _ = StyleMat; return _white; } }
 
-    bool HasBorderColor => borderColor.a > 0 || (borderGradient && borderColor2.a > 0);
-
-    bool HasBorder => HasBorderColor
+    bool HasBorder => borderFill.Visible
         && (borderLeft > 0 || borderTop > 0 || borderRight > 0 || borderBottom > 0);
 
     bool HasShadow => shadowColor.a > 0;
 
     bool HasStyle
-        => texture != null || fillColor.a > 0 || (gradient && fillColor2.a > 0) || HasBorder || HasShadow;
+        => sprite != null || fill.Visible || HasBorder || HasShadow;
 
     // Kutu SDF parcalari font atlasinin sabit bolgesinden orneklenir (kendi fontu,
     // yoksa DefaultFont) — sahnedeki metin + tum kutular ayni texview'i paylasip
@@ -572,6 +649,7 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
             return;
 
         Mat4 wm = transform._getWorldMatrix(); // kopya: lokal fonksiyonlar ref yakalayamaz
+        ComputeClip(in wm);
         int layer = SortingOrder + _paintSeq;  // ayni layer'da parent < cocuk (DFS sirasi)
         float x0 = -pivot.x * _rw, y0 = -pivot.y * _rh;
         float x1 = x0 + _rw, y1 = y0 + _rh;
@@ -579,7 +657,7 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
         if (HasShadow)
             EmitShadow(queue, wm, x0, y0, x1, y1, layer); // ayni layer'da ilk = altta
 
-        if (texture != null)
+        if (sprite != null)
         {
             EncodeTextured(queue, in wm, x0, y0, x1, y1, layer);
             if (HasText)
@@ -587,7 +665,7 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
             return;
         }
 
-        bool hasFill = fillColor.a > 0 || (gradient && fillColor2.a > 0);
+        bool hasFill = fill.Visible;
         if (HasBorder)
         {
             // Karsilikli kenarlarin toplami kutuya sigmali (CSS border cakisma kurali).
@@ -846,18 +924,19 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
     // uygulanmaz (SDF parca ile doku ayni sampler'i paylasamaz — bilinen sinir).
     void EncodeTextured(RenderQueue q, in Mat4 world, float x0, float y0, float x1, float y1, int layer)
     {
-        var rec = SpriteTable.Resolve(texture.Name);
-        var tex = rec?.Atlas ?? texture;
+        var tex = sprite.Page;
+        if (tex == null)
+            return;
         float uu0 = 0f, uuS = 1f, vv0 = 0f, vvS = 1f;
-        if (rec?.Atlas != null)
+        if (sprite.IsRegion)
         {
-            float aw = rec.Atlas.Width, ah = rec.Atlas.Height;
-            uu0 = rec.FrameX / aw; uuS = rec.DrawW / aw;
-            vv0 = rec.FrameY / ah; vvS = rec.DrawH / ah;
+            float aw = tex.Width, ah = tex.Height;
+            uu0 = sprite.X / aw; uuS = sprite.W / aw;
+            vv0 = sprite.Y / ah; vvS = sprite.H / ah;
         }
         var mat = StyleMat;
         mat.MainTexture = tex; // TexView DrawMesh aninda yakalanir (paylasilan materyal deseni)
-        bool tinted = fillColor.a > 0 || (gradient && fillColor2.a > 0);
+        bool tinted = fill.Visible;
         Color cTop = tinted ? FillAt(y0) : Color.White;
         Color cBot = tinted ? FillAt(y1) : Color.White;
 
@@ -874,7 +953,7 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
         float w = x1 - x0, h = y1 - y0;
         float kx = sl + sr > w ? w / (sl + sr) : 1f;
         float ky = st + sb > h ? h / (st + sb) : 1f;
-        float tw = Math.Max(1, texture.Width), th = Math.Max(1, texture.Height);
+        float tw = Math.Max(1, sprite.LogicalWidth), th = Math.Max(1, sprite.LogicalHeight);
         Span<float> xs = stackalloc float[4] { x0, x0 + sl * kx, x1 - sr * kx, x1 };
         Span<float> ys = stackalloc float[4] { y0, y0 + st * ky, y1 - sb * ky, y1 };
         Span<float> us = stackalloc float[4]
@@ -891,13 +970,42 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
     }
 
     // Lokal-uzay dikdortgenini world matrisiyle tek instanced quad'a cevirir.
-    static void EmitQuad(RenderQueue q, Material mat, in Mat4 world,
+    // Klip penceresi varsa quad kirpilir: UV lineer remap (SDF parca ornekleme
+    // orantili kalir) + dikey gradient renkleri kirpilan banda lerp'lenir.
+    void EmitQuad(RenderQueue q, Material mat, in Mat4 world,
         float qx0, float qy0, float qx1, float qy1,
         float u0, float v0, float u1, float v1,
         Color cTop, Color cBottom, in Vec4 user, int layer)
     {
         if (qx1 <= qx0 || qy1 <= qy0)
             return;
+        if (_hasClip)
+        {
+            float nx0 = MathF.Max(qx0, _clX0), ny0 = MathF.Max(qy0, _clY0);
+            float nx1 = MathF.Min(qx1, _clX1), ny1 = MathF.Min(qy1, _clY1);
+            if (nx1 <= nx0 || ny1 <= ny0)
+                return;
+            if (nx0 != qx0 || nx1 != qx1)
+            {
+                float iw = 1f / (qx1 - qx0), du = u1 - u0;
+                u1 = u0 + du * ((nx1 - qx0) * iw);
+                u0 += du * ((nx0 - qx0) * iw);
+                qx0 = nx0; qx1 = nx1;
+            }
+            if (ny0 != qy0 || ny1 != qy1)
+            {
+                // v1 <-> qy0 (ust), v0 <-> qy1 (alt) — Mesh.Quad y-down uv duzeni.
+                float ih = 1f / (qy1 - qy0);
+                float t0 = (ny0 - qy0) * ih, t1 = (ny1 - qy0) * ih;
+                float dv = v0 - v1;
+                float nv1 = v1 + dv * t0, nv0 = v1 + dv * t1;
+                v1 = nv1; v0 = nv0;
+                Color ct = LerpC(cTop, cBottom, t0);
+                cBottom = LerpC(cTop, cBottom, t1);
+                cTop = ct;
+                qy0 = ny0; qy1 = ny1;
+            }
+        }
         Mat4 m = world;
         float cx = (qx0 + qx1) * 0.5f, cy = (qy0 + qy1) * 0.5f;
         float sx = qx1 - qx0, sy = qy1 - qy0;
@@ -910,27 +1018,18 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
         q.DrawMesh(Mesh.Quad(), mat, in m, cBottom, cBottom, cTop, cTop, in user, u0, v0, u1, v1, layer);
     }
 
-    static Color Grad(Color a, Color b, float t)
-        => new(
-            (byte)(a.r + (b.r - a.r) * t),
-            (byte)(a.g + (b.g - a.g) * t),
-            (byte)(a.b + (b.b - a.b) * t),
-            (byte)(a.a + (b.a - a.a) * t));
+    static Color LerpC(Color a, Color b, float t) => new(
+        (byte)(a.r + (b.r - a.r) * t),
+        (byte)(a.g + (b.g - a.g) * t),
+        (byte)(a.b + (b.b - a.b) * t),
+        (byte)(a.a + (b.a - a.a) * t));
 
     // Dikey gradient KUTU bandina gore (katmandan bagimsiz — parca sinirlari dikissiz).
     Color FillAt(float y)
-    {
-        if (!gradient)
-            return fillColor;
-        return Grad(fillColor, fillColor2, Math.Clamp((y + pivot.y * _rh) / _rh, 0f, 1f));
-    }
+        => fill.At((y + pivot.y * _rh) / _rh);
 
     Color BorderAt(float y)
-    {
-        if (!borderGradient)
-            return borderColor;
-        return Grad(borderColor, borderColor2, Math.Clamp((y + pivot.y * _rh) / _rh, 0f, 1f));
-    }
+        => borderFill.At((y + pivot.y * _rh) / _rh);
 }
 
 

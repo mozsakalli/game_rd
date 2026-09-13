@@ -39,6 +39,50 @@ public static unsafe class GuiRenderer
         DrawClipped(localRect, _material, color, 0, 0, 1, 1, layerOffset);
     }
 
+    // Kose renkli rect (ekran uzayinda: ustSol/ustSag/altSag/altSol). Gecis vertex
+    // stage bilinear tint mix'inden gelir; kirpilan kenarlarda kose renkleri
+    // orantili lerp'lenir ki gradyan sabit kalsin.
+    public static void DrawRectGradient(in Rect localRect, Color topLeft, Color topRight,
+        Color bottomRight, Color bottomLeft, int layerOffset = 0)
+    {
+        if (Queue == null)
+            return;
+        EnsureResources();
+        Rect g = GuiClip.Unclip(localRect);
+        Rect c = Rect.Intersect(g, GuiClip.Physical);
+        if (c.width <= 0 || c.height <= 0)
+            return;
+        if (c.x != g.x || c.y != g.y || c.width != g.width || c.height != g.height)
+        {
+            float fx0 = (c.x - g.x) / g.width, fx1 = (c.x + c.width - g.x) / g.width;
+            float fy0 = (c.y - g.y) / g.height, fy1 = (c.y + c.height - g.y) / g.height;
+            Color tl = Bilerp(topLeft, topRight, bottomLeft, bottomRight, fx0, fy0);
+            Color tr = Bilerp(topLeft, topRight, bottomLeft, bottomRight, fx1, fy0);
+            Color br = Bilerp(topLeft, topRight, bottomLeft, bottomRight, fx1, fy1);
+            Color bl = Bilerp(topLeft, topRight, bottomLeft, bottomRight, fx0, fy1);
+            (topLeft, topRight, bottomRight, bottomLeft) = (tl, tr, br, bl);
+        }
+
+        Mat4 model = default;
+        model.m[0] = c.width;
+        model.m[5] = c.height;
+        model.m[10] = 1f;
+        model.m[12] = c.x + c.width * 0.5f;
+        model.m[13] = c.y + c.height * 0.5f;
+        model.m[15] = 1f;
+        // tint kose duzeni uv uzayinda: 0=(0,0) 1=(1,0) 2=(1,1) 3=(0,1); ust kenar uv.y=1
+        Queue.DrawMesh(_quad, _material, in model, bottomLeft, bottomRight, topRight, topLeft,
+            default, 0, 0, 1, 1, BaseLayer + layerOffset);
+    }
+
+    static Color Bilerp(Color tl, Color tr, Color bl, Color br, float fx, float fy)
+    {
+        static byte L(byte a, byte b, float t) => (byte)(a + (b - a) * t + 0.5f);
+        static Color Lc(Color a, Color b, float t)
+            => new Color(L(a.r, b.r, t), L(a.g, b.g, t), L(a.b, b.b, t), L(a.a, b.a, t));
+        return Lc(Lc(tl, tr, fx), Lc(bl, br, fx), fy);
+    }
+
     // Klip'e kirpilmis dokulu quad: rect kismen tasarsa UV de orantili kirpilir
     // (metin glyph'leri panel kenarinda dogru kesilsin).
     static void DrawClipped(in Rect localRect, Material material, Color color,

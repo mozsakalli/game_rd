@@ -45,6 +45,14 @@ public static partial class Gui
         if (st.Caret > length) st.Caret = length;
         if (st.Anchor > length) st.Anchor = length;
 
+        // Tab ile odak geldi: tumu secili baslar (Unity davranisi).
+        if (GuiUtility.ConsumeTabFocus(id))
+        {
+            st.Anchor = 0;
+            st.Caret = length;
+            st.ScrollX = 0;
+        }
+
         float pad = style.Padding.Left;
         var inner = new Rect(rect.x + pad, rect.y, rect.width - pad * 2, rect.height);
         var text = new ReadOnlySpan<char>(buffer, 0, length);
@@ -98,6 +106,12 @@ public static partial class Gui
                 break;
 
             case EventType.KeyDown:
+                if (ev.KeyCode == GLFWConst.KEY_TAB)
+                {
+                    GuiUtility.MoveFocus(id, (ev.Modifiers & EventModifiers.Shift) != 0);
+                    ev.Use();
+                    break;
+                }
                 if (HandleKey(ev, ref buffer, ref length, ref st, grow))
                     ev.Use();
                 break;

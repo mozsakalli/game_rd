@@ -28,6 +28,7 @@ public static class LayoutTests
         ScreenResizeViaSweep(s);
         StyleMeshSmoke(s);
         Scale9Smoke(s);
+        OverflowSmoke(s);
 
         Scene.SetActive(prev);
         Scene.Unload(s);
@@ -149,11 +150,9 @@ public static class LayoutTests
         var b = NewBox("styled");
         b.Width = 120; b.Height = 60;
         b.CornerRadius = 12;
-        b.FillColor = new Color(40, 90, 200, 255);
-        b.Gradient = true;
-        b.FillColor2 = new Color(10, 20, 60, 255);
+        b.Fill = new Gradient(new Color(40, 90, 200, 255), new Color(10, 20, 60, 255));
         b.BorderWidth = 3;
-        b.BorderColor = Color.White;
+        b.BorderFill = Color.White;
         var q = new RenderQueue();
         q.Begin();
         b.Encode(q);
@@ -174,7 +173,7 @@ public static class LayoutTests
         var tex = Texture.FromColor(32, 32, Color.White);
         var b = NewBox("tex9");
         b.Width = 120; b.Height = 60;
-        b.Texture = tex;
+        b.Sprite = Sprite.FromTexture(tex);
         b.Slice9 = 8;
         var q = new RenderQueue();
         q.Begin();
@@ -186,6 +185,47 @@ public static class LayoutTests
         Check(q.Count == 1, "slice sifirlaninca tek stretch quad");
         GameObject.Destroy(b.gameObject);
         tex.Destroy();
+        s.Update(0f);
+    }
+
+    // Overflow: Grow icerikle buyur; Visible/Hidden authored boyutta kalir;
+    // Hidden ata, tamamen disarida kalan cocugun quad'larini dusurur, kismen
+    // tasani kirpar (draw sayisi uzerinden dogrulanir).
+    static void OverflowSmoke(Scene s)
+    {
+        var p = NewBox("ovf");
+        p.Layout = LayoutMode.Vertical;
+        p.Width = 100; p.Height = 40;
+        var c = NewBox("child", p.transform);
+        c.Width = 100; c.Height = 120;
+        c.Fill = new Gradient(Color.Red);
+
+        Check(Near(p.RectHeight, 120), "Grow: icerik kutuyu buyuttu");
+        p.OverflowY = OverflowMode.Visible;
+        Check(Near(p.RectHeight, 40), "Visible: authored boyut korunur");
+
+        // Visible: cocuk tam cizilir; Hidden: kismi kirpma quad sayisini DEGISTIRMEZ
+        // ama tamamen disaridaki cocuk hic quad uretmez.
+        var q = new RenderQueue();
+        q.Begin();
+        c.Encode(q);
+        int full = q.Count;
+        Check(full > 0, "Visible: tasan cocuk cizildi");
+
+        p.OverflowY = OverflowMode.Hidden;
+        p.ResolveIfDirty();
+        q.Begin();
+        c.Encode(q);
+        Check(q.Count > 0 && q.Count <= full, "Hidden: kismen tasan cocuk kirpildi");
+
+        c.IgnoreLayout = true; // anchor yerlesimine gec, kutuyu tamamen disari tasi
+        c.AnchorMin = c.AnchorMax = new Vec2(0.5f, 0.5f);
+        c.AnchoredPos = new Vec2(0, 500);
+        p.ResolveIfDirty();
+        q.Begin();
+        c.Encode(q);
+        Check(q.Count == 0, "Hidden: tamamen disaridaki cocuk cizilmedi");
+        GameObject.Destroy(p.gameObject);
         s.Update(0f);
     }
 }

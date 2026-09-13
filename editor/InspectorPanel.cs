@@ -142,7 +142,11 @@ public sealed partial class InspectorPanel : EditorWindow
                 y += RowH;
             }
             foreach (var f in entry.Schema)
+            {
+                if (!DocVisible(f, cd))
+                    continue;
                 DrawField(es, g, cd, f, ref y, w, prefabComp, prefabMap);
+            }
             y += 6;
         }
 
@@ -465,10 +469,22 @@ public sealed partial class InspectorPanel : EditorWindow
     {
         int parts = three ? 3 : 2;
         float pw = rect.width / parts - 3;
-        float x = Gui.DragFloat(new Rect(rect.x, rect.y, pw, 18), v.x, 0.05f);
-        float yv = Gui.DragFloat(new Rect(rect.x + pw + 4, rect.y, pw, 18), v.y, 0.05f);
-        float z = three ? Gui.DragFloat(new Rect(rect.x + (pw + 4) * 2, rect.y, pw, 18), v.z, 0.05f) : v.z;
+        float x = AxisDrag(new Rect(rect.x, rect.y, pw, 18), "X", v.x);
+        float yv = AxisDrag(new Rect(rect.x + pw + 4, rect.y, pw, 18), "Y", v.y);
+        float z = three ? AxisDrag(new Rect(rect.x + (pw + 4) * 2, rect.y, pw, 18), "Z", v.z) : v.z;
         return new Vec3(x, yv, z);
+    }
+
+    // Unity paritesi: eksen etiketi drag tutamaci, alan tikla-yaz.
+    static float AxisDrag(in Rect cell, ReadOnlySpan<char> axis, float v)
+    {
+        const float lw = 12;
+        var labelRect = new Rect(cell.x, cell.y, lw, cell.height);
+        if (Event.Current.Type == EventType.Repaint)
+            GuiRenderer.DrawTextIn(labelRect, axis, Gui.FontSize - 4f,
+                new Color(150, 153, 163, 255), false, 2);
+        v = Gui.DragZone(labelRect, v, 0.05f);
+        return Gui.DragFloat(new Rect(cell.x + lw, cell.y, cell.width - lw, cell.height), v, 0.05f);
     }
 
     Vec3 Vec3Row(ref float y, float w, ReadOnlySpan<char> label, Vec3 v)
@@ -545,8 +561,12 @@ public sealed partial class InspectorPanel : EditorWindow
             {
                 int componentIndex = g.Components.IndexOf(cd);
                 foreach (var field in entry.Schema)
+                {
+                    if (!DocVisible(field, cd))
+                        continue;
                     h += MeasureDocField(field, FindProp(cd, field),
                         "c:" + g.Id + ":" + componentIndex + ":" + field.Name);
+                }
             }
             if (entry != null && entry.Previewable)
                 h += RowH;

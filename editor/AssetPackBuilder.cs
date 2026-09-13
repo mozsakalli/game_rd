@@ -41,7 +41,7 @@ static class AssetPackBuilder
         foreach (var (key, file) in files)
         {
             byte[] data;
-            if (AssetDatabase.ImportTypeOf(key) == typeof(Texture))
+            if (AssetDatabase.ImportTypeOf(key) == typeof(Sprite))
             {
                 data = DecodeToDtex(file);
                 if (data != null)
@@ -71,7 +71,7 @@ static class AssetPackBuilder
         EditorLog.Info($"[pak] {items.Count} asset ({dtexCount} dtex) -> {outPath} " +
             $"({pakSize / 1024.0:0.0} KB, acik {rawTotal / 1024.0:0.0} KB, %{100.0 * pakSize / Math.Max(1, rawTotal):0.0})");
 
-        var texPair = files.Find(f => AssetDatabase.ImportTypeOf(f.Key) == typeof(Texture));
+        var texPair = files.Find(f => AssetDatabase.ImportTypeOf(f.Key) == typeof(Sprite));
         Verify(outPath, items, texPair.Key, texPair.File);
     }
 

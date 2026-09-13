@@ -53,8 +53,8 @@ public sealed unsafe class SceneViewPanel : EditorWindow
     internal void ApplyEditorCam()
     {
         float halfW = _viewW * 0.5f / _zoom, halfH = _viewH * 0.5f / _zoom;
-        Mat4.Ortho(_center.x - halfW, _center.x + halfW,
-                   _center.y + halfH, _center.y - halfH, -1, 1, out EditorCam.ViewProj);
+        EditorCam.SetOrtho(_center.x - halfW, _center.x + halfW,
+                           _center.y - halfH, _center.y + halfH);
     }
 
     // Araclarin (EditorTool) kullandigi kamera uzayi API'si.

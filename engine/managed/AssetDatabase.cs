@@ -30,6 +30,7 @@ public sealed class AssetDatabase
     readonly string _root; // yalniz loose kaynakta dolu (editor yollari icin)
     readonly AssetSource _source;
     readonly Dictionary<string, Texture> _textures = new();
+    readonly Dictionary<string, Sprite> _sprites = new();
     readonly Dictionary<string, Prefab> _prefabs = new();
     readonly Dictionary<string, Font> _fonts = new();
     readonly List<Pending> _pending = new();
@@ -103,9 +104,9 @@ public sealed class AssetDatabase
     // turleri buraya kayitla gelir — panel/inspector kodu tip bilmez.
     static readonly Dictionary<string, Type> _importers = new(StringComparer.OrdinalIgnoreCase)
     {
-        [".png"] = typeof(Texture),
-        [".jpg"] = typeof(Texture),
-        [".jpeg"] = typeof(Texture),
+        [".png"] = typeof(Sprite),
+        [".jpg"] = typeof(Sprite),
+        [".jpeg"] = typeof(Sprite),
         [".prefab"] = typeof(Prefab),
         [".ttf"] = typeof(Font),
         [".otf"] = typeof(Font),
@@ -119,6 +120,8 @@ public sealed class AssetDatabase
     {
         if (!typeof(IAsset).IsAssignableFrom(t))
             return false;
+        if (t == typeof(Texture))
+            return true; // dogrudan doku alanlari (RT hedefi vs.) asset-referans kalir
         foreach (var v in _importers.Values)
             if (v == t)
                 return true;
@@ -155,11 +158,27 @@ public sealed class AssetDatabase
     // Serilestirme (Kind.Asset) tek bogazdan yukler — alan tipi hangi asset'se o.
     public object LoadAsset(string keyOrGuid, Type type)
     {
+        if (type == typeof(Sprite))
+            return LoadSprite(keyOrGuid);
         if (type == typeof(Texture))
             return LoadTexture(keyOrGuid);
         if (type == typeof(Font))
             return LoadFont(keyOrGuid);
         return null;
+    }
+
+    // Cizilebilir bolge: varsayilan tum-sayfa (kaynak png). Atlas builder/loader
+    // ayni instance'i BindRegion ile yerinde yeniden baglar — referanslar bozulmaz.
+    public Sprite LoadSprite(string key)
+    {
+        key = ResolvePath(key);
+        if (string.IsNullOrEmpty(key))
+            return null;
+        if (_sprites.TryGetValue(key, out var s))
+            return s;
+        s = Sprite.FromTexture(LoadTexture(key), key);
+        _sprites[key] = s;
+        return s;
     }
 
     // Prebaked font: baytlar artifact'ten (editor: Library, release: pak) SENKRON

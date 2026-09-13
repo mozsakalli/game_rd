@@ -26,6 +26,12 @@ public static class SerializedType
         public Type ElementType;       // liste elemani / ic ice nesne tipi
         public FieldSchema[] Nested;   // Kind.Object ya da Object-elemanli liste alt semasi
 
+        // [ShowIf] kosulu (Build'de cozulur): ShowIf = ayni duzeydeki kardes alan,
+        // ShowIfScalar = beklenen kanonik deger (null = truthy testi). Inspector
+        // gizlerken OLCUM ve CIZIM ayni kosulu kullanmali.
+        public FieldSchema ShowIf;
+        public string ShowIfScalar;
+
         // Tiplendirilmis erisimciler (tween/binding/inspector sicak yollari — boxing yok).
         // Editorde expression-compile ile TEMBEL doldurulur; release/AOT'de source
         // generator ayni slotlara duz kod basar.
@@ -91,7 +97,52 @@ public static class SerializedType
                     list.Add(f);
             }
         }
-        return list.ToArray();
+        var schema = list.ToArray();
+        ResolveShowIf(schema);
+        return schema;
+    }
+
+    // [ShowIf] kardes referanslari sema kurulduktan sonra cozulur (ileri referans serbest).
+    static void ResolveShowIf(FieldSchema[] schema)
+    {
+        foreach (var f in schema)
+        {
+            var attr = f.Info.GetCustomAttribute<ShowIfAttribute>();
+            if (attr == null)
+                continue;
+            var sibling = Find(schema, attr.Field);
+            if (sibling == null || sibling == f)
+                continue; // cozumsuz kosul = hep gorunur (sessiz dusme, crash yok)
+            f.ShowIf = sibling;
+            f.ShowIfScalar = attr.Value != null ? Format(attr.Value, sibling.Kind) : null;
+        }
+    }
+
+    // Canli nesne uzerinden kosul (asset inspector / live mod).
+    public static bool ShowIfVisible(FieldSchema f, object owner)
+    {
+        if (f.ShowIf == null || owner == null)
+            return true;
+        object v = f.ShowIf.Info.GetValue(owner);
+        if (f.ShowIfScalar == null && f.ShowIf.Kind is Kind.Asset or Kind.GoRef or Kind.CompRef)
+            return v != null;
+        return ShowIfMatch(f, Format(v, f.ShowIf.Kind));
+    }
+
+    // Kanonik skaler uzerinden kosul (doc modu kardes DocNode.Scalar verir).
+    public static bool ShowIfMatch(FieldSchema f, string actualScalar)
+    {
+        if (f.ShowIf == null)
+            return true;
+        if (f.ShowIfScalar != null)
+            return actualScalar == f.ShowIfScalar;
+        return f.ShowIf.Kind switch
+        {
+            Kind.Bool => actualScalar == "true",
+            Kind.Float => float.TryParse(actualScalar, NumberStyles.Float, CultureInfo.InvariantCulture, out float fv) && fv != 0f,
+            Kind.Int => int.TryParse(actualScalar, NumberStyles.Integer, CultureInfo.InvariantCulture, out int iv) && iv != 0,
+            _ => !string.IsNullOrEmpty(actualScalar),
+        };
     }
 
     static FieldSchema BuildField(FieldInfo fi, int depth, bool insideStruct)

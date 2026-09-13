@@ -14,7 +14,7 @@ objects:
         spacing: 3.9466674
         padLeft: 4.7333326
         padTop: 6.466665
-        texture: 0bcaff28c4a14e7cbd283c3177df5b33
+        Sprite: 0bcaff28c4a14e7cbd283c3177df5b33
   - id: 2
     parent: 1
     name: GameObject (1)
@@ -55,6 +55,6 @@ objects:
     scale: 100 100 1
     components:
       - type: SpriteRenderer
-        Texture: a472cdcd94cd482ead585c2bec926a6d
+        Sprite: a472cdcd94cd482ead585c2bec926a6d
         SortingOrder: 3
         Color: '#718efaff'

@@ -1,5 +1,16 @@
 scene: Main
 objects:
+  - id: 8
+    parent: 0
+    name: CAMERA
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: CameraComponent
+        pixelPerfect: false
+        orthoSize: 300
+        depth: 0
   - id: 1
     parent: 0
     name: BG
@@ -12,6 +23,11 @@ objects:
         fillColor: '#0e1e4eff'
         fillColor2: '#3f7fd9ff'
         gradient: true
+        sprite: 0bcaff28c4a14e7cbd283c3177df5b33
+        fill:
+          type: Solid
+          color: '#ffffffff'
+          color2: '#00000000'
   - id: 2
     parent: 1
     name: Logo
@@ -21,7 +37,7 @@ objects:
     components:
       - type: LayoutBox
         width: 220
-        height: 90
+        height: 150
         anchorMin: 0.5 0
         anchorMax: 0.5 0
         pivot: 0.5 0
@@ -31,6 +47,11 @@ objects:
         radiusTR: 18
         radiusBR: 18
         radiusBL: 18
+        fill:
+          type: Solid
+          color: '#ffffffff'
+          color2: '#00000000'
+        sprite: 075be890f3654858ba989f833e31109a
   - id: 3
     parent: 1
     name: ButtonRow
@@ -49,17 +70,39 @@ objects:
     parent: 3
     name: FacebookLogin
     pos: 0 0 0
-    rot: 0 0 0
+    rot: 0 -3.3666687 0
     scale: 1 1 1
     components:
       - type: LayoutBox
-        width: 150
+        width: 100
         height: 46
         fillColor: '#1877f2ff'
         radiusTL: 10
         radiusTR: 10
         radiusBR: 10
         radiusBL: 10
+        fill:
+          type: Linear
+          color: '#258dffff'
+          color2: '#34485dff'
+        borderFill:
+          type: Solid
+          color: '#455f7dff'
+          color2: '#00000000'
+        borderLeft: 0
+        borderTop: 0
+        shadowColor: '#0000007a'
+        shadowBlur: 12.64
+        font: 713ad506a3014c21aa1043ccd65aa552
+        text: Facebook Login
+        textSize: 20
+        textAlign: Center
+        textAlignV: Center
+        textOutlineWidth: 0
+        textShadowColor: '#00000036'
+        textShadowOffset: 0 1.4333313
+        overflowX: Hidden
+        textWrap: false
   - id: 5
     parent: 3
     name: GuestLogin
@@ -75,6 +118,10 @@ objects:
         radiusTR: 10
         radiusBR: 10
         radiusBL: 10
+        fill:
+          type: Solid
+          color: '#ffffffff'
+          color2: '#00000000'
   - id: 6
     parent: 3
     name: AppleLogin
@@ -95,6 +142,10 @@ objects:
         radiusTR: 10
         radiusBR: 10
         radiusBL: 10
+        fill:
+          type: Solid
+          color: '#000000ff'
+          color2: '#00000000'
       - type: ApplePlatformOnly
   - id: 7
     parent: 1
@@ -115,3 +166,19 @@ objects:
         radiusTR: 7
         radiusBR: 7
         radiusBL: 7
+        fill:
+          type: Solid
+          color: '#eeffb7ff'
+          color2: '#00000000'
+  - id: 9
+    parent: 0
+    name: GameObject
+    pos: 126.02464 3.7065573 0
+    rot: 0 -1.1666687 0
+    scale: 1 1 1
+    components:
+      - type: SpriteRenderer
+        Sprite: 075be890f3654858ba989f833e31109a
+        Width: 200
+        Height: 200
+        SortingOrder: 13

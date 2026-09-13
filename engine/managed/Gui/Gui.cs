@@ -348,9 +348,8 @@ public static partial class Gui
     // Tikla-yaz edit oturumu: ayni anda tek sayi alani (id) duzenlenir; ekstra
     // kontrol YARATILMAZ (id kaymasi olmaz) — klavye odagi drag kontrolunun kendisi.
     static int _numEditId;
-    static readonly char[] _numBuf = new char[32];
+    static char[] _numBuf = new char[32];
     static int _numLen;
-    static bool _numFresh; // ilk tus mevcut metni silsin (Unity select-all hissi)
 
     // Inspector hedefi degistiginde sirali control id ayni kalabilir; eski
     // tamponun yeni nesneye commit edilmesini engelle.
@@ -364,7 +363,50 @@ public static partial class Gui
             GuiUtility.HotControl = 0;
         _numEditId = 0;
         _numLen = 0;
-        _numFresh = false;
+    }
+
+    // Gorunmez drag tutamaci (Unity label-drag): rect uzerinde yatay surukleme
+    // degeri degistirir, cizim yapmaz — cagiran etiketi kendisi cizer.
+    static readonly int _dragZoneHash = "Gui.DragZone".GetHashCode();
+
+    public static float DragZone(in Rect rect, float value, float speed = 0.05f,
+        float min = float.MinValue, float max = float.MaxValue)
+    {
+        int id = GuiUtility.GetControlID(_dragZoneHash, FocusType.Passive);
+        Event ev = Event.Current;
+        ref DragFloatState st = ref GuiUtility.GetState<DragFloatState>(id);
+        switch (ev.GetTypeForControl(id))
+        {
+            case EventType.MouseDown:
+                if (rect.Contains(ev.MousePosition))
+                {
+                    GuiUtility.HotControl = id;
+                    st.Start = value;
+                    st.StartX = ev.MousePosition.x;
+                    ev.Use();
+                }
+                break;
+            case EventType.MouseDrag:
+                if (GuiUtility.HotControl == id)
+                {
+                    ev.Use();
+                    double v = st.Start + (ev.MousePosition.x - st.StartX) * speed;
+                    return (float)(v < min ? min : (v > max ? max : v));
+                }
+                break;
+            case EventType.MouseUp:
+                if (GuiUtility.HotControl == id)
+                {
+                    GuiUtility.HotControl = 0;
+                    ev.Use();
+                }
+                break;
+            case EventType.Repaint:
+                if (rect.Contains(ev.MousePosition) || GuiUtility.HotControl == id)
+                    GuiCursorManager.Request(GuiCursor.ResizeH);
+                break;
+        }
+        return value;
     }
 
     // Tam sayi alani: DragFloat mekanigi, "0" formatiyla cizim (ondalik gosterilmez).
@@ -383,16 +425,27 @@ public static partial class Gui
         Event ev = Event.Current;
         ref DragFloatState st = ref GuiUtility.GetState<DragFloatState>(id);
         bool editing = _numEditId == id;
+        // Tab ile odak geldi: dogrudan yazma moduna gir, deger tumu secili.
+        if (!editing && GuiUtility.ConsumeTabFocus(id))
+        {
+            _numEditId = id;
+            value.TryFormat(_numBuf, out _numLen, format, System.Globalization.CultureInfo.InvariantCulture);
+            ref TextEditState ts = ref GuiUtility.GetState<TextEditState>(id);
+            ts.Anchor = 0;
+            ts.Caret = _numLen;
+            ts.ScrollX = 0;
+            editing = true;
+        }
         // Odak baska yere gectiyse (baska alan tiklandi vs.) oturum commit ile biter.
         if (editing && GuiUtility.KeyboardControl != id)
             return CommitNum(value, min, max, integer);
+        if (editing)
+            return NumEditEvents(rect, id, value, min, max, integer);
         switch (ev.GetTypeForControl(id))
         {
             case EventType.MouseDown:
                 if (rect.Contains(ev.MousePosition))
                 {
-                    if (editing)
-                        break; // edit surerken tik: oturum devam (v1: caret yok)
                     // Yeni numeric kontrol eski editorden once ciziliyor olabilir.
                     // Tamponu MouseUp'a kadar elleme; eski kontrol bu event'te
                     // odak kaybini gorup kendi degerini guvenle commit etsin.
@@ -403,10 +456,6 @@ public static partial class Gui
                     st.StartX = ev.MousePosition.x;
                     st.Dragged = false;
                     ev.Use();
-                }
-                else if (editing)
-                {
-                    return CommitNum(value, min, max, integer); // disari tik = commit
                 }
                 break;
             case EventType.MouseDrag:
@@ -427,61 +476,114 @@ public static partial class Gui
                     ev.Use();
                     if (!st.Dragged && rect.Contains(ev.MousePosition))
                     {
-                        // Suruklenmemis tik: yazma moduna gir (mevcut deger dolu gelir).
+                        // Suruklenmemis tik: yazma moduna gir (mevcut deger tumu secili).
                         _numEditId = id;
                         GuiUtility.KeyboardControl = id;
                         value.TryFormat(_numBuf, out _numLen, format, System.Globalization.CultureInfo.InvariantCulture);
-                        _numFresh = true;
+                        ref TextEditState ts = ref GuiUtility.GetState<TextEditState>(id);
+                        ts.Anchor = 0;
+                        ts.Caret = _numLen;
+                        ts.ScrollX = 0;
                     }
-                }
-                break;
-            case EventType.KeyDown:
-                if (editing)
-                {
-                    if (ev.KeyCode is GLFWConst.KEY_ENTER or GLFWConst.KEY_ESCAPE)
-                    {
-                        bool cancel = ev.KeyCode == GLFWConst.KEY_ESCAPE;
-                        ev.Use();
-                        if (cancel) { _numEditId = 0; GuiUtility.KeyboardControl = 0; return value; }
-                        return CommitNum(value, min, max, integer);
-                    }
-                    if (ev.KeyCode == GLFWConst.KEY_BACKSPACE)
-                    {
-                        if (_numFresh) { _numLen = 0; _numFresh = false; }
-                        else if (_numLen > 0) _numLen--;
-                        ev.Use();
-                    }
-                }
-                break;
-            case EventType.TextInput:
-                if (editing && (ev.Character is >= '0' and <= '9' or '.' or '-' or ','))
-                {
-                    if (_numFresh) { _numLen = 0; _numFresh = false; }
-                    if (_numLen < _numBuf.Length)
-                        _numBuf[_numLen++] = ev.Character == ',' ? '.' : ev.Character;
-                    ev.Use();
                 }
                 break;
             case EventType.Repaint:
                 {
-                    if (editing)
-                    {
-                        GuiCursorManager.Request(GuiCursor.IBeam);
-                        Skin.TextField.Draw(rect, id);
-                        var span = new System.ReadOnlySpan<char>(_numBuf, 0, _numLen);
-                        // Fresh = tumu secili hissi: vurgulu zemin; sonrasi normal + caret niyetine '_'.
-                        GuiRenderer.DrawTextIn(rect, span, FontSize,
-                            _numFresh ? new Color(120, 180, 255, 255) : _textColor, centerX: true);
-                        break;
-                    }
                     if (rect.Contains(ev.MousePosition) || GuiUtility.HotControl == id)
                         GuiCursorManager.Request(GuiCursor.ResizeH);
                     Skin.TextField.Draw(rect, id);
                     Span<char> tmp = stackalloc char[24];
                     value.TryFormat(tmp, out int n, format, System.Globalization.CultureInfo.InvariantCulture);
-                    GuiRenderer.DrawTextIn(rect, tmp.Slice(0, n), FontSize, _textColor, centerX: true);
+                    GuiRenderer.DrawTextIn(rect, tmp.Slice(0, n), FontSize, _textColor);
                     break;
                 }
+        }
+        return value;
+    }
+
+    // Edit oturumu = tam TextField davranisi (caret/secim/pano) sayi filtresiyle;
+    // GuiTextField cekirdegi (HandleKey/DrawTextField/IndexFromX) aynen kullanilir.
+    static double NumEditEvents(in Rect rect, int id, double value, double min, double max, bool integer)
+    {
+        Event ev = Event.Current;
+        ref TextEditState st = ref GuiUtility.GetState<TextEditState>(id);
+        GuiStyle style = Skin.TextField;
+        float pad = style.Padding.Left;
+        var inner = new Rect(rect.x + pad, rect.y, rect.width - pad * 2, rect.height);
+        var text = new System.ReadOnlySpan<char>(_numBuf, 0, _numLen);
+        if (st.Caret > _numLen) st.Caret = _numLen;
+        if (st.Anchor > _numLen) st.Anchor = _numLen;
+        switch (ev.GetTypeForControl(id))
+        {
+            case EventType.MouseDown:
+                if (rect.Contains(ev.MousePosition))
+                {
+                    GuiUtility.HotControl = id;
+                    int idx = IndexFromX(Font, text, ev.MousePosition.x - inner.x + st.ScrollX);
+                    if (ev.ClickCount >= 2) { st.Anchor = 0; st.Caret = _numLen; }
+                    else
+                    {
+                        st.Caret = idx;
+                        if ((ev.Modifiers & EventModifiers.Shift) == 0)
+                            st.Anchor = idx;
+                    }
+                    ev.Use();
+                }
+                else
+                {
+                    return CommitNum(value, min, max, integer); // disari tik = commit
+                }
+                break;
+            case EventType.MouseDrag:
+                if (GuiUtility.HotControl == id)
+                {
+                    st.Caret = IndexFromX(Font, text, ev.MousePosition.x - inner.x + st.ScrollX);
+                    ev.Use();
+                }
+                break;
+            case EventType.MouseUp:
+                if (GuiUtility.HotControl == id)
+                {
+                    GuiUtility.HotControl = 0;
+                    ev.Use();
+                }
+                break;
+            case EventType.KeyDown:
+                if (ev.KeyCode is GLFWConst.KEY_ENTER or GLFWConst.KEY_TAB)
+                {
+                    ev.Use();
+                    if (ev.KeyCode == GLFWConst.KEY_TAB)
+                        GuiUtility.MoveFocus(id, (ev.Modifiers & EventModifiers.Shift) != 0);
+                    return CommitNum(value, min, max, integer);
+                }
+                if (ev.KeyCode == GLFWConst.KEY_ESCAPE)
+                {
+                    ev.Use();
+                    _numEditId = 0;
+                    if (GuiUtility.KeyboardControl == id)
+                        GuiUtility.KeyboardControl = 0;
+                    return value;
+                }
+                if (HandleKey(ev, ref _numBuf, ref _numLen, ref st, grow: false))
+                    ev.Use();
+                break;
+            case EventType.TextInput:
+                {
+                    char c = ev.Character == ',' ? '.' : ev.Character;
+                    bool ok = c is >= '0' and <= '9' or '-' || (!integer && c is '.' or 'e' or 'E' or '+');
+                    if (ok)
+                    {
+                        DeleteSelection(_numBuf, ref _numLen, ref st);
+                        Insert(_numBuf, ref _numLen, ref st, c);
+                        ev.Use();
+                    }
+                }
+                break;
+            case EventType.Repaint:
+                if (rect.Contains(ev.MousePosition) || GuiUtility.HotControl == id)
+                    GuiCursorManager.Request(GuiCursor.IBeam);
+                DrawTextField(rect, inner, style, id, _numBuf, _numLen, ref st, Font);
+                break;
         }
         return value;
     }

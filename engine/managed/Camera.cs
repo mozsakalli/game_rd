@@ -21,9 +21,54 @@ public sealed class Camera
     public Mat4 ViewProj;
     public readonly RenderQueue Queue = new();
 
+    // Projeksiyon degisim damgasi: gorus rect'i degisince ++. Layout/picking
+    // cache'leri her frame yalnizca bu int'i kiyaslar (matris kiyasi yok).
+    public int RectVersion { get; private set; } = 1;
+
+    // Ortho gorus dikdortgeni (dunya uzayi). Yalnizca Set*Ortho ile kurulunca
+    // gecerli; ViewProj'u disaridan dogrudan yazan (custom matris) rect vermez.
+    float _oL, _oR, _oT, _oB, _oNear, _oFar;
+    bool _hasOrtho;
+
     // Piksel/point koordinatli 2D/UI kamerasi (orijin sol-ust, y asagi).
     public void SetPixelOrtho(float width, float height)
-        => Mat4.Ortho(0, width, height, 0, -1, 1, out ViewProj);
+        => SetOrtho(0, width, 0, height);
+
+    // y-asagi dunya uzayinda ortho: top < bottom. Ayni parametrelerle tekrar
+    // cagri bedava no-op (statik kamera frame maliyeti = bu kiyas).
+    // near/far genis: dunya birimi = piksel oldugundan X/Y rotasyonlu quad'lar
+    // z'de yuzlerce birim uzar; dar [-1,1] araligi onlari kirpiyordu.
+    public void SetOrtho(float left, float right, float top, float bottom,
+        float near = -16384, float far = 16384)
+    {
+        if (_hasOrtho && left == _oL && right == _oR && top == _oT && bottom == _oB
+            && near == _oNear && far == _oFar) return;
+        _oL = left; _oR = right; _oT = top; _oB = bottom; _oNear = near; _oFar = far;
+        _hasOrtho = true;
+        Mat4.Ortho(left, right, bottom, top, near, far, out ViewProj);
+        RectVersion++;
+    }
+
+    // Kameranin gorus dikdortgeni dunya uzayinda (x,y = sol-ust). Perspektif
+    // gelince ayni API verilen duzlem mesafesindeki frustum kesitini verecek —
+    // cagiran (layout/picking) projeksiyon tipini bilmez.
+    public bool GetWorldRect(out float x, out float y, out float w, out float h)
+    {
+        if (!_hasOrtho) { x = y = w = h = 0; return false; }
+        x = _oL; y = _oT; w = _oR - _oL; h = _oB - _oT;
+        return true;
+    }
+
+    // Viewport noktasi (piksel, sol-ust orijin) -> dunya. viewW/H = bu kameranin
+    // ciktigi yuzeyin boyutu (swapchain veya RT).
+    public bool ScreenToWorld(float sx, float sy, float viewW, float viewH,
+        out float wx, out float wy)
+    {
+        if (!_hasOrtho || viewW <= 0 || viewH <= 0) { wx = wy = 0; return false; }
+        wx = _oL + sx / viewW * (_oR - _oL);
+        wy = _oT + sy / viewH * (_oB - _oT);
+        return true;
+    }
 
     // Bu kameranin pass'ini + kuyrugunu akisa yazar. swapchain boyutlari
     // yalnizca Target=null iken kullanilir (RT boyutu attachment'tan gelir).

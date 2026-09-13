@@ -13,22 +13,18 @@ public sealed unsafe partial class LayoutBox
 {
     // --- serilesen metin verisi ---
     [SerializeField] Font font;
-    [SerializeField] string text = "";
-    [SerializeField] float textSize = 32f;
-    [SerializeField] TextAlign textAlign = TextAlign.Left;
-    [SerializeField] LayoutAlign textAlignV = LayoutAlign.Start;
-    [SerializeField] bool textWrap = true;
-    [SerializeField] bool textEllipsis = true;
-    [SerializeField] Color textColor = new(255, 255, 255, 255);
-    [SerializeField] Color textColor2 = new(255, 255, 255, 255);
-    [SerializeField] bool textGradient;
-    [SerializeField] float textOutlineWidth;
-    [SerializeField] Color textOutlineColor = new(0, 0, 0, 255);
-    [SerializeField] Color textOutlineColor2 = new(0, 0, 0, 255);
-    [SerializeField] bool textOutlineGradient;
-    [SerializeField] Color textShadowColor;
-    [SerializeField] Vec2 textShadowOffset = new(0, 4);
-    [SerializeField] float textShadowBlur = 8f;
+    [SerializeField, ShowIf(nameof(font))] string text = "";
+    [SerializeField, ShowIf(nameof(font))] float textSize = 32f;
+    [SerializeField, ShowIf(nameof(font))] TextAlign textAlign = TextAlign.Left;
+    [SerializeField, ShowIf(nameof(font))] LayoutAlign textAlignV = LayoutAlign.Start;
+    [SerializeField, ShowIf(nameof(font))] bool textWrap = true;
+    [SerializeField, ShowIf(nameof(font))] bool textEllipsis = true;
+    [SerializeField, ShowIf(nameof(font))] Gradient textFill = new(Color.White);
+    [SerializeField, ShowIf(nameof(font))] float textOutlineWidth;
+    [SerializeField, ShowIf(nameof(font))] Gradient textOutline = new(Color.Black);
+    [SerializeField, ShowIf(nameof(font))] Color textShadowColor;
+    [SerializeField, ShowIf(nameof(font))] Vec2 textShadowOffset = new(0, 4);
+    [SerializeField, ShowIf(nameof(font))] float textShadowBlur = 8f;
 
     // Yerlesimi etkileyenler kirletir; stil alanlari duz assignment (cache yok).
     public Font Font { get => font; set { if (!ReferenceEquals(font, value)) { font = value; MarkDirty(); } } }
@@ -38,13 +34,9 @@ public sealed unsafe partial class LayoutBox
     public LayoutAlign TextAlignV { get => textAlignV; set { if (textAlignV != value) { textAlignV = value; MarkDirty(); } } }
     public bool TextWrap { get => textWrap; set { if (textWrap != value) { textWrap = value; MarkDirty(); } } }
     public bool TextEllipsis { get => textEllipsis; set { if (textEllipsis != value) { textEllipsis = value; MarkDirty(); } } }
-    public Color TextColor { get => textColor; set => textColor = value; }
-    public Color TextColor2 { get => textColor2; set => textColor2 = value; }
-    public bool TextGradient { get => textGradient; set => textGradient = value; }
+    public Gradient TextFill { get => textFill; set => textFill = value; }
     public float TextOutlineWidth { get => textOutlineWidth; set => textOutlineWidth = value; }
-    public Color TextOutlineColor { get => textOutlineColor; set => textOutlineColor = value; }
-    public Color TextOutlineColor2 { get => textOutlineColor2; set => textOutlineColor2 = value; }
-    public bool TextOutlineGradient { get => textOutlineGradient; set => textOutlineGradient = value; }
+    public Gradient TextOutline { get => textOutline; set => textOutline = value; }
     public Color TextShadowColor { get => textShadowColor; set => textShadowColor = value; }
     public Vec2 TextShadowOffset { get => textShadowOffset; set => textShadowOffset = value; }
     public float TextShadowBlur { get => textShadowBlur; set => textShadowBlur = value; }
@@ -285,6 +277,20 @@ public sealed unsafe partial class LayoutBox
         float availH = _rh - padTop - padBottom;
         if (availW <= 0 || availH <= 0)
             return;
+        // Kendi Hidden eksenimiz metni kutu rect'inde kirpar (ata klibiyle kesisir).
+        // Encode'un SON emisyonu oldugundan klip alanlarini mutasyonlamak guvenli.
+        if (overflowX == OverflowMode.Hidden)
+        {
+            EnsureClip();
+            _clX0 = MathF.Max(_clX0, x0);
+            _clX1 = MathF.Min(_clX1, x0 + _rw);
+        }
+        if (overflowY == OverflowMode.Hidden)
+        {
+            EnsureClip();
+            _clY0 = MathF.Max(_clY0, y0);
+            _clY1 = MathF.Min(_clY1, y0 + _rh);
+        }
         EnsureTextLayout(availW, availH);
         if (_tqCount == 0)
             return;
@@ -326,8 +332,8 @@ public sealed unsafe partial class LayoutBox
                 ref readonly var g = ref _tq[i];
                 EmitQuad(queue, mat, in wm, ox + g.X0, oy + g.Y0, ox + g.X1, oy + g.Y1,
                     g.U0, g.V0, g.U1, g.V1,
-                    TextGradAt(textOutlineColor, textOutlineColor2, textOutlineGradient, g.Y0),
-                    TextGradAt(textOutlineColor, textOutlineColor2, textOutlineGradient, g.Y1),
+                    TextGradAt(in textOutline, g.Y0),
+                    TextGradAt(in textOutline, g.Y1),
                     user, layer);
             }
         }
@@ -336,13 +342,13 @@ public sealed unsafe partial class LayoutBox
             ref readonly var g = ref _tq[i];
             EmitQuad(queue, mat, in wm, ox + g.X0, oy + g.Y0, ox + g.X1, oy + g.Y1,
                 g.U0, g.V0, g.U1, g.V1,
-                TextGradAt(textColor, textColor2, textGradient, g.Y0),
-                TextGradAt(textColor, textColor2, textGradient, g.Y1),
+                TextGradAt(in textFill, g.Y0),
+                TextGradAt(in textFill, g.Y1),
                 default, layer);
         }
     }
 
     // Dikey lineer gradient BLOK bandina gore (icerik uzayi: blok ustu y=0).
-    Color TextGradAt(Color a, Color b, bool grad, float y)
-        => grad ? Grad(a, b, Math.Clamp(_tbBlockH > 0 ? y / _tbBlockH : 0f, 0f, 1f)) : a;
+    Color TextGradAt(in Gradient g, float y)
+        => g.At(_tbBlockH > 0 ? y / _tbBlockH : 0f);
 }

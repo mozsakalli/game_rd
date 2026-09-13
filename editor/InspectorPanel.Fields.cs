@@ -21,6 +21,8 @@ public sealed partial class InspectorPanel
 
     float MeasureAssetField(object owner, SerializedType.FieldSchema field, string path)
     {
+        if (!SerializedType.ShowIfVisible(field, owner))
+            return 0;
         object value = owner == null ? null : field.Info.GetValue(owner);
         if (field.Kind == SerializedType.Kind.List)
             _listMeasureSchemas[path] = field;
@@ -60,6 +62,8 @@ public sealed partial class InspectorPanel
     void DrawAssetSchemaField(object owner, SerializedType.FieldSchema field, string path,
         int indent, ref float y, float right, ref bool changed, Action deferredCommit)
     {
+        if (!SerializedType.ShowIfVisible(field, owner))
+            return; // [ShowIf] gizli: olcum de 0 verir (yukseklik tutarli)
         object value = field.Info.GetValue(owner);
         if (field.Kind == SerializedType.Kind.List)
             _listMeasureSchemas[path] = field;
@@ -100,14 +104,16 @@ public sealed partial class InspectorPanel
             case SerializedType.Kind.Float:
                 {
                     float current = value is float number ? number : 0f;
-                    float next = Gui.DragFloat(valueRect, current, 0.02f);
+                    float next = Gui.DragZone(labelRect, current, 0.02f); // etiket = drag tutamaci
+                    next = Gui.DragFloat(valueRect, next, 0.02f);
                     if (next != current) { setValue(next); changed = true; }
                     break;
                 }
             case SerializedType.Kind.Int:
                 {
                     int current = value is int number ? number : 0;
-                    int next = Gui.DragInt(valueRect, current, 0.05f);
+                    int next = (int)MathF.Round(Gui.DragZone(labelRect, current, 0.05f));
+                    next = Gui.DragInt(valueRect, next, 0.05f);
                     if (next != current) { setValue(next); changed = true; }
                     break;
                 }
@@ -151,7 +157,7 @@ public sealed partial class InspectorPanel
             case SerializedType.Kind.Color:
                 {
                     Color current = value is Color color ? color : Color.White;
-                    Color next = DrawColor(valueRect, current);
+                    Color next = DrawColor(valueRect, current, path);
                     if (!SameColor(current, next)) { setValue(next); changed = true; }
                     break;
                 }
@@ -328,14 +334,51 @@ public sealed partial class InspectorPanel
         ObjectSerializer.Save(_aObj, _aPath, App.Assets);
     }
 
-    static Color DrawColor(in Rect rect, Color value)
+    static readonly int _colorHash = "Inspector.Color".GetHashCode();
+
+    // Unity renk alani: swatch (ustte rgb, altta alfa seridi) — tiklaninca Color Picker
+    // penceresi acilir; picker bu alani (key) duzenledigi surece guncel degeri dondurur.
+    static Color DrawColor(in Rect rect, Color value, string key)
     {
-        float width = (rect.width - 6) / 4f;
-        byte r = (byte)Gui.DragInt(new Rect(rect.x, rect.y, width, 18), value.r, 1f, 0, 255);
-        byte g = (byte)Gui.DragInt(new Rect(rect.x + width + 2, rect.y, width, 18), value.g, 1f, 0, 255);
-        byte b = (byte)Gui.DragInt(new Rect(rect.x + (width + 2) * 2, rect.y, width, 18), value.b, 1f, 0, 255);
-        byte a = (byte)Gui.DragInt(new Rect(rect.x + (width + 2) * 3, rect.y, width, 18), value.a, 1f, 0, 255);
-        return new Color(r, g, b, a);
+        int id = GuiUtility.GetControlID(_colorHash, FocusType.Passive);
+        Event ev = Event.Current;
+        switch (ev.GetTypeForControl(id))
+        {
+            case EventType.MouseDown:
+                if (rect.Contains(ev.MousePosition))
+                {
+                    GuiUtility.HotControl = id;
+                    ev.Use();
+                }
+                break;
+            case EventType.MouseDrag:
+                if (GuiUtility.HotControl == id)
+                    ev.Use();
+                break;
+            case EventType.MouseUp:
+                if (GuiUtility.HotControl == id)
+                {
+                    GuiUtility.HotControl = 0;
+                    ev.Use();
+                    if (rect.Contains(ev.MousePosition))
+                        ColorPickerWindow.Open(key, value);
+                }
+                break;
+            case EventType.Repaint:
+                {
+                    GuiRenderer.DrawRect(rect, new Color(20, 21, 26, 255), 0);
+                    var body = new Rect(rect.x + 1, rect.y + 1, rect.width - 2, rect.height - 7);
+                    GuiRenderer.DrawRect(body, new Color(value.r, value.g, value.b, 255), 1);
+                    var abg = new Rect(rect.x + 1, rect.yMax - 5, rect.width - 2, 4);
+                    GuiRenderer.DrawRect(abg, Color.Black, 1);
+                    GuiRenderer.DrawRect(new Rect(abg.x, abg.y, abg.width * value.a / 255f, 4),
+                        Color.White, 2);
+                    break;
+                }
+        }
+        if (ColorPickerWindow.TryGet(key, out Color picked))
+            return picked;
+        return value;
     }
 
     static bool SameColor(Color a, Color b)
@@ -433,7 +476,11 @@ public sealed partial class InspectorPanel
         if (kind == SerializedType.Kind.Object && nested != null)
         {
             foreach (var field in nested)
+            {
+                if (!DocVisible(field, node))
+                    continue;
                 height += MeasureDocField(field, FindMapValue(node, field), path + "." + field.Name);
+            }
         }
         else if (kind == SerializedType.Kind.List && node?.Items != null)
         {
@@ -489,7 +536,8 @@ public sealed partial class InspectorPanel
             case SerializedType.Kind.Float:
                 {
                     float current = SafeFloat(scalar);
-                    float next = Gui.DragFloat(valueRect, current, 0.02f);
+                    float next = Gui.DragZone(labelRect, current, 0.02f); // etiket = drag tutamaci
+                    next = Gui.DragFloat(valueRect, next, 0.02f);
                     if (next != current)
                     {
                         node.Scalar = next.ToString("R", System.Globalization.CultureInfo.InvariantCulture);
@@ -501,7 +549,8 @@ public sealed partial class InspectorPanel
                 {
                     int current = int.TryParse(scalar, System.Globalization.NumberStyles.Integer,
                         System.Globalization.CultureInfo.InvariantCulture, out int parsed) ? parsed : 0;
-                    int next = Gui.DragInt(valueRect, current, 0.05f);
+                    int next = (int)MathF.Round(Gui.DragZone(labelRect, current, 0.05f));
+                    next = Gui.DragInt(valueRect, next, 0.05f);
                     if (next != current)
                     {
                         node.Scalar = next.ToString(System.Globalization.CultureInfo.InvariantCulture);
@@ -540,7 +589,7 @@ public sealed partial class InspectorPanel
             case SerializedType.Kind.Color:
                 {
                     Color current = (Color)SerializedType.Parse(scalar, kind, typeof(Color), App.Assets);
-                    Color next = DrawColor(valueRect, current);
+                    Color next = DrawColor(valueRect, current, path);
                     if (!SameColor(current, next))
                     {
                         node.Scalar = SerializedType.Format(next, kind);
@@ -572,6 +621,8 @@ public sealed partial class InspectorPanel
         node.Fields ??= new List<KeyValuePair<string, DocNode>>();
         foreach (var field in nested)
         {
+            if (!DocVisible(field, node))
+                continue;
             DocNode child = FindMapValue(node, field);
             if (child == null)
             {
@@ -717,6 +768,23 @@ public sealed partial class InspectorPanel
             if (pair.Key == field.Name || (field.FormerName != null && pair.Key == field.FormerName))
                 return pair.Value;
         return null;
+    }
+
+    // [ShowIf] doc modu: kardes prop eksikse default deger uzerinden degerlendirilir.
+    static bool DocVisible(SerializedType.FieldSchema f, DocNode map)
+    {
+        if (f.ShowIf == null)
+            return true;
+        var sibling = FindMapValue(map, f.ShowIf) ?? CreateDefaultFieldNode(f.ShowIf);
+        return SerializedType.ShowIfMatch(f, sibling.Scalar ?? "");
+    }
+
+    static bool DocVisible(SerializedType.FieldSchema f, SceneDoc.CompDoc cd)
+    {
+        if (f.ShowIf == null)
+            return true;
+        var sibling = FindProp(cd, f.ShowIf) ?? CreateDefaultFieldNode(f.ShowIf);
+        return SerializedType.ShowIfMatch(f, sibling.Scalar ?? "");
     }
 
     static DocNode CreateDefaultNode(SerializedType.Kind kind, Type valueType,

@@ -18,17 +18,12 @@ public sealed unsafe class TextSprite : Renderer
     public float Size = 32f;
     public TextAlign Align = TextAlign.Center;
 
-    // Dolgu: Gradient=true ise dikey Color(ust) -> Color2(alt).
-    public Color Color = new(255, 255, 255, 255);
-    public Color Color2 = new(255, 255, 255, 255);
-    public bool Gradient;
+    // Dolgu ve kontur dolgusu (Gradient: Solid tek renk / Linear dikey ust->alt).
+    public Gradient Fill = new(Color.White);
 
     // Kontur (dunya birimi; SDF pad siniri ~6 sdf px * scale).
-    // OutlineGradient=true ise dikey OutlineColor -> OutlineColor2.
     public float OutlineWidth;
-    public Color OutlineColor = new(0, 0, 0, 255);
-    public Color OutlineColor2 = new(0, 0, 0, 255);
-    public bool OutlineGradient;
+    public Gradient Outline = new(Color.Black);
 
     // Golge: a>0 acik; SDF smoothing ile yumusak kenar (RT/blur yok).
     public Color ShadowColor;
@@ -96,16 +91,16 @@ public sealed unsafe class TextSprite : Renderer
             for (int i = 0; i < _quadCount; i++)
             {
                 ref readonly var g = ref _quads[i];
-                Color cT = OutlineGradient ? GradAt(OutlineColor, OutlineColor2, g.Y0, halfH) : OutlineColor;
-                Color cB = OutlineGradient ? GradAt(OutlineColor, OutlineColor2, g.Y1, halfH) : OutlineColor;
+                Color cT = GradAt(in Outline, g.Y0, halfH);
+                Color cB = GradAt(in Outline, g.Y1, halfH);
                 Emit(queue, mat, in wm, in g, 0f, 0f, cT, cB, in user, layer);
             }
         }
         for (int i = 0; i < _quadCount; i++)
         {
             ref readonly var g = ref _quads[i];
-            Color cT = Gradient ? GradAt(Color, Color2, g.Y0, halfH) : Color;
-            Color cB = Gradient ? GradAt(Color, Color2, g.Y1, halfH) : Color;
+            Color cT = GradAt(in Fill, g.Y0, halfH);
+            Color cB = GradAt(in Fill, g.Y1, halfH);
             Emit(queue, mat, in wm, in g, 0f, 0f, cT, cB, default, layer);
         }
     }
@@ -128,16 +123,8 @@ public sealed unsafe class TextSprite : Renderer
     }
 
     // Dikey lineer gradient: blok ustu t=0, altta t=1 (lokal y-down uzay).
-    static Color GradAt(Color a, Color b, float y, float halfH)
-    {
-        float t = halfH > 0f ? (y + halfH) / (halfH * 2f) : 0f;
-        t = Math.Clamp(t, 0f, 1f);
-        return new(
-            (byte)(a.r + (b.r - a.r) * t),
-            (byte)(a.g + (b.g - a.g) * t),
-            (byte)(a.b + (b.b - a.b) * t),
-            (byte)(a.a + (b.a - a.a) * t));
-    }
+    static Color GradAt(in Gradient g, float y, float halfH)
+        => g.At(halfH > 0f ? (y + halfH) / (halfH * 2f) : 0f);
 
     void EnsureLayout()
     {

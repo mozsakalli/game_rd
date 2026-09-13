@@ -115,6 +115,29 @@ public sealed class Scene
     Component[] _update = new Component[256];
     int _updateCount, _updateHoles;
 
+    // --- Sahne kameralari (az sayida; kayit CameraComponent OnEnable/OnDisable) ---
+    readonly List<CameraComponent> _cameras = new();
+
+    internal void RegisterCamera(CameraComponent c)
+    {
+        if (!_cameras.Contains(c)) _cameras.Add(c);
+    }
+
+    internal void UnregisterCamera(CameraComponent c) => _cameras.Remove(c);
+
+    // En dusuk depth'li aktif kamera; yoksa null (cagiran fallback uygular).
+    public CameraComponent MainCamera
+    {
+        get
+        {
+            CameraComponent best = null;
+            for (int i = 0; i < _cameras.Count; i++)
+                if (best == null || _cameras[i].depth < best.depth)
+                    best = _cameras[i];
+            return best;
+        }
+    }
+
     Component[] _lateUpdate = new Component[64];
     int _lateUpdateCount, _lateUpdateHoles;
 

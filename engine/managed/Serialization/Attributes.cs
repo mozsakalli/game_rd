@@ -39,3 +39,20 @@ public sealed class MovedFromAttribute : Attribute
 public sealed class PreviewableAttribute : Attribute
 {
 }
+
+// Inspector'da kosullu gorunurluk: AYNI duzeydeki kardes serilesen alanin degerine
+// bagli. value verilirse esitlik (kanonik skaler kiyasi: enum adi, bool, sayi...);
+// value=null ise "truthy" testi (bool true / asset-ref dolu / sayi != 0 / string dolu).
+// Ornek: [ShowIf(nameof(type), GradientType.Linear)] veya [ShowIf(nameof(font))].
+[AttributeUsage(AttributeTargets.Field)]
+public sealed class ShowIfAttribute : Attribute
+{
+    public readonly string Field;
+    public readonly object Value;
+
+    public ShowIfAttribute(string field, object value = null)
+    {
+        Field = field;
+        Value = value;
+    }
+}

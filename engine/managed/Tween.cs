@@ -122,7 +122,7 @@ public sealed class TweenPool
 
     // --- Frame surucusu (Scene.Update cagirir; dt sahne saatidir) ---
 
-    public void Tick(float dt)
+    internal void Tick(float dt)
     {
         int n = _count;
         for (int i = 0; i < n; i++)

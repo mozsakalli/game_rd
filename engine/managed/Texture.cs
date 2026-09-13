@@ -144,6 +144,22 @@ public unsafe class Texture : GpuResource
     public void UpdateAlpha(byte* pixels)
         => Sokol.UpdateImage((uint)_texture, pixels, Width * Height);
 
+    // Dinamik RGBA8 doku (color picker SV karesi gibi CPU-pisirilen icerik):
+    // UpdateRgba frame'de EN FAZLA BIR KEZ (sokol dinamik image kurali).
+    public static Texture CreateDynamicRgba(int width, int height)
+    {
+        var t = new Texture { Persistent = true };
+        t.Width = width;
+        t.Height = height;
+        t._texture = (int)Sokol.MakeImage(
+            width, height, SG.PixelFormatRgba8, 1, 1, 1 /*dynamic*/, null, 0);
+        t._textureView = (int)Sokol.MakeView((uint)t._texture, SG.ViewTexture);
+        return t;
+    }
+
+    public void UpdateRgba(Color* pixels)
+        => Sokol.UpdateImage((uint)_texture, pixels, Width * Height * sizeof(Color));
+
     public static Texture FromColor(int width, int height, Color color)
     {
         var texture = new Texture();

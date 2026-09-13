@@ -18,12 +18,12 @@ public abstract class Renderer : Component
     }
 }
 
-// Unity SpriteRenderer karsiligi (quad + texture). Boyut dunya biriminde
+// Unity SpriteRenderer karsiligi (quad + sprite). Boyut dunya biriminde
 // (Width/Height); transform scale ile carpilir. Material null ise paylasilan
 // varsayilan materyal kullanilir (texture DrawMesh aninda yakalanir, guvenli).
 public sealed unsafe class SpriteRenderer : Renderer
 {
-    public Texture Texture;
+    public Sprite Sprite;
     public Material Material;
     public Color Color = new(255, 255, 255, 255);
     public float Width = 1f, Height = 1f;
@@ -43,13 +43,13 @@ public sealed unsafe class SpriteRenderer : Renderer
         return t;
     }
 
-    // Texture piksel boyutunu dunya boyutu yap (Unity sprite native size).
+    // Sprite'in mantiksal piksel boyutunu dunya boyutu yap (Unity native size).
     public void SetNativeSize()
     {
-        if (Texture == null)
+        if (Sprite == null || Sprite.LogicalWidth <= 0)
             return;
-        Width = Texture.Width;
-        Height = Texture.Height;
+        Width = Sprite.LogicalWidth;
+        Height = Sprite.LogicalHeight;
     }
 
     public override bool GetLocalSelectionBounds(out Vec2 center, out Vec2 halfSize)
@@ -61,34 +61,33 @@ public sealed unsafe class SpriteRenderer : Renderer
 
     internal override void Encode(RenderQueue queue)
     {
-        // Atlas uyeligi: kaynak png bir atlasa girdiyse HER modda atlastan cizilir
-        // (davranis paritesi — drawcall/bleeding editorde de gercek). Ozel Material
-        // kullanan renderer atlasa sokulmaz (doku secimi kullanicinin).
-        var rec = Material == null && Texture != null ? SpriteTable.Resolve(Texture.Name) : null;
-
+        // Sprite = tek bolge primitifi: atlas uyeligi builder'in Sprite'i yerinde
+        // baglamasiyla gelir — burada lookup yok, alan okunur. Ozel Material'de
+        // doku secimi kullanicinin (sprite bolgesi uygulanmaz, U0..V1 gecerli).
+        var spr = Sprite;
         var mat = Material ?? Shared;
         if (Material == null)
-            mat.MainTexture = rec?.Atlas ?? Texture ?? White;
+            mat.MainTexture = spr?.Page ?? White;
 
         // Width/Height dünya matrisinin basis kolonlarina bake edilir (ek mat mul yok).
         Mat4 model = transform._getWorldMatrix();
-        if (rec?.Atlas != null)
+        if (Material == null && spr != null && spr.IsRegion)
         {
             // Mantiksal quad OrigW x OrigH'yi temsil eder; kirpilmis parca once
             // yerel uzayda otelenip (trim ofseti) sonra parca boyutuna olceklenir.
-            float sx = Width * (rec.DrawW / (float)rec.OrigW);
-            float sy = Height * (rec.DrawH / (float)rec.OrigH);
-            float cx = Width * ((rec.OffX + rec.DrawW * 0.5f) / rec.OrigW - 0.5f);
-            float cy = Height * (0.5f - (rec.OffY + rec.DrawH * 0.5f) / rec.OrigH);
+            float sx = Width * (spr.W / (float)spr.OrigW);
+            float sy = Height * (spr.H / (float)spr.OrigH);
+            float cx = Width * ((spr.OffX + spr.W * 0.5f) / spr.OrigW - 0.5f);
+            float cy = Height * (0.5f - (spr.OffY + spr.H * 0.5f) / spr.OrigH);
             model.m[12] += model.m[0] * cx + model.m[4] * cy;
             model.m[13] += model.m[1] * cx + model.m[5] * cy;
             model.m[14] += model.m[2] * cx + model.m[6] * cy;
             model.m[0] *= sx; model.m[1] *= sx; model.m[2] *= sx;
             model.m[4] *= sy; model.m[5] *= sy; model.m[6] *= sy;
-            float aw = rec.Atlas.Width, ah = rec.Atlas.Height;
+            float aw = spr.Page.Width, ah = spr.Page.Height;
             queue.DrawMesh(Mesh.Quad(), mat, in model, Color,
-                rec.FrameX / aw, rec.FrameY / ah,
-                (rec.FrameX + rec.DrawW) / aw, (rec.FrameY + rec.DrawH) / ah, SortingOrder);
+                spr.X / aw, spr.Y / ah,
+                (spr.X + spr.W) / aw, (spr.Y + spr.H) / ah, SortingOrder);
             return;
         }
         if (Width != 1f)

@@ -110,7 +110,7 @@ public unsafe class App
             {
                 var go = new GameObject("orb");
                 var sr = go.AddComponent<SpriteRenderer>();
-                sr.Texture = _assets.LoadTexture("orb.png"); // async: gelene kadar beyaz
+                sr.Sprite = _assets.LoadSprite("orb.png"); // async: gelene kadar beyaz
                 sr.Width = 110f;
                 sr.Height = 110f;
                 var sp = go.AddComponent<Spinner>();
@@ -273,12 +273,12 @@ public unsafe class App
 
     static void SpawnStress(int count)
     {
-        var tex = _assets.LoadTexture("orb.png");
+        var spr = _assets.LoadSprite("orb.png");
         for (int i = 0; i < count; i++)
         {
             var go = new GameObject("stress");
             var sr = go.AddComponent<SpriteRenderer>();
-            sr.Texture = tex;
+            sr.Sprite = spr;
             sr.Width = 14f;
             sr.Height = 14f;
             go.AddComponent<StressOrb>().Seed = _stressSeed++;

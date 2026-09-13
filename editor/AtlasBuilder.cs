@@ -4,10 +4,22 @@ using DigitoyEngine;
 
 namespace DigitoyEditor;
 
+// Atlas grubu TANIMI (asset): hangi klasorler girer + pack ayarlari. Saf
+// authoring tipi — runtime yalniz Sprite baglamalarini gorur, o yuzden EDITOR
+// assembly'sinde yasar (motora sizmasin).
+[Serializable]
+[CreateAssetMenu(MenuName = "Atlas Group", FileName = "AtlasGroup")]
+public class AtlasGroup
+{
+    public List<string> folders = new();  // Assets'e goreli klasor onekleri ("Textures/UI")
+    public int padding = 2;
+    public int maxSize = 2048;
+}
+
 // Atlas uretimi (editor): AtlasGroup asset'lerini bulur, uye png'leri tek dokuya
-// paketler (shelf pack, v1 trim/rotate yok) ve SpriteTable'a kaydeder — andan
-// itibaren SpriteRenderer HER modda atlastan cizer. Uye png degisince watcher
-// grubu yeniden paketletir (yukler inince, RepackPending uzerinden).
+// paketler (shelf pack, v1 trim/rotate yok) ve uye Sprite'lari YERINDE atlasa
+// baglar — andan itibaren SpriteRenderer HER modda atlastan cizer. Uye png
+// degisince watcher grubu yeniden paketletir (yukler inince, RepackPending uzerinden).
 public static class AtlasBuilder
 {
     sealed class Built
@@ -15,7 +27,7 @@ public static class AtlasBuilder
         public string AssetPath;       // grubun .asset yolu (Assets'e goreli)
         public AtlasGroup Group;
         public Texture Atlas;
-        public readonly List<string> Members = new();
+        public readonly List<Sprite> Members = new();
     }
 
     static readonly List<Built> _built = new();
@@ -27,7 +39,6 @@ public static class AtlasBuilder
         foreach (var b in _built)
             Teardown(b);
         _built.Clear();
-        SpriteTable.Clear();
         var assets = App.Assets;
         if (assets == null)
             return;
@@ -146,17 +157,10 @@ public static class AtlasBuilder
         for (int i = 0; i < texs.Count; i++)
         {
             atlas.BlitFrom(texs[i], px[i], py[i]);
-            SpriteTable.Register(members[i], new SpriteTable.Entry
-            {
-                Atlas = atlas,
-                FrameX = px[i],
-                FrameY = py[i],
-                DrawW = texs[i].Width,
-                DrawH = texs[i].Height,
-                OrigW = texs[i].Width,
-                OrigH = texs[i].Height,
-            });
-            built.Members.Add(members[i]);
+            var spr = assets.LoadSprite(members[i]);
+            spr.BindRegion(atlas, px[i], py[i], texs[i].Width, texs[i].Height,
+                0, 0, texs[i].Width, texs[i].Height);
+            built.Members.Add(spr);
         }
         _built.Add(built);
         EditorLog.Info($"atlas packed: {assetPath} ({members.Count} sprites, {size}x{size})");
@@ -199,8 +203,10 @@ public static class AtlasBuilder
 
     static void Teardown(Built b)
     {
-        foreach (var m in b.Members)
-            SpriteTable.Unregister(m);
+        // Uyeler kaynak dokularina geri baglanir (tum-sayfa modu) — canli
+        // referanslar atlas'siz da cizilmeye devam eder.
+        foreach (var s in b.Members)
+            s.BindFull(App.Assets?.LoadTexture(s.Name));
         b.Atlas?.Destroy();
     }
 }

@@ -24,10 +24,58 @@ public static class GuiUtility
 
     static int _counter;
 
+    // --- Tab navigasyonu: FocusType.Keyboard kontroller pass sirasiyla gezilir ---
+    // MoveFocus istegi bir TAM pass izlenerek cozulur (istek pass ortasinda
+    // gelir; oncesindeki kontroller o pass'te kaydedilmemistir). Cozum sonraki
+    // BeginPass'te KeyboardControl'e yazilir; yeni kontrol ConsumeTabFocus ile
+    // odagi devraldigini ogrenir (select-all / edit moduna giris icin).
+    static bool _tabPending, _tabFresh, _tabBackward, _tabSeenFrom;
+    static int _tabFrom, _tabFocusId;
+    static int _passFirstKb, _passLastKb, _passBeforeFrom, _passAfterFrom;
+
+    // Tab/Shift+Tab: odagi fromId'den sonraki/onceki keyboard kontrole tasi.
+    public static void MoveFocus(int fromId, bool backward)
+    {
+        _tabPending = true;
+        _tabFresh = true;
+        _tabFrom = fromId;
+        _tabBackward = backward;
+    }
+
+    // Kontrol tab ile odak aldiysa bir kez true doner (widget select-all yapar).
+    public static bool ConsumeTabFocus(int controlId)
+    {
+        if (_tabFocusId != controlId)
+            return false;
+        _tabFocusId = 0;
+        return true;
+    }
+
     // Bir event pass'i baslatir: sayac sifirlanir, Event.Current atanir,
     // clip stack'i ekran rect'iyle kurulur. Host her event icin cagirir.
     public static void BeginPass(Event ev, Rect screen)
     {
+        if (_tabPending)
+        {
+            if (_tabFresh)
+            {
+                _tabFresh = false; // istek pass ortasinda geldi; once tam bir pass izle
+            }
+            else
+            {
+                int target = _tabBackward
+                    ? (_passBeforeFrom != 0 ? _passBeforeFrom : _passLastKb)   // geri: onceki, yoksa sona sar
+                    : (_passAfterFrom != 0 ? _passAfterFrom : _passFirstKb);   // ileri: sonraki, yoksa basa sar
+                _tabPending = false;
+                if (target != 0 && target != _tabFrom)
+                {
+                    KeyboardControl = target;
+                    _tabFocusId = target;
+                }
+            }
+        }
+        _passFirstKb = _passLastKb = _passBeforeFrom = _passAfterFrom = 0;
+        _tabSeenFrom = false;
         _counter = 0;
         Event.Current = ev;
         GuiClip.Reset(screen, ev);
@@ -43,8 +91,31 @@ public static class GuiUtility
             h ^= (uint)_counter * 0x85EBCA6Bu;
             h ^= h >> 16;
             int id = (int)h;
-            return id != 0 ? id : 1; // 0 = "kontrol yok" sentineli
+            if (id == 0)
+                id = 1; // 0 = "kontrol yok" sentineli
+            if (focusType == FocusType.Keyboard)
+                TrackKeyboard(id);
+            return id;
         }
+    }
+
+    static void TrackKeyboard(int id)
+    {
+        if (_passFirstKb == 0)
+            _passFirstKb = id;
+        if (_tabPending)
+        {
+            if (id == _tabFrom)
+            {
+                _tabSeenFrom = true;
+                _passBeforeFrom = _passLastKb;
+            }
+            else if (_tabSeenFrom && _passAfterFrom == 0)
+            {
+                _passAfterFrom = id;
+            }
+        }
+        _passLastKb = id;
     }
 
     // Kalici per-control state (Unity GUIStateObjects'in boxing'siz hali).

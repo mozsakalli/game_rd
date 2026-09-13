@@ -180,7 +180,6 @@ public unsafe class App
             float mouseScale = winW > 0 ? winW / lw : uiScale;
 
             // Point koordinatlari, orijin sol-ust (y asagi). Oyun GameOutput boyutunda yasar.
-            sceneCam.SetPixelOrtho(GameOutput.ViewW, GameOutput.ViewH);
             mainCam.SetPixelOrtho(lw, lh);
 
             float t = (float)GLFW.GetTime();
@@ -205,7 +204,15 @@ public unsafe class App
             Scene.UpdateAll(dt, GameOutput.ViewW, GameOutput.ViewH, PlayMode.Simulate);
 
             // Oyun ciktisi: oyun sahnesi (Play'de) yoksa edit projeksiyonu.
+            // Projeksiyon sahnedeki CameraComponent'ten (WYSIWYG); yoksa fallback
+            // sabit piksel-ortho (eski davranis). Render'dan ONCE basilir — layout
+            // fitScreen kutulari encode sirasinda kamera rect'ini okur.
             var gameScene = PlayMode.PlayScene ?? editLive;
+            var camComp = gameScene?.MainCamera;
+            if (camComp != null)
+                camComp.ApplyTo(sceneCam, GameOutput.ViewW, GameOutput.ViewH);
+            else
+                sceneCam.SetPixelOrtho(GameOutput.ViewW, GameOutput.ViewH);
             gameScene?.Render(sceneCam.Queue);
             // Scene View: edit projeksiyonu (HEP donuk doc).
             if (_sceneView.VisibleLastFrame && editLive != null)
@@ -219,6 +226,7 @@ public unsafe class App
 
             // Detached panel pencereleri: kendi GUI turlari + redock kontrolu.
             GuiDock.UpdateWindows();
+            ColorPickerWindow.UpdateWindow();
 
             // Surukle-birak: sol tus birakildiysa kayitli hedefe uygula/temizle.
             DragDrop.EndFrame(GLFW.GetMouseButton(window, 0) == GLFWConst.RELEASE);
@@ -250,6 +258,7 @@ public unsafe class App
 #endif
             Camera.EncodeAll(cameras, cb, fbw, fbh);
             GuiDock.EncodeWindows(cb);
+            ColorPickerWindow.Encode(cb);
 #if DE_EDITOR
             // Replay pass'leri canli frame'den ONCE kosar; GUI ayni frame'de RT'yi okur.
             RenderDebug.ReplayIfFrozen();
@@ -266,6 +275,7 @@ public unsafe class App
                 GLFW.SwapBuffers(window);
             // MakeContextCurrent implicit flush yapar (WGL); blit guncel iceriden okur.
             GuiDock.PresentWindows();
+            ColorPickerWindow.Present();
         }
 
         RpcHost.Stop();
@@ -472,11 +482,12 @@ public unsafe class App
         // Asset importer'lari: builtin'ler + oyun assembly'sinin [AssetImporter]'lari.
         ImportPipeline.Rebuild(typeof(App).Assembly, _gameCode.GameAssembly);
 
-        // [CreateAssetMenu] tipleri: sag-tik Create menusu YALNIZ opt-in'lerden kurulur.
+        // [CreateAssetMenu] tipleri: sag-tik Create menusu YALNIZ opt-in'lerden kurulur
+        // (motor + editor authoring tipleri + oyun assembly'si).
         AssetTypes.Clear();
         foreach (var asm in _gameCode.GameAssembly != null
-            ? new[] { typeof(GameObject).Assembly, _gameCode.GameAssembly }
-            : new[] { typeof(GameObject).Assembly })
+            ? new[] { typeof(GameObject).Assembly, typeof(App).Assembly, _gameCode.GameAssembly }
+            : new[] { typeof(GameObject).Assembly, typeof(App).Assembly })
         {
             foreach (var t in asm.GetTypes())
                 if (ObjectSerializer.IsCreatable(t))
