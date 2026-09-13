@@ -44,6 +44,140 @@
 #endif
 
 // ---------------------------------------------------------------------------
+// METAL HOST (macOS/iOS) — sokol_gfx swapchain'i icin MTLDevice + CAMetalLayer.
+// ---------------------------------------------------------------------------
+// GLCORE'da swapchain = GL varsayilan framebuffer (fbo 0). Metal'de host,
+// pencerenin NSView'ine bir CAMetalLayer takar; her frame layer'dan bir
+// CAMetalDrawable + eslesen bir depth-stencil texture uretilip sg_pass.swapchain
+// .metal alanlarina verilir. sokol_gfx swapchain pass'in sonunda drawable'i
+// otomatik present eder (sg_commit). Yalniz ANA pencere swapchain kullanir.
+//
+// Bu blok Objective-C + ARC ile derlenir (build_editor.sh; -x objective-c
+// -fobjc-arc). Windows/GLCORE build'inde tamamen dislanir.
+#if defined(SOKOL_METAL)
+#define GLFW_INCLUDE_NONE
+#include "GLFW/glfw3.h"
+#define GLFW_EXPOSE_NATIVE_COCOA
+#include "GLFW/glfw3native.h"
+#import <Metal/Metal.h>
+#import <QuartzCore/CAMetalLayer.h>
+#import <AppKit/AppKit.h>
+
+// COK PENCERE: her native pencerenin kendi CAMetalLayer'i + bu frame'in
+// drawable'i + eslesen depth-stencil texture'i vardir. Slot 0 = ANA pencere;
+// 1..N = ikincil (tear-off / floating) pencereler. sokol_gfx her swapchain
+// pass'in SONUNDA (end_pass) o pass'in drawable'ini present eder (commit'te
+// degil) -> ayni frame'de birden cok pencereye cizip her birini bagimsiz
+// present etmek dogal olarak calisir. Pencere "handle" = slot indeksi ve
+// Camera.Framebuffer araciligiyla begin_pass'e tasinir (GL'de ayni alan FBO).
+#define DE_MTL_MAX_WINDOWS 32
+typedef struct {
+    CAMetalLayer *layer;
+    id<CAMetalDrawable> drawable;   // bu frame'in drawable'i (present sonrasi birakilir)
+    id<MTLTexture> depth;           // depth-stencil (drawable boyutunda)
+    int depth_w, depth_h;
+    bool active;
+} de_mtl_window_t;
+
+static id<MTLDevice> _de_mtl_device;
+static de_mtl_window_t _de_mtl_wins[DE_MTL_MAX_WINDOWS];
+
+// Verilen GLFW penceresinin NSView'ine bir CAMetalLayer takar (slot'a kaydeder).
+static void de_metal_attach_layer(int slot, void *glfwWindow)
+{
+    NSWindow *nswin = glfwGetCocoaWindow((GLFWwindow *)glfwWindow);
+    CAMetalLayer *layer = [CAMetalLayer layer];
+    layer.device = _de_mtl_device;
+    layer.pixelFormat = MTLPixelFormatRGBA8Unorm; // offscreen RT'ler ve pipeline varsayilaniyla ayni (RGBA8)
+    layer.framebufferOnly = YES;
+    NSView *view = nswin.contentView;
+    view.wantsLayer = YES;
+    view.layer = layer;
+    _de_mtl_wins[slot].layer = layer;
+    _de_mtl_wins[slot].drawable = nil;
+    _de_mtl_wins[slot].depth = nil;
+    _de_mtl_wins[slot].depth_w = 0;
+    _de_mtl_wins[slot].depth_h = 0;
+    _de_mtl_wins[slot].active = true;
+}
+
+// C# ANA pencereyi (GLFW_NO_API) olusturduktan SONRA cagrilir: device'i kurar
+// ve ana pencereye (slot 0) layer takar. de_sokol_setup'tan ONCE cagrilmali.
+SOKOL_API void de_metal_init_window(void *glfwWindow)
+{
+    if (!_de_mtl_device)
+        _de_mtl_device = MTLCreateSystemDefaultDevice();
+    de_metal_attach_layer(0, glfwWindow);
+}
+
+// Ikincil pencere: bos bir slot bulup layer takar, handle (slot indeksi) doner.
+// Basarisizsa -1. Yalniz ANA pencere + de_metal_init_window'dan SONRA cagrilir.
+SOKOL_API int de_metal_create_window(void *glfwWindow)
+{
+    if (!_de_mtl_device)
+        return -1;
+    for (int i = 1; i < DE_MTL_MAX_WINDOWS; i++)
+    {
+        if (!_de_mtl_wins[i].active)
+        {
+            de_metal_attach_layer(i, glfwWindow);
+            return i;
+        }
+    }
+    return -1;
+}
+
+// Ikincil pencere kapatilirken cagrilir: slot'u serbest birakir (ARC nil'ler).
+SOKOL_API void de_metal_destroy_window(int handle)
+{
+    if (handle <= 0 || handle >= DE_MTL_MAX_WINDOWS)
+        return;
+    _de_mtl_wins[handle].drawable = nil;
+    _de_mtl_wins[handle].depth = nil;
+    _de_mtl_wins[handle].layer = nil;
+    _de_mtl_wins[handle].active = false;
+}
+
+// de_sokol_setup icin device pointer'i (unretained __bridge).
+static const void *de_metal_device(void) { return (__bridge const void *)_de_mtl_device; }
+
+// Swapchain pass'inden ONCE (begin_pass icinde lazy): handle'in drawable + depth'ini hazirla.
+static void de_metal_acquire(int handle, int width, int height)
+{
+    if (handle < 0 || handle >= DE_MTL_MAX_WINDOWS)
+        return;
+    de_mtl_window_t *w = &_de_mtl_wins[handle];
+    if (!w->active || w->drawable != nil)
+        return; // pasif slot ya da bu frame zaten alindi
+    if (width <= 0 || height <= 0)
+        return;
+    w->layer.drawableSize = CGSizeMake(width, height);
+    w->drawable = [w->layer nextDrawable];
+    if (w->depth == nil || width != w->depth_w || height != w->depth_h)
+    {
+        MTLTextureDescriptor *dd = [MTLTextureDescriptor
+            texture2DDescriptorWithPixelFormat:MTLPixelFormatDepth32Float_Stencil8
+                                         width:(NSUInteger)width
+                                        height:(NSUInteger)height
+                                     mipmapped:NO];
+        dd.usage = MTLTextureUsageRenderTarget;
+        dd.storageMode = MTLStorageModePrivate;
+        w->depth = [_de_mtl_device newTextureWithDescriptor:dd];
+        w->depth_w = width;
+        w->depth_h = height;
+    }
+}
+
+// sg_commit sonrasi: TUM pencerelerin drawable referanslarini birak (sokol
+// kendi ref'ini tutar; her pass end_pass'te zaten present etti).
+static void de_metal_frame_end(void)
+{
+    for (int i = 0; i < DE_MTL_MAX_WINDOWS; i++)
+        _de_mtl_wins[i].drawable = nil;
+}
+#endif // SOKOL_METAL
+
+// ---------------------------------------------------------------------------
 // Pipeline / bindings / uniforms
 // ---------------------------------------------------------------------------
 
@@ -126,7 +260,21 @@ SOKOL_API void de_sokol_begin_pass(
     pass.swapchain.width = width;
     pass.swapchain.height = height;
     pass.swapchain.sample_count = sampleCount;
+#if defined(SOKOL_METAL)
+    // Metal: framebuffer = pencere handle'i (0 = ana). Her frame o pencerenin
+    // CAMetalLayer'indan drawable + depth alinir (host).
+    de_metal_acquire((int)framebuffer, width, height);
+    pass.swapchain.color_format = SG_PIXELFORMAT_RGBA8;
+    pass.swapchain.depth_format = SG_PIXELFORMAT_DEPTH_STENCIL;
+    if ((int)framebuffer >= 0 && (int)framebuffer < DE_MTL_MAX_WINDOWS)
+    {
+        de_mtl_window_t *w = &_de_mtl_wins[framebuffer];
+        pass.swapchain.metal.current_drawable = (__bridge const void *)w->drawable;
+        pass.swapchain.metal.depth_stencil_texture = (__bridge const void *)w->depth;
+    }
+#else
     pass.swapchain.gl.framebuffer = framebuffer;
+#endif
     sg_begin_pass(&pass);
 }
 
@@ -158,6 +306,9 @@ SOKOL_API void de_sokol_begin_pass_offscreen(
 SOKOL_API void de_sokol_commit(void)
 {
     sg_commit();
+#if defined(SOKOL_METAL)
+    de_metal_frame_end(); // present sonrasi drawable ref'ini birak
+#endif
 }
 
 // ---------------------------------------------------------------------------
@@ -216,6 +367,14 @@ SOKOL_API void de_sokol_setup(void)
 {
     sg_desc d = {0};
     d.logger.func = de_sokol_log;
+#if defined(SOKOL_METAL)
+    // Metal ortami: device host'tan; swapchain ve offscreen RT'ler ayni RGBA8/
+    // DEPTH_STENCIL formatinda tutulur -> pipeline'lar tek varsayilan formatla eslesir.
+    d.environment.metal.device = de_metal_device();
+    d.environment.defaults.color_format = SG_PIXELFORMAT_RGBA8;
+    d.environment.defaults.depth_format = SG_PIXELFORMAT_DEPTH_STENCIL;
+    d.environment.defaults.sample_count = 1;
+#endif
     sg_setup(&d);
 }
 
@@ -434,6 +593,7 @@ SOKOL_API void de_sokol_shader_uniform_block(int slot, int stage, int size, int 
     _de_sd.uniform_blocks[slot].stage = (sg_shader_stage)stage;
     _de_sd.uniform_blocks[slot].size = (size_t)size;
     _de_sd.uniform_blocks[slot].layout = (sg_uniform_layout)layout;
+    _de_sd.uniform_blocks[slot].msl_buffer_n = (uint8_t)slot; // Metal [[buffer(slot)]] (0..7)
 }
 SOKOL_API void de_sokol_shader_uniform(int blockSlot, int index, int type, const char *glslName)
 {
@@ -445,11 +605,13 @@ SOKOL_API void de_sokol_shader_texture_view(int slot, int stage, int imageType, 
     _de_sd.views[slot].texture.stage = (sg_shader_stage)stage;
     _de_sd.views[slot].texture.image_type = (sg_image_type)imageType;
     _de_sd.views[slot].texture.sample_type = (sg_image_sample_type)sampleType;
+    _de_sd.views[slot].texture.msl_texture_n = (uint8_t)slot; // Metal [[texture(slot)]]
 }
 SOKOL_API void de_sokol_shader_sampler(int slot, int stage, int samplerType)
 {
     _de_sd.samplers[slot].stage = (sg_shader_stage)stage;
     _de_sd.samplers[slot].sampler_type = (sg_sampler_type)samplerType;
+    _de_sd.samplers[slot].msl_sampler_n = (uint8_t)slot; // Metal [[sampler(slot)]]
 }
 SOKOL_API void de_sokol_shader_texture_sampler_pair(
     int slot, int stage, int viewSlot, int samplerSlot, const char *glslName)
@@ -1199,5 +1361,354 @@ SOKOL_API int de_menu_show_context(void *glfwWindow, void *popup)
 SOKOL_API void de_menu_destroy(void *menu)
 {
     DestroyMenu((HMENU)menu); // alt popup'lari da yok eder
+}
+
+#else // !_WIN32 : POSIX (macOS/iOS) — pthread IO + Cocoa menu
+// ---------------------------------------------------------------------------
+// Async asset IO (POSIX): Win32 surumunun ayni sozlesmesi; worker pthread'de,
+// managed taraf poll tabanli tek thread kalir.
+// ---------------------------------------------------------------------------
+#include <pthread.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define DE_IO_MAX_JOBS 64
+#define DE_IO_PATH_MAX 512
+
+typedef struct
+{
+    volatile int state; // 0 bos, 1 bekliyor, 2 calisiyor, 3 tamam, 4 hata
+    char path[DE_IO_PATH_MAX];
+    long long offset, length; // length>0: pak icinden aralik oku (release)
+    long long rawLength;      // != length: aralik zlib'li, once inflate
+    unsigned char *pixels;    // RGBA8, satir 0 altta (RT yonelimi)
+    int w, h;
+} de_io_job_t;
+
+static de_io_job_t de_io_jobs[DE_IO_MAX_JOBS];
+static pthread_mutex_t de_io_lock = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t de_io_cond = PTHREAD_COND_INITIALIZER;
+static int de_io_started;
+
+// DTEX (build'de onceden cozulmus texture) — Win32 surumuyle ayni format.
+static int de_paeth(int a, int b, int c)
+{
+    int p = a + b - c;
+    int pa = abs(p - a), pb = abs(p - b), pc = abs(p - c);
+    return pa <= pb && pa <= pc ? a : (pb <= pc ? b : c);
+}
+
+static unsigned char *de_try_dtex(const unsigned char *data, long long len, int *w, int *h)
+{
+    if (len < 16)
+        return NULL;
+    int magic, fmt, tw, th;
+    memcpy(&magic, data, 4);
+    if (magic != 0x58455444)
+        return NULL;
+    memcpy(&fmt, data + 4, 4);
+    memcpy(&tw, data + 8, 4);
+    memcpy(&th, data + 12, 4);
+    if (tw <= 0 || th <= 0)
+        return NULL;
+    long long stride = (long long)tw * 4;
+    if (fmt == 0)
+    {
+        if (stride * th != len - 16)
+            return NULL;
+        unsigned char *px = (unsigned char *)malloc((size_t)(stride * th));
+        if (!px)
+            return NULL;
+        memcpy(px, data + 16, (size_t)(stride * th));
+        *w = tw;
+        *h = th;
+        return px;
+    }
+    if (fmt == 1)
+    {
+        if ((stride + 1) * th != len - 16)
+            return NULL;
+        unsigned char *px = (unsigned char *)malloc((size_t)(stride * th));
+        if (!px)
+            return NULL;
+        const unsigned char *src = data + 16;
+        for (int y = 0; y < th; y++)
+        {
+            int f = *src++;
+            unsigned char *cur = px + (size_t)y * stride;
+            const unsigned char *prev = y > 0 ? cur - stride : NULL;
+            for (long long x = 0; x < stride; x++)
+            {
+                int left = x >= 4 ? cur[x - 4] : 0;
+                int up = prev ? prev[x] : 0;
+                int ul = (prev && x >= 4) ? prev[x - 4] : 0;
+                int pred = f == 1 ? left : f == 2 ? up
+                                       : f == 3   ? ((left + up) >> 1)
+                                       : f == 4   ? de_paeth(left, up, ul)
+                                                  : 0;
+                cur[x] = (unsigned char)(src[x] + pred);
+            }
+            src += stride;
+        }
+        *w = tw;
+        *h = th;
+        return px;
+    }
+    return NULL;
+}
+
+static unsigned char *de_decode_pixels(const unsigned char *data, long long len, int *w, int *h, int *comp)
+{
+    unsigned char *px = de_try_dtex(data, len, w, h);
+    return px ? px : stbi_load_from_memory(data, (int)len, w, h, comp, 4);
+}
+
+static void *de_io_worker(void *arg)
+{
+    (void)arg;
+    for (;;)
+    {
+        pthread_mutex_lock(&de_io_lock);
+        de_io_job_t *job = NULL;
+        while (!job)
+        {
+            for (int i = 0; i < DE_IO_MAX_JOBS; i++)
+                if (de_io_jobs[i].state == 1)
+                {
+                    de_io_jobs[i].state = 2;
+                    job = &de_io_jobs[i];
+                    break;
+                }
+            if (!job)
+                pthread_cond_wait(&de_io_cond, &de_io_lock);
+        }
+        pthread_mutex_unlock(&de_io_lock);
+
+        int w = 0, h = 0, comp = 0;
+        unsigned char *px = NULL;
+        if (job->length > 0)
+        {
+            FILE *f = fopen(job->path, "rb");
+            if (f)
+            {
+                unsigned char *buf = (unsigned char *)malloc((size_t)job->length);
+                if (buf && fseeko(f, (off_t)job->offset, SEEK_SET) == 0 &&
+                    fread(buf, 1, (size_t)job->length, f) == (size_t)job->length)
+                {
+                    unsigned char *data = buf;
+                    long long dataLen = job->length;
+                    unsigned char *raw = NULL;
+                    if (job->rawLength != job->length)
+                    {
+                        raw = (unsigned char *)malloc((size_t)job->rawLength);
+                        if (raw && stbi_zlib_decode_buffer((char *)raw, (int)job->rawLength,
+                                                           (const char *)buf, (int)job->length) == (int)job->rawLength)
+                        {
+                            data = raw;
+                            dataLen = job->rawLength;
+                        }
+                        else
+                            data = NULL;
+                    }
+                    if (data)
+                        px = de_decode_pixels(data, dataLen, &w, &h, &comp);
+                    free(raw);
+                }
+                free(buf);
+                fclose(f);
+            }
+        }
+        else
+            px = stbi_load(job->path, &w, &h, &comp, 4);
+        job->pixels = px;
+        job->w = w;
+        job->h = h;
+        __atomic_store_n(&job->state, px ? 3 : 4, __ATOMIC_RELEASE); // pixels once yazildi
+    }
+    return NULL;
+}
+
+static void de_io_ensure(void)
+{
+    if (de_io_started)
+        return;
+    de_io_started = 1;
+    stbi_set_flip_vertically_on_load(1); // satir 0 altta: quad UV'leriyle uyumlu
+    pthread_t t;
+    if (pthread_create(&t, NULL, de_io_worker, NULL) == 0)
+        pthread_detach(t);
+}
+
+SOKOL_API int de_asset_load_range(const char *path, long long offset, long long length, long long rawLength)
+{
+    de_io_ensure();
+    int id = -1;
+    pthread_mutex_lock(&de_io_lock);
+    for (int i = 0; i < DE_IO_MAX_JOBS; i++)
+    {
+        if (de_io_jobs[i].state == 0)
+        {
+            de_io_jobs[i].pixels = NULL;
+            de_io_jobs[i].w = de_io_jobs[i].h = 0;
+            de_io_jobs[i].offset = offset;
+            de_io_jobs[i].length = length;
+            de_io_jobs[i].rawLength = rawLength;
+            strncpy(de_io_jobs[i].path, path, DE_IO_PATH_MAX - 1);
+            de_io_jobs[i].path[DE_IO_PATH_MAX - 1] = 0;
+            de_io_jobs[i].state = 1;
+            id = i;
+            break;
+        }
+    }
+    if (id >= 0)
+        pthread_cond_signal(&de_io_cond);
+    pthread_mutex_unlock(&de_io_lock);
+    return id;
+}
+
+SOKOL_API int de_asset_load(const char *path)
+{
+    return de_asset_load_range(path, 0, 0, 0);
+}
+
+// 0=bekliyor, 1=tamam (pixels/w/h dolu), -1=hata. Yalniz main thread poll eder.
+SOKOL_API int de_asset_poll(int job, void **pixels, int *w, int *h)
+{
+    if (job < 0 || job >= DE_IO_MAX_JOBS)
+        return -1;
+    int s = __atomic_load_n(&de_io_jobs[job].state, __ATOMIC_ACQUIRE);
+    if (s == 3)
+    {
+        *pixels = de_io_jobs[job].pixels;
+        *w = de_io_jobs[job].w;
+        *h = de_io_jobs[job].h;
+        return 1;
+    }
+    return s == 4 ? -1 : 0;
+}
+
+SOKOL_API void de_asset_free_job(int job)
+{
+    if (job < 0 || job >= DE_IO_MAX_JOBS)
+        return;
+    if (de_io_jobs[job].pixels)
+    {
+        stbi_image_free(de_io_jobs[job].pixels);
+        de_io_jobs[job].pixels = NULL;
+    }
+    __atomic_store_n(&de_io_jobs[job].state, 0, __ATOMIC_RELEASE);
+}
+
+// ---------------------------------------------------------------------------
+// Native menu (Cocoa): editor ana penceresine NSMenu bar takar; sag-tik
+// context menusu SENKRON secim dondurur. Item id'leri NSMenuItem.tag'inde.
+// Ana-bar tiklamalari ring buffer'a yazilir (de_menu_poll ile cekilir);
+// context menusunde ise (_de_menu_in_context) secim dogrudan dondurulur.
+// ---------------------------------------------------------------------------
+#import <Cocoa/Cocoa.h>
+
+static int de__menu_ring[64];
+static volatile int de__menu_rd, de__menu_wr;
+static int de__menu_in_context;
+static int de__menu_ctx_result;
+
+@interface DEMenuTarget : NSObject
+- (void)fire:(id)sender;
+@end
+@implementation DEMenuTarget
+- (void)fire:(id)sender
+{
+    int tag = (int)[(NSMenuItem *)sender tag];
+    if (de__menu_in_context)
+        de__menu_ctx_result = tag;
+    else
+    {
+        de__menu_ring[de__menu_wr & 63] = tag;
+        de__menu_wr++;
+    }
+}
+@end
+
+static DEMenuTarget *de__menu_shared_target(void)
+{
+    static DEMenuTarget *t;
+    if (!t)
+        t = [[DEMenuTarget alloc] init];
+    return t;
+}
+
+SOKOL_API void *de_menu_create_bar(void)
+{
+    NSMenu *bar = [[NSMenu alloc] init];
+    [bar setAutoenablesItems:NO];
+    return (void *)CFBridgingRetain(bar); // uygulama omru boyunca yasar
+}
+
+SOKOL_API void *de_menu_add_popup(void *parent, const char *title)
+{
+    NSString *t = [NSString stringWithUTF8String:title];
+    NSMenu *sub = [[NSMenu alloc] initWithTitle:t];
+    [sub setAutoenablesItems:NO];
+    NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:t action:NULL keyEquivalent:@""];
+    [item setSubmenu:sub];
+    [(__bridge NSMenu *)parent addItem:item];
+    return (__bridge void *)sub; // parent sahibi; ayrica retain gerekmez
+}
+
+SOKOL_API void de_menu_add_item(void *menu, const char *title, int id)
+{
+    NSMenuItem *it = [[NSMenuItem alloc] initWithTitle:[NSString stringWithUTF8String:title]
+                                                action:@selector(fire:)
+                                         keyEquivalent:@""];
+    [it setTarget:de__menu_shared_target()];
+    [it setTag:id];
+    [it setEnabled:YES];
+    [(__bridge NSMenu *)menu addItem:it];
+}
+
+SOKOL_API void de_menu_add_separator(void *menu)
+{
+    [(__bridge NSMenu *)menu addItem:[NSMenuItem separatorItem]];
+}
+
+SOKOL_API void de_menu_attach(void *glfwWindow, void *bar)
+{
+    (void)glfwWindow;
+    [NSApp setMainMenu:(__bridge NSMenu *)bar];
+}
+
+// -1 = komut yok; >=0 = de_menu_add_item'a verilen id.
+SOKOL_API int de_menu_poll(void)
+{
+    if (de__menu_rd == de__menu_wr)
+        return -1;
+    int id = de__menu_ring[de__menu_rd & 63];
+    de__menu_rd++;
+    return id;
+}
+
+SOKOL_API void *de_menu_create_popup(void)
+{
+    NSMenu *popup = [[NSMenu alloc] init];
+    [popup setAutoenablesItems:NO];
+    return (void *)CFBridgingRetain(popup); // de_menu_destroy serbest birakir
+}
+
+// Sag-tik context menusu: SENKRON — secim yapilmadan donmez.
+SOKOL_API int de_menu_show_context(void *glfwWindow, void *popup)
+{
+    (void)glfwWindow;
+    de__menu_ctx_result = -1;
+    de__menu_in_context = 1;
+    NSPoint loc = [NSEvent mouseLocation]; // ekran koordinati (inView:nil ile uyumlu)
+    [(__bridge NSMenu *)popup popUpMenuPositioningItem:nil atLocation:loc inView:nil];
+    de__menu_in_context = 0;
+    return de__menu_ctx_result;
+}
+
+SOKOL_API void de_menu_destroy(void *menu)
+{
+    CFBridgingRelease(menu); // alt popup'lar item hiyerarsisiyle birlikte serbest kalir
 }
 #endif // _WIN32

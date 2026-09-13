@@ -1,7 +1,0 @@
-[gamecode] yuklendi: Sandbox.Game (4 script)
-[lifecycle] 18 PASS, 0 FAIL
-[serialization] 14 PASS, 0 FAIL
-[layout] 15 PASS, 0 FAIL
-[info] atlas packed: MainAtlas.asset (1 sprites, 256x256)
-[info] [rpc] dinleniyor: localhost:5157
-[info] [import] Fonts/arial.ttf -> 1 artifact (FontImporter, 71ms)

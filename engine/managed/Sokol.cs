@@ -144,6 +144,21 @@ public static unsafe class Sokol
     [DllImport(Lib, EntryPoint = "de_sokol_setup")]
     extern public static void Setup();
 
+    // macOS/iOS (Metal): ana pencereye CAMetalLayer takar + MTLDevice kurar.
+    // Setup'tan ONCE, GLFW penceresi (GLFW_NO_API) olusturulduktan SONRA cagrilir.
+    // Yalniz Metal native lib'inde export edilir; sadece macOS/iOS'ta cagirin.
+    [DllImport(Lib, EntryPoint = "de_metal_init_window")]
+    extern public static void MetalInitWindow(IntPtr glfwWindow);
+
+    // Ikincil (tear-off/floating) pencereye CAMetalLayer takar; handle (>0) doner,
+    // basarisizsa -1. Yalniz Metal native lib'inde export edilir.
+    [DllImport(Lib, EntryPoint = "de_metal_create_window")]
+    extern public static int MetalCreateWindow(IntPtr glfwWindow);
+
+    // Ikincil pencere kapatilirken slot'u serbest birakir.
+    [DllImport(Lib, EntryPoint = "de_metal_destroy_window")]
+    extern public static void MetalDestroyWindow(int handle);
+
     [DllImport(Lib, EntryPoint = "de_sokol_shutdown")]
     extern public static void Shutdown();
 

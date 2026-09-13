@@ -1,6 +1,0 @@
-[gamecode] yuklendi: Sandbox.Game (3 script)
-[lifecycle] 18 PASS, 0 FAIL
-[serialization] 14 PASS, 0 FAIL
-[info] atlas packed: MainAtlas.asset (1 sprites, 256x256)
-[info] [pak] 11 asset (2 dtex) -> C:\Work\digitoygames\game_rd\Projects\Sandbox\Build\game.pak (426.2 KB, acik 1972.5 KB, %21.6)
-[info] [pak] verify OK: 11 bayt-esit, Textures/orb.png defilter pikselleri kaynakla BIREBIR (64x64)

@@ -18,15 +18,39 @@ public unsafe class App
         };
 
         GLFW.Init();
-        // sokol GLCORE backend'i GL 4.1 core context ister.
-        GLFW.WindowHint(GLFWConst.CONTEXT_VERSION_MAJOR, 4);
-        GLFW.WindowHint(GLFWConst.CONTEXT_VERSION_MINOR, 1);
-        GLFW.WindowHint(GLFWConst.OPENGL_PROFILE, GLFWConst.OPENGL_CORE_PROFILE);
-        GLFW.WindowHint(GLFWConst.OPENGL_FORWARD_COMPAT, GLFWConst.TRUE);
-        GLFW.WindowHint(GLFWConst.SCALE_TO_MONITOR, GLFWConst.TRUE); // %125/%150 ekranda mantikli boyut
+        // Backend DERLEME zamani secilir: DE_RENDERER_METAL / DE_RENDERER_OPENGL
+        // (csproj Renderer ozelligi; macOS varsayilan Metal, -p:Renderer=OpenGL ile GL).
+#if DE_RENDERER_METAL
+        bool metal = true;
+#else
+        bool metal = false;
+#endif
+        if (metal)
+        {
+            // Metal: GLFW GL context'i OLUSTURMAZ; sunumu CAMetalLayer + sokol yapar.
+            GLFW.WindowHint(GLFWConst.CLIENT_API, GLFWConst.NO_API);
+            GLFW.WindowHint(GLFWConst.SCALE_TO_MONITOR, GLFWConst.TRUE);
+        }
+        else
+        {
+            // sokol GLCORE backend'i GL 4.1 core context ister.
+            GLFW.WindowHint(GLFWConst.CONTEXT_VERSION_MAJOR, 4);
+            GLFW.WindowHint(GLFWConst.CONTEXT_VERSION_MINOR, 1);
+            GLFW.WindowHint(GLFWConst.OPENGL_PROFILE, GLFWConst.OPENGL_CORE_PROFILE);
+            GLFW.WindowHint(GLFWConst.OPENGL_FORWARD_COMPAT, GLFWConst.TRUE);
+            GLFW.WindowHint(GLFWConst.SCALE_TO_MONITOR, GLFWConst.TRUE); // %125/%150 ekranda mantikli boyut
+        }
         var window = GLFW.CreateWindow(1600, 900, "Editor", IntPtr.Zero, IntPtr.Zero);
-        GLFW.MakeContextCurrent(window);
-        GLFW.SwapInterval(1);
+        if (metal)
+        {
+            // NSWindow'a CAMetalLayer tak + MTLDevice kur (Setup device'i buradan alir).
+            Sokol.MetalInitWindow(window);
+        }
+        else
+        {
+            GLFW.MakeContextCurrent(window);
+            GLFW.SwapInterval(1);
+        }
 
         Sokol.Setup();
 
@@ -35,7 +59,7 @@ public unsafe class App
         Gui.Font = GuiFont.Load("C:\\Windows\\Fonts\\segoeui.ttf")
                 ?? GuiFont.Load("C:\\Windows\\Fonts\\arial.ttf");
                 */
-        Gui.Font = GuiFont.Load("C:\\Work\\digitoygames\\game_rd\\font.ttf");
+        Gui.Font = GuiFont.Load("font.ttf");
 
         var cb = new CommandBuffer();
 
@@ -144,8 +168,16 @@ public unsafe class App
             // HiDPI: UI/oyun MANTIKSAL (point) uzayda, viewport fiziksel piksel.
             GLFW.GetWindowContentScale(window, out float uiScale, out _);
             if (uiScale <= 0) uiScale = 1f;
-            Gui.Scale = uiScale * 2;
+            Gui.Scale = uiScale;
             float lw = fbw / uiScale, lh = fbh / uiScale;
+
+            // Fare bolen'i: GLFW imlec konumu PENCERE (screen-coord) uzayinda gelir;
+            // GUI mantiksal (lw x lh) uzayda calisir. Windows'ta pencere==framebuffer
+            // (piksel) oldugundan bolen uiScale'e esit; macOS'ta pencere zaten point
+            // oldugundan bolen 1'e duser. uiScale'e bolmek macOS'ta konumu yariya
+            // indiriyordu (sag-alt -> merkez).
+            GLFW.GetWindowSize(window, out int winW, out _);
+            float mouseScale = winW > 0 ? winW / lw : uiScale;
 
             // Point koordinatlari, orijin sol-ust (y asagi). Oyun GameOutput boyutunda yasar.
             sceneCam.SetPixelOrtho(GameOutput.ViewW, GameOutput.ViewH);
@@ -183,7 +215,7 @@ public unsafe class App
             }
 
             GuiRenderer.Queue = mainCam.Queue;
-            guiHost.Frame(window, new Rect(0, 0, lw, lh), drawUi, uiScale);
+            guiHost.Frame(window, new Rect(0, 0, lw, lh), drawUi, mouseScale);
 
             // Detached panel pencereleri: kendi GUI turlari + redock kontrolu.
             GuiDock.UpdateWindows();
@@ -228,7 +260,10 @@ public unsafe class App
             RenderDebug.AfterSubmit(cb);
 #endif
 
-            GLFW.SwapBuffers(window);
+            // GL'de swapchain sunumu SwapBuffers ile; Metal'de sokol_gfx drawable'i
+            // sg_commit icinde present eder (SwapBuffers gereksiz).
+            if (!metal)
+                GLFW.SwapBuffers(window);
             // MakeContextCurrent implicit flush yapar (WGL); blit guncel iceriden okur.
             GuiDock.PresentWindows();
         }

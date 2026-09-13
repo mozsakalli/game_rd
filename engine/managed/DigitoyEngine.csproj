@@ -17,6 +17,18 @@
     <DefineConstants>$(DefineConstants);DE_EDITOR</DefineConstants>
   </PropertyGroup>
 
+  <!-- Grafik backend'i DERLEME zamani secilir (runtime degil). Varsayilan:
+       macOS=Metal, diger=OpenGL. Override: dotnet build -p:Renderer=OpenGL
+       (macOS'ta OpenGL derlemek icin). Native lib de ayni backend'le
+       derlenmeli (build_editor.sh: -DSOKOL_METAL / -DSOKOL_GLCORE). -->
+  <PropertyGroup>
+    <Renderer Condition="'$(Renderer)' == '' AND '$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::OSX)))' == 'true'">Metal</Renderer>
+    <Renderer Condition="'$(Renderer)' == ''">OpenGL</Renderer>
+    <DefineConstants Condition="'$(Renderer)' == 'Metal'">$(DefineConstants);DE_RENDERER_METAL</DefineConstants>
+    <DefineConstants Condition="'$(Renderer)' == 'OpenGL'">$(DefineConstants);DE_RENDERER_OPENGL</DefineConstants>
+  </PropertyGroup>
+
+
   <ItemGroup>
     <InternalsVisibleTo Include="DigitoyEditor" />
   </ItemGroup>

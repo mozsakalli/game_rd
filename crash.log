@@ -1,0 +1,5 @@
+[crash] 2026-09-13 01:05:34
+System.EntryPointNotFoundException: Unable to find an entry point named 'de_menu_create_bar' in shared library 'digitoyengine_native'.
+   at DigitoyEditor.EditorMenu.MenuCreateBar()
+   at DigitoyEditor.EditorMenu.Build(IntPtr glfwWindow, Assembly[] assemblies) in /Users/mustafaozsakalli/Work/digitoygmes/game_rd/editor/EditorMenu.cs:line 140
+   at DigitoyEditor.App.Main() in /Users/mustafaozsakalli/Work/digitoygmes/game_rd/editor/EditorApp.cs:line 108

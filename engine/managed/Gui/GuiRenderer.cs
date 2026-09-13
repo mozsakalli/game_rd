@@ -67,6 +67,16 @@ public static unsafe class GuiRenderer
         Queue.DrawMesh(_quad, material, in model, color, u0, v0, u1, v1, BaseLayer + layerOffset);
     }
 
+    // Metal/D3D framebuffer orijini sol-UST, GL sol-ALT. Offscreen RT'ye cizip
+    // sonra ornekleyince Metal'de goruntu dikey TERS gelir; RT dokularinda V'yi
+    // cevir. Normal (CPU-yuklu) dokular stbi flip ile zaten dogru. Backend
+    // derleme zamani secilir (DE_RENDERER_METAL / DE_RENDERER_OPENGL).
+#if DE_RENDERER_METAL
+    static readonly bool _flipRenderTargets = true;
+#else
+    static readonly bool _flipRenderTargets = false;
+#endif
+
     // Dokulu rect (RT onizleme vb.). Tek materyal mutate edilir — TexView
     // DrawMesh aninda yakalandigi icin frame icinde coklu doku guvenlidir.
     static Material _texMaterial;
@@ -83,7 +93,9 @@ public static unsafe class GuiRenderer
             SortMode = SortMode.Ui,
         };
         _texMaterial.MainTexture = texture;
-        DrawClipped(localRect, _texMaterial, new Color(255, 255, 255, 255), 0, 0, 1, 1, layerOffset);
+        bool flip = _flipRenderTargets && texture.IsRenderTarget;
+        DrawClipped(localRect, _texMaterial, new Color(255, 255, 255, 255),
+            0, flip ? 1 : 0, 1, flip ? 0 : 1, layerOffset);
     }
 
     // Alpha-blend'li dokulu rect (saydam RT ortuleri: Duzenle modu kompoziti).
@@ -101,7 +113,9 @@ public static unsafe class GuiRenderer
             SortMode = SortMode.Ui,
         };
         _texBlendMaterial.MainTexture = texture;
-        DrawClipped(localRect, _texBlendMaterial, new Color(255, 255, 255, 255), 0, 0, 1, 1, layerOffset);
+        bool flip = _flipRenderTargets && texture.IsRenderTarget;
+        DrawClipped(localRect, _texBlendMaterial, new Color(255, 255, 255, 255),
+            0, flip ? 1 : 0, 1, flip ? 0 : 1, layerOffset);
     }
 
     // --- SDF text ---
