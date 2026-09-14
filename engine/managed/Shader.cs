@@ -34,6 +34,10 @@ public sealed unsafe class Shader
     // (GL derleyicisi kullanilmayan attribute'u budar -> sokol WARN spam'i olmasin).
     internal bool UsesUser;
 
+    // CreateEffect'e verilen DSL govdesi (compose icin saklanir; FromHandle/compose
+    // edilmis shader'larda null = tekrar compose edilemez).
+    internal string Body;
+
     // Zaten olusturulmus bir sokol shader handle'ini sarar.
     public static Shader FromHandle(uint handle) => new Shader { Handle = handle };
 
@@ -63,6 +67,7 @@ public sealed unsafe class Shader
         "out vec2 v_uv;\n" +
         "out vec4 v_color;\n" +
         "{USER_OUT}" +
+        "{LOCAL_OUT}" +
         "void main() {\n" +
         "  mat4 model = mat4(a_m0, a_m1, a_m2, a_m3);\n" +
         "  gl_Position = u_viewProj * (model * vec4(a_pos, 1.0));\n" +
@@ -71,6 +76,7 @@ public sealed unsafe class Shader
         "  vec4 tint = mix(mix(a_tint0, a_tint1, a_uv.x), mix(a_tint3, a_tint2, a_uv.x), a_uv.y);\n" +
         "  v_color = a_color * tint;\n" +
         "{USER_ASSIGN}" +
+        "{LOCAL_ASSIGN}" +
         "}\n";
 
     // Fragment DSL sarmalayicilari (engine_shader.c GLCORE yolu).
@@ -91,8 +97,14 @@ public sealed unsafe class Shader
         "in vec4 v_user;\n" +
         "#define USER v_user\n";
 
+    const string _fragLocalPrefix =
+        "in vec2 v_uvLocal;\n" +
+        "#define LOCALUV v_uvLocal\n";
+
+    // KANON: fs_main DUZ (straight) renk doner; premultiply TEK burada yapilir.
+    // Tum alpha materyaller One/OneMinusSrcAlpha ile cizer (premultiplied kompozisyon).
     const string _fragSuffix =
-        "\nvoid main() { frag_color = fs_main(v_uv, v_color); }\n";
+        "\nvoid main() { vec4 c = fs_main(v_uv, v_color); frag_color = vec4(c.rgb * c.a, c.a); }\n";
 
     const string _defaultFragment =
         "VEC4 fs_main(VEC2 uv, VEC4 color) { return SAMPLE(tex, uv) * color; }";
@@ -126,6 +138,7 @@ public sealed unsafe class Shader
         "  float2 v_uv    [[user(locn0)]];\n" +
         "  float4 v_color [[user(locn1)]];\n" +
         "{USER_OUT}" +
+        "{LOCAL_OUT}" +
         "};\n" +
         "struct vs_uniforms { float4x4 u_viewProj; };\n" +
         "vertex vs_out vs_main(vs_in in [[stage_in]], constant vs_uniforms& ub [[buffer(0)]]) {\n" +
@@ -137,6 +150,7 @@ public sealed unsafe class Shader
         "  float4 tint = mix(mix(in.a_tint0, in.a_tint1, in.a_uv.x), mix(in.a_tint3, in.a_tint2, in.a_uv.x), in.a_uv.y);\n" +
         "  out.v_color = in.a_color * tint;\n" +
         "{USER_ASSIGN}" +
+        "{LOCAL_ASSIGN}" +
         "  return out;\n" +
         "}\n";
 
@@ -154,39 +168,36 @@ public sealed unsafe class Shader
 
     // fs_main tanimini yeniden yazan makro: MSL'de doku/sampler global olamaz,
     // bu yuzden 'VEC4 fs_main(VEC2 uv, VEC4 color)' -> 'float4 fs_main_impl(...,
-    // texture2d<float> tex, sampler smp[, float4 USER])'. Cagri suffix'te dogrudan
-    // fs_main_impl'e yapilir (fs_main makrosu cagri tarafinda tetiklenmez).
-    const string _fragMacroMsl =
-        "#define fs_main(a, b) fs_main_impl(a, b, texture2d<float> tex, sampler smp)\n";
-    const string _fragMacroUserMsl =
-        "#define fs_main(a, b) fs_main_impl(a, b, texture2d<float> tex, sampler smp, float4 USER)\n";
+    // texture2d<float> tex, sampler smp[, float4 USER][, float2 LOCALUV])'. Cagri
+    // suffix'te dogrudan fs_main_impl'e yapilir (makro cagri tarafinda tetiklenmez).
+    static string FragMacroMsl(bool user, bool local)
+        => "#define fs_main(a, b) fs_main_impl(a, b, texture2d<float> tex, sampler smp"
+           + (user ? ", float4 USER" : "") + (local ? ", float2 LOCALUV" : "") + ")\n";
 
-    const string _fragSuffixMsl =
-        "struct fs_in {\n" +
-        "  float2 v_uv    [[user(locn0)]];\n" +
-        "  float4 v_color [[user(locn1)]];\n" +
-        "};\n" +
-        "fragment float4 fs_main_entry(fs_in in [[stage_in]],\n" +
-        "    texture2d<float> tex [[texture(0)]], sampler smp [[sampler(0)]]) {\n" +
-        "  return fs_main_impl(in.v_uv, in.v_color, tex, smp);\n" +
-        "}\n";
-    const string _fragSuffixUserMsl =
-        "struct fs_in {\n" +
-        "  float2 v_uv    [[user(locn0)]];\n" +
-        "  float4 v_color [[user(locn1)]];\n" +
-        "  float4 v_user  [[user(locn2)]];\n" +
-        "};\n" +
-        "fragment float4 fs_main_entry(fs_in in [[stage_in]],\n" +
-        "    texture2d<float> tex [[texture(0)]], sampler smp [[sampler(0)]]) {\n" +
-        "  return fs_main_impl(in.v_uv, in.v_color, tex, smp, in.v_user);\n" +
-        "}\n";
+    static string FragSuffixMsl(bool user, bool local)
+        => "struct fs_in {\n" +
+           "  float2 v_uv    [[user(locn0)]];\n" +
+           "  float4 v_color [[user(locn1)]];\n" +
+           (user ? "  float4 v_user  [[user(locn2)]];\n" : "") +
+           (local ? "  float2 v_uvLocal [[user(locn3)]];\n" : "") +
+           "};\n" +
+           "fragment float4 fs_main_entry(fs_in in [[stage_in]],\n" +
+           "    texture2d<float> tex [[texture(0)]], sampler smp [[sampler(0)]]) {\n" +
+           "  float4 c = fs_main_impl(in.v_uv, in.v_color, tex, smp"
+           + (user ? ", in.v_user" : "") + (local ? ", in.v_uvLocal" : "") + ");\n" +
+           "  return float4(c.rgb * c.a, c.a);\n" + // kanon: cikis premultiply
+           "}\n";
 
     static readonly byte[] _vsEntryMsl = Ascii("vs_main");
     static readonly byte[] _fsEntryMsl = Ascii("fs_main_entry");
 
     // Fragment govdesinden tam shader kurar (ortak vertex + sarilmis fragment).
     // Govde USER iceriyorsa a_user attribute'lu vertex varyanti secilir.
-    public static Shader CreateEffect(string fragmentBody)
+    public static Shader CreateEffect(string fragmentBody) => CreateEffect(fragmentBody, localUv: false);
+
+    // localUv: v_uvLocal varying'i (atlas-remap'siz ham kose uv'si) eklenir —
+    // yalniz pixel-effect kompozisyonu ister; normal shader'lar interpolator odemez.
+    internal static Shader CreateEffect(string fragmentBody, bool localUv)
     {
         bool usesUser = fragmentBody.Contains("USER");
         string vertexSource, fragmentSource;
@@ -195,19 +206,26 @@ public sealed unsafe class Shader
             vertexSource = _vertexTemplateMsl
                 .Replace("{USER_IN}", usesUser ? "  float4 a_user [[attribute(12)]];\n" : "")
                 .Replace("{USER_OUT}", usesUser ? "  float4 v_user [[user(locn2)]];\n" : "")
-                .Replace("{USER_ASSIGN}", usesUser ? "  out.v_user = in.a_user;\n" : "");
+                .Replace("{LOCAL_OUT}", localUv ? "  float2 v_uvLocal [[user(locn3)]];\n" : "")
+                .Replace("{USER_ASSIGN}", usesUser ? "  out.v_user = in.a_user;\n" : "")
+                .Replace("{LOCAL_ASSIGN}", localUv ? "  out.v_uvLocal = in.a_uv;\n" : "");
             fragmentSource = _fragPrefixMsl
-                + (usesUser ? _fragMacroUserMsl : _fragMacroMsl)
+                + FragMacroMsl(usesUser, localUv)
                 + fragmentBody + "\n"
-                + (usesUser ? _fragSuffixUserMsl : _fragSuffixMsl);
+                + FragSuffixMsl(usesUser, localUv);
         }
         else
         {
             vertexSource = _vertexTemplate
                 .Replace("{USER_IN}", usesUser ? "in vec4 a_user;\n" : "")
                 .Replace("{USER_OUT}", usesUser ? "out vec4 v_user;\n" : "")
-                .Replace("{USER_ASSIGN}", usesUser ? "  v_user = a_user;\n" : "");
-            fragmentSource = _fragPrefix + (usesUser ? _fragUserPrefix : "") + fragmentBody + _fragSuffix;
+                .Replace("{LOCAL_OUT}", localUv ? "out vec2 v_uvLocal;\n" : "")
+                .Replace("{USER_ASSIGN}", usesUser ? "  v_user = a_user;\n" : "")
+                .Replace("{LOCAL_ASSIGN}", localUv ? "  v_uvLocal = a_uv;\n" : "");
+            fragmentSource = _fragPrefix
+                + (usesUser ? _fragUserPrefix : "")
+                + (localUv ? _fragLocalPrefix : "")
+                + fragmentBody + _fragSuffix;
         }
 
         byte[] vs = Ascii(vertexSource);
@@ -239,7 +257,70 @@ public sealed unsafe class Shader
         fixed (byte* np = _texName)
             Sokol.ShaderTextureSamplerPair(0, SG.ShaderStageFragment, 0, 0, np);
 
-        return new Shader { Handle = Sokol.ShaderEnd(), UsesUser = usesUser };
+        return new Shader { Handle = Sokol.ShaderEnd(), UsesUser = usesUser, Body = fragmentBody };
+    }
+
+    // Dogrulamali kurulum: derleme basarisizsa handle yok edilir, null + hata doner.
+    // (sg_make_shader abort ETMEZ, FAILED kaynak doner; pipeline'a bulasmadan yakala.)
+    internal static Shader TryCreateEffect(string fragmentBody, bool localUv, out string error)
+    {
+        var sh = CreateEffect(fragmentBody, localUv);
+        if (Sokol.ShaderValid(sh.Handle) != 0)
+        {
+            error = null;
+            return sh;
+        }
+        Sokol.DestroyShader(sh.Handle);
+        error = Marshal.PtrToStringAnsi(Sokol.LastError());
+        if (string.IsNullOrEmpty(error))
+            error = "shader derlenemedi (detay: crash_native.log)";
+        return null;
+    }
+
+    // Pixel-effect zinciri kompozisyonu: core fs_main -> fs_core, her efekt govdesi
+    // fx -> fx<i>, uretilen fs_main zinciri sirayla uygular. fx imzasi:
+    // 'VEC4 fx(VEC4 c, VEC2 uv)' — c DUZ renk, uv LOKAL 0..1 (atlas-remap'siz).
+    // Basarisizsa null doner (cagiran efektsiz core'a duser).
+    internal static Shader ComposeEffects(string coreBody, string[] fxBodies, out string error)
+    {
+        if (string.IsNullOrEmpty(coreBody))
+        {
+            error = "core shader govdesi yok (compose edilemez)";
+            return null;
+        }
+        var sb = new System.Text.StringBuilder(coreBody.Length + 256);
+        string core = coreBody.Replace("fs_main", "fs_core");
+        bool coreUser = core.Contains("USER");
+        if (_metal)
+        {
+            sb.Append("#define fs_core(a, b) fs_core_impl(a, b, texture2d<float> tex, sampler smp")
+              .Append(coreUser ? ", float4 USER" : "").Append(")\n");
+            for (int i = 0; i < fxBodies.Length; i++)
+                sb.Append("#define fx").Append(i).Append("(a, b) fx").Append(i)
+                  .Append("_impl(a, b, texture2d<float> tex, sampler smp)\n");
+            sb.Append(core).Append('\n');
+            for (int i = 0; i < fxBodies.Length; i++)
+                sb.Append(fxBodies[i].Replace("fx(", "fx" + i + "(")).Append('\n');
+            sb.Append("VEC4 fs_main(VEC2 uv, VEC4 color) {\n")
+              .Append("  VEC4 c = fs_core_impl(uv, color, tex, smp").Append(coreUser ? ", USER" : "").Append(");\n");
+            for (int i = 0; i < fxBodies.Length; i++)
+                sb.Append("  c = fx").Append(i).Append("_impl(c, LOCALUV, tex, smp);\n");
+            sb.Append("  return c;\n}\n");
+        }
+        else
+        {
+            sb.Append(core).Append('\n');
+            for (int i = 0; i < fxBodies.Length; i++)
+                sb.Append(fxBodies[i].Replace("fx(", "fx" + i + "(")).Append('\n');
+            sb.Append("VEC4 fs_main(VEC2 uv, VEC4 color) {\n  VEC4 c = fs_core(uv, color);\n");
+            for (int i = 0; i < fxBodies.Length; i++)
+                sb.Append("  c = fx").Append(i).Append("(c, LOCALUV);\n");
+            sb.Append("  return c;\n}\n");
+        }
+        var sh = TryCreateEffect(sb.ToString(), localUv: true, out error);
+        if (sh != null)
+            sh.Body = null; // compose edilmis shader tekrar compose edilmez
+        return sh;
     }
 
     static readonly byte[][] _attrNames =

@@ -121,6 +121,16 @@ public sealed class ActiveOp : UndoOp
     public override void Apply(EditorScene es, bool undo) => es.ApplyActiveOp(GoId, undo ? Old : New);
 }
 
+public sealed class LayerOp : UndoOp
+{
+    public int GoId;
+    public int Old, New;
+
+    public LayerOp() => Sealed = true;
+
+    public override void Apply(EditorScene es, bool undo) => es.ApplyLayerOp(GoId, undo ? Old : New);
+}
+
 public sealed class EnabledOp : UndoOp
 {
     public int GoId;

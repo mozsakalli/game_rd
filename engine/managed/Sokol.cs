@@ -229,6 +229,13 @@ public static unsafe class Sokol
     extern public static void DestroySampler(uint id);
     [DllImport(Lib, EntryPoint = "de_sokol_destroy_shader")]
     extern public static void DestroyShader(uint id);
+
+    // 1 = VALID; enum degeri bilerek sizdirilmiyor (sokol surumleri arasinda kayar).
+    [DllImport(Lib, EntryPoint = "de_sokol_shader_valid")]
+    extern public static int ShaderValid(uint id);
+
+    [DllImport(Lib, EntryPoint = "de_sokol_last_error")]
+    extern public static IntPtr LastError();
     [DllImport(Lib, EntryPoint = "de_sokol_destroy_pipeline")]
     extern public static void DestroyPipeline(uint id);
     [DllImport(Lib, EntryPoint = "de_sokol_destroy_view")]

@@ -77,6 +77,7 @@ public sealed partial class SceneDoc
                     Parent = root.PrefabIds.GetValueOrDefault(pl.Parent, root.Id),
                     Name = pl.Name,
                     Active = pl.Active,
+                    Layer = pl.Layer,
                     Pos = pl.Pos,
                     Rot = pl.Rot,
                     Scale = pl.Scale,

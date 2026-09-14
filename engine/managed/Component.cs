@@ -18,6 +18,13 @@ public enum LifecycleFlags : ushort
     OnDestroy = 64,
     ParentChanged = 128,
     ChildrenChanged = 256,
+    PointerDown = 512,
+    PointerUp = 1024,
+    PointerClick = 2048,
+    DragStart = 4096,
+    Drag = 8192,
+
+    AnyPointer = PointerDown | PointerUp | PointerClick | DragStart | Drag,
 }
 
 // Unity Component/Behaviour karsiligi. Yasam dongusu Unity ile birebir:
@@ -74,6 +81,15 @@ public abstract class Component
     protected internal virtual void OnTransformParentChanged() { }
     protected internal virtual void OnTransformChildrenChanged() { }
 
+    // Pointer/jest mesajlari (Scene.Pointer boru hatti): hit alan GO'dan parent
+    // zincirine BUBBLE (e.Use() keser; e.target asil hit'i tasir). Kural: 'e'
+    // SAKLANMAZ — tek instance yeniden kullanilir, dispatch sonrasi ref'ler bosalir.
+    protected internal virtual void OnPointerDown(PointerEvent e) { }
+    protected internal virtual void OnPointerUp(PointerEvent e) { }     // hep gelir; e.dragged ayirt eder
+    protected internal virtual void OnPointerClick(PointerEvent e) { }  // yalniz esik asilmadiysa
+    protected internal virtual void OnDragStart(PointerEvent e) { }     // esik ilk asildiginda bir kez
+    protected internal virtual void OnDrag(PointerEvent e) { }          // move basina (coalesced)
+
     public static void Destroy(GameObject go) => GameObject.Destroy(go);
     public static void Destroy(Component c) => GameObject.Destroy(c);
 
@@ -97,6 +113,11 @@ public abstract class Component
         f |= Overrides(t, "OnDestroy", LifecycleFlags.OnDestroy);
         f |= Overrides(t, "OnTransformParentChanged", LifecycleFlags.ParentChanged);
         f |= Overrides(t, "OnTransformChildrenChanged", LifecycleFlags.ChildrenChanged);
+        f |= OverridesPtr(t, "OnPointerDown", LifecycleFlags.PointerDown);
+        f |= OverridesPtr(t, "OnPointerUp", LifecycleFlags.PointerUp);
+        f |= OverridesPtr(t, "OnPointerClick", LifecycleFlags.PointerClick);
+        f |= OverridesPtr(t, "OnDragStart", LifecycleFlags.DragStart);
+        f |= OverridesPtr(t, "OnDrag", LifecycleFlags.Drag);
         return f;
     }
 
@@ -105,6 +126,16 @@ public abstract class Component
         var m = t.GetMethod(method,
             BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
             null, Type.EmptyTypes, null);
+        return (m != null && m.DeclaringType != typeof(Component)) ? flag : LifecycleFlags.None;
+    }
+
+    static readonly Type[] _ptrArgs = { typeof(PointerEvent) };
+
+    static LifecycleFlags OverridesPtr(Type t, string method, LifecycleFlags flag)
+    {
+        var m = t.GetMethod(method,
+            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
+            null, _ptrArgs, null);
         return (m != null && m.DeclaringType != typeof(Component)) ? flag : LifecycleFlags.None;
     }
 }

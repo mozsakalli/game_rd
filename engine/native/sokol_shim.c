@@ -71,10 +71,11 @@
 // present etmek dogal olarak calisir. Pencere "handle" = slot indeksi ve
 // Camera.Framebuffer araciligiyla begin_pass'e tasinir (GL'de ayni alan FBO).
 #define DE_MTL_MAX_WINDOWS 32
-typedef struct {
+typedef struct
+{
     CAMetalLayer *layer;
-    id<CAMetalDrawable> drawable;   // bu frame'in drawable'i (present sonrasi birakilir)
-    id<MTLTexture> depth;           // depth-stencil (drawable boyutunda)
+    id<CAMetalDrawable> drawable; // bu frame'in drawable'i (present sonrasi birakilir)
+    id<MTLTexture> depth;         // depth-stencil (drawable boyutunda)
     int depth_w, depth_h;
     bool active;
 } de_mtl_window_t;
@@ -343,6 +344,8 @@ SOKOL_API void de_sokol_destroy_buffer(unsigned int buffer)
 // Sokol logger: logger baglanmazsa validation hatalari SESSIZCE abort eder.
 // Her mesaj stderr'e (flush'li) + crash_native.log'a yazilir; panic'te bile iz kalir.
 #include <stdio.h>
+static char de_last_err[2048]; // son ERROR + onu izleyen INFO detayi (GL compile log)
+static int de_last_err_pending;
 static void de_sokol_log(const char *tag, uint32_t level, uint32_t item_id,
                          const char *msg, uint32_t line, const char *file, void *user)
 {
@@ -353,6 +356,17 @@ static void de_sokol_log(const char *tag, uint32_t level, uint32_t item_id,
     char buf[1024];
     snprintf(buf, sizeof buf, "[sokol %s] %s (%u) %s:%u %s\n",
              lvl, tag ? tag : "?", item_id, file ? file : "?", line, msg ? msg : "");
+    if (level <= 1)
+    {
+        snprintf(de_last_err, sizeof de_last_err, "%s", msg ? msg : "");
+        de_last_err_pending = 1; // GL info log'u hemen ardindan INFO olarak gelir
+    }
+    else if (level == 3 && de_last_err_pending)
+    {
+        size_t len = strlen(de_last_err);
+        snprintf(de_last_err + len, sizeof de_last_err - len, "\n%s", msg ? msg : "");
+        de_last_err_pending = 0;
+    }
     fputs(buf, stderr);
     fflush(stderr);
     FILE *f = fopen("crash_native.log", "a");
@@ -362,6 +376,8 @@ static void de_sokol_log(const char *tag, uint32_t level, uint32_t item_id,
         fclose(f);
     }
 }
+
+SOKOL_API const char *de_sokol_last_error(void) { return de_last_err; }
 
 SOKOL_API void de_sokol_setup(void)
 {
@@ -555,6 +571,13 @@ SOKOL_API void de_sokol_destroy_shader(unsigned int id)
 {
     sg_shader h = {id};
     sg_destroy_shader(h);
+}
+// Enum degeri SIZDIRILMAZ (sokol surumlerinde kayar: UNSEALED eklendi) — yalniz
+// "gecerli mi" boolean'i doner.
+SOKOL_API int de_sokol_shader_valid(unsigned int id)
+{
+    sg_shader h = {id};
+    return sg_query_shader_state(h) == SG_RESOURCESTATE_VALID ? 1 : 0;
 }
 SOKOL_API void de_sokol_destroy_pipeline(unsigned int id)
 {

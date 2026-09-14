@@ -49,8 +49,8 @@ public static class TransformDriver
 // bekle" hack'i yok. Render oncesi LayoutSystem (ISceneSystem) okunmamis kirlileri toplar.
 // Olcum sozlesmesi: preferred = max(authored, icerik) ve icerik YALNIZ cocuk
 // kutulardan gelir (senkron/deterministik) — async veri layout'u suremez.
-// STIL (StyleBox): kutu kendi arkaplanini cizebilir — fill (duz/dikey gradient),
-// border (kenar basina genislik + duz/dikey gradient), kose basi radius, opsiyonel
+// STIL (StyleBox): kutu kendi arkaplanini cizebilir — fill (duz/dikey-yatay gradient),
+// border (kenar basina genislik + duz/dikey-yatay gradient), kose basi radius, opsiyonel
 // TEXTURE (stretch; slice9* > 0 ise 9-slice grid — atlas uyesiyse atlastan).
 // CIZIM = INSTANCED QUAD EMISYONU (SDF parca modeli): kutu, UiPieces atlasindan
 // kose hucresi + kenar falloff seridi + ic dolgu quad'lari yayar; border SDF RING
@@ -247,13 +247,13 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
         return b != null && b._enabled && !b._destroyed ? b : null;
     }
 
-    // fitScreen kaynagi: sahnenin main kamerasinin gorus rect'i (kutu projeksiyon
-    // tipini bilmez); kamera yoksa eski davranis (0,0,Screen boyutu).
+    // fitScreen kaynagi: bu kutunun LAYER'ini cizen kameranin gorus rect'i (kutu
+    // projeksiyon tipini bilmez); kamera yoksa eski davranis (0,0,Screen boyutu).
     bool FitRect(out float x, out float y, out float w, out float h)
     {
         var s = _gameObject?._scene;
         if (s == null) { x = y = w = h = 0; return false; }
-        var cam = s.MainCamera;
+        var cam = s.CameraForLayer(_gameObject.layer);
         if (cam != null)
             cam.GetWorldRect(s.ScreenWidth, s.ScreenHeight, out x, out y, out w, out h);
         else { x = 0; y = 0; w = s.ScreenWidth; h = s.ScreenHeight; }
@@ -621,10 +621,10 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
         var f = font ?? UiPieces.DefaultFont;
         if (f?.Atlas != null)
         {
-            mat = f.Material;
+            mat = f.Material.ForBlend(BlendMode).ForEffects(Effects);
             return f.Pieces;
         }
-        mat = UiPieces.SharedMaterial;
+        mat = UiPieces.SharedMaterial.ForBlend(BlendMode).ForEffects(Effects);
         return UiPieces.Fallback;
     }
 
@@ -744,7 +744,7 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
             EmitQuad(q, mat, wm, cx0, cy0, cx1, cy1,
                 farLeft ? uFar : uNear, farTop ? vNear : vFar,
                 farLeft ? uNear : uFar, farTop ? vFar : vNear,
-                col, col, user, layer);
+                col, col, false, user, layer);
         }
         Cell(x0, y0, x0 + rtl, y0 + rtl, rtl, true, true);
         Cell(x1 - rtr, y0, x1, y0 + rtr, rtr, false, true);
@@ -760,13 +760,13 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
         float vA = EV(0.35f), vB = EV(1.0f);
         if (x1 - rtr > x0 + rtl)
         {
-            EmitQuad(q, mat, wm, x0 + rtl, y0 - b, x1 - rtr, y0 + b, uA, pvIn, uB, pvOut, col, col, eu, layer);
-            EmitQuad(q, mat, wm, x0 + rbl, y1 - b, x1 - rbr, y1 + b, uA, pvOut, uB, pvIn, col, col, eu, layer);
+            EmitQuad(q, mat, wm, x0 + rtl, y0 - b, x1 - rtr, y0 + b, uA, pvIn, uB, pvOut, col, col, false, eu, layer);
+            EmitQuad(q, mat, wm, x0 + rbl, y1 - b, x1 - rbr, y1 + b, uA, pvOut, uB, pvIn, col, col, false, eu, layer);
         }
         if (y1 - rbl > y0 + rtl)
-            EmitQuad(q, mat, wm, x0 - b, y0 + rtl, x0 + b, y1 - rbl, puOut, vA, puIn, vB, col, col, eu, layer);
+            EmitQuad(q, mat, wm, x0 - b, y0 + rtl, x0 + b, y1 - rbl, puOut, vA, puIn, vB, col, col, false, eu, layer);
         if (y1 - rbr > y0 + rtr)
-            EmitQuad(q, mat, wm, x1 - b, y0 + rtr, x1 + b, y1 - rbr, puIn, vA, puOut, vB, col, col, eu, layer);
+            EmitQuad(q, mat, wm, x1 - b, y0 + rtr, x1 + b, y1 - rbr, puIn, vA, puOut, vB, col, col, false, eu, layer);
 
         // Ic dolgu (alpha 1 bolgesi): kenar seritlerinin ici, hucrelerle cakismadan.
         float ix0 = x0 + b, ix1 = x1 - b, iy0 = y0 + b, iy1 = y1 - b;
@@ -779,7 +779,7 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
         {
             if (ax1 <= ax0 || ay1 <= ay0)
                 return;
-            EmitQuad(q, mat, wm, ax0, ay0, ax1, ay1, su0, sv0, su1, sv1, col, col, default, layer);
+            EmitQuad(q, mat, wm, ax0, ay0, ax1, ay1, su0, sv0, su1, sv1, col, col, false, default, layer);
         }
         Solid(ix0 + sTL, iy0, ix1 - sTR, iy0 + tT);
         if (sTL < tT) Solid(ix0, iy0 + sTL, ix0 + sTL, iy0 + tT);
@@ -829,7 +829,8 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
         float EV(float py) => (eby + py) / texH;
         float su0 = (at.X + UiPieces.SolidX + 8) / texW, su1 = (at.X + UiPieces.SolidX + 24) / texW;
         float sv0 = (at.Y + UiPieces.SolidY + 24) / texH, sv1 = (at.Y + UiPieces.SolidY + 8) / texH;
-        Color At(float y) => isBorder ? BorderAt(y) : FillAt(y);
+        Color At(float c) => isBorder ? BorderAt(c) : FillAt(c);
+        bool gh = (isBorder ? borderFill : fill).IsHorizontal; // gradient ekseni
 
         // Kose hucresi: parca koordinati merkezden (0) kutu kosesine dogru buyur;
         // farLeft/farTop = kutu kosesinin hucre icindeki yonu.
@@ -847,7 +848,7 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
             EmitQuad(q, mat, wm, cx0, cy0, cx1, cy1,
                 farLeft ? uFar : uNear, farTop ? vNear : vFar,
                 farLeft ? uNear : uFar, farTop ? vFar : vNear,
-                At(cy0), At(cy1), user, layer);
+                At(gh ? cx0 : cy0), At(gh ? cx1 : cy1), gh, user, layer);
         }
         Cell(x0, y0, x0 + rtl, y0 + rtl, rtl, true, true, MathF.Max(ringL, ringT));
         Cell(x1 - rtr, y0, x1, y0 + rtr, rtr, false, true, MathF.Max(ringR, ringT));
@@ -870,7 +871,7 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
             float vOut = EV(pyOut), vIn = EV(pyIn);
             float v0 = outUp ? vIn : vOut, v1 = outUp ? vOut : vIn;
             var user = ring ? new Vec4(0f, 0.5f, c2, 0f) : default;
-            EmitQuad(q, mat, wm, xa, yA, xb, yB, uA, v0, uB, v1, At(yA), At(yB), user, layer);
+            EmitQuad(q, mat, wm, xa, yA, xb, yB, uA, v0, uB, v1, At(gh ? xa : yA), At(gh ? xb : yB), gh, user, layer);
         }
         // Dikey kenar seridi: ayni kesit satirdan (y~0.7px, d≈x) yatay falloff.
         void VEdge(float ya, float yb, float xe, bool outLeft, float b)
@@ -888,7 +889,7 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
             float uOut = EU(pxOut), uIn = EU(pxIn);
             float u0 = outLeft ? uOut : uIn, u1 = outLeft ? uIn : uOut;
             var user = ring ? new Vec4(0f, 0.5f, c2, 0f) : default;
-            EmitQuad(q, mat, wm, xA, ya, xB, yb, u0, vA, u1, vB, At(ya), At(yb), user, layer);
+            EmitQuad(q, mat, wm, xA, ya, xB, yb, u0, vA, u1, vB, At(gh ? xA : ya), At(gh ? xB : yb), gh, user, layer);
         }
         HEdge(x0 + rtl, x1 - rtr, y0, true, ringT);
         HEdge(x0 + rbl, x1 - rbr, y1, false, ringB);
@@ -909,7 +910,7 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
         {
             if (ax1 <= ax0 || ay1 <= ay0)
                 return;
-            EmitQuad(q, mat, wm, ax0, ay0, ax1, ay1, su0, sv0, su1, sv1, At(ay0), At(ay1), default, layer);
+            EmitQuad(q, mat, wm, ax0, ay0, ax1, ay1, su0, sv0, su1, sv1, At(gh ? ax0 : ay0), At(gh ? ax1 : ay1), gh, default, layer);
         }
         Solid(ix0 + sTL, iy0, ix1 - sTR, iy0 + tT);
         if (sTL < tT) Solid(ix0, iy0 + sTL, ix0 + sTL, iy0 + tT);
@@ -934,16 +935,17 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
             uu0 = sprite.X / aw; uuS = sprite.W / aw;
             vv0 = sprite.Y / ah; vvS = sprite.H / ah;
         }
-        var mat = StyleMat;
+        var mat = StyleMat.ForBlend(BlendMode).ForEffects(Effects);
         mat.MainTexture = tex; // TexView DrawMesh aninda yakalanir (paylasilan materyal deseni)
         bool tinted = fill.Visible;
-        Color cTop = tinted ? FillAt(y0) : Color.White;
-        Color cBot = tinted ? FillAt(y1) : Color.White;
+        bool gh = fill.IsHorizontal;
+        Color cTop = tinted ? FillAt(gh ? x0 : y0) : Color.White;
+        Color cBot = tinted ? FillAt(gh ? x1 : y1) : Color.White;
 
         if (slice9Left <= 0 && slice9Top <= 0 && slice9Right <= 0 && slice9Bottom <= 0)
         {
             EmitQuad(q, mat, world, x0, y0, x1, y1,
-                uu0, vv0, uu0 + uuS, vv0 + vvS, cTop, cBot, default, layer);
+                uu0, vv0, uu0 + uuS, vv0 + vvS, cTop, cBot, gh, default, layer);
             return;
         }
 
@@ -965,17 +967,18 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
                 EmitQuad(q, mat, world, xs[c], ys[r], xs[c + 1], ys[r + 1],
                     uu0 + us[c] * uuS, vv0 + vs[r + 1] * vvS,
                     uu0 + us[c + 1] * uuS, vv0 + vs[r] * vvS,
-                    tinted ? FillAt(ys[r]) : Color.White,
-                    tinted ? FillAt(ys[r + 1]) : Color.White, default, layer);
+                    tinted ? FillAt(gh ? xs[c] : ys[r]) : Color.White,
+                    tinted ? FillAt(gh ? xs[c + 1] : ys[r + 1]) : Color.White, gh, default, layer);
     }
 
     // Lokal-uzay dikdortgenini world matrisiyle tek instanced quad'a cevirir.
+    // c0/c1 gradient EKSENI boyunca renkler (gradH=false: ust/alt, true: sol/sag).
     // Klip penceresi varsa quad kirpilir: UV lineer remap (SDF parca ornekleme
-    // orantili kalir) + dikey gradient renkleri kirpilan banda lerp'lenir.
+    // orantili kalir) + gradient renkleri kirpilan banda lerp'lenir.
     void EmitQuad(RenderQueue q, Material mat, in Mat4 world,
         float qx0, float qy0, float qx1, float qy1,
         float u0, float v0, float u1, float v1,
-        Color cTop, Color cBottom, in Vec4 user, int layer)
+        Color c0, Color c1, bool gradH, in Vec4 user, int layer)
     {
         if (qx1 <= qx0 || qy1 <= qy0)
             return;
@@ -988,8 +991,15 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
             if (nx0 != qx0 || nx1 != qx1)
             {
                 float iw = 1f / (qx1 - qx0), du = u1 - u0;
-                u1 = u0 + du * ((nx1 - qx0) * iw);
-                u0 += du * ((nx0 - qx0) * iw);
+                float t0 = (nx0 - qx0) * iw, t1 = (nx1 - qx0) * iw;
+                u1 = u0 + du * t1;
+                u0 += du * t0;
+                if (gradH)
+                {
+                    Color ca = LerpC(c0, c1, t0);
+                    c1 = LerpC(c0, c1, t1);
+                    c0 = ca;
+                }
                 qx0 = nx0; qx1 = nx1;
             }
             if (ny0 != qy0 || ny1 != qy1)
@@ -1000,9 +1010,12 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
                 float dv = v0 - v1;
                 float nv1 = v1 + dv * t0, nv0 = v1 + dv * t1;
                 v1 = nv1; v0 = nv0;
-                Color ct = LerpC(cTop, cBottom, t0);
-                cBottom = LerpC(cTop, cBottom, t1);
-                cTop = ct;
+                if (!gradH)
+                {
+                    Color ca = LerpC(c0, c1, t0);
+                    c1 = LerpC(c0, c1, t1);
+                    c0 = ca;
+                }
                 qy0 = ny0; qy1 = ny1;
             }
         }
@@ -1014,8 +1027,11 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
         m.m[14] += m.m[2] * cx + m.m[6] * cy;
         m.m[0] *= sx; m.m[1] *= sx; m.m[2] *= sx;
         m.m[4] *= sy; m.m[5] *= sy; m.m[6] *= sy;
-        // tint koseleri uv uzayinda: ust kenar = uv.y=1 (Mesh.Quad y-down duzeni)
-        q.DrawMesh(Mesh.Quad(), mat, in m, cBottom, cBottom, cTop, cTop, in user, u0, v0, u1, v1, layer);
+        // tint koseleri uv uzayinda: 0=BL 1=BR 2=TR 3=TL (ust kenar = uv.y=1)
+        if (gradH)
+            q.DrawMesh(Mesh.Quad(), mat, in m, c0, c1, c1, c0, in user, u0, v0, u1, v1, layer);
+        else
+            q.DrawMesh(Mesh.Quad(), mat, in m, c1, c1, c0, c0, in user, u0, v0, u1, v1, layer);
     }
 
     static Color LerpC(Color a, Color b, float t) => new(
@@ -1024,12 +1040,17 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
         (byte)(a.b + (b.b - a.b) * t),
         (byte)(a.a + (b.a - a.a) * t));
 
-    // Dikey gradient KUTU bandina gore (katmandan bagimsiz — parca sinirlari dikissiz).
-    Color FillAt(float y)
-        => fill.At((y + pivot.y * _rh) / _rh);
+    // Gradient KUTU bandina gore, eksen yonune uygun koordinattan (katmandan
+    // bagimsiz — parca sinirlari dikissiz). c = dikeyde y, yatayda x.
+    Color FillAt(float c)
+        => fill.IsHorizontal
+            ? fill.At((c + pivot.x * _rw) / _rw)
+            : fill.At((c + pivot.y * _rh) / _rh);
 
-    Color BorderAt(float y)
-        => borderFill.At((y + pivot.y * _rh) / _rh);
+    Color BorderAt(float c)
+        => borderFill.IsHorizontal
+            ? borderFill.At((c + pivot.x * _rw) / _rw)
+            : borderFill.At((c + pivot.y * _rh) / _rh);
 }
 
 

@@ -65,24 +65,36 @@ public static unsafe class UiPieces
     // ve runtime fallback aynı fonksiyonu kullanır — çıktı birebir aynı.
     public static void BakeRegion(byte[] atlas, int atlasW, int ox, int oy)
     {
-        BakeDisc(atlas, atlasW, ox + CornerX, oy + CornerY, CornerSize, CornerRadius, CornerSpread);
-        BakeDisc(atlas, atlasW, ox + ShadowX, oy + ShadowY, ShadowSize, ShadowRadius, ShadowSpread);
+        int atlasH = atlas.Length / atlasW;
+        BakeDisc(atlas, atlasW, atlasH, ox + CornerX, oy + CornerY, CornerSize, CornerRadius, CornerSpread);
+        BakeDisc(atlas, atlasW, atlasH, ox + ShadowX, oy + ShadowY, ShadowSize, ShadowRadius, ShadowSpread);
         for (int y = 0; y < SolidSize; y++)
             for (int x = 0; x < SolidSize; x++)
                 atlas[(oy + SolidY + y) * atlasW + ox + SolidX + x] = 255;
     }
 
+    // Parca disina SDF devami (apron): koordinat 0 / size sinirlarinda bilinear
+    // komsu pad'in sifirlarini karistirip kutu quad dikislerini gorunur yapiyordu.
+    const int Apron = 4;
+
     // Çeyrek disk SDF: merkez parçanın (0,0) pikseli, 0.5 = kenar (piksel merkezi örneklenir).
-    static void BakeDisc(byte[] atlas, int atlasW, int px, int py, int size, float radius, float spread)
+    // Apron disk formülünün doğal devamı (kare simetri) — sınırda bilinear birebir doğru.
+    static void BakeDisc(byte[] atlas, int atlasW, int atlasH, int px, int py, int size, float radius, float spread)
     {
-        for (int y = 0; y < size; y++)
+        for (int y = -Apron; y < size + Apron; y++)
         {
-            int row = (py + y) * atlasW + px;
-            for (int x = 0; x < size; x++)
+            int ay = py + y;
+            if (ay < 0 || ay >= atlasH)
+                continue;
+            int row = ay * atlasW;
+            for (int x = -Apron; x < size + Apron; x++)
             {
+                int ax = px + x;
+                if (ax < 0 || ax >= atlasW)
+                    continue;
                 float d = MathF.Sqrt((x + 0.5f) * (x + 0.5f) + (y + 0.5f) * (y + 0.5f));
                 float v = Math.Clamp(0.5f + (radius - d) / spread, 0f, 1f);
-                atlas[row + x] = (byte)(v * 255f + 0.5f);
+                atlas[row + ax] = (byte)(v * 255f + 0.5f);
             }
         }
     }
@@ -125,21 +137,18 @@ public static unsafe class UiPieces
         "  FLOAT c = USER.y > 0.0 ? USER.y : 0.5;\n" +
         "  FLOAT a = smoothstep(c - s, c + s, d);\n" +
         "  if (USER.z > 0.0) a *= 1.0 - smoothstep(USER.z - s, USER.z + s, d);\n" +
-        "  FLOAT outA = a * color.a;\n" +
-        "  return VEC4(color.rgb * outA, outA);\n}";
+        "  return VEC4(color.rgb, a * color.a);\n}"; // duz renk; premultiply wrapper'da
 
     static Shader _shader;
     public static Shader UiShader => _shader ??= Shader.CreateEffect(SdfFragment);
 
     static Material _material;
 
-    // Fallback atlasli paylasilan materyal (premultiplied; LayoutBox kullanir).
+    // Fallback atlasli paylasilan materyal (LayoutBox kullanir; blend = kanon default).
     public static Material SharedMaterial => _material ??= new Material
     {
         MainTexture = Fallback.Tex,
         Shader = UiShader,
-        SrcBlend = BlendFactor.One,
-        DstBlend = BlendFactor.OneMinusSrcAlpha,
         SortMode = SortMode.Transparent,
     };
 }

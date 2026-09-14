@@ -63,6 +63,13 @@ public sealed partial class InspectorPanel : EditorWindow
             es.SetName(g, new string(_nameBuf, 0, _nameLen));
         y += RowH + 4;
 
+        // Layer: kamera cullingMask yonlendirme biti (8 layer, cocuklara miras yok).
+        Gui.Label(new Rect(4, y, 44, 18), "Layer");
+        int layer = Gui.ComboBox(new Rect(48, y, 140, 18), g.Layer, _layerNames);
+        if (layer != g.Layer)
+            es.SetLayer(g, layer);
+        y += RowH;
+
         // Prefab kaynagi (GO duzeyi): baslik + Overrides paneli + serit gostergeleri.
         SceneDoc.GoDoc prefabSrc = null;
         bool prefabChild = false;
@@ -388,6 +395,9 @@ public sealed partial class InspectorPanel : EditorWindow
     int _nameLen;
     int _nameForId;
 
+    static readonly string[] _layerNames =
+        { "Default", "Layer 1", "Layer 2", "Layer 3", "Layer 4", "Layer 5", "Layer 6", "UI" };
+
     bool BufferEquals(string s)
     {
         if (s.Length != _nameLen)
@@ -543,7 +553,7 @@ public sealed partial class InspectorPanel : EditorWindow
 
     float MeasureHeight(SceneDoc.GoDoc g)
     {
-        float h = RowH + 4 + RowH * 4 + 8;
+        float h = RowH + 4 + RowH + RowH * 4 + 8;
         var instRoot = App.EditScene.Doc.PrefabRootOf(g);
         if (instRoot != null)
         {

@@ -11,7 +11,9 @@ public sealed class Material
     // Unity Material.renderQueue karsiligi. Varsayilan blend alpha oldugu icin Transparent.
     public SortMode SortMode = SortMode.Transparent;
 
-    public BlendFactor SrcBlend = BlendFactor.SrcAlpha;
+    // KANON: shader'lar duz renk doner, wrapper cikista premultiply eder ->
+    // normal alpha blend'in faktorleri One/OneMinusSrcAlpha'dir (motor geneli tek sozlesme).
+    public BlendFactor SrcBlend = BlendFactor.One;
     public BlendFactor DstBlend = BlendFactor.OneMinusSrcAlpha;
     public CullMode CullMode = CullMode.None;
     public bool DepthTest;
@@ -34,4 +36,76 @@ public sealed class Material
     }
 
     public bool IsOpaque => SrcBlend == BlendFactor.One && DstBlend == BlendFactor.Zero;
+
+    // BlendMode varyantlari (Normal haric 3 mod, lazy). Paylasilan materyal deseni
+    // korunur: taban mutate edilebildigi icin MainTexture/Shader her secimde esitlenir.
+    Material[] _blendVariants;
+
+    public Material ForBlend(BlendMode mode)
+    {
+        if (mode == BlendMode.Normal)
+            return this;
+        _blendVariants ??= new Material[3];
+        int i = (int)mode - 1;
+        var v = _blendVariants[i];
+        if (v == null)
+        {
+            v = new Material
+            {
+                SortMode = SortMode,
+                CullMode = CullMode,
+                DepthTest = DepthTest,
+                DepthWrite = DepthWrite,
+                SamplerType = SamplerType,
+            };
+            switch (mode)
+            {
+                case BlendMode.Additive: v.SrcBlend = BlendFactor.One; v.DstBlend = BlendFactor.One; break;
+                case BlendMode.Multiply: v.SrcBlend = BlendFactor.DstColor; v.DstBlend = BlendFactor.OneMinusSrcAlpha; break;
+                case BlendMode.Screen: v.SrcBlend = BlendFactor.One; v.DstBlend = BlendFactor.OneMinusSrcColor; break;
+            }
+            _blendVariants[i] = v;
+        }
+        v.MainTexture = MainTexture;
+        v.Shader = Shader;
+        return v;
+    }
+
+    // Pixel-effect varyantlari: composed shader'li klon (composed Shader referansi
+    // anahtar — zincir cache'i FxCompose'ta icerik-anahtarli). .fx reload'unda yeni
+    // composed dogar, eski girdi olu kalir (editor-only kucuk sizinti, kabul).
+    System.Collections.Generic.List<(Shader s, Material v)> _fxVariants;
+
+    public Material ForEffects(System.Collections.Generic.List<PixelEffect> fx)
+    {
+        if (fx == null || fx.Count == 0)
+            return this;
+        var core = Shader ?? Shader.Default;
+        var composed = FxCompose.Get(core, fx);
+        if (ReferenceEquals(composed, core))
+            return this; // bos/derlenemeyen zincir: efektsiz core
+        _fxVariants ??= new System.Collections.Generic.List<(Shader, Material)>(2);
+        for (int i = 0; i < _fxVariants.Count; i++)
+        {
+            if (!ReferenceEquals(_fxVariants[i].s, composed))
+                continue;
+            var mv = _fxVariants[i].v;
+            mv.MainTexture = MainTexture;
+            return mv;
+        }
+        var nv = new Material
+        {
+            MainTexture = MainTexture,
+            Shader = composed,
+            SortMode = SortMode,
+            SrcBlend = SrcBlend,
+            DstBlend = DstBlend,
+            CullMode = CullMode,
+            DepthTest = DepthTest,
+            DepthWrite = DepthWrite,
+            SamplerType = SamplerType,
+        };
+        _fxVariants.Add((composed, nv));
+        return nv;
+    }
 }

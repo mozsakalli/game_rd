@@ -7,6 +7,9 @@ namespace DigitoyEngine;
 public sealed class GameObject
 {
     public string name;
+    // Render/picking yonlendirme katmani (0-7): kamera cullingMask biti.
+    // Cocuklara MIRAS YOK (Unity paritesi) — her GO kendi layer'ini tasir.
+    public int layer;
     public readonly Transform transform;
 
     internal Scene _scene;
@@ -217,6 +220,7 @@ public sealed class GameObject
     {
         var go = new GameObject(src.name);
         goMap[src] = go;
+        go.layer = src.layer;
         go.transform.localPosition = src.transform.localPosition;
         go.transform.localEulerAngles = src.transform.localEulerAngles;
         go.transform.localScale = src.transform.localScale;

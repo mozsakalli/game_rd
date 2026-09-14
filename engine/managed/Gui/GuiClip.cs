@@ -48,6 +48,19 @@ public static class GuiClip
         SyncMouse();
     }
 
+    // Overlay cizimi icin: ekran kokune doner (popup aktif clip disina tasabilir).
+    public static void PushScreen()
+    {
+        if (_depth + 1 >= MaxDepth)
+            return;
+        _depth++;
+        _stack[_depth] = _stack[0];
+        SyncMouse();
+    }
+
+    // Pass'in ekran rect'i (global uzay) — popup konum clamp'i icin.
+    public static Rect ScreenRect => _stack[0].Physical;
+
     // Aktif fiziksel scissor rect'i (global piksel; cizim koprusu kullanir).
     public static Rect Physical => _stack[_depth].Physical;
 

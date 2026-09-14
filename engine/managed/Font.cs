@@ -76,9 +76,7 @@ public sealed unsafe class Font : IAsset
             {
                 MainTexture = Atlas,
                 Shader = UiPieces.UiShader,
-                SrcBlend = BlendFactor.One, // premultiplied (shader rgb*alpha yazar)
-                DstBlend = BlendFactor.OneMinusSrcAlpha,
-                SortMode = SortMode.Transparent,
+                SortMode = SortMode.Transparent, // blend = kanon default (One/OneMinusSrcAlpha)
             };
             return _material;
         }

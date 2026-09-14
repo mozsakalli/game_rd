@@ -125,6 +125,9 @@ public sealed class Scene
 
     internal void UnregisterCamera(CameraComponent c) => _cameras.Remove(c);
 
+    internal int CameraCount => _cameras.Count;
+    internal CameraComponent CameraAt(int i) => _cameras[i];
+
     // En dusuk depth'li aktif kamera; yoksa null (cagiran fallback uygular).
     public CameraComponent MainCamera
     {
@@ -138,6 +141,66 @@ public sealed class Scene
         }
     }
 
+    // Verilen layer'i cizen en dusuk depth'li kamera (fitScreen/picking tuketir);
+    // maskesi eslesen yoksa MainCamera fallback.
+    public CameraComponent CameraForLayer(int layer)
+    {
+        CameraComponent best = null;
+        for (int i = 0; i < _cameras.Count; i++)
+        {
+            var c = _cameras[i];
+            if ((c.cullingMask & (1 << layer)) == 0)
+                continue;
+            if (best == null || c.depth < best.depth)
+                best = c;
+        }
+        return best ?? MainCamera;
+    }
+
+    // Sahne kameralarini render kamera havuzuna surer: depth artan sirada ApplyTo +
+    // maske ile render. Donen sayi kadar pool kamerasi encode edilmelidir (Order=indeks).
+    // Sahnede hic kamera yoksa pool[0] fallback piksel-ortho ile tum icerigi cizer.
+    readonly List<CameraComponent> _camScratch = new();
+
+    public int DriveCameras(List<Camera> pool, float viewW, float viewH)
+    {
+        _camScratch.Clear();
+        for (int i = 0; i < _cameras.Count; i++)
+            if (_cameras[i].isActiveAndEnabled)
+                _camScratch.Add(_cameras[i]);
+        _camScratch.Sort(static (a, b) => a.depth.CompareTo(b.depth));
+
+        int used = _camScratch.Count > 0 ? _camScratch.Count : 1;
+        while (pool.Count < used)
+            pool.Add(new Camera());
+
+        if (_camScratch.Count == 0)
+        {
+            var cam = pool[0];
+            cam.Order = 0;
+            cam.ClearColor = true;
+            cam.ClearDepth = true;
+            cam.SetPixelOrtho(viewW, viewH);
+            Render(cam.Queue);
+        }
+        else
+        {
+            for (int i = 0; i < _camScratch.Count; i++)
+            {
+                var comp = _camScratch[i];
+                var cam = pool[i];
+                cam.Order = i;
+                comp.ApplyTo(cam, viewW, viewH);
+                Render(cam.Queue, comp.cullingMask);
+            }
+        }
+        // Kullanilmayan havuz kameralarinin bayat kuyruklari bosaltilir (sonraki
+        // encode'da eski frame draw'lari canlanmasin).
+        for (int i = used; i < pool.Count; i++)
+            pool[i].Queue.Begin();
+        return used;
+    }
+
     Component[] _lateUpdate = new Component[64];
     int _lateUpdateCount, _lateUpdateHoles;
 
@@ -146,6 +209,13 @@ public sealed class Scene
 
     Renderer[] _renderers = new Renderer[128];
     int _rendererCount, _rendererHoles;
+
+    internal int RendererCount => _rendererCount;
+    internal Renderer RendererAt(int i) => _renderers[i];
+
+    // Pointer/jest boru hatti (lazy — kullanilmayan sahnede sifir maliyet).
+    PointerInput _pointer;
+    public PointerInput Pointer => _pointer ??= new PointerInput(this);
 
     Component[] _destroyComps = new Component[32];
     int _destroyCompCount;
@@ -329,7 +399,8 @@ public sealed class Scene
     }
 
     // Aktif renderer'lari kuyruga encode eder (kamera-bagimsiz; cagiran secer).
-    public void Render(RenderQueue queue)
+    // layerMask: bit i = layer i cizilir (kamera cullingMask'i; -1 = hepsi).
+    public void Render(RenderQueue queue, int layerMask = -1)
     {
         for (int i = 0; i < _systemCount; i++)
             _systems[i].BeginRender(this, queue);
@@ -337,7 +408,8 @@ public sealed class Scene
         for (int i = 0; i < n; i++)
         {
             var r = _renderers[i];
-            if (r != null && !r._destroyed)
+            if (r != null && !r._destroyed
+                && (layerMask & (1 << r._gameObject.layer)) != 0)
                 r.Encode(queue);
         }
         for (int i = 0; i < _systemCount; i++)

@@ -152,9 +152,7 @@ public static unsafe class GuiRenderer
         EnsureResources();
         _texBlendMaterial ??= new Material
         {
-            SrcBlend = BlendFactor.SrcAlpha,
-            DstBlend = BlendFactor.OneMinusSrcAlpha,
-            SortMode = SortMode.Ui,
+            SortMode = SortMode.Ui, // kanon default (icerik artik premultiplied)
         };
         _texBlendMaterial.MainTexture = texture;
         bool flip = _flipRenderTargets && texture.IsRenderTarget;
@@ -170,8 +168,7 @@ public static unsafe class GuiRenderer
         "  FLOAT distance = SAMPLE(tex, uv).r;\n" +
         "  FLOAT smoothing = FWIDTH(distance);\n" +
         "  FLOAT alpha = smoothstep(0.5 - smoothing, 0.5 + smoothing, distance);\n" +
-        "  FLOAT outAlpha = alpha * color.a;\n" +
-        "  return VEC4(color.rgb * outAlpha, outAlpha);\n}";
+        "  return VEC4(color.rgb, alpha * color.a);\n}"; // duz renk; premultiply wrapper'da
 
     static Shader _sdfShader;
 
@@ -184,9 +181,7 @@ public static unsafe class GuiRenderer
         {
             MainTexture = font.Texture,
             Shader = _sdfShader,
-            SrcBlend = BlendFactor.One, // premultiplied (shader rgb*alpha yazar)
-            DstBlend = BlendFactor.OneMinusSrcAlpha,
-            SortMode = SortMode.Ui,
+            SortMode = SortMode.Ui, // blend = kanon default
         };
         return font.Material;
     }
@@ -198,8 +193,7 @@ public static unsafe class GuiRenderer
 
     const string _rasterFragment =
         "VEC4 fs_main(VEC2 uv, VEC4 color) {\n" +
-        "  FLOAT a = SAMPLE(tex, uv).r * color.a;\n" +
-        "  return VEC4(color.rgb * a, a);\n}";
+        "  return VEC4(color.rgb, SAMPLE(tex, uv).r * color.a);\n}"; // duz renk; premultiply wrapper'da
 
     static Shader _rasterShader;
 
@@ -212,9 +206,7 @@ public static unsafe class GuiRenderer
         {
             MainTexture = font.RasterTexture,
             Shader = _rasterShader,
-            SrcBlend = BlendFactor.One, // premultiplied
-            DstBlend = BlendFactor.OneMinusSrcAlpha,
-            SortMode = SortMode.Ui,
+            SortMode = SortMode.Ui, // blend = kanon default
         };
         return font.RasterMaterial;
     }

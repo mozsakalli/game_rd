@@ -15,4 +15,17 @@ public struct Vec3
         this.z = z;
     }
 
+    public static Vec3 operator +(Vec3 a, Vec3 b) => new(a.x + b.x, a.y + b.y, a.z + b.z);
+    public static Vec3 operator -(Vec3 a, Vec3 b) => new(a.x - b.x, a.y - b.y, a.z - b.z);
+    public static Vec3 operator *(Vec3 a, float s) => new(a.x * s, a.y * s, a.z * s);
+
+    public readonly float Length() => System.MathF.Sqrt(x * x + y * y + z * z);
+
+    public static float Distance(Vec3 a, Vec3 b) => (b - a).Length();
+
+    public static Vec3 Normalize(Vec3 v)
+    {
+        float len = v.Length();
+        return len > 1e-12f ? v * (1f / len) : v;
+    }
 }

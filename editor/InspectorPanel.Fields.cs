@@ -129,12 +129,12 @@ public sealed partial class InspectorPanel
                 break;
             case SerializedType.Kind.Enum:
                 {
-                    string current = value?.ToString() ?? "";
-                    if (Gui.Button(valueRect, current.Length > 0 ? current : "(default)"))
+                    string[] names = Enum.GetNames(valueType);
+                    int index = Array.IndexOf(names, value?.ToString() ?? "");
+                    int next = Gui.ComboBox(valueRect, index, names);
+                    if (next != index && next >= 0)
                     {
-                        string[] names = Enum.GetNames(valueType);
-                        int index = Array.IndexOf(names, current);
-                        setValue(Enum.Parse(valueType, names[(index + 1) % names.Length]));
+                        setValue(Enum.Parse(valueType, names[next]));
                         changed = true;
                     }
                     break;
@@ -569,14 +569,17 @@ public sealed partial class InspectorPanel
                 DrawDocString(valueRect, scalar, node, path, ref changed);
                 break;
             case SerializedType.Kind.Enum:
-                if (Gui.Button(valueRect, scalar.Length > 0 ? scalar : "(default)"))
                 {
                     string[] names = Enum.GetNames(valueType);
                     int index = Array.IndexOf(names, scalar);
-                    node.Scalar = names[(index + 1) % names.Length];
-                    changed = true;
+                    int next = Gui.ComboBox(valueRect, index, names);
+                    if (next != index && next >= 0)
+                    {
+                        node.Scalar = names[next];
+                        changed = true;
+                    }
+                    break;
                 }
-                break;
             case SerializedType.Kind.Vec2:
             case SerializedType.Kind.Vec3:
                 {

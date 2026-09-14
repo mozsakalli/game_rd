@@ -5,6 +5,12 @@ public abstract class Renderer : Component
 {
     internal int _rendererSlot = -1;
     public int SortingOrder;
+    // Tum renderer'larda AYNI blend alani/tablosu (sprite/kutu/metin ayrismaz).
+    public BlendMode BlendMode;
+    // Pixel-effect zinciri (.fx asset'leri, sira = uygulama sirasi). null = sifir maliyet.
+    public System.Collections.Generic.List<PixelEffect> Effects;
+    // true: pointer handler'i olmasa da isini bloklar (tam ekran panel arkasini kapatir).
+    public bool BlocksRaycast;
 
     internal abstract void Encode(RenderQueue queue);
 
@@ -15,6 +21,33 @@ public abstract class Renderer : Component
         center = default;
         halfSize = default;
         return false;
+    }
+
+    // Pointer picking: dunya isini bu renderer'i vuruyor mu? Default: lokal bbox'in
+    // z=0 duzlemiyle kesisim — her renderer sifir kodla tiklanabilir. Ozellesme
+    // (alpha testi, ucgen testi) override'la gelir; RayHit alanlari o gun dolar.
+    public virtual bool HitTest(in Ray ray, out float distance, out Vec3 point)
+    {
+        distance = 0;
+        point = default;
+        if (!GetLocalSelectionBounds(out var c, out var h))
+            return false;
+        ref var world = ref transform._getWorldMatrix();
+        if (!Mat4.Inverse(ref world, out var inv))
+            return false;
+        var o = Mat4.TransformPoint(ref inv, ray.Origin);
+        var d = Mat4.TransformVector(ref inv, ray.Dir);
+        if (d.z > -1e-8f && d.z < 1e-8f)
+            return false; // isin lokal duzleme paralel
+        float t = -o.z / d.z;
+        if (t < 0)
+            return false; // duzlem isinin arkasinda
+        float lx = o.x + d.x * t, ly = o.y + d.y * t;
+        if (lx < c.x - h.x || lx > c.x + h.x || ly < c.y - h.y || ly > c.y + h.y)
+            return false;
+        point = Mat4.TransformPoint(ref world, new Vec3(lx, ly, 0));
+        distance = Vec3.Distance(ray.Origin, point);
+        return true;
     }
 }
 
@@ -65,7 +98,7 @@ public sealed unsafe class SpriteRenderer : Renderer
         // baglamasiyla gelir — burada lookup yok, alan okunur. Ozel Material'de
         // doku secimi kullanicinin (sprite bolgesi uygulanmaz, U0..V1 gecerli).
         var spr = Sprite;
-        var mat = Material ?? Shared;
+        var mat = (Material ?? Shared).ForBlend(BlendMode).ForEffects(Effects);
         if (Material == null)
             mat.MainTexture = spr?.Page ?? White;
 

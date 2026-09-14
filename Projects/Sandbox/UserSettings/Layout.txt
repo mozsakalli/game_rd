@@ -1,1 +1,1 @@
-v2 (H 0.32916668 (L 0 Hierarchy) (V 0.53786105 (H 0.7163343 (L 0 Scene) (L 0 Inspector)) (L 3 Project|Clip|Timeline|Frame Debugger))) W 1976 726 3300 2130 (L 0 Game)
+v2 (H 0.335 (L 0 Hierarchy) (V 0.53786105 (H 0.68266517 (L 0 Scene) (L 0 Inspector)) (L 1 Project|Game|Clip|Timeline|Frame Debugger)))

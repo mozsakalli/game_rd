@@ -18,7 +18,7 @@ public sealed unsafe class TextSprite : Renderer
     public float Size = 32f;
     public TextAlign Align = TextAlign.Center;
 
-    // Dolgu ve kontur dolgusu (Gradient: Solid tek renk / Linear dikey ust->alt).
+    // Dolgu ve kontur dolgusu (Gradient: Solid tek renk / Linear dikey-yatay lineer).
     public Gradient Fill = new(Color.White);
 
     // Kontur (dunya birimi; SDF pad siniri ~6 sdf px * scale).
@@ -65,10 +65,11 @@ public sealed unsafe class TextSprite : Renderer
         if (_quadCount == 0)
             return;
         Mat4 wm = transform._getWorldMatrix();
-        var mat = Font.Material;
+        var mat = Font.Material.ForBlend(BlendMode).ForEffects(Effects);
         int layer = SortingOrder;
         float scale = Font.SdfSize > 0 ? Size / Font.SdfSize : 1f;
         float halfH = _bounds.y * 0.5f;
+        float halfW = _bounds.x * 0.5f;
 
         // Kontur kenar merkezi 0.5'ten disari kayar (SDF deger uzayinda).
         float cOut = 0f;
@@ -83,32 +84,35 @@ public sealed unsafe class TextSprite : Renderer
             var user = new Vec4(s, cOut, 0f, 0f); // kontur varsa golge silueti de kontur kenarindan
             for (int i = 0; i < _quadCount; i++)
                 Emit(queue, mat, in wm, in _quads[i], ShadowOffset.x, ShadowOffset.y,
-                    ShadowColor, ShadowColor, in user, layer);
+                    ShadowColor, ShadowColor, false, in user, layer);
         }
         if (cOut > 0f)
         {
             var user = new Vec4(0f, cOut, 0f, 0f);
+            bool oh = Outline.IsHorizontal;
             for (int i = 0; i < _quadCount; i++)
             {
                 ref readonly var g = ref _quads[i];
-                Color cT = GradAt(in Outline, g.Y0, halfH);
-                Color cB = GradAt(in Outline, g.Y1, halfH);
-                Emit(queue, mat, in wm, in g, 0f, 0f, cT, cB, in user, layer);
+                Color c0 = GradAt(in Outline, oh ? g.X0 : g.Y0, oh ? halfW : halfH);
+                Color c1 = GradAt(in Outline, oh ? g.X1 : g.Y1, oh ? halfW : halfH);
+                Emit(queue, mat, in wm, in g, 0f, 0f, c0, c1, oh, in user, layer);
             }
         }
+        bool fh = Fill.IsHorizontal;
         for (int i = 0; i < _quadCount; i++)
         {
             ref readonly var g = ref _quads[i];
-            Color cT = GradAt(in Fill, g.Y0, halfH);
-            Color cB = GradAt(in Fill, g.Y1, halfH);
-            Emit(queue, mat, in wm, in g, 0f, 0f, cT, cB, default, layer);
+            Color c0 = GradAt(in Fill, fh ? g.X0 : g.Y0, fh ? halfW : halfH);
+            Color c1 = GradAt(in Fill, fh ? g.X1 : g.Y1, fh ? halfW : halfH);
+            Emit(queue, mat, in wm, in g, 0f, 0f, c0, c1, fh, default, layer);
         }
     }
 
     // Lokal glyph dikdortgeni world matrisiyle tek instanced quad'a cevrilir
-    // (LayoutBox.EmitQuad deseni). Tint koseleri uv uzayinda: ust = uv.y=1.
+    // (LayoutBox.EmitQuad deseni). Tint koseleri uv uzayinda: 0=BL 1=BR 2=TR 3=TL
+    // (ust kenar = uv.y=1). c0/c1 gradient ekseni boyunca (dikey: ust/alt, yatay: sol/sag).
     static void Emit(RenderQueue q, Material mat, in Mat4 world, in GlyphQuad g,
-        float ox, float oy, Color cTop, Color cBottom, in Vec4 user, int layer)
+        float ox, float oy, Color c0, Color c1, bool horiz, in Vec4 user, int layer)
     {
         Mat4 m = world;
         float cx = (g.X0 + g.X1) * 0.5f + ox, cy = (g.Y0 + g.Y1) * 0.5f + oy;
@@ -118,13 +122,17 @@ public sealed unsafe class TextSprite : Renderer
         m.m[14] += m.m[2] * cx + m.m[6] * cy;
         m.m[0] *= sx; m.m[1] *= sx; m.m[2] *= sx;
         m.m[4] *= sy; m.m[5] *= sy; m.m[6] *= sy;
-        q.DrawMesh(Mesh.Quad(), mat, in m, cBottom, cBottom, cTop, cTop, in user,
-            g.U0, g.V0, g.U1, g.V1, layer);
+        if (horiz)
+            q.DrawMesh(Mesh.Quad(), mat, in m, c0, c1, c1, c0, in user,
+                g.U0, g.V0, g.U1, g.V1, layer);
+        else
+            q.DrawMesh(Mesh.Quad(), mat, in m, c1, c1, c0, c0, in user,
+                g.U0, g.V0, g.U1, g.V1, layer);
     }
 
-    // Dikey lineer gradient: blok ustu t=0, altta t=1 (lokal y-down uzay).
-    static Color GradAt(in Gradient g, float y, float halfH)
-        => g.At(halfH > 0f ? (y + halfH) / (halfH * 2f) : 0f);
+    // Lineer gradient blok bandina gore: eksen baslangici t=0 (lokal, blok merkezli).
+    static Color GradAt(in Gradient g, float c, float half)
+        => g.At(half > 0f ? (c + half) / (half * 2f) : 0f);
 
     void EnsureLayout()
     {

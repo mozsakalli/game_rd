@@ -18,6 +18,38 @@ public unsafe struct Mat4
         @out.m[15] = 1f;
     }
 
+    // Perspektif projeksiyon (GL clip uzayi, kolon-major). fovy radyan, dikey acilim.
+    public static void Perspective(float fovy, float aspect, float near, float far, out Mat4 @out)
+    {
+        @out = default;
+        float f = 1f / System.MathF.Tan(fovy * 0.5f);
+        @out.m[0] = f / aspect;
+        @out.m[5] = f;
+        @out.m[10] = (far + near) / (near - far);
+        @out.m[11] = -1f;
+        @out.m[14] = 2f * far * near / (near - far);
+    }
+
+    // Kamera view'i (y-asagi dunya -> GL y-yukari eye): translate(-pos) + y/z ceviri.
+    public static void ViewYDown(float px, float py, float pz, out Mat4 @out)
+    {
+        @out = default;
+        @out.m[0] = 1; @out.m[5] = -1; @out.m[10] = -1; @out.m[15] = 1;
+        @out.m[12] = -px; @out.m[13] = py; @out.m[14] = pz;
+    }
+
+    // Nokta donusumu (w=1, translation dahil).
+    public static Vec3 TransformPoint(ref Mat4 t, Vec3 p) => new(
+        t.m[0] * p.x + t.m[4] * p.y + t.m[8] * p.z + t.m[12],
+        t.m[1] * p.x + t.m[5] * p.y + t.m[9] * p.z + t.m[13],
+        t.m[2] * p.x + t.m[6] * p.y + t.m[10] * p.z + t.m[14]);
+
+    // Yon donusumu (w=0, translation yok).
+    public static Vec3 TransformVector(ref Mat4 t, Vec3 v) => new(
+        t.m[0] * v.x + t.m[4] * v.y + t.m[8] * v.z,
+        t.m[1] * v.x + t.m[5] * v.y + t.m[9] * v.z,
+        t.m[2] * v.x + t.m[6] * v.y + t.m[10] * v.z);
+
     public void Identity()
     {
         m[0] = 1;

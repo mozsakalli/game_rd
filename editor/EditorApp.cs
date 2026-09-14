@@ -63,9 +63,13 @@ public unsafe class App
 
         var cb = new CommandBuffer();
 
-        // Oyun paylasilan GameOutput RT'sine cizilir; her Editor-kamerali viewport
-        // ayni sahneyi kendi kamerasiyla kendi RT'sine encode eder; mainCam yalniz GUI.
-        var sceneCam = new Camera { Order = 0, BackgroundColor = new Color(45, 50, 70, 255) };
+        // Oyun paylasilan GameOutput RT'sine cizilir; sahnedeki her aktif
+        // CameraComponent icin havuzdan bir render kamerasi surulur (stacking).
+        // Her Editor-kamerali viewport ayni sahneyi kendi kamerasiyla kendi
+        // RT'sine encode eder; mainCam yalniz GUI.
+        var gameCams = new System.Collections.Generic.List<Camera>
+            { new Camera { Order = 0, BackgroundColor = new Color(45, 50, 70, 255) } };
+        int gameCamCount = 1;
         var mainCam = new Camera { Order = 9, BackgroundColor = new Color(28, 30, 36, 255) };
         var cameras = new System.Collections.Generic.List<Camera>();
 
@@ -117,6 +121,7 @@ public unsafe class App
         _assets.ScanMetas(createMissing: true); // GUID kimligi: eksik .meta uretilir
         ImportPipeline.Init(_project);
         _assets.ArtifactResolver = ImportPipeline.ResolveMainArtifact; // import'lu asset'ler Library'den
+        PixelEffect.LogError = EditorLog.Error; // fx derleme hatalari Console paneline
         _gameCode = new GameCode();
         _gameCode.CompileAndLoad(_project, _assets);
         RebuildCatalog();
@@ -124,6 +129,8 @@ public unsafe class App
         LifecycleTests.Run(_catalog); // izole sahnede kenar durum smoke testleri
         SerializationTests.Run(_catalog);
         LayoutTests.Run(_catalog);
+        PointerTests.Run(_catalog);
+        PixelEffectTests.Run();
 #endif
         // Kullanici ayarlari (standart: [Serializable] + ObjectSerializer).
         // Otomatik sahne ACILMAZ: yalniz kullanicinin son actigi sahne (varsa) geri gelir.
@@ -204,16 +211,20 @@ public unsafe class App
             Scene.UpdateAll(dt, GameOutput.ViewW, GameOutput.ViewH, PlayMode.Simulate);
 
             // Oyun ciktisi: oyun sahnesi (Play'de) yoksa edit projeksiyonu.
-            // Projeksiyon sahnedeki CameraComponent'ten (WYSIWYG); yoksa fallback
-            // sabit piksel-ortho (eski davranis). Render'dan ONCE basilir — layout
-            // fitScreen kutulari encode sirasinda kamera rect'ini okur.
+            // Sahnedeki aktif CameraComponent'ler depth sirasiyla havuz kameralarina
+            // surulur (cullingMask routing); hic yoksa fallback piksel-ortho.
+            // Render'dan ONCE — layout fitScreen kutulari encode'da kamera rect'ini okur.
             var gameScene = PlayMode.PlayScene ?? editLive;
-            var camComp = gameScene?.MainCamera;
-            if (camComp != null)
-                camComp.ApplyTo(sceneCam, GameOutput.ViewW, GameOutput.ViewH);
+            if (gameScene != null)
+                gameCamCount = gameScene.DriveCameras(gameCams, GameOutput.ViewW, GameOutput.ViewH);
             else
-                sceneCam.SetPixelOrtho(GameOutput.ViewW, GameOutput.ViewH);
-            gameScene?.Render(sceneCam.Queue);
+            {
+                gameCamCount = 1;
+                var cam0 = gameCams[0];
+                cam0.ClearColor = true;
+                cam0.ClearDepth = true;
+                cam0.SetPixelOrtho(GameOutput.ViewW, GameOutput.ViewH);
+            }
             // Scene View: edit projeksiyonu (HEP donuk doc).
             if (_sceneView.VisibleLastFrame && editLive != null)
             {
@@ -237,7 +248,9 @@ public unsafe class App
 
             // Paneller GUI sirasinda resize olabilir (eski RT emekli edilir):
             // hedefler ve kamera listesi ENCODE'dan hemen once kurulur.
-            sceneCam.Target = GameOutput.EnsureTarget();
+            var gameRt = GameOutput.EnsureTarget();
+            for (int i = 0; i < gameCamCount; i++)
+                gameCams[i].Target = gameRt;
             cameras.Clear();
             if (_sceneView.VisibleLastFrame)
             {
@@ -247,14 +260,15 @@ public unsafe class App
             cameras.Add(mainCam);
 
             cb.Begin();
-            // Oyun kamerasi ayrica encode edilir (Order=0, en dusuk): frame debugger
-            // yalniz bu araligi yakalar — editor UI draw'lari capture'a girmez.
+            // Oyun kameralari ayrica encode edilir (Order = depth sirasi): frame
+            // debugger yalniz bu araligi yakalar — editor UI draw'lari capture'a girmez.
 #if DE_EDITOR
             int gameStart = cb.Length;
 #endif
-            sceneCam.Encode(cb, fbw, fbh);
+            for (int i = 0; i < gameCamCount; i++)
+                gameCams[i].Encode(cb, fbw, fbh);
 #if DE_EDITOR
-            RenderDebug.NoteGameRange(gameStart, cb.Length, sceneCam.Target);
+            RenderDebug.NoteGameRange(gameStart, cb.Length, gameRt);
 #endif
             Camera.EncodeAll(cameras, cb, fbw, fbh);
             GuiDock.EncodeWindows(cb);
@@ -289,6 +303,8 @@ public unsafe class App
     // Editor GUI: her event pass'inde bastan kosulur (kontrol sirasi sabit).
     static int _screenW = 800, _screenH = 600;
     const float ToolbarH = 26f;
+    // ComboBox ogeleri — indeks = (int)HotReloadMode.
+    static readonly string[] _hrNames = { "HR: Off", "HR: On Save", "HR: Instant" };
     static SceneViewPanel _sceneView;
     static int _lastReloadedVersion;
     static string _layoutPath;
@@ -332,16 +348,11 @@ public unsafe class App
             PlayMode.Pause();
         if (Gui.Button(new Rect(cx + 32, 3, 50, 20), "Stop"))
             PlayMode.Stop();
-        // Sol kose: hot reload modu dongusu.
-        string hrLabel = PlayMode.HotReload switch
+        // Sol kose: hot reload modu (combobox).
+        var newHr = (HotReloadMode)Gui.ComboBox(new Rect(6, 3, 104, 20), (int)PlayMode.HotReload, _hrNames);
+        if (newHr != PlayMode.HotReload)
         {
-            HotReloadMode.Off => "HR: Off",
-            HotReloadMode.OnSave => "HR: On Save",
-            _ => "HR: Instant",
-        };
-        if (Gui.Button(new Rect(6, 3, 104, 20), hrLabel))
-        {
-            PlayMode.HotReload = (HotReloadMode)(((int)PlayMode.HotReload + 1) % 3);
+            PlayMode.HotReload = newHr;
             SaveSettings();
         }
         // Arka plan is durumu (derleme vs.): non-modal, toolbar'da yasar.

@@ -110,6 +110,7 @@ public sealed class AssetDatabase
         [".prefab"] = typeof(Prefab),
         [".ttf"] = typeof(Font),
         [".otf"] = typeof(Font),
+        [".fx"] = typeof(PixelEffect),
     };
 
     public static void RegisterImporter(string extension, Type type) => _importers[extension] = type;
@@ -164,6 +165,8 @@ public sealed class AssetDatabase
             return LoadTexture(keyOrGuid);
         if (type == typeof(Font))
             return LoadFont(keyOrGuid);
+        if (type == typeof(PixelEffect))
+            return LoadPixelEffect(keyOrGuid);
         return null;
     }
 
@@ -197,9 +200,38 @@ public sealed class AssetDatabase
         return f;
     }
 
-    // Dis degisiklik (reimport): cache dusurulur, sonraki LoadFont taze artifact okur.
-    // Canli referanslar eski Font'ta kalir (sahne reload'unda tazelenir).
-    public bool InvalidateImported(string relPath) => _fonts.Remove(relPath);
+    // Dis degisiklik (reimport): font cache dusurulur (canli referanslar sahne
+    // reload'unda tazelenir); pixel effect AYNI instance'ta yerinde tazelenir
+    // (Version++ compose cache'leri bayatlatir -> renderer'lar aninda iyilesir).
+    public bool InvalidateImported(string relPath)
+    {
+        if (_fx.TryGetValue(relPath, out var fx))
+        {
+            var bytes = ArtifactResolver?.Invoke(relPath) ?? _source.ReadBytes(relPath);
+            fx.SetBody(bytes != null ? System.Text.Encoding.UTF8.GetString(bytes) : null);
+            return true;
+        }
+        return _fonts.Remove(relPath);
+    }
+
+    readonly Dictionary<string, PixelEffect> _fx = new();
+
+    // .fx govdesi SENKRON yuklenir (kucuk metin); instance kalici, reload yerinde.
+    public PixelEffect LoadPixelEffect(string key)
+    {
+        key = ResolvePath(key);
+        if (string.IsNullOrEmpty(key))
+            return null;
+        if (_fx.TryGetValue(key, out var fx))
+            return fx;
+        var bytes = ArtifactResolver?.Invoke(key) ?? _source.ReadBytes(key);
+        if (bytes == null)
+            return null;
+        fx = new PixelEffect { Name = key };
+        fx.SetBody(System.Text.Encoding.UTF8.GetString(bytes));
+        _fx[key] = fx;
+        return fx;
+    }
 
     public Texture LoadTexture(string key, LoadOp op = null)
     {

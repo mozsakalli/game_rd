@@ -3,13 +3,12 @@ objects:
   - id: 8
     parent: 0
     name: CAMERA
-    pos: 0 0 0
-    rot: 0 0 0
+    pos: 9.866663 0 -338.56665
+    rot: 0 0 22.5
     scale: 1 1 1
     components:
       - type: CameraComponent
-        pixelPerfect: false
-        orthoSize: 300
+        projection: Perspective
         depth: 0
   - id: 1
     parent: 0
@@ -41,7 +40,7 @@ objects:
         anchorMin: 0.5 0
         anchorMax: 0.5 0
         pivot: 0.5 0
-        anchoredPos: 0 48
+        anchoredPos: 321.74835 137.49911
         fillColor: '#ffffffe6'
         radiusTL: 18
         radiusTR: 18
@@ -172,9 +171,9 @@ objects:
           color2: '#00000000'
   - id: 9
     parent: 0
-    name: GameObject
-    pos: 126.02464 3.7065573 0
-    rot: 0 -1.1666687 0
+    name: LOGOSPRITE
+    pos: -424.16354 -87.49562 0
+    rot: 0 0 0
     scale: 1 1 1
     components:
       - type: SpriteRenderer
@@ -182,3 +181,4 @@ objects:
         Width: 200
         Height: 200
         SortingOrder: 13
+      - type: Draggable

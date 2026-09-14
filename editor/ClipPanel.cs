@@ -104,9 +104,10 @@ public sealed class ClipPanel : EditorWindow
                     clip.SampleAt(_playhead); // aninda gor
             }
             x += 74;
-            if (Gui.Button(new Rect(x, 2, 76, 20), EaseName(selKeyObj.Ease)))
+            var newEase = (Ease)Gui.ComboBox(new Rect(x, 2, 76, 20), (int)selKeyObj.Ease, _easeNames);
+            if (newEase != selKeyObj.Ease)
             {
-                selKeyObj.Ease = (Ease)(((int)selKeyObj.Ease + 1) % Easing.EaseCount);
+                selKeyObj.Ease = newEase;
                 es.CommitComponent(g, cd);
             }
             x += 80;
@@ -163,9 +164,10 @@ public sealed class ClipPanel : EditorWindow
                 tr.Active = act;
                 es.CommitComponent(g, cd);
             }
-            if (Gui.Button(new Rect(20, y, TrackX - 24, 18), ChannelName(tr.Channel)))
+            var newChannel = (AnimChannel)Gui.ComboBox(new Rect(20, y, TrackX - 24, 18), (int)tr.Channel, _channelNames);
+            if (newChannel != tr.Channel)
             {
-                tr.Channel = (AnimChannel)(((int)tr.Channel + 1) % 6);
+                tr.Channel = newChannel;
                 es.CommitComponent(g, cd);
             }
 
@@ -234,17 +236,8 @@ public sealed class ClipPanel : EditorWindow
         return tr.Keys.IndexOf(moved);
     }
 
-    static string ChannelName(AnimChannel c) => c switch
-    {
-        AnimChannel.PositionX => "PosX",
-        AnimChannel.PositionY => "PosY",
-        AnimChannel.Rotation => "Rot",
-        AnimChannel.ScaleX => "ScaleX",
-        AnimChannel.ScaleY => "ScaleY",
-        _ => "Alpha",
-    };
-
     static readonly string[] _easeNames = Enum.GetNames(typeof(Ease)); // bir kez
 
-    static string EaseName(Ease e) => _easeNames[(int)e];
+    // ComboBox ogeleri — indeks = (int)AnimChannel.
+    static readonly string[] _channelNames = { "PosX", "PosY", "Rot", "ScaleX", "ScaleY", "Alpha" };
 }

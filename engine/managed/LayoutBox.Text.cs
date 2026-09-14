@@ -302,7 +302,7 @@ public sealed unsafe partial class LayoutBox
             LayoutAlign.End => availH - _tbBlockH,
             _ => 0f,
         };
-        var mat = font.Material;
+        var mat = font.Material.ForBlend(BlendMode).ForEffects(Effects);
         float scale = TextScale;
 
         // Kontur kenar merkezi 0.5'ten disari kayar (SDF deger uzayi; TextSprite ile ayni).
@@ -321,34 +321,39 @@ public sealed unsafe partial class LayoutBox
             {
                 ref readonly var g = ref _tq[i];
                 EmitQuad(queue, mat, in wm, sx + g.X0, sy + g.Y0, sx + g.X1, sy + g.Y1,
-                    g.U0, g.V0, g.U1, g.V1, textShadowColor, textShadowColor, user, layer);
+                    g.U0, g.V0, g.U1, g.V1, textShadowColor, textShadowColor, false, user, layer);
             }
         }
         if (cOut > 0)
         {
             var user = new Vec4(0f, cOut, 0f, 0f);
+            bool oh = textOutline.IsHorizontal;
             for (int i = 0; i < _tqCount; i++)
             {
                 ref readonly var g = ref _tq[i];
                 EmitQuad(queue, mat, in wm, ox + g.X0, oy + g.Y0, ox + g.X1, oy + g.Y1,
                     g.U0, g.V0, g.U1, g.V1,
-                    TextGradAt(in textOutline, g.Y0),
-                    TextGradAt(in textOutline, g.Y1),
-                    user, layer);
+                    TextGradAt(in textOutline, oh ? g.X0 : g.Y0),
+                    TextGradAt(in textOutline, oh ? g.X1 : g.Y1),
+                    oh, user, layer);
             }
         }
+        bool fh = textFill.IsHorizontal;
         for (int i = 0; i < _tqCount; i++)
         {
             ref readonly var g = ref _tq[i];
             EmitQuad(queue, mat, in wm, ox + g.X0, oy + g.Y0, ox + g.X1, oy + g.Y1,
                 g.U0, g.V0, g.U1, g.V1,
-                TextGradAt(in textFill, g.Y0),
-                TextGradAt(in textFill, g.Y1),
-                default, layer);
+                TextGradAt(in textFill, fh ? g.X0 : g.Y0),
+                TextGradAt(in textFill, fh ? g.X1 : g.Y1),
+                fh, default, layer);
         }
     }
 
-    // Dikey lineer gradient BLOK bandina gore (icerik uzayi: blok ustu y=0).
-    Color TextGradAt(in Gradient g, float y)
-        => g.At(_tbBlockH > 0 ? y / _tbBlockH : 0f);
+    // Lineer gradient BLOK bandina gore (icerik uzayi: blok ustu y=0, sol x=0).
+    // c = dikeyde y (blok yuksekligi), yatayda x (kullanilabilir genislik).
+    Color TextGradAt(in Gradient g, float c)
+        => g.IsHorizontal
+            ? g.At(_tbAvailW > 0 ? c / _tbAvailW : 0f)
+            : g.At(_tbBlockH > 0 ? c / _tbBlockH : 0f);
 }

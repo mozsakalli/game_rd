@@ -111,6 +111,13 @@ public sealed class EditorScene
 
     public void ApplyActive(SceneDoc.GoDoc g) => Live(g.Id)?.SetActive(g.Active);
 
+    public void ApplyLayer(SceneDoc.GoDoc g)
+    {
+        var go = Live(g.Id);
+        if (go != null)
+            go.layer = g.Layer;
+    }
+
     // --- Kayitli mutasyonlar: TUM authored degisikliklerin bogazi (undo otomatik) ---
 
     public readonly UndoStack History = new();
@@ -164,6 +171,13 @@ public sealed class EditorScene
         History.Push(new ActiveOp { GoId = g.Id, Old = g.Active, New = value });
         g.Active = value;
         ApplyActive(g);
+    }
+
+    public void SetLayer(SceneDoc.GoDoc g, int value)
+    {
+        History.Push(new LayerOp { GoId = g.Id, Old = g.Layer, New = value });
+        g.Layer = value;
+        ApplyLayer(g);
     }
 
     public void SetEnabled(SceneDoc.GoDoc g, SceneDoc.CompDoc cd, bool value)
@@ -891,6 +905,15 @@ public sealed class EditorScene
             return;
         g.Active = value;
         ApplyActive(g);
+    }
+
+    internal void ApplyLayerOp(int goId, int value)
+    {
+        var g = FindGo(goId);
+        if (g == null)
+            return;
+        g.Layer = value;
+        ApplyLayer(g);
     }
 
     internal void ApplyEnabledOp(int goId, int compIndex, bool value)

@@ -20,6 +20,7 @@ public sealed partial class SceneDoc
         public int Parent; // 0 = kok
         public string Name = "GameObject";
         public bool Active = true;
+        public int Layer;
         public Vec3 Pos, Rot;
         public Vec3 Scale = new(1f, 1f, 1f);
         public readonly List<CompDoc> Components = new();
@@ -85,6 +86,7 @@ public sealed partial class SceneDoc
             Parent = parentId,
             Name = go.name,
             Active = go.activeSelf,
+            Layer = go.layer,
             Pos = go.transform.localPosition,
             Rot = go.transform.localEulerAngles,
             Scale = go.transform.localScale,
@@ -167,6 +169,7 @@ public sealed partial class SceneDoc
         foreach (var g in Objects)
         {
             var go = new GameObject(g.Name);
+            go.layer = g.Layer;
             byId[g.Id] = go;
             first ??= go;
         }
@@ -257,6 +260,8 @@ public sealed partial class SceneDoc
             m.Add("name", DocNode.Scal(g.Name));
             if (!g.Active)
                 m.Add("active", DocNode.Scal("false"));
+            if (g.Layer != 0)
+                m.Add("layer", DocNode.Scal(g.Layer.ToString(CultureInfo.InvariantCulture)));
             m.Add("pos", DocNode.Scal(V3(g.Pos)));
             m.Add("rot", DocNode.Scal(V3(g.Rot)));
             m.Add("scale", DocNode.Scal(V3(g.Scale)));
@@ -307,6 +312,7 @@ public sealed partial class SceneDoc
                 Parent = ParseInt(m.GetScalar("parent")),
                 Name = m.GetScalar("name", "GameObject"),
                 Active = m.GetScalar("active", "true") != "false",
+                Layer = ParseInt(m.GetScalar("layer", "0")),
                 Pos = SerializedType.ParseVec3(m.GetScalar("pos", "0 0 0")),
                 Rot = SerializedType.ParseVec3(m.GetScalar("rot", "0 0 0")),
                 Scale = SerializedType.ParseVec3(m.GetScalar("scale", "1 1 1")),

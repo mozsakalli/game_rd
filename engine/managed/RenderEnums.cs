@@ -30,6 +30,17 @@ public enum CullMode
     Back = 2,
 }
 
+// Kullanici yuzu blend secimi (Renderer.BlendMode) — HER renderer'da ayni alan,
+// ayni tablo (sprite/kutu/metin ayrismaz). Faktorler premultiplied cikisa gore
+// (shader wrapper cikista rgb*a yazar); ham Src/DstBlend dahili detaydir.
+public enum BlendMode
+{
+    Normal = 0,   // One / OneMinusSrcAlpha
+    Additive = 1, // One / One
+    Multiply = 2, // DstColor / OneMinusSrcAlpha
+    Screen = 3,   // One / OneMinusSrcColor
+}
+
 // Unity Material.renderQueue karsiligi: siralama MATERYALIN ozelligi, komutun degil.
 // Kovalar numara sirasiyla cizilir (Unity: Geometry 2000 -> Transparent 3000 -> Overlay 4000).
 // DrawMesh'teki 'layer' Unity sortingOrder karsiligidir: kova ICINDEKI sira ipucu.
