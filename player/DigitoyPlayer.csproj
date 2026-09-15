@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- DigitoyPlayer: standalone runtime host (release yolu). Editor YOK: proje
+       kokunden project.yaml + Build/game.pak (yoksa loose Assets/ fallback) +
+       Library/Build'deki Game.dll & Digitoy.Registry.dll (editorun urettigi
+       katalog kaydi) ile sahneyi acar ve kosar. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <AssemblyName>DigitoyPlayer</AssemblyName>
+  </PropertyGroup>
+
+  <!-- Grafik backend'i derleme zamani (editor csproj ile ayni desen). -->
+  <PropertyGroup>
+    <Renderer Condition="'$(Renderer)' == '' AND '$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::OSX)))' == 'true'">Metal</Renderer>
+    <Renderer Condition="'$(Renderer)' == ''">OpenGL</Renderer>
+    <DefineConstants Condition="'$(Renderer)' == 'Metal'">$(DefineConstants);DE_RENDERER_METAL</DefineConstants>
+    <DefineConstants Condition="'$(Renderer)' == 'OpenGL'">$(DefineConstants);DE_RENDERER_OPENGL</DefineConstants>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\engine\managed\DigitoyEngine.csproj" />
+  </ItemGroup>
+
+  <ItemGroup Condition="'$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Windows)))' == 'true'">
+    <None Include="..\engine\native\build\digitoyengine_native.dll"
+          Condition="Exists('..\engine\native\build\digitoyengine_native.dll')">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+      <Link>digitoyengine_native.dll</Link>
+    </None>
+  </ItemGroup>
+
+</Project>

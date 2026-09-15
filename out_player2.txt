@@ -1,0 +1,2 @@
+[player] loose: C:\Work\digitoygames\game_rd\Projects\Sandbox\Assets (pak yok)
+[player] katalog: uretilmis registry + Sandbox.Game.dll

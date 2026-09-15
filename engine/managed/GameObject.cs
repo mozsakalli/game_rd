@@ -264,13 +264,13 @@ public sealed class GameObject
             {
                 if (f.Kind == SerializedType.Kind.CompRef)
                 {
-                    if (f.Info.GetValue(kv.Value) is Component rc && compMap.TryGetValue(rc, out var mapped))
-                        f.Info.SetValue(kv.Value, mapped);
+                    if (f.Get(kv.Value) is Component rc && compMap.TryGetValue(rc, out var mapped))
+                        f.Set(kv.Value, mapped);
                 }
                 else if (f.Kind == SerializedType.Kind.GoRef)
                 {
-                    if (f.Info.GetValue(kv.Value) is GameObject rg && goMap.TryGetValue(rg, out var mappedGo))
-                        f.Info.SetValue(kv.Value, mappedGo);
+                    if (f.Get(kv.Value) is GameObject rg && goMap.TryGetValue(rg, out var mappedGo))
+                        f.Set(kv.Value, mappedGo);
                 }
             }
         }

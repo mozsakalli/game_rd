@@ -1,11 +1,12 @@
 {
   "version": 2,
-  "dgSpecHash": "7zczMXD9p8g=",
+  "dgSpecHash": "EG1DSAxjvxY=",
   "success": true,
-  "projectFilePath": "/Users/mustafaozsakalli/Work/digitoygmes/game_rd/Projects/Sandbox/Library/Build/Game.csproj",
+  "projectFilePath": "C:\\Work\\digitoygames\\game_rd\\Projects\\Sandbox\\Library\\Build\\Game.csproj",
   "expectedPackageFiles": [
-    "/Users/mustafaozsakalli/.nuget/packages/microsoft.netcore.app.ref/9.0.19/microsoft.netcore.app.ref.9.0.19.nupkg.sha512",
-    "/Users/mustafaozsakalli/.nuget/packages/microsoft.aspnetcore.app.ref/9.0.19/microsoft.aspnetcore.app.ref.9.0.19.nupkg.sha512"
+    "C:\\Users\\ozsak\\.nuget\\packages\\microsoft.netcore.app.ref\\9.0.15\\microsoft.netcore.app.ref.9.0.15.nupkg.sha512",
+    "C:\\Users\\ozsak\\.nuget\\packages\\microsoft.windowsdesktop.app.ref\\9.0.15\\microsoft.windowsdesktop.app.ref.9.0.15.nupkg.sha512",
+    "C:\\Users\\ozsak\\.nuget\\packages\\microsoft.aspnetcore.app.ref\\9.0.15\\microsoft.aspnetcore.app.ref.9.0.15.nupkg.sha512"
   ],
   "logs": []
 }

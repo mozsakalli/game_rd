@@ -21,10 +21,12 @@ public static class ObjectSerializer
 {
     // Asset olabilme kurali: bilincli [Serializable] + new() + Component degil.
     // Create menusunde gorunme AYRI karar: [CreateAssetMenu] ister (IsCreatable).
+#pragma warning disable SYSLIB0050 // yanlis pozitif: [Serializable] bayragini kendi serializer'imiz icin okuyoruz
     public static bool IsAssetType(Type t)
         => t is { IsSerializable: true, IsAbstract: false, IsGenericTypeDefinition: false }
         && t.GetConstructor(Type.EmptyTypes) != null
         && !typeof(Component).IsAssignableFrom(t);
+#pragma warning restore SYSLIB0050
 
     public static bool IsCreatable(Type t)
         => IsAssetType(t) && t.IsDefined(typeof(CreateAssetMenuAttribute), inherit: false);

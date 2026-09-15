@@ -32,6 +32,17 @@ public static class SerializedType
         public FieldSchema ShowIf;
         public string ShowIfScalar;
 
+        // CEKIRDEK boxed erisimciler + kuruculuar: serializer/clone IC YOLLARI yalniz
+        // bunlari kullanir (Info'ya asla dokunmaz). Editorde FieldInfo'dan sarilir;
+        // uretilmis katalogda duz lambda — release/AOT'de reflection SIFIR.
+        public Type FieldType;             // alanin bildirilen tipi
+        public Type DeclaringType;         // sahibi tip (editor default-instance kurar)
+        public Func<object, object> Get;
+        public Action<object, object> Set;
+        public Func<object> NewList;       // List<T> kurucusu (Kind.List, dizi degil)
+        public Func<int, object> NewArray; // T[] kurucusu
+        public Func<object> NewElement;    // nested nesne / value-type liste elemani
+
         // Tiplendirilmis erisimciler (tween/binding/inspector sicak yollari — boxing yok).
         // Editorde expression-compile ile TEMBEL doldurulur; release/AOT'de source
         // generator ayni slotlara duz kod basar.
@@ -123,7 +134,7 @@ public static class SerializedType
     {
         if (f.ShowIf == null || owner == null)
             return true;
-        object v = f.ShowIf.Info.GetValue(owner);
+        object v = f.ShowIf.Get(owner);
         if (f.ShowIfScalar == null && f.ShowIf.Kind is Kind.Asset or Kind.GoRef or Kind.CompRef)
             return v != null;
         return ShowIfMatch(f, Format(v, f.ShowIf.Kind));
@@ -191,6 +202,17 @@ public static class SerializedType
         f.Name = fi.Name;
         f.Info = fi;
         f.FormerName = fi.GetCustomAttribute<FormerlySerializedAsAttribute>()?.OldName;
+        f.FieldType = ft;
+        f.DeclaringType = fi.DeclaringType;
+        f.Get = fi.GetValue;
+        f.Set = fi.SetValue;
+        if (f.Kind == Kind.List)
+        {
+            if (ft.IsArray) { var et = f.ElementType; f.NewArray = n => Array.CreateInstance(et, n); }
+            else { var lt = ft; f.NewList = () => Activator.CreateInstance(lt); }
+        }
+        if (f.ElementType != null && (f.Kind == Kind.Object || f.ElementKind == Kind.Object || f.ElementType.IsValueType))
+        { var et = f.ElementType; f.NewElement = () => Activator.CreateInstance(et); }
         return f;
     }
 
@@ -224,7 +246,7 @@ public static class SerializedType
     public delegate void RefSink(Kind kind, string val, Action<object> set);
 
     public static DocNode WriteField(object owner, FieldSchema f, GoEncoder goEnc, CompEncoder compEnc, AssetDatabase assets)
-            => WriteValue(f.Info.GetValue(owner), f.Kind, f, goEnc, compEnc, assets);
+            => WriteValue(f.Get(owner), f.Kind, f, goEnc, compEnc, assets);
 
     static DocNode WriteValue(object v, Kind kind, FieldSchema f, GoEncoder goEnc, CompEncoder compEnc, AssetDatabase assets)
     {
@@ -267,30 +289,29 @@ public static class SerializedType
         {
             case Kind.GoRef:
             case Kind.CompRef:
-                defer(f.Kind, node.Scalar ?? "", v => f.Info.SetValue(owner, v));
+                defer(f.Kind, node.Scalar ?? "", v => f.Set(owner, v));
                 return;
             case Kind.List:
                 {
                     if (node.Items == null)
                         return;
                     int count = node.Items.Count;
-                    var ft = f.Info.FieldType;
-                    if (ft.IsArray)
+                    if (f.NewArray != null)
                     {
-                        var arr = Array.CreateInstance(f.ElementType, count);
+                        var arr = (Array)f.NewArray(count);
                         for (int i = 0; i < count; i++)
                             ReadElement(node.Items[i], f, assets, defer, arr, i);
-                        f.Info.SetValue(owner, arr);
+                        f.Set(owner, arr);
                     }
                     else
                     {
-                        var list = (System.Collections.IList)Activator.CreateInstance(ft);
+                        var list = (System.Collections.IList)f.NewList();
                         for (int i = 0; i < count; i++)
                         {
-                            list.Add(f.ElementType.IsValueType ? Activator.CreateInstance(f.ElementType) : null);
+                            list.Add(f.ElementType.IsValueType ? f.NewElement() : null);
                             ReadElement(node.Items[i], f, assets, defer, list, i);
                         }
-                        f.Info.SetValue(owner, list);
+                        f.Set(owner, list);
                     }
                     return;
                 }
@@ -298,13 +319,13 @@ public static class SerializedType
                 {
                     if (node.Fields == null)
                         return;
-                    object inst = f.Info.GetValue(owner) ?? Activator.CreateInstance(f.ElementType);
+                    object inst = f.Get(owner) ?? f.NewElement();
                     ReadObjectInto(inst, f.Nested, node, assets, defer);
-                    f.Info.SetValue(owner, inst); // struct: boxed kopya geri yazilir
+                    f.Set(owner, inst); // struct: boxed kopya geri yazilir
                     return;
                 }
             default:
-                f.Info.SetValue(owner, Parse(node.Scalar ?? "", f.Kind, f.Info.FieldType, assets));
+                f.Set(owner, Parse(node.Scalar ?? "", f.Kind, f.FieldType, assets));
                 return;
         }
     }
@@ -320,7 +341,7 @@ public static class SerializedType
                 return;
             case Kind.Object:
                 {
-                    object inst = Activator.CreateInstance(f.ElementType);
+                    object inst = f.NewElement();
                     ReadObjectInto(inst, f.Nested, node, assets, defer);
                     SetAt(container, index, inst);
                     return;

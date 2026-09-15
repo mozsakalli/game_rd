@@ -169,8 +169,8 @@ static class RpcCommands
             fd.Add("kind", DocNode.Scal(f.Kind.ToString()));
             if (f.Kind == SerializedType.Kind.List)
                 fd.Add("elementKind", DocNode.Scal(f.ElementKind.ToString()));
-            if (f.Kind == SerializedType.Kind.Enum && f.Info != null)
-                fd.Add("values", DocNode.Scal(string.Join(" ", Enum.GetNames(f.Info.FieldType))));
+            if (f.Kind == SerializedType.Kind.Enum && f.FieldType != null)
+                fd.Add("values", DocNode.Scal(string.Join(" ", Enum.GetNames(f.FieldType))));
             fields.Items.Add(fd);
         }
         var root = DocNode.Map();

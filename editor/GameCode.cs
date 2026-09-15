@@ -18,6 +18,9 @@ public sealed class GameCode
 
     public Assembly GameAssembly { get; private set; }
 
+    // Son basarili derlemenin dll yolu (RegistryCompiler referans olarak okur).
+    public string GameDllPath { get; private set; }
+
     // Son derlemede tespit edilen tip rename'leri (eski -> yeni). Katalog alias'i olur.
     public readonly List<KeyValuePair<string, string>> Renames = new();
 
@@ -67,12 +70,18 @@ public sealed class GameCode
         sb.Append("    <ProduceReferenceAssembly>false</ProduceReferenceAssembly>\n");
         sb.Append("  </PropertyGroup>\n  <ItemGroup>\n");
         sb.Append("    <Reference Include=\"DigitoyEngine\"><HintPath>").Append(enginePath).Append("</HintPath></Reference>\n");
+        sb.Append("    <Compile Include=\"RegistryVisibility.g.cs\" />\n");
         foreach (var s in job.Scripts)
             sb.Append("    <Compile Include=\"").Append(s).Append("\" />\n");
         sb.Append("  </ItemGroup>\n</Project>\n");
 
         string csproj = Path.Combine(buildDir, "Game.csproj");
         File.WriteAllText(csproj, sb.ToString());
+
+        // Uretilen registry assembly'si internal oyun tiplerine erisebilsin.
+        string ivt = Path.Combine(buildDir, "RegistryVisibility.g.cs");
+        File.WriteAllText(ivt, "[assembly: System.Runtime.CompilerServices.InternalsVisibleTo(\""
+            + CatalogWriter.AssemblyName + "\")]\n");
 
         var psi = new ProcessStartInfo("dotnet", $"build \"{csproj}\" -v q --nologo")
         {
@@ -103,6 +112,7 @@ public sealed class GameCode
         // Stream'den yukle: dosya kilitlenmez, sonraki derleme uzerine yazabilir.
         using (var fs = File.OpenRead(job.Dll))
             GameAssembly = _alc.LoadFromStream(fs);
+        GameDllPath = job.Dll;
         Console.WriteLine($"[gamecode] yuklendi: {job.AsmName} ({job.Scripts.Count} script)");
         UpdateTypemap(project, assets, job.Scripts);
         return true;
@@ -198,10 +208,20 @@ public sealed class GameCode
         File.WriteAllText(mapPath, DigitoyEngine.Yaml.Write(root));
     }
 
+    // Uretilen registry PE'sini game ALC'sine yukler (reload'da birlikte olur).
+    // Script yoksa registry yalniz engine tiplerini tasir — ALC yine de acilir.
+    public Assembly LoadRegistry(byte[] pe)
+    {
+        _alc ??= new AssemblyLoadContext("game", isCollectible: true);
+        using var ms = new MemoryStream(pe);
+        return _alc.LoadFromStream(ms);
+    }
+
     public void Unload()
     {
         _alc?.Unload();
         _alc = null;
         GameAssembly = null;
+        GameDllPath = null;
     }
 }

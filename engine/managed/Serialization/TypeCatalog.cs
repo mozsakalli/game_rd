@@ -45,6 +45,9 @@ public sealed class TypeCatalog
 
     public void RegisterAlias(string oldName, string newName) => _aliases[oldName] = newName;
 
+    // CatalogWriter alias'lari uretilen koda gecirir.
+    public IReadOnlyDictionary<string, string> Aliases => _aliases;
+
     // Editor menuleri icin: kayitli tum tipler (ad sirasiz).
     public Dictionary<string, Entry>.ValueCollection Entries => _byName.Values;
 
@@ -71,35 +74,41 @@ public sealed class TypeCatalog
             {
                 if (t.IsAbstract || !typeof(Component).IsAssignableFrom(t) || t == typeof(Transform))
                     continue;
-                var tt = t;
-                // Clone kapsami = serilesme kurali: public VEYA [SerializeField] alanlar
-                // (property-backing private alanlar da kopyalansin — LayoutBox deseni).
-                var all = tt.GetFields(System.Reflection.BindingFlags.Instance
-                    | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
-                int keep = 0;
-                for (int i = 0; i < all.Length; i++)
-                    if (all[i].IsPublic || all[i].IsDefined(typeof(SerializeFieldAttribute), false))
-                        all[keep++] = all[i];
-                var fields = all;
-                var fieldCount = keep;
-                cat.Register(new Entry
-                {
-                    Type = tt,
-                    Name = tt.Name,
-                    Create = () => (Component)Activator.CreateInstance(tt, nonPublic: true),
-                    CopyTo = (src, dst) =>
-                    {
-                        for (int i = 0; i < fieldCount; i++)
-                            fields[i].SetValue(dst, fields[i].GetValue(src));
-                    },
-                    Flags = Component.ComputeFlags(tt),
-                    Schema = SerializedType.Build(tt),
-                    Previewable = tt.IsDefined(typeof(PreviewableAttribute), false),
-                });
-                foreach (MovedFromAttribute moved in tt.GetCustomAttributes(typeof(MovedFromAttribute), false))
-                    cat.RegisterAlias(moved.OldName, tt.Name);
+                cat.RegisterReflective(t);
             }
         }
         return cat;
+    }
+
+    // Tek tipin reflection-tabanli kaydi. Source generator da erisemedigi tipler
+    // (private nested) icin bunu cagirir — davranis FromAssemblies ile birebir.
+    public void RegisterReflective(Type tt)
+    {
+        // Clone kapsami = serilesme kurali: public VEYA [SerializeField] alanlar
+        // (property-backing private alanlar da kopyalansin — LayoutBox deseni).
+        var all = tt.GetFields(System.Reflection.BindingFlags.Instance
+            | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
+        int keep = 0;
+        for (int i = 0; i < all.Length; i++)
+            if (all[i].IsPublic || all[i].IsDefined(typeof(SerializeFieldAttribute), false))
+                all[keep++] = all[i];
+        var fields = all;
+        var fieldCount = keep;
+        Register(new Entry
+        {
+            Type = tt,
+            Name = tt.Name,
+            Create = () => (Component)Activator.CreateInstance(tt, nonPublic: true),
+            CopyTo = (src, dst) =>
+            {
+                for (int i = 0; i < fieldCount; i++)
+                    fields[i].SetValue(dst, fields[i].GetValue(src));
+            },
+            Flags = Component.ComputeFlags(tt),
+            Schema = SerializedType.Build(tt),
+            Previewable = tt.IsDefined(typeof(PreviewableAttribute), false),
+        });
+        foreach (MovedFromAttribute moved in tt.GetCustomAttributes(typeof(MovedFromAttribute), false))
+            RegisterAlias(moved.OldName, tt.Name);
     }
 }

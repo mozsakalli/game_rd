@@ -31,6 +31,8 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="DigitoyEditor" />
+    <!-- Uretilen katalog kaydi (CatalogWriter ciktisi) internal tip/alanlara erisebilsin. -->
+    <InternalsVisibleTo Include="Digitoy.Registry" />
   </ItemGroup>
 
   <!-- build_editor.cmd ciktisi native lib'i cikti yanina kopyala (referanslayan

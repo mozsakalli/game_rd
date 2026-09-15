@@ -175,7 +175,7 @@ public sealed class MoveTool : AxisTool
                 G = sg,
                 ProxyComp = cd,
                 ProxyField = f,
-                StartVal = f.Info.GetValue(comp) is Vec2 v ? v : default,
+                StartVal = f.Get(comp) is Vec2 v ? v : default,
             });
         }
     }

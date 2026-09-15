@@ -28,6 +28,8 @@
 
   <ItemGroup>
     <ProjectReference Include="..\engine\managed\DigitoyEngine.csproj" />
+    <!-- Registry in-memory derleme (CatalogWriter ciktisi): MSBuild subprocess yok. -->
+    <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.12.0" />
   </ItemGroup>
 
   <!-- Native motor kutuphanesi cikti klasorune kopyalanir (P/Invoke burada arar). -->

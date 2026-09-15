@@ -79,7 +79,7 @@ static class DragDrop
     // - Sahne nesnesi yuku: GoRef her zaman; CompRef hedef GO'da alan tipinden
     //   component varsa.
     public static bool Accepts(in SerializedType.FieldSchema f)
-        => Accepts(f.Kind, f.Info.FieldType);
+        => Accepts(f.Kind, f.FieldType);
 
     public static bool Accepts(SerializedType.Kind fieldKind, Type fieldType)
     {
@@ -104,7 +104,7 @@ static class DragDrop
     // Yukun DOC temsilini uretir (SceneDoc ref formatlariyla birebir; cozumleme
     // her yerde ayni ResolveRef/ReadField yolundan gecer).
     public static string DocValue(in SerializedType.FieldSchema f)
-        => DocValue(f.Kind, f.Info.FieldType);
+        => DocValue(f.Kind, f.FieldType);
 
     public static string DocValue(SerializedType.Kind fieldKind, Type fieldType)
     {

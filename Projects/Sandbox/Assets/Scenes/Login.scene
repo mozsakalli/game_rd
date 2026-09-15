@@ -111,6 +111,8 @@ objects:
         textWeight: 1.1
         textSpacing: 1.01
         textSkew: 0
+        padTop: -3.4666674
+        Effects:
   - id: 5
     parent: 3
     name: GuestLogin
@@ -181,8 +183,8 @@ objects:
   - id: 9
     parent: 0
     name: LOGOSPRITE
-    pos: -329.6803 -35.529808 0
-    rot: 0 0 0
+    pos: -340.73633 -76.31074 0
+    rot: 0 0 -2
     scale: 1 1 1
     components:
       - type: SpriteRenderer
@@ -194,3 +196,30 @@ objects:
           - 42abef621c3e49ddb6bb56bf25edd108
         BlendMode: Normal
       - type: Draggable
+  - id: 10
+    parent: 0
+    name: GameObject
+    pos: -18.52864 76.120285 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: TextSprite
+        Font: 713ad506a3014c21aa1043ccd65aa552
+        Text: 1.250.000$
+        SortingOrder: 12
+        Weight: 1
+        Fill:
+          type: Linear
+          direction: Vertical
+          color: '#ffffffff'
+          color2: '#cfd240ff'
+        OutlineWidth: 3.48
+        Outline:
+          type: Linear
+          direction: Vertical
+          color: '#fff573ff'
+          color2: '#564c0eff'
+        ShadowColor: '#000000cc'
+        ShadowOffset: 0 2.6999998
+        ShadowBlur: -3.7599998
+        BlendMode: Normal

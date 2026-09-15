@@ -11,3 +11,16 @@
 /Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/managed/obj/Release/net9.0/refint/DigitoyEngine.dll
 /Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/managed/obj/Release/net9.0/DigitoyEngine.pdb
 /Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/managed/obj/Release/net9.0/ref/DigitoyEngine.dll
+C:\Work\digitoygames\game_rd\engine\managed\bin\Release\net9.0\digitoyengine_native.dll
+C:\Work\digitoygames\game_rd\engine\managed\bin\Release\net9.0\DigitoyEngine.deps.json
+C:\Work\digitoygames\game_rd\engine\managed\bin\Release\net9.0\DigitoyEngine.dll
+C:\Work\digitoygames\game_rd\engine\managed\bin\Release\net9.0\DigitoyEngine.pdb
+C:\Work\digitoygames\game_rd\engine\managed\obj\Release\net9.0\DigitoyEngine.GeneratedMSBuildEditorConfig.editorconfig
+C:\Work\digitoygames\game_rd\engine\managed\obj\Release\net9.0\DigitoyEngine.AssemblyInfoInputs.cache
+C:\Work\digitoygames\game_rd\engine\managed\obj\Release\net9.0\DigitoyEngine.AssemblyInfo.cs
+C:\Work\digitoygames\game_rd\engine\managed\obj\Release\net9.0\DigitoyEngine.csproj.CoreCompileInputs.cache
+C:\Work\digitoygames\game_rd\engine\managed\obj\Release\net9.0\DigitoyEngine.sourcelink.json
+C:\Work\digitoygames\game_rd\engine\managed\obj\Release\net9.0\DigitoyEngine.dll
+C:\Work\digitoygames\game_rd\engine\managed\obj\Release\net9.0\refint\DigitoyEngine.dll
+C:\Work\digitoygames\game_rd\engine\managed\obj\Release\net9.0\DigitoyEngine.pdb
+C:\Work\digitoygames\game_rd\engine\managed\obj\Release\net9.0\ref\DigitoyEngine.dll

@@ -24,7 +24,7 @@ public sealed partial class InspectorPanel
     {
         if (!SerializedType.ShowIfVisible(field, owner))
             return 0;
-        object value = owner == null ? null : field.Info.GetValue(owner);
+        object value = owner == null ? null : field.Get(owner);
         if (field.Kind == SerializedType.Kind.List)
             _listMeasureSchemas[path] = field;
         return MeasureValue(field.Kind, value, field.Nested, path);
@@ -65,12 +65,12 @@ public sealed partial class InspectorPanel
     {
         if (!SerializedType.ShowIfVisible(field, owner))
             return; // [ShowIf] gizli: olcum de 0 verir (yukseklik tutarli)
-        object value = field.Info.GetValue(owner);
+        object value = field.Get(owner);
         if (field.Kind == SerializedType.Kind.List)
             _listMeasureSchemas[path] = field;
         bool fieldChanged = false;
-        DrawAssetValue(field.Name, field.Kind, field.Info.FieldType, field.ElementType,
-            field.Nested, field, value, v => field.Info.SetValue(owner, v), path,
+        DrawAssetValue(field.Name, field.Kind, field.FieldType, field.ElementType,
+            field.Nested, field, value, v => field.Set(owner, v), path,
             indent, ref y, right, 0, ref fieldChanged, deferredCommit);
         if (fieldChanged)
             changed = true;
@@ -500,7 +500,7 @@ public sealed partial class InspectorPanel
         DocNode edited = (current ?? CreateDefaultFieldNode(field)).Clone();
         bool changed = false;
         Action deferredCommit = () => scene.SetProp(go, component, field, current, edited);
-        DrawDocValue(field.Name, field.Kind, field.Info.FieldType, field.ElementKind,
+        DrawDocValue(field.Name, field.Kind, field.FieldType, field.ElementKind,
             field.ElementType, field.Nested, edited, path, 0, ref y, right, 0,
             deferredCommit, ref changed);
         if (changed)
@@ -630,11 +630,11 @@ public sealed partial class InspectorPanel
             DocNode child = FindMapValue(node, field);
             if (child == null)
             {
-                child = CreateDefaultNode(field.Kind, field.Info.FieldType,
+                child = CreateDefaultNode(field.Kind, field.FieldType,
                     field.ElementKind, field.ElementType, field.Nested);
                 node.Fields.Add(new(field.Name, child));
             }
-            DrawDocValue(field.Name, field.Kind, field.Info.FieldType, field.ElementKind,
+            DrawDocValue(field.Name, field.Kind, field.FieldType, field.ElementKind,
                 field.ElementType, field.Nested, child, path + "." + field.Name,
                 indent + 1, ref y, right, 0, deferredCommit, ref changed);
         }
@@ -803,7 +803,7 @@ public sealed partial class InspectorPanel
             if (nested != null)
                 foreach (var field in nested)
                     map.Add(field.Name, instance == null
-                        ? CreateDefaultNode(field.Kind, field.Info.FieldType, field.ElementKind,
+                        ? CreateDefaultNode(field.Kind, field.FieldType, field.ElementKind,
                             field.ElementType, field.Nested)
                         : SerializedType.WriteField(instance, field, _ => "", _ => "", App.Assets));
             return map;
@@ -818,14 +818,14 @@ public sealed partial class InspectorPanel
     {
         try
         {
-            object owner = Activator.CreateInstance(field.Info.DeclaringType);
+            object owner = Activator.CreateInstance(field.DeclaringType);
             if (owner != null)
                 return SerializedType.WriteField(owner, field, _ => "", _ => "", App.Assets);
         }
         catch
         {
         }
-        return CreateDefaultNode(field.Kind, field.Info.FieldType, field.ElementKind,
+        return CreateDefaultNode(field.Kind, field.FieldType, field.ElementKind,
             field.ElementType, field.Nested);
     }
 

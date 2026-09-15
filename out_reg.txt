@@ -1,0 +1,9 @@
+[gamecode] yuklendi: Sandbox.Game (5 script)
+[lifecycle] 18 PASS, 0 FAIL
+[serialization] 14 PASS, 0 FAIL
+[layout] 25 PASS, 0 FAIL
+[pointer] 14 PASS, 0 FAIL
+[fx] 9 PASS, 0 FAIL
+[registrytest] 13 PASS 0 FAIL
+[info] atlas packed: MainAtlas.asset (1 sprites, 256x256)
+[info] [rpc] dinleniyor: localhost:5157
