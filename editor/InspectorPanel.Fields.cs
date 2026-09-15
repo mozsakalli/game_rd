@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using DigitoyEngine;
+using DigitoyEngine.Editor;
 
 namespace DigitoyEditor;
 

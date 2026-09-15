@@ -1,5 +1,6 @@
 using System;
 using DigitoyEngine;
+using DigitoyEngine.Editor;
 
 namespace DigitoyEditor;
 
@@ -65,14 +66,14 @@ public static unsafe class ColorPickerWindow
         _wasFocused = false;
         _openFrames = 0;
 
-        // Imlec ekran konumu: pencere pos + pencere-lokal imlec (ikisi de fiziksel px).
+        // Imlec ekran konumu: pencere pos + pencere-lokal imlec (ayni birim).
+        // Boyut carpani ScreenScale: Windows'ta cs (fiziksel px), macOS'ta 1 (point).
         IntPtr main = NativeWindow.MainWindow;
         GLFW.GetWindowPos(main, out int wx, out int wy);
         GLFW.GetCursorPos(main, out double cx, out double cy);
-        GLFW.GetWindowContentScale(main, out float cs, out _);
-        if (cs <= 0) cs = 1f;
+        float k = NativeWindow.ScreenScale(main);
         int px = wx + (int)cx + 12, py = wy + (int)cy + 12;
-        int pw = (int)(LogicalW * cs), ph = (int)(LogicalH * cs);
+        int pw = (int)(LogicalW * k), ph = (int)(LogicalH * k);
 
         if (_win != null)
         {
@@ -142,7 +143,8 @@ public static unsafe class ColorPickerWindow
         _win.Camera.SetPixelOrtho((int)lw, (int)lh);
         GuiRenderer.Queue = _win.Camera.Queue;
         _winRect = new Rect(0, 0, lw, lh);
-        _win.Gui.Frame(_win.Handle, _winRect, _drawFunc, ps);
+        // Fare bolen'i = ekran-birimi/mantiksal orani (macOS'ta 1, Windows'ta cs).
+        _win.Gui.Frame(_win.Handle, _winRect, _drawFunc, NativeWindow.ScreenScale(_win.Handle));
     }
 
     public static void Encode(CommandBuffer cb)

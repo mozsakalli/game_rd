@@ -1,6 +1,7 @@
 #if DE_EDITOR
 using System;
 using DigitoyEngine;
+using DigitoyEngine.Editor;
 
 namespace DigitoyEditor;
 

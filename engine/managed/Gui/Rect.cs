@@ -1,4 +1,5 @@
-namespace DigitoyEngine;
+#if DE_EDITOR
+namespace DigitoyEngine.Editor;
 
 // Unity Rect karsiligi (piksel uzayi, y asagi). Blittable struct.
 public struct Rect
@@ -43,3 +44,4 @@ public struct Rect
 
     public override string ToString() => $"(x:{x} y:{y} w:{width} h:{height})";
 }
+#endif

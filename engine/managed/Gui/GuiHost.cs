@@ -1,6 +1,7 @@
+#if DE_EDITOR
 using System;
 
-namespace DigitoyEngine;
+namespace DigitoyEngine.Editor;
 
 // GUI surucusu: GuiInput kuyrugundaki event'leri Unity'nin cok-pass modeliyle
 // kosar: her frame Layout -> (kuyruktaki input event'leri sirayla) -> Repaint.
@@ -52,3 +53,4 @@ public sealed class GuiHost
         GuiLayoutUtility.EndPass(type);
     }
 }
+#endif

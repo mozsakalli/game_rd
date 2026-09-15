@@ -1,6 +1,7 @@
+#if DE_EDITOR
 using System;
 
-namespace DigitoyEngine;
+namespace DigitoyEngine.Editor;
 
 // Unity GUI karsiligi: rect tabanli temel widget'lar + layout sarmalayicilar.
 // Tum widget'lar klasik hot-control state machine'i kullanir:
@@ -764,3 +765,4 @@ public static partial class Gui
         ReadOnlySpan<LayoutOption> options = default)
         => HorizontalSlider(LayoutRect(Skin.HorizontalSlider, 120, 18, options), value, min, max);
 }
+#endif

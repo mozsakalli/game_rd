@@ -1,6 +1,7 @@
+#if DE_EDITOR
 using System;
 
-namespace DigitoyEngine;
+namespace DigitoyEngine.Editor;
 
 // Gui.ComboBox: tikla-ac acilir liste (Unity EditorGUI.Popup benzeri).
 // Acikken HotControl'u tutar (modal): tum mouse event'leri combo'ya akar,
@@ -175,3 +176,4 @@ public static partial class Gui
         GuiClip.Pop();
     }
 }
+#endif

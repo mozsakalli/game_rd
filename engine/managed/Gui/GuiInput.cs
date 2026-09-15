@@ -1,8 +1,9 @@
+#if DE_EDITOR
 using System;
 using System.Runtime.CompilerServices;
 using System.Runtime.InteropServices;
 
-namespace DigitoyEngine;
+namespace DigitoyEngine.Editor;
 
 // GLFW callback'lerinden pencere-basina EVENT KUYRUGU (eski engine_host_glfw.c
 // dispatch deseninin kuyruklu hali). Polling diff'inin kacirdigi her seyi yakalar:
@@ -219,3 +220,4 @@ public static unsafe class GuiInput
         }, coalesce: false);
     }
 }
+#endif

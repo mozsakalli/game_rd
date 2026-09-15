@@ -3,6 +3,7 @@ using System.Collections.Concurrent;
 using System.IO;
 using System.Threading.Tasks;
 using DigitoyEngine;
+using DigitoyEngine.Editor;
 
 namespace DigitoyEditor;
 

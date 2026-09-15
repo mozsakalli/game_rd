@@ -1,6 +1,7 @@
+#if DE_EDITOR
 using System;
 
-namespace DigitoyEngine;
+namespace DigitoyEngine.Editor;
 
 public enum GuiCursor : byte
 {
@@ -51,3 +52,4 @@ public static class GuiCursorManager
         return _cursors[i];
     }
 }
+#endif

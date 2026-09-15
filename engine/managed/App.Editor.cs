@@ -2,6 +2,7 @@
 // geri kaldi; referans olarak duruyor. Derlemek icin DE_DEMO_APP tanimla.
 #if DE_DEMO_APP
 using System;
+using DigitoyEngine.Editor;
 
 namespace DigitoyEngine;
 

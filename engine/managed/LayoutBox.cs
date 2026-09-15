@@ -9,8 +9,12 @@ public enum LayoutAlign { Start = 0, Center = 1, End = 2 }
 // Grow    = icerik kutuyu buyutur (preferred = max(authored, icerik)).
 // Visible = kutu authored boyutta kalir, tasan icerik CIZILIR (CSS visible).
 // Hidden  = kutu authored boyutta kalir, tasan icerik KIRPILIR (CSS hidden).
+// Wrap    = flex-wrap: layout ANA ekseninde sigmayan cocuk sonraki satira/kolona
+//           gecer; ana eksen authored boyutta kalir, capraz eksen (Grow ise)
+//           satir toplamina buyur. Capraz eksende veya layout=None'da anlamsiz
+//           (Visible gibi davranir). Kelime-kutusu richtext'in yerlesim temeli.
 // Scroll (Hidden + icerik ofseti) 2. faz.
-public enum OverflowMode { Grow = 0, Visible = 1, Hidden = 2 }
+public enum OverflowMode { Grow = 0, Visible = 1, Hidden = 2, Wrap = 3 }
 
 // Unity DrivenRectTransformTracker'in sorgu-tabanli muadili: bir component kendi
 // GO'sunun transform'unu suruyorsa editor/araclar bunu JENERIK ogrenir — editor
@@ -326,6 +330,9 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
         if (layout == LayoutMode.None)
             return aw;
         float pad = padLeft + padRight;
+        // Dikey wrap: kolonlar yana dizilir — genislik = kolon max'lerinin toplami.
+        if (layout == LayoutMode.Vertical && overflowY == OverflowMode.Wrap)
+            return MathF.Max(aw, WrapContentCross(false) + pad);
         if (layout == LayoutMode.Horizontal)
         {
             float sum = 0;
@@ -360,6 +367,9 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
         if (layout == LayoutMode.None)
             return ah;
         float pad = padTop + padBottom;
+        // Yatay wrap: satirlar alta dizilir — yukseklik = satir max'lerinin toplami.
+        if (layout == LayoutMode.Horizontal && overflowX == OverflowMode.Wrap)
+            return MathF.Max(ah, WrapContentCross(true) + pad);
         if (layout == LayoutMode.Vertical)
         {
             float sum = 0;
@@ -384,6 +394,45 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
             mx = MathF.Max(mx, b.PreferredH());
         }
         return MathF.Max(ah, mx + pad);
+    }
+
+    // FP toleransi (dunya px): olcum/arrange ayni sayilari farkli yoldan uretince
+    // tam sigan satir ULP farkiyla sahte kirilmasin (metindeki fitEps'in kutu esi).
+    const float WrapEps = 0.01f;
+
+    // Wrap icerik olcumu: capraz eksen = satir max'lerinin toplami + satir arasi
+    // spacing. Ana eksen genisligi AUTHORED'dan okunur (stretch/grow'da nihai deger
+    // olcum aninda bilinmez — textWrap ile ayni bilinccli yaklasiklik); authored <= 0
+    // ise tek satir varsayilir. Kirilim kurali ArrangeWrapped taramasiyla birebir.
+    float WrapContentCross(bool horiz)
+    {
+        float availMain = horiz ? width - padLeft - padRight : height - padTop - padBottom;
+        if (availMain <= 0)
+            availMain = float.MaxValue;
+        float sum = 0, used = 0, lineCross = 0;
+        int n = 0, lines = 0;
+        for (var t = transform.FirstChild; t != null; t = t.NextSibling)
+        {
+            var b = BoxOf(t);
+            if (b == null || b.ignoreLayout)
+                continue;
+            float main = horiz ? b.PreferredW() : b.PreferredH();
+            float add = (n > 0 ? spacing : 0) + main;
+            if (n > 0 && used + add > availMain + WrapEps)
+            {
+                sum += (lines++ > 0 ? spacing : 0) + lineCross;
+                used = 0;
+                n = 0;
+                lineCross = 0;
+                add = main;
+            }
+            used += add;
+            n++;
+            lineCross = MathF.Max(lineCross, horiz ? b.PreferredH() : b.PreferredW());
+        }
+        if (n > 0)
+            sum += (lines > 0 ? spacing : 0) + lineCross;
+        return sum;
     }
 
     // --- yerlestirme (arrange): yukaridan asagi ---
@@ -453,6 +502,13 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
 
         bool horiz = layout == LayoutMode.Horizontal;
 
+        // Ana eksen Wrap ise satir dizimi ayri yol (grow bu modda yok sayilir).
+        if ((horiz ? overflowX : overflowY) == OverflowMode.Wrap)
+        {
+            ArrangeWrapped(ref seq, horiz);
+            return;
+        }
+
         // 1. gecis: sabit toplam + grow agirlik toplami.
         float fixedSum = 0, growSum = 0;
         int count = 0;
@@ -516,6 +572,82 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
             }
             cursor += main + spacing;
             b.ArrangeChildren(ref seq);
+        }
+    }
+
+    // Wrap satir dizimi (greedy; metindeki NextLine'in kutu muadili): ana eksende
+    // sigmayan cocuk sonraki satira gecer, satir basina en az 1 uye (sonsuz dongu
+    // olmaz). Satir capraz olcusu = uyelerin max'i; alignChildren satir ICINDE
+    // hizalar (End ~ alt hizalama, baseline yaklasigi). grow yok sayilir (kelime
+    // kutulari icin anlamsiz; satir-ici pay dagitimi gerekirse 2. faz). reverse
+    // uyeleri ters siradan paketler. Satir arasi bosluk = spacing (CSS gap analogu).
+    void ArrangeWrapped(ref int seq, bool horiz)
+    {
+        float availMain = horiz ? _rw - padLeft - padRight : _rh - padTop - padBottom;
+        float tlx = -pivot.x * _rw, tly = -pivot.y * _rh;
+        float mainStart = horiz ? tlx + padLeft : tly + padTop;
+        float crossCursor = horiz ? tly + padTop : tlx + padLeft;
+
+        var node = reverse ? transform.LastChild : transform.FirstChild;
+        while (node != null)
+        {
+            // 1) satir tarama: uyeler + satir capraz olcusu (olcumle ayni kural).
+            float used = 0, lineCross = 0;
+            int n = 0;
+            var scan = node;
+            for (; scan != null; scan = reverse ? scan.PrevSibling : scan.NextSibling)
+            {
+                var b = BoxOf(scan);
+                if (b == null || b.ignoreLayout)
+                    continue;
+                float main = horiz ? b.PreferredW() : b.PreferredH();
+                float add = (n > 0 ? spacing : 0) + main;
+                if (n > 0 && used + add > availMain + WrapEps)
+                    break;
+                used += add;
+                n++;
+                lineCross = MathF.Max(lineCross, horiz ? b.PreferredH() : b.PreferredW());
+            }
+            // 2) yerlestirme: [node, scan) arasi.
+            float cursor = mainStart;
+            for (var t = node; t != scan; t = reverse ? t.PrevSibling : t.NextSibling)
+            {
+                var b = BoxOf(t);
+                if (b == null)
+                    continue;
+                b._dirty = false;
+                b._paintSeq = seq++;
+                if (b.ignoreLayout)
+                {
+                    b.PlaceInParent(this); // dekor/arkaplan: grup disi, anchor'la yerlesir
+                    b.ArrangeChildren(ref seq);
+                    continue;
+                }
+                float main = horiz ? b.PreferredW() : b.PreferredH();
+                float cross = horiz ? b.PreferredH() : b.PreferredW();
+                float crossOff = alignChildren switch
+                {
+                    LayoutAlign.Center => (lineCross - cross) * 0.5f,
+                    LayoutAlign.End => lineCross - cross,
+                    _ => 0,
+                };
+                if (horiz)
+                {
+                    b._rw = main;
+                    b._rh = cross;
+                    b.SetPos(cursor + b.pivot.x * main, crossCursor + crossOff + b.pivot.y * cross);
+                }
+                else
+                {
+                    b._rw = cross;
+                    b._rh = main;
+                    b.SetPos(crossCursor + crossOff + b.pivot.x * cross, cursor + b.pivot.y * main);
+                }
+                cursor += main + spacing;
+                b.ArrangeChildren(ref seq);
+            }
+            node = scan;
+            crossCursor += lineCross + spacing;
         }
     }
 

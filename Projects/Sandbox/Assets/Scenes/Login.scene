@@ -69,12 +69,12 @@ objects:
     parent: 3
     name: FacebookLogin
     pos: 0 0 0
-    rot: 0 -3.3666687 0
+    rot: 0 0 0
     scale: 1 1 1
     components:
       - type: LayoutBox
-        width: 100
-        height: 46
+        width: 170
+        height: 60
         fillColor: '#1877f2ff'
         radiusTL: 10
         radiusTR: 10
@@ -82,14 +82,16 @@ objects:
         radiusBL: 10
         fill:
           type: Linear
-          color: '#258dffff'
+          color: '#347ccaff'
           color2: '#34485dff'
+          direction: Vertical
         borderFill:
-          type: Solid
-          color: '#455f7dff'
-          color2: '#00000000'
-        borderLeft: 0
-        borderTop: 0
+          type: Linear
+          color: '#455f7d00'
+          color2: '#007aff72'
+          direction: Vertical
+        borderLeft: 2
+        borderTop: 2
         shadowColor: '#0000007a'
         shadowBlur: 12.64
         font: 713ad506a3014c21aa1043ccd65aa552
@@ -100,8 +102,15 @@ objects:
         textOutlineWidth: 0
         textShadowColor: '#00000036'
         textShadowOffset: 0 1.4333313
-        overflowX: Hidden
+        overflowX: Grow
         textWrap: false
+        borderRight: 2
+        borderBottom: 2
+        padLeft: 20
+        padRight: 20
+        textWeight: 1.1
+        textSpacing: 1.01
+        textSkew: 0
   - id: 5
     parent: 3
     name: GuestLogin

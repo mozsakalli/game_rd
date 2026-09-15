@@ -1,4 +1,5 @@
-namespace DigitoyEngine;
+#if DE_EDITOR
+namespace DigitoyEngine.Editor;
 
 // Unity GUIClip karsiligi: clip-rect stack'i. Push edilen her rect hem cizimi
 // kirpar (fiziksel scissor) hem KOORDINAT UZAYINI degistirir: clip icinde (0,0)
@@ -99,3 +100,4 @@ public static class GuiClip
             ev.GlobalMousePosition.y - top.Offset.y);
     }
 }
+#endif

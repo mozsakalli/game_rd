@@ -1,8 +1,9 @@
+#if DE_EDITOR
 using System;
 using System.Collections.Generic;
 using System.IO;
 
-namespace DigitoyEngine;
+namespace DigitoyEngine.Editor;
 
 // SDF font (eski imgui_font.c'nin C# hali). Bake native tarafta (de_font_bake,
 // stb_truetype): 2048x2048 tek kanal atlas, 32px SDF taban boyu, 224 glyph
@@ -310,3 +311,4 @@ public sealed unsafe class GuiFont
         _lastUpload = Time.frameCount;
     }
 }
+#endif

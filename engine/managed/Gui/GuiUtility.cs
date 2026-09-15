@@ -1,4 +1,5 @@
-namespace DigitoyEngine;
+#if DE_EDITOR
+namespace DigitoyEngine.Editor;
 
 // Unity FocusType karsiligi: kontrol keyboard focus alabilir mi?
 public enum FocusType : byte
@@ -167,3 +168,4 @@ static class GuiState<T> where T : struct
                 GetRef(oldKeys[j]) = oldValues[j];
     }
 }
+#endif

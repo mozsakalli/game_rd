@@ -1,7 +1,8 @@
+#if DE_EDITOR
 using System;
 using System.Runtime.InteropServices;
 
-namespace DigitoyEngine;
+namespace DigitoyEngine.Editor;
 
 // Tek satirli text editleme (Unity TextEditor karsiligi, zero-alloc cekirdek).
 // Metin CAGIRANIN char[] tamponundadir (length ref); editor state (caret/
@@ -371,3 +372,4 @@ public static partial class Gui
         return i;
     }
 }
+#endif

@@ -1,6 +1,7 @@
+#if DE_EDITOR
 using System;
 
-namespace DigitoyEngine;
+namespace DigitoyEngine.Editor;
 
 // GUILayoutOption'in boxing'siz hali: tip + float deger struct'i.
 public enum LayoutOptionType : byte
@@ -517,3 +518,4 @@ public static class GuiLayout
     public static void FlexibleSpace()
         => GuiLayoutUtility.GetRect(0, 0, 0, 0, true, true, default);
 }
+#endif

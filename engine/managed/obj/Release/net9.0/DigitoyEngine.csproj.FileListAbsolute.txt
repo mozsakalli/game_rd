@@ -1,0 +1,13 @@
+/Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/managed/bin/Release/net9.0/digitoyengine_native.dll
+/Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/managed/bin/Release/net9.0/DigitoyEngine.deps.json
+/Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/managed/bin/Release/net9.0/DigitoyEngine.dll
+/Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/managed/bin/Release/net9.0/DigitoyEngine.pdb
+/Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/managed/obj/Release/net9.0/DigitoyEngine.GeneratedMSBuildEditorConfig.editorconfig
+/Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/managed/obj/Release/net9.0/DigitoyEngine.AssemblyInfoInputs.cache
+/Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/managed/obj/Release/net9.0/DigitoyEngine.AssemblyInfo.cs
+/Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/managed/obj/Release/net9.0/DigitoyEngine.csproj.CoreCompileInputs.cache
+/Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/managed/obj/Release/net9.0/DigitoyEngine.sourcelink.json
+/Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/managed/obj/Release/net9.0/DigitoyEngine.dll
+/Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/managed/obj/Release/net9.0/refint/DigitoyEngine.dll
+/Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/managed/obj/Release/net9.0/DigitoyEngine.pdb
+/Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/managed/obj/Release/net9.0/ref/DigitoyEngine.dll

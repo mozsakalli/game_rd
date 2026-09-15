@@ -1,6 +1,7 @@
 #if DE_EDITOR
 using System;
 using DigitoyEngine;
+using DigitoyEngine.Editor;
 
 namespace DigitoyEditor;
 
@@ -29,6 +30,7 @@ public static class LayoutTests
         StyleMeshSmoke(s);
         Scale9Smoke(s);
         OverflowSmoke(s);
+        WrapSmoke(s);
 
         Scene.SetActive(prev);
         Scene.Unload(s);
@@ -225,6 +227,41 @@ public static class LayoutTests
         q.Begin();
         c.Encode(q);
         Check(q.Count == 0, "Hidden: tamamen disaridaki cocuk cizilmedi");
+        GameObject.Destroy(p.gameObject);
+        s.Update(0f);
+    }
+
+    // Wrap: yatay dizide sigmayan cocuk sonraki satira gecer; yukseklik (Grow)
+    // satir toplamina buyur, olcum/arrange ayni kirilimi uretir (lazy pull).
+    static void WrapSmoke(Scene s)
+    {
+        var p = NewBox("wrap");
+        p.Layout = LayoutMode.Horizontal;
+        p.Width = 100;
+        p.OverflowX = OverflowMode.Wrap;
+        LayoutBox Kid(string n, float w, float h)
+        {
+            var b = NewBox(n, p.transform);
+            b.Width = w; b.Height = h;
+            return b;
+        }
+        var c1 = Kid("c1", 40, 20);
+        var c2 = Kid("c2", 40, 20);
+        var c3 = Kid("c3", 40, 30); // 120 > 100 -> 2. satir
+
+        Check(Near(p.RectWidth, 100), "Wrap: ana eksen authored kaldi");
+        Check(Near(p.RectHeight, 50), "Wrap: yukseklik satir toplamina buyudu (20+30)");
+        var l1 = c1.transform.localPosition;
+        var l2 = c2.transform.localPosition;
+        var l3 = c3.transform.localPosition;
+        Check(Near(l1.x, -30) && Near(l1.y, -15), "Wrap: c1 ilk satirda");
+        Check(Near(l2.x, 10) && Near(l2.y, -15), "Wrap: c2 ilk satirda yaninda");
+        Check(Near(l3.x, -30) && Near(l3.y, 10), "Wrap: c3 ikinci satira kirildi");
+
+        // spacing hem satir ici hem satir arasi bosluk (gap analogu).
+        p.Spacing = 30; // 40+30+40=110 > 100 -> c2 de kirilir: 3 satir
+        Check(Near(p.RectHeight, 20 + 30 + 20 + 30 + 30), "Wrap: spacing satirlari da acar");
+
         GameObject.Destroy(p.gameObject);
         s.Update(0f);
     }

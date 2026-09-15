@@ -1,6 +1,7 @@
+#if DE_EDITOR
 using System;
 
-namespace DigitoyEngine;
+namespace DigitoyEngine.Editor;
 
 // Dockable panel sistemi (eski imgui.c _imgui_dock_node agacinin C# hali).
 // SANAL pencere yok: paneller dock agacinda tab olarak yasar; tab dock alani
@@ -150,8 +151,11 @@ public static class GuiDock
             if (!w.Used || w.Win == null)
                 continue;
             GLFW.GetWindowPos(w.Win.Handle, out int wx, out int wy);
+            // Boyut EKRAN biriminde yazilir (Open ayni birimi bekler); Width/Height
+            // framebuffer px'tir — macOS retina'da her kayit/yukleme boyutu ikiye katlardi.
+            GLFW.GetWindowSize(w.Win.Handle, out int sww, out int swh);
             sb.Append(" W ").Append(wx).Append(' ').Append(wy).Append(' ')
-              .Append(w.Win.Width).Append(' ').Append(w.Win.Height).Append(' ');
+              .Append(sww).Append(' ').Append(swh).Append(' ');
             WriteNode(sb, w.Root);
         }
         try
@@ -225,6 +229,7 @@ public static class GuiDock
             int wroot = ParseNode(s, ref pos, out bool wok);
             if (!wok || wroot < 0)
                 break;
+            ClampToVisible(ref wx, ref wy, ref ww, ref wh); // ekran disi kayit kurtarilir
             int wi = AllocWin();
             var win = wi >= 0
                 ? NativeWindow.Open(_panels[FirstPanelIn(wroot)].Title, wx, wy, ww, wh)
@@ -250,6 +255,31 @@ public static class GuiDock
                 _tabs[first * MaxTabsPerLeaf + n.TabCount++] = p;
         }
         return true;
+    }
+
+    // Kayitli pencere konumunu gorunur bir monitore ceker: eski/bug'li kayitlar
+    // veya sokulmus monitorler pencereyi erisilemez birakmasin.
+    static void ClampToVisible(ref int x, ref int y, ref int w, ref int h)
+    {
+        w = Math.Clamp(w, 120, 8192);
+        h = Math.Clamp(h, 90, 8192);
+        IntPtr monitors = GLFW.GetMonitors(out int count);
+        // Baslik cubugunun en az bir parcasi bir monitorun workarea'sinda mi?
+        for (int i = 0; i < count; i++)
+        {
+            IntPtr mon = System.Runtime.InteropServices.Marshal.ReadIntPtr(monitors, i * IntPtr.Size);
+            GLFW.GetMonitorWorkarea(mon, out int mx, out int my, out int mw, out int mh);
+            if (x + w > mx + 40 && x < mx + mw - 40 && y >= my - 20 && y < my + mh - 40)
+                return; // yeterince gorunur
+        }
+        IntPtr primary = GLFW.GetPrimaryMonitor();
+        if (primary == IntPtr.Zero)
+            return;
+        GLFW.GetMonitorWorkarea(primary, out int px, out int py, out int pw, out int ph);
+        w = Math.Min(w, pw);
+        h = Math.Min(h, ph);
+        x = Math.Clamp(x, px, px + pw - w);
+        y = Math.Clamp(y, py, py + ph - h);
     }
 
     static int ParseNode(string s, ref int pos, out bool ok)
@@ -674,23 +704,23 @@ public static class GuiDock
     static bool _dragging;
     static int _dragWin = -1; // suruklemenin basladigi pencere (-1 = ana)
 
-    // Pencere-lokal mantiksal koordinat <-> fiziksel ekran koordinati.
+    // Pencere-lokal mantiksal koordinat <-> ekran (screen-coord) koordinati.
+    // Carpan platforma gore degisir: Windows'ta content scale (koordinatlar
+    // fiziksel px), macOS'ta 1 (koordinatlar zaten point) — ScreenScale hesaplar.
     static Vec2 ToScreen(int wi, Vec2 logical)
     {
         IntPtr h = HandleOf(wi);
         GLFW.GetWindowPos(h, out int wx, out int wy);
-        GLFW.GetWindowContentScale(h, out float cs, out _);
-        if (cs <= 0) cs = 1f;
-        return new Vec2(wx + logical.x * cs, wy + logical.y * cs);
+        float k = NativeWindow.ScreenScale(h);
+        return new Vec2(wx + logical.x * k, wy + logical.y * k);
     }
 
     static Vec2 FromScreen(int wi, Vec2 screen)
     {
         IntPtr h = HandleOf(wi);
         GLFW.GetWindowPos(h, out int wx, out int wy);
-        GLFW.GetWindowContentScale(h, out float cs, out _);
-        if (cs <= 0) cs = 1f;
-        return new Vec2((screen.x - wx) / cs, (screen.y - wy) / cs);
+        float k = NativeWindow.ScreenScale(h);
+        return new Vec2((screen.x - wx) / k, (screen.y - wy) / k);
     }
 
     // Surukleme sirasinda imlecin _ctxWin lokalindeki CANLI konumu: capture origin
@@ -1008,7 +1038,8 @@ public static class GuiDock
             GuiRenderer.Queue = w.Win.Camera.Queue;
             _currentWin = i;
             _currentWinRect = new Rect(0, 0, plw, plh);
-            w.Win.Gui.Frame(w.Win.Handle, _currentWinRect, _winFunc, psx);
+            // Fare bolen'i = ekran-birimi/mantiksal orani (macOS'ta 1, Windows'ta cs).
+            w.Win.Gui.Frame(w.Win.Handle, _currentWinRect, _winFunc, NativeWindow.ScreenScale(w.Win.Handle));
         }
         UpdateDragGhost();
     }
@@ -1032,9 +1063,8 @@ public static class GuiDock
             return;
         }
         IntPtr src = HandleOf(_dragWin);
-        GLFW.GetWindowContentScale(src, out float cs, out _);
-        if (cs <= 0) cs = 1f;
-        int gw = (int)(TabW * cs), gh = (int)(TabH * cs);
+        float k = NativeWindow.ScreenScale(src); // ekran-birimi/mantiksal orani
+        int gw = (int)(TabW * k), gh = (int)(TabH * k);
         if (_ghostWin == null)
         {
             // Yalniz bu cagrinin hint'leri elle geri alinir: DefaultWindowHints
@@ -1113,3 +1143,4 @@ public static class GuiDock
         _ghostWin?.Present();
     }
 }
+#endif

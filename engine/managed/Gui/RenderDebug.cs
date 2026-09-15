@@ -2,7 +2,7 @@
 using System;
 using System.Runtime.InteropServices;
 
-namespace DigitoyEngine;
+namespace DigitoyEngine.Editor;
 
 // Frame debugger cekirdegi (yalniz DE_EDITOR build'lerinde derlenir).
 //

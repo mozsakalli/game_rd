@@ -1,6 +1,7 @@
+#if DE_EDITOR
 using System;
 
-namespace DigitoyEngine;
+namespace DigitoyEngine.Editor;
 
 // GUI cizim koprusu: widget'lar lokal rect verir, burasi GuiClip ile global'e
 // cevirip fiziksel clip'e KIRPAR (duz renkli quad'larda scissor'a gerek yok —
@@ -298,3 +299,4 @@ public static unsafe class GuiRenderer
         Queue.DrawMesh(_quad, _material, in model, color, 0, 0, 1, 1, BaseLayer + layerOffset);
     }
 }
+#endif

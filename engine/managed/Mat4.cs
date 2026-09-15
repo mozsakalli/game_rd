@@ -4,30 +4,44 @@ public unsafe struct Mat4
 {
     public fixed float m[16];
 
-    // Ortografik projeksiyon (GL clip uzayi, kolon-major).
+    // Ortografik projeksiyon (kolon-major). Clip uzayi backend'e gore:
+    // GL z_ndc [-1,1], Metal z_ndc [0,1] (DE_RENDERER_METAL). GL matrisi
+    // Metal'de kullanilirsa negatif NDC z'ye dusen on yari kirpilir
+    // (3D rotasyonlu quad'lar yariya kadar kayboluyordu).
     public static void Ortho(float left, float right, float bottom, float top,
         float near, float far, out Mat4 @out)
     {
         @out = default;
         @out.m[0] = 2f / (right - left);
         @out.m[5] = 2f / (top - bottom);
-        @out.m[10] = -2f / (far - near);
         @out.m[12] = -(right + left) / (right - left);
         @out.m[13] = -(top + bottom) / (top - bottom);
+#if DE_RENDERER_METAL
+        @out.m[10] = -1f / (far - near);
+        @out.m[14] = -near / (far - near);
+#else
+        @out.m[10] = -2f / (far - near);
         @out.m[14] = -(far + near) / (far - near);
+#endif
         @out.m[15] = 1f;
     }
 
-    // Perspektif projeksiyon (GL clip uzayi, kolon-major). fovy radyan, dikey acilim.
+    // Perspektif projeksiyon (kolon-major, backend clip uzayi — bkz. Ortho).
+    // fovy radyan, dikey acilim.
     public static void Perspective(float fovy, float aspect, float near, float far, out Mat4 @out)
     {
         @out = default;
         float f = 1f / System.MathF.Tan(fovy * 0.5f);
         @out.m[0] = f / aspect;
         @out.m[5] = f;
+#if DE_RENDERER_METAL
+        @out.m[10] = far / (near - far);
+        @out.m[14] = far * near / (near - far);
+#else
         @out.m[10] = (far + near) / (near - far);
-        @out.m[11] = -1f;
         @out.m[14] = 2f * far * near / (near - far);
+#endif
+        @out.m[11] = -1f;
     }
 
     // Kamera view'i (y-asagi dunya -> GL y-yukari eye): translate(-pos) + y/z ceviri.

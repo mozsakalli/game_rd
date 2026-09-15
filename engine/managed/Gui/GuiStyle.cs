@@ -1,4 +1,5 @@
-namespace DigitoyEngine;
+#if DE_EDITOR
+namespace DigitoyEngine.Editor;
 
 // Kenar dortlusu (Unity RectOffset).
 public struct RectOffset
@@ -169,3 +170,4 @@ public sealed class GuiSkin
         };
     }
 }
+#endif

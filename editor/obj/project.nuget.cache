@@ -1,13 +1,12 @@
 {
   "version": 2,
-  "dgSpecHash": "1zBVTzAfGrc=",
+  "dgSpecHash": "v7prORwl1lE=",
   "success": true,
-  "projectFilePath": "C:\\Work\\digitoygames\\game_rd\\editor\\DigitoyEditor.csproj",
+  "projectFilePath": "/Users/mustafaozsakalli/Work/digitoygmes/game_rd/editor/DigitoyEditor.csproj",
   "expectedPackageFiles": [
-    "C:\\Users\\ozsak\\.nuget\\packages\\microsoft.netcore.app.ref\\9.0.15\\microsoft.netcore.app.ref.9.0.15.nupkg.sha512",
-    "C:\\Users\\ozsak\\.nuget\\packages\\microsoft.windowsdesktop.app.ref\\9.0.15\\microsoft.windowsdesktop.app.ref.9.0.15.nupkg.sha512",
-    "C:\\Users\\ozsak\\.nuget\\packages\\microsoft.aspnetcore.app.ref\\9.0.15\\microsoft.aspnetcore.app.ref.9.0.15.nupkg.sha512",
-    "C:\\Users\\ozsak\\.nuget\\packages\\microsoft.netcore.app.host.win-x64\\9.0.15\\microsoft.netcore.app.host.win-x64.9.0.15.nupkg.sha512"
+    "/Users/mustafaozsakalli/.nuget/packages/microsoft.netcore.app.ref/9.0.19/microsoft.netcore.app.ref.9.0.19.nupkg.sha512",
+    "/Users/mustafaozsakalli/.nuget/packages/microsoft.aspnetcore.app.ref/9.0.19/microsoft.aspnetcore.app.ref.9.0.19.nupkg.sha512",
+    "/Users/mustafaozsakalli/.nuget/packages/microsoft.netcore.app.host.osx-arm64/9.0.19/microsoft.netcore.app.host.osx-arm64.9.0.19.nupkg.sha512"
   ],
   "logs": []
 }

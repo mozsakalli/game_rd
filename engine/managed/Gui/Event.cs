@@ -1,6 +1,7 @@
+#if DE_EDITOR
 using System;
 
-namespace DigitoyEngine;
+namespace DigitoyEngine.Editor;
 
 // Unity EventType karsiligi. UI kodu her event icin bastan kosulur (cok-pass):
 // once Layout, sonra input event'leri, en son Repaint. Kontrol sayisi/sirasi
@@ -101,3 +102,4 @@ public sealed class Event
         Modifiers = modifiers;
     }
 }
+#endif

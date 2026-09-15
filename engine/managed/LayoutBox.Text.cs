@@ -19,6 +19,9 @@ public sealed unsafe partial class LayoutBox
     [SerializeField, ShowIf(nameof(font))] LayoutAlign textAlignV = LayoutAlign.Start;
     [SerializeField, ShowIf(nameof(font))] bool textWrap = true;
     [SerializeField, ShowIf(nameof(font))] bool textEllipsis = true;
+    [SerializeField, ShowIf(nameof(font))] float textWeight = 1f;
+    [SerializeField, ShowIf(nameof(font))] float textSkew;
+    [SerializeField, ShowIf(nameof(font))] float textSpacing;
     [SerializeField, ShowIf(nameof(font))] Gradient textFill = new(Color.White);
     [SerializeField, ShowIf(nameof(font))] float textOutlineWidth;
     [SerializeField, ShowIf(nameof(font))] Gradient textOutline = new(Color.Black);
@@ -34,6 +37,15 @@ public sealed unsafe partial class LayoutBox
     public LayoutAlign TextAlignV { get => textAlignV; set { if (textAlignV != value) { textAlignV = value; MarkDirty(); } } }
     public bool TextWrap { get => textWrap; set { if (textWrap != value) { textWrap = value; MarkDirty(); } } }
     public bool TextEllipsis { get => textEllipsis; set { if (textEllipsis != value) { textEllipsis = value; MarkDirty(); } } }
+    // Fake bold (her glyph quad'i KENDI merkezinden yatay genisler; advance/kerning
+    // degismez -> yerlesim sabit, 1 = normal) ve fake italic (blok merkezli x-shear,
+    // 0 = dik; matris-only). TextSprite paritesi. Weight quad cache'ine girer,
+    // MarkDirty gerekmez (olcum degismez).
+    public float TextWeight { get => textWeight; set => textWeight = value; }
+    public float TextSkew { get => textSkew; set => textSkew = value; }
+    // Harf araligi: advance'e eklenen SABIT px (scale'den bagimsiz; olcum/wrap'a
+    // girer -> dirty). Kalem SDF-px uzayinda ilerledigi icin spacing/scale eklenir.
+    public float TextSpacing { get => textSpacing; set { if (textSpacing != value) { textSpacing = value; MarkDirty(); } } }
     public Gradient TextFill { get => textFill; set => textFill = value; }
     public float TextOutlineWidth { get => textOutlineWidth; set => textOutlineWidth = value; }
     public Gradient TextOutline { get => textOutline; set => textOutline = value; }
@@ -46,6 +58,10 @@ public sealed unsafe partial class LayoutBox
     bool HasText => font != null && font.SdfSize > 0 && textSize > 0 && !string.IsNullOrEmpty(text);
 
     float TextScale => textSize / font.SdfSize;
+
+    // Sabit px spacing'in SDF-px karsiligi (kalem uzayi; quad kurulurken *scale
+    // ile geri carpilir -> net etki advance*scale + textSpacing).
+    float SpacingSdf => textSpacing / TextScale;
 
     // --- yerlesim cache'i (icerik sol-ust orijinli lokal uzay) ---
 
@@ -60,7 +76,7 @@ public sealed unsafe partial class LayoutBox
     float _tbBlockH;
     Font _tbFont;
     string _tbText;
-    float _tbSize, _tbAvailW, _tbAvailH;
+    float _tbSize, _tbAvailW, _tbAvailH, _tbWeight, _tbSpacing;
     TextAlign _tbAlign;
     LayoutAlign _tbAlignV;
     bool _tbWrap, _tbEllipsis;
@@ -123,7 +139,7 @@ public sealed unsafe partial class LayoutBox
                 return true;
             }
             int gi = font.GlyphIndex(c);
-            float add = (prev >= 0 ? font.Kerning(prev, gi) : 0) + font.GlyphAt(gi).Advance;
+            float add = (prev >= 0 ? font.Kerning(prev, gi) : 0) + font.GlyphAt(gi).Advance + SpacingSdf;
             if (c == ' ')
             {
                 lastSp = i;
@@ -160,7 +176,7 @@ public sealed unsafe partial class LayoutBox
         for (int i = st; i < en; i++)
         {
             int gi = font.GlyphIndex(text[i]);
-            float add = (prev >= 0 ? font.Kerning(prev, gi) : 0) + font.GlyphAt(gi).Advance;
+            float add = (prev >= 0 ? font.Kerning(prev, gi) : 0) + font.GlyphAt(gi).Advance + SpacingSdf;
             if (w + add > maxW)
                 break;
             w += add;
@@ -174,7 +190,8 @@ public sealed unsafe partial class LayoutBox
     {
         if (_tq != null && ReferenceEquals(_tbFont, font) && _tbText == text
             && _tbSize == textSize && _tbAlign == textAlign && _tbAlignV == textAlignV
-            && _tbWrap == textWrap && _tbEllipsis == textEllipsis
+            && _tbWrap == textWrap && _tbEllipsis == textEllipsis && _tbWeight == textWeight
+            && _tbSpacing == textSpacing
             && _tbAvailW == availW && _tbAvailH == availH)
             return;
         BuildTextQuads(availW, availH);
@@ -185,6 +202,8 @@ public sealed unsafe partial class LayoutBox
         _tbAlignV = textAlignV;
         _tbWrap = textWrap;
         _tbEllipsis = textEllipsis;
+        _tbWeight = textWeight;
+        _tbSpacing = textSpacing;
         _tbAvailW = availW;
         _tbAvailH = availH;
     }
@@ -192,7 +211,12 @@ public sealed unsafe partial class LayoutBox
     void BuildTextQuads(float availW, float availH)
     {
         float scale = TextScale;
-        float wrapW = textWrap ? MathF.Max(availW, 1f) / scale : float.MaxValue;
+        // FP toleransi (SDF-px): Grow'da availW = TextPreferredW'nin *scale ile
+        // buyutulmus olcumu; burada /scale ile geri donunce (ozellikle textSpacing'in
+        // SpacingSdf bolmesiyle) birkac ULP kucuk cikar ve tam sigan satir sahte
+        // wrap/ellipsis'e duserdi. Yarim SDF-px gorsel olarak farkedilmez.
+        const float fitEps = 0.5f;
+        float wrapW = textWrap ? MathF.Max(availW, 1f) / scale + fitEps : float.MaxValue;
         float lineH = font.LineHeight * scale;
 
         int total = 0;
@@ -211,7 +235,7 @@ public sealed unsafe partial class LayoutBox
             _tq = new TextQuad[cap];
         _tqCount = 0;
 
-        float clipW = availW / scale;
+        float clipW = availW / scale + fitEps;
         float dotsW = font.MeasureLine("...".AsSpan());
         int p = 0;
         for (int li = 0; li < lines; li++)
@@ -241,9 +265,11 @@ public sealed unsafe partial class LayoutBox
     }
 
     // Glyph run'ini quad'lara doker; pen/prev SDF-px kalem durumu satir icinde surer.
+    // Weight: quad kendi merkezinden yatay genisler (advance sabit -> yerlesim ayni).
     void EmitRun(ReadOnlySpan<char> s, float xs, float baseY, float scale, ref float pen, ref int prev)
     {
         float inv = 1f / font.AtlasSize;
+        float weight = MathF.Max(textWeight, 0.01f);
         for (int i = 0; i < s.Length; i++)
         {
             int gi = font.GlyphIndex(s[i]);
@@ -252,11 +278,14 @@ public sealed unsafe partial class LayoutBox
             ref readonly var g = ref font.GlyphAt(gi);
             if (g.W > 0 && g.H > 0)
             {
+                float x0 = xs + (pen + g.XOff) * scale;
+                float x1 = xs + (pen + g.XOff + g.W) * scale;
+                float cx = (x0 + x1) * 0.5f, hw = (x1 - x0) * 0.5f * weight;
                 _tq[_tqCount++] = new TextQuad
                 {
-                    X0 = xs + (pen + g.XOff) * scale,
+                    X0 = cx - hw,
                     Y0 = baseY + g.YOff * scale,
-                    X1 = xs + (pen + g.XOff + g.W) * scale,
+                    X1 = cx + hw,
                     Y1 = baseY + (g.YOff + g.H) * scale,
                     U0 = g.AtlasX * inv,
                     V0 = (g.AtlasY + g.H) * inv,
@@ -264,7 +293,7 @@ public sealed unsafe partial class LayoutBox
                     V1 = g.AtlasY * inv,
                 };
             }
-            pen += g.Advance;
+            pen += g.Advance + SpacingSdf;
             prev = gi;
         }
     }
@@ -305,6 +334,23 @@ public sealed unsafe partial class LayoutBox
         var mat = font.Material.ForBlend(BlendMode).ForEffects(Effects);
         float scale = TextScale;
 
+        // Italik shear (SADECE geometri; TextSprite paritesi): blok dikey merkezi
+        // etrafinda x' = x - skew*(y - cy). Matrisin y kolonuna x kolonu karisir,
+        // merkez sabit kalsin diye translation geri alinir. Rebuild/klip etkisi yok
+        // (klip quad kirpmasi icerik uzayinda, shear world matrisinde).
+        Mat4 twm = wm;
+        if (textSkew != 0f)
+        {
+            float k = -textSkew; // y-down: ust saga yatar
+            float cy = oy + _tbBlockH * 0.5f;
+            twm.m[4] += twm.m[0] * k;
+            twm.m[5] += twm.m[1] * k;
+            twm.m[6] += twm.m[2] * k;
+            twm.m[12] -= wm.m[0] * k * cy;
+            twm.m[13] -= wm.m[1] * k * cy;
+            twm.m[14] -= wm.m[2] * k * cy;
+        }
+
         // Kontur kenar merkezi 0.5'ten disari kayar (SDF deger uzayi; TextSprite ile ayni).
         float cOut = 0f;
         if (textOutlineWidth > 0 && scale > 0)
@@ -320,7 +366,7 @@ public sealed unsafe partial class LayoutBox
             for (int i = 0; i < _tqCount; i++)
             {
                 ref readonly var g = ref _tq[i];
-                EmitQuad(queue, mat, in wm, sx + g.X0, sy + g.Y0, sx + g.X1, sy + g.Y1,
+                EmitQuad(queue, mat, in twm, sx + g.X0, sy + g.Y0, sx + g.X1, sy + g.Y1,
                     g.U0, g.V0, g.U1, g.V1, textShadowColor, textShadowColor, false, user, layer);
             }
         }
@@ -331,7 +377,7 @@ public sealed unsafe partial class LayoutBox
             for (int i = 0; i < _tqCount; i++)
             {
                 ref readonly var g = ref _tq[i];
-                EmitQuad(queue, mat, in wm, ox + g.X0, oy + g.Y0, ox + g.X1, oy + g.Y1,
+                EmitQuad(queue, mat, in twm, ox + g.X0, oy + g.Y0, ox + g.X1, oy + g.Y1,
                     g.U0, g.V0, g.U1, g.V1,
                     TextGradAt(in textOutline, oh ? g.X0 : g.Y0),
                     TextGradAt(in textOutline, oh ? g.X1 : g.Y1),
@@ -342,7 +388,7 @@ public sealed unsafe partial class LayoutBox
         for (int i = 0; i < _tqCount; i++)
         {
             ref readonly var g = ref _tq[i];
-            EmitQuad(queue, mat, in wm, ox + g.X0, oy + g.Y0, ox + g.X1, oy + g.Y1,
+            EmitQuad(queue, mat, in twm, ox + g.X0, oy + g.Y0, ox + g.X1, oy + g.Y1,
                 g.U0, g.V0, g.U1, g.V1,
                 TextGradAt(in textFill, fh ? g.X0 : g.Y0),
                 TextGradAt(in textFill, fh ? g.X1 : g.Y1),

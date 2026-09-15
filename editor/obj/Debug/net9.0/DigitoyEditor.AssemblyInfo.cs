@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("DigitoyEditor")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+088d1d76296bca8da7e95d21d20b01ff7c4c4845")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+78b5bb51a11206f8c3c1eb9e7be64ef12710d844")]
 [assembly: System.Reflection.AssemblyProductAttribute("DigitoyEditor")]
 [assembly: System.Reflection.AssemblyTitleAttribute("DigitoyEditor")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

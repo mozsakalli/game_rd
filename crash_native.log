@@ -166,3 +166,78 @@
 0(18) : error C1016: expression type incompatible with function return type
 0(18) : error C1108: function "fx0" has no statements
 
+[sokol ERROR] sg (56) /Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/native/sokol/sokol_gfx.h:16398 METAL_SHADER_COMPILATION_FAILED: shader compilation failed (metal)
+[sokol INFO] sg (58) /Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/native/sokol/sokol_gfx.h:16399 program_source:16:29: error: use of undeclared identifier 'bozuk'
+VEC4 fx0(VEC4 c, VEC2 uv) { bozuk }
+                            ^
+
+[sokol ERROR] sg (56) /Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/native/sokol/sokol_gfx.h:16398 METAL_SHADER_COMPILATION_FAILED: shader compilation failed (metal)
+[sokol INFO] sg (58) /Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/native/sokol/sokol_gfx.h:16399 program_source:16:29: error: use of undeclared identifier 'bozuk'
+VEC4 fx0(VEC4 c, VEC2 uv) { bozuk }
+                            ^
+
+[sokol ERROR] sg (56) /Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/native/sokol/sokol_gfx.h:16398 METAL_SHADER_COMPILATION_FAILED: shader compilation failed (metal)
+[sokol INFO] sg (58) /Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/native/sokol/sokol_gfx.h:16399 program_source:16:29: error: use of undeclared identifier 'bozuk'
+VEC4 fx0(VEC4 c, VEC2 uv) { bozuk }
+                            ^
+
+[sokol ERROR] sg (56) /Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/native/sokol/sokol_gfx.h:16398 METAL_SHADER_COMPILATION_FAILED: shader compilation failed (metal)
+[sokol INFO] sg (58) /Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/native/sokol/sokol_gfx.h:16399 program_source:16:29: error: use of undeclared identifier 'bozuk'
+VEC4 fx0(VEC4 c, VEC2 uv) { bozuk }
+                            ^
+
+[sokol ERROR] sg (56) /Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/native/sokol/sokol_gfx.h:16398 METAL_SHADER_COMPILATION_FAILED: shader compilation failed (metal)
+[sokol INFO] sg (58) /Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/native/sokol/sokol_gfx.h:16399 program_source:16:29: error: use of undeclared identifier 'bozuk'
+VEC4 fx0(VEC4 c, VEC2 uv) { bozuk }
+                            ^
+
+[sokol ERROR] sg (56) /Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/native/sokol/sokol_gfx.h:16398 METAL_SHADER_COMPILATION_FAILED: shader compilation failed (metal)
+[sokol INFO] sg (58) /Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/native/sokol/sokol_gfx.h:16399 program_source:16:29: error: use of undeclared identifier 'bozuk'
+VEC4 fx0(VEC4 c, VEC2 uv) { bozuk }
+                            ^
+
+[sokol ERROR] sg (56) /Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/native/sokol/sokol_gfx.h:16398 METAL_SHADER_COMPILATION_FAILED: shader compilation failed (metal)
+[sokol INFO] sg (58) /Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/native/sokol/sokol_gfx.h:16399 program_source:16:29: error: use of undeclared identifier 'bozuk'
+VEC4 fx0(VEC4 c, VEC2 uv) { bozuk }
+                            ^
+
+[sokol ERROR] sg (56) /Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/native/sokol/sokol_gfx.h:16398 METAL_SHADER_COMPILATION_FAILED: shader compilation failed (metal)
+[sokol INFO] sg (58) /Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/native/sokol/sokol_gfx.h:16399 program_source:16:29: error: use of undeclared identifier 'bozuk'
+VEC4 fx0(VEC4 c, VEC2 uv) { bozuk }
+                            ^
+
+[sokol ERROR] sg (56) /Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/native/sokol/sokol_gfx.h:16398 METAL_SHADER_COMPILATION_FAILED: shader compilation failed (metal)
+[sokol INFO] sg (58) /Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/native/sokol/sokol_gfx.h:16399 program_source:16:29: error: use of undeclared identifier 'bozuk'
+VEC4 fx0(VEC4 c, VEC2 uv) { bozuk }
+                            ^
+
+[sokol ERROR] sg (56) /Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/native/sokol/sokol_gfx.h:16398 METAL_SHADER_COMPILATION_FAILED: shader compilation failed (metal)
+[sokol INFO] sg (58) /Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/native/sokol/sokol_gfx.h:16399 program_source:16:29: error: use of undeclared identifier 'bozuk'
+VEC4 fx0(VEC4 c, VEC2 uv) { bozuk }
+                            ^
+
+[sokol ERROR] sg (56) /Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/native/sokol/sokol_gfx.h:16398 METAL_SHADER_COMPILATION_FAILED: shader compilation failed (metal)
+[sokol INFO] sg (58) /Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/native/sokol/sokol_gfx.h:16399 program_source:16:29: error: use of undeclared identifier 'bozuk'
+VEC4 fx0(VEC4 c, VEC2 uv) { bozuk }
+                            ^
+
+[sokol ERROR] sg (56) /Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/native/sokol/sokol_gfx.h:16398 METAL_SHADER_COMPILATION_FAILED: shader compilation failed (metal)
+[sokol INFO] sg (58) /Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/native/sokol/sokol_gfx.h:16399 program_source:16:29: error: use of undeclared identifier 'bozuk'
+VEC4 fx0(VEC4 c, VEC2 uv) { bozuk }
+                            ^
+
+[sokol ERROR] sg (56) /Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/native/sokol/sokol_gfx.h:16398 METAL_SHADER_COMPILATION_FAILED: shader compilation failed (metal)
+[sokol INFO] sg (58) /Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/native/sokol/sokol_gfx.h:16399 program_source:16:29: error: use of undeclared identifier 'bozuk'
+VEC4 fx0(VEC4 c, VEC2 uv) { bozuk }
+                            ^
+
+[sokol ERROR] sg (56) /Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/native/sokol/sokol_gfx.h:16398 METAL_SHADER_COMPILATION_FAILED: shader compilation failed (metal)
+[sokol INFO] sg (58) /Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/native/sokol/sokol_gfx.h:16399 program_source:16:29: error: use of undeclared identifier 'bozuk'
+VEC4 fx0(VEC4 c, VEC2 uv) { bozuk }
+                            ^
+
+[sokol ERROR] sg (56) /Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/native/sokol/sokol_gfx.h:16398 METAL_SHADER_COMPILATION_FAILED: shader compilation failed (metal)
+[sokol INFO] sg (58) /Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/native/sokol/sokol_gfx.h:16399 program_source:16:29: error: use of undeclared identifier 'bozuk'
+VEC4 fx0(VEC4 c, VEC2 uv) { bozuk }
+                            ^
+

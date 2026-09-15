@@ -3,3 +3,26 @@ System.EntryPointNotFoundException: Unable to find an entry point named 'de_menu
    at DigitoyEditor.EditorMenu.MenuCreateBar()
    at DigitoyEditor.EditorMenu.Build(IntPtr glfwWindow, Assembly[] assemblies) in /Users/mustafaozsakalli/Work/digitoygmes/game_rd/editor/EditorMenu.cs:line 140
    at DigitoyEditor.App.Main() in /Users/mustafaozsakalli/Work/digitoygmes/game_rd/editor/EditorApp.cs:line 108
+[crash] 2026-09-15 14:02:12
+System.EntryPointNotFoundException: Unable to find an entry point named 'de_sokol_shader_valid' in shared library 'digitoyengine_native'.
+   at DigitoyEngine.Sokol.ShaderValid(UInt32 id)
+   at DigitoyEngine.Shader.TryCreateEffect(String fragmentBody, Boolean localUv, String& error) in /Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/managed/Shader.cs:line 268
+   at DigitoyEditor.PixelEffectTests.Run() in /Users/mustafaozsakalli/Work/digitoygmes/game_rd/editor/PixelEffectTests.cs:line 25
+   at DigitoyEditor.App.Main() in /Users/mustafaozsakalli/Work/digitoygmes/game_rd/editor/EditorApp.cs:line 133
+[crash] 2026-09-15 15:40:13
+System.NullReferenceException: Object reference not set to an instance of an object.
+   at DigitoyEngine.SceneDoc.Spawn(Transform parent, TypeCatalog catalog, AssetDatabase assets, Dictionary`2 liveMap) in /Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/managed/Serialization/SceneDoc.cs:line 190
+   at DigitoyEditor.EditorScene.Instantiate(TypeCatalog catalog, AssetDatabase assets) in /Users/mustafaozsakalli/Work/digitoygmes/game_rd/editor/EditorScene.cs:line 64
+   at DigitoyEditor.EditorScene.RefreshLive() in /Users/mustafaozsakalli/Work/digitoygmes/game_rd/editor/EditorScene.cs:line 202
+   at DigitoyEditor.EditorScene.AddComponent(GoDoc g, String typeName) in /Users/mustafaozsakalli/Work/digitoygmes/game_rd/editor/EditorScene.cs:line 785
+   at DigitoyEditor.InspectorPanel.OnGui() in /Users/mustafaozsakalli/Work/digitoygmes/game_rd/editor/InspectorPanel.cs:line 194
+   at DigitoyEditor.EditorWindow.DrawPanel(Int32 panelId) in /Users/mustafaozsakalli/Work/digitoygmes/game_rd/editor/EditorWindow.cs:line 19
+   at DigitoyEngine.Editor.GuiDock.DrawLeaf(Int32 ni, Rect& r) in /Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/managed/Gui/GuiDock.cs:line 1007
+   at DigitoyEngine.Editor.GuiDock.ResolveAndDraw(Int32 ni, Rect& r) in /Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/managed/Gui/GuiDock.cs:line 784
+   at DigitoyEngine.Editor.GuiDock.ResolveAndDraw(Int32 ni, Rect& r) in /Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/managed/Gui/GuiDock.cs:line 857
+   at DigitoyEngine.Editor.GuiDock.ResolveAndDraw(Int32 ni, Rect& r) in /Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/managed/Gui/GuiDock.cs:line 857
+   at DigitoyEngine.Editor.GuiDock.DockSpace(Rect& rect) in /Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/managed/Gui/GuiDock.cs:line 775
+   at DigitoyEditor.App.DrawUi() in /Users/mustafaozsakalli/Work/digitoygmes/game_rd/editor/EditorApp.cs:line 365
+   at DigitoyEngine.Editor.GuiHost.RunPass(EventType type, Vec2 mouse, Vec2 delta, Int32 button, Int32 clickCount, Int32 keyCode, Char character, EventModifiers mods, Rect screen, GuiFunc gui) in /Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/managed/Gui/GuiHost.cs:line 52
+   at DigitoyEngine.Editor.GuiHost.Frame(IntPtr window, Rect screen, GuiFunc gui, Single scale) in /Users/mustafaozsakalli/Work/digitoygmes/game_rd/engine/managed/Gui/GuiHost.cs:line 34
+   at DigitoyEditor.App.Main() in /Users/mustafaozsakalli/Work/digitoygmes/game_rd/editor/EditorApp.cs:line 237

@@ -16449,10 +16449,16 @@ _SOKOL_PRIVATE bool _sg_mtl_create_shader_func(const sg_shader_function* func, c
     return true;
 }
 
-_SOKOL_PRIVATE void _sg_mtl_discard_shader_func(const _sg_mtl_shader_func_t* func) {
+_SOKOL_PRIVATE void _sg_mtl_discard_shader_func(_sg_mtl_shader_func_t* func) {
     // it is valid to call _sg_mtl_release_resource with a 'null resource'
     _sg_mtl_release_resource(_sg.frame_index, func->mtl_func);
     _sg_mtl_release_resource(_sg.frame_index, func->mtl_lib);
+    // PATCH(digitoy): slot indekslerini sifirla — kismi derlenen (FAILED) shader
+    // once create'in hata yolunda, sonra sg_destroy_shader'da discard edilir;
+    // sifirlamazsak ayni slot iki kez release kuyruguna girer ve
+    // _sg_mtl_garbage_collect NSNull assert'iyle abort eder.
+    func->mtl_func = _SG_MTL_INVALID_SLOT_INDEX;
+    func->mtl_lib = _SG_MTL_INVALID_SLOT_INDEX;
 }
 
 // NOTE: this is an out-of-range check for MSL bindslots that's also active in release mode

@@ -1,4 +1,7 @@
 using System;
+#if DE_EDITOR
+using DigitoyEngine.Editor;
+#endif
 
 namespace DigitoyEngine;
 
@@ -74,7 +77,9 @@ public sealed unsafe class NativeWindow
     public int Height { get; private set; }
 
     public readonly Camera Camera = new Camera();
+#if DE_EDITOR
     public readonly GuiHost Gui = new GuiHost();
+#endif
 
     static IntPtr _main;
 
@@ -85,6 +90,19 @@ public sealed unsafe class NativeWindow
 #endif
 
     public static IntPtr MainWindow => _main;
+
+    // Pencere/ekran koordinat birimi basina MANTIKSAL birim carpani.
+    // Windows: pencere koordinatlari fiziksel piksel -> oran = content scale.
+    // macOS: pencere koordinatlari zaten point (mantiksal) -> oran = 1.
+    // Genel formul: cs * winSize / fbSize (minimize/0 boyutta fallback cs).
+    public static float ScreenScale(IntPtr window)
+    {
+        GLFW.GetWindowContentScale(window, out float cs, out _);
+        if (cs <= 0) cs = 1f;
+        GLFW.GetFramebufferSize(window, out int fbw, out _);
+        GLFW.GetWindowSize(window, out int ww, out _);
+        return fbw > 0 && ww > 0 ? cs * ww / fbw : cs;
+    }
 
     NativeWindow() { }
 
@@ -120,7 +138,9 @@ public sealed unsafe class NativeWindow
         w.Width = fbw > 0 ? fbw : width;
         w.Height = fbh > 0 ? fbh : height;
         w.Camera.Framebuffer = (uint)handle;
+#if DE_EDITOR
         GuiInput.Attach(w.Handle);
+#endif
         return w;
 #else
         // share=_main: buffer/texture/program objeleri ana context'le paylasilir.
@@ -136,7 +156,9 @@ public sealed unsafe class NativeWindow
         w.Width = width;
         w.Height = height;
         w.Camera.Framebuffer = w._mainFb;
+#if DE_EDITOR
         GuiInput.Attach(w.Handle);
+#endif
         return w;
 #endif
     }
@@ -193,7 +215,9 @@ public sealed unsafe class NativeWindow
     {
         if (Handle == IntPtr.Zero)
             return;
+#if DE_EDITOR
         GuiInput.Detach(Handle);
+#endif
 #if DE_RENDERER_METAL
         if (_metalHandle > 0)
         {
