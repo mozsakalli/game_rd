@@ -180,23 +180,26 @@ public sealed unsafe class GuiFont
         const int Cap = 160 * 160;
         _rScratch ??= new byte[Cap];
         float* met = stackalloc float[5];
-        int ok;
-        fixed (byte* pTtf = _ttf)
-        fixed (byte* pBuf = _rScratch)
-            ok = Sokol.FontGlyph(pTtf, physPx, c, pBuf, Cap, met);
-
-        if (ok == 0 || (met[0] <= 0f && met[3] <= 0f))
+        if (!BakeTriangle(physPx, c, met))
         {
-            // font glyph'i icermiyor: '?' fallback (kendisi '?' degilse).
-            if (c != '?')
+            int ok;
+            fixed (byte* pTtf = _ttf)
+            fixed (byte* pBuf = _rScratch)
+                ok = Sokol.FontGlyph(pTtf, physPx, c, pBuf, Cap, met);
+
+            if (ok == 0 || (met[0] <= 0f && met[3] <= 0f))
             {
-                g = GetRasterGlyph(physPx, '?');
+                // font glyph'i icermiyor: '?' fallback (kendisi '?' degilse).
+                if (c != '?')
+                {
+                    g = GetRasterGlyph(physPx, '?');
+                    _rGlyphs[key] = g;
+                    return g;
+                }
+                g = default;
                 _rGlyphs[key] = g;
                 return g;
             }
-            g = default;
-            _rGlyphs[key] = g;
-            return g;
         }
 
         int w = (int)met[3], h = (int)met[4];
@@ -236,6 +239,55 @@ public sealed unsafe class GuiFont
         };
         _rGlyphs[key] = g;
         return g;
+    }
+
+    // Ucgen ok glyph'leri (U+25B2..U+25C4 alt kumesi) PROSEDUREL pisirilir —
+    // UI fontlarinin cogunda yok, .notdef karesi cikiyordu. Ayni raster atlasa
+    // girer: draw call artmaz, DrawText her yerde ayni yoldan cizer.
+    bool BakeTriangle(int physPx, char c, float* met)
+    {
+        int dir = c switch
+        {
+            '\u25B2' or '\u25B4' => 0, // yukari
+            '\u25BC' or '\u25BE' => 1, // asagi
+            '\u25B6' or '\u25B8' or '\u25BA' => 2, // sag
+            '\u25C0' or '\u25C2' or '\u25C4' => 3, // sol
+            _ => -1,
+        };
+        if (dir < 0)
+            return false;
+
+        int b = Math.Max(6, (int)MathF.Round(physPx * 0.5f));  // taban
+        int t = Math.Max(4, (int)MathF.Round(b * 0.6f));       // sivri eksen
+        int w = dir >= 2 ? t : b;
+        int h = dir >= 2 ? b : t;
+
+        // 4x4 supersample kapsama (bir kez, cache'lenir).
+        for (int py = 0; py < h; py++)
+            for (int pxl = 0; pxl < w; pxl++)
+            {
+                int hit = 0;
+                for (int sy = 0; sy < 4; sy++)
+                    for (int sx = 0; sx < 4; sx++)
+                    {
+                        float x = (pxl + (sx + 0.5f) * 0.25f) / w;
+                        float yn = (py + (sy + 0.5f) * 0.25f) / h;
+                        // u = taban ekseni (0..1), v = tabandan sivri uca (0..1).
+                        float u = dir >= 2 ? yn : x;
+                        float v = dir == 0 ? 1f - yn : dir == 1 ? yn : dir == 2 ? x : 1f - x;
+                        if (MathF.Abs(u - 0.5f) * 2f <= 1f - v)
+                            hit++;
+                    }
+                _rScratch[py * w + pxl] = (byte)(hit * 255 / 16);
+            }
+
+        float ascent = RasterVMetrics(physPx).x;
+        met[0] = w + 2;                                      // advance
+        met[1] = 1;                                          // x0
+        met[2] = -MathF.Round((ascent + h) * 0.5f);          // y0: cap ortasina hizali
+        met[3] = w;
+        met[4] = h;
+        return true;
     }
 
     void EnsureRasterAtlas()

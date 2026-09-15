@@ -319,8 +319,8 @@ public sealed class HierarchyPanel : EditorWindow
                     ? new Color(60, 100, 180, 255)
                     : new Color(52, 78, 128, 255), 1); // ikincil secim: soluk mavi
             if (hasKids)
-                GuiRenderer.DrawTextIn(arrow, _collapsed.Contains(g.Id) ? ">" : "v", Gui.FontSize - 3f,
-                    new Color(150, 153, 163, 255));
+                GuiRenderer.DrawTextIn(arrow, _collapsed.Contains(g.Id) ? "\u25b8" : "\u25be",
+                    Gui.FontSize - 3f, new Color(150, 153, 163, 255));
             var textCol = g.Active
                 ? new Color(220, 224, 234, 255)
                 : new Color(120, 123, 133, 255); // inaktif: soluk

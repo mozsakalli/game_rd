@@ -104,19 +104,41 @@ public sealed partial class InspectorPanel : EditorWindow
             es.SetTransform(g, pos, rot, scale);
         y += 4;
 
+        int compIndex = 0;
         foreach (var cd in g.Components)
         {
-            bool en = Gui.Toggle(new Rect(4, y, 18, 18), cd.Enabled);
+            long ckey = CompKey(g.Id, compIndex);
+            bool open = !_collapsed.Contains(ckey);
+            if (Event.Current.Type == EventType.Repaint)
+                GuiRenderer.DrawRect(new Rect(0, y - 1, w + 12, 21), new Color(50, 54, 64, 255), 1);
+            bool en = Gui.Toggle(new Rect(24, y, 18, 18), cd.Enabled);
             if (en != cd.Enabled)
                 es.SetEnabled(g, cd, en);
-            GuiRenderer.DrawTextIn(new Rect(28, y, w - 50, 20), cd.Type, Gui.FontSize - 1f,
-                new Color(230, 234, 244, 255), false, 2);
+            if (Event.Current.Type == EventType.Repaint)
+            {
+                GuiRenderer.DrawTextIn(new Rect(6, y, 18, 20), open ? "\u25be" : "\u25b8",
+                    Gui.FontSize - 1f, new Color(190, 194, 204, 255), false, 2);
+                GuiRenderer.DrawTextIn(new Rect(46, y, w - 68, 20), cd.Type, Gui.FontSize - 1f,
+                    new Color(230, 234, 244, 255), false, 2);
+            }
             if (Gui.Button(new Rect(w - 20, y, 18, 18), "x"))
             {
                 es.RemoveComponent(g, cd);
                 break; // koleksiyon degisti: bu frame'i kes, sonraki pass taze cizer
             }
+            // Baslik tiklamasi katlar/acar (toggle ve x kendi event'ini once yutar).
+            if (HeaderClick(new Rect(4, y, w - 26, 20)))
+            {
+                if (open) _collapsed.Add(ckey);
+                else _collapsed.Remove(ckey);
+            }
             y += RowH;
+            if (!open)
+            {
+                y += 2;
+                compIndex++;
+                continue;
+            }
 
             var entry = App.Catalog?.Find(cd.Type);
             if (entry == null)
@@ -155,6 +177,7 @@ public sealed partial class InspectorPanel : EditorWindow
                 DrawField(es, g, cd, f, ref y, w, prefabComp, prefabMap);
             }
             y += 6;
+            compIndex++;
         }
 
         // Add Component: acilir tip listesi (katalogtan — editor tipleri isimle bilir).
@@ -179,6 +202,41 @@ public sealed partial class InspectorPanel : EditorWindow
 
     bool _addingComp;
     bool _showOverrides;
+    // Katlanmis component'ler: key = (goId << 32) | compIndex. Default: acik.
+    readonly HashSet<long> _collapsed = new();
+    static readonly int _hdrHash = "InspectorCompHeader".GetHashCode();
+
+    static long CompKey(int goId, int compIndex) => ((long)goId << 32) | (uint)compIndex;
+
+    // Cizimsiz tiklama kontrolu (baslik arka planini kendimiz cizeriz).
+    static bool HeaderClick(in Rect rect)
+    {
+        int id = GuiUtility.GetControlID(_hdrHash, FocusType.Passive);
+        var ev = Event.Current;
+        switch (ev.GetTypeForControl(id))
+        {
+            case EventType.MouseDown:
+                if (rect.Contains(ev.MousePosition))
+                {
+                    GuiUtility.HotControl = id;
+                    ev.Use();
+                }
+                break;
+            case EventType.MouseDrag:
+                if (GuiUtility.HotControl == id)
+                    ev.Use();
+                break;
+            case EventType.MouseUp:
+                if (GuiUtility.HotControl == id)
+                {
+                    GuiUtility.HotControl = 0;
+                    ev.Use();
+                    return rect.Contains(ev.MousePosition);
+                }
+                break;
+        }
+        return false;
+    }
 
     // --- .asset dosyasi duzenleme: sema uzerinden dogrudan nesneye, her degisiklik
     // dosyaya yazilir (v1 undo'suz). Editor tip BILMEZ: tip adi dosyadan, sinif
@@ -561,15 +619,21 @@ public sealed partial class InspectorPanel : EditorWindow
             if (_showOverrides)
                 h += (Overrides(App.EditScene, instRoot)?.Items.Count ?? 0) * (RowH - 2) + 4;
         }
+        int componentIndex = 0;
         foreach (var cd in g.Components)
         {
+            if (_collapsed.Contains(CompKey(g.Id, componentIndex)))
+            {
+                h += RowH + 2;
+                componentIndex++;
+                continue;
+            }
             var entry = App.Catalog?.Find(cd.Type);
             h += RowH + 6;
             if (entry == null)
                 h += RowH;
             else
             {
-                int componentIndex = g.Components.IndexOf(cd);
                 foreach (var field in entry.Schema)
                 {
                     if (!DocVisible(field, cd))
@@ -580,6 +644,7 @@ public sealed partial class InspectorPanel : EditorWindow
             }
             if (entry != null && entry.Previewable)
                 h += RowH;
+            componentIndex++;
         }
         h += RowH; // Add Component butonu
         if (_addingComp && App.Catalog != null)

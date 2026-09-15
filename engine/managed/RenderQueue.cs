@@ -97,13 +97,14 @@ public sealed unsafe class RenderQueue
         int pip = PipelineCache.GetPipeline(material, mesh.Index32);
         uint texView = material.MainTexture != null ? material.MainTexture.TextureView : 0u;
 
-        // Transparent: ayni layer'da SUBMIT sirasi korunur (painter; Unity paritesi).
+        // Transparent/Ui: ayni layer'da SUBMIT sirasi korunur (painter; Unity paritesi).
         // State tie-break'leri (pip/mesh/tex) key'e girmez — handle numaralari rastgele
-        // oldugundan siralamayi bozar; bitisik ayni-state run'lar radix STABLE oldugu
-        // icin yine tek batch'e merge olur. Diger modlarda state gruplama kalir.
+        // oldugundan siralamayi bozar (pip<<40 Ui layer bitleriyle de CAKISIR); bitisik
+        // ayni-state run'lar radix STABLE oldugu icin yine tek batch'e merge olur.
+        // Diger modlarda state gruplama kalir.
         var mode = material.SortMode;
         ulong key = MakeSortKey(mode, material, mesh, layer);
-        if (mode != SortMode.Transparent)
+        if (mode != SortMode.Transparent && mode != SortMode.Ui)
             key |= ((ulong)(byte)pip << 40) | (texView & 0xFFFFFFu);
 
         _items[idx] = new DrawItem

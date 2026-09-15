@@ -179,7 +179,7 @@ public sealed partial class InspectorPanel
     {
         float labelX = 12 + indent * 12;
         bool expanded = Expanded(path);
-        if (Gui.Button(new Rect(labelX, y, 18, 18), expanded ? "-" : "+"))
+        if (Gui.Button(new Rect(labelX, y, 18, 18), expanded ? "\u25be" : "\u25b8"))
             _fieldFoldouts[path] = !expanded;
         DrawFieldLabel(new Rect(labelX + 22, y, Math.Max(20, LabelW - 22), 18), label);
         if (value == null && Gui.Button(new Rect(12 + LabelW, y,
@@ -215,7 +215,7 @@ public sealed partial class InspectorPanel
     {
         float labelX = 12 + indent * 12;
         bool expanded = Expanded(path);
-        if (Gui.Button(new Rect(labelX, y, 18, 18), expanded ? "-" : "+"))
+        if (Gui.Button(new Rect(labelX, y, 18, 18), expanded ? "\u25be" : "\u25b8"))
             _fieldFoldouts[path] = !expanded;
         int count = value is IList existing ? existing.Count : 0;
         DrawFieldLabel(new Rect(labelX + 22, y, Math.Max(20, LabelW - 22), 18),
@@ -233,9 +233,9 @@ public sealed partial class InspectorPanel
             {
                 int index = i;
                 float itemY = y;
-                if (Gui.Button(new Rect(right - 62, itemY, 18, 18), "^") && index > 0)
+                if (Gui.Button(new Rect(right - 62, itemY, 18, 18), "\u25b4") && index > 0)
                     (moveFrom, moveTo) = (index, index - 1);
-                if (Gui.Button(new Rect(right - 42, itemY, 18, 18), "v") && index + 1 < drawCount)
+                if (Gui.Button(new Rect(right - 42, itemY, 18, 18), "\u25be") && index + 1 < drawCount)
                     (moveFrom, moveTo) = (index, index + 1);
                 if (Gui.Button(new Rect(right - 22, itemY, 18, 18), "x"))
                     removeIndex = index;
@@ -615,7 +615,7 @@ public sealed partial class InspectorPanel
     {
         float labelX = 12 + indent * 12;
         bool expanded = Expanded(path);
-        if (Gui.Button(new Rect(labelX, y, 18, 18), expanded ? "-" : "+"))
+        if (Gui.Button(new Rect(labelX, y, 18, 18), expanded ? "\u25be" : "\u25b8"))
             _fieldFoldouts[path] = !expanded;
         DrawFieldLabel(new Rect(labelX + 22, y, Math.Max(20, LabelW - 22), 18), label);
         y += RowH;
@@ -646,7 +646,7 @@ public sealed partial class InspectorPanel
         node.Items ??= new List<DocNode>();
         float labelX = 12 + indent * 12;
         bool expanded = Expanded(path);
-        if (Gui.Button(new Rect(labelX, y, 18, 18), expanded ? "-" : "+"))
+        if (Gui.Button(new Rect(labelX, y, 18, 18), expanded ? "\u25be" : "\u25b8"))
             _fieldFoldouts[path] = !expanded;
         DrawFieldLabel(new Rect(labelX + 22, y, Math.Max(20, LabelW - 22), 18),
             label + " [" + node.Items.Count + "]");
@@ -662,9 +662,9 @@ public sealed partial class InspectorPanel
             {
                 int index = i;
                 float itemY = y;
-                if (Gui.Button(new Rect(right - 62, itemY, 18, 18), "^") && index > 0)
+                if (Gui.Button(new Rect(right - 62, itemY, 18, 18), "\u25b4") && index > 0)
                     (moveFrom, moveTo) = (index, index - 1);
-                if (Gui.Button(new Rect(right - 42, itemY, 18, 18), "v") && index + 1 < drawCount)
+                if (Gui.Button(new Rect(right - 42, itemY, 18, 18), "\u25be") && index + 1 < drawCount)
                     (moveFrom, moveTo) = (index, index + 1);
                 if (Gui.Button(new Rect(right - 22, itemY, 18, 18), "x"))
                     removeIndex = index;

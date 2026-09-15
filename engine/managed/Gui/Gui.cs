@@ -109,8 +109,23 @@ public static partial class Gui
                 }
                 break;
             case EventType.Repaint:
-                style.Draw(rect, id, on: value);
+            {
+                // Checkbox: cerceve (off-state rengi) + koyu ic zemin + isaretliyse
+                // aralikli mavi kare (on-state rengi).
+                bool hovered = rect.Contains(ev.MousePosition);
+                Color frame = style.StateFor(id, false, hovered).Background;
+                GuiRenderer.DrawRect(rect, frame);
+                Rect inner = new Rect(rect.x + 1, rect.y + 1, rect.width - 2, rect.height - 2);
+                GuiRenderer.DrawRect(inner, new Color(28, 30, 38), layerOffset: 1);
+                if (value)
+                {
+                    float pad = MathF.Max(3f, MathF.Round(rect.width * 0.22f));
+                    Rect mark = new Rect(rect.x + pad, rect.y + pad,
+                        rect.width - pad * 2, rect.height - pad * 2);
+                    GuiRenderer.DrawRect(mark, style.StateFor(id, true, hovered).Background, layerOffset: 2);
+                }
                 break;
+            }
         }
         return value;
     }

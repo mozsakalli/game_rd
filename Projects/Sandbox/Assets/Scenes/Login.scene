@@ -172,7 +172,7 @@ objects:
   - id: 9
     parent: 0
     name: LOGOSPRITE
-    pos: -424.16354 -87.49562 0
+    pos: -329.6803 -35.529808 0
     rot: 0 0 0
     scale: 1 1 1
     components:
@@ -181,4 +181,7 @@ objects:
         Width: 200
         Height: 200
         SortingOrder: 13
+        Effects:
+          - 42abef621c3e49ddb6bb56bf25edd108
+        BlendMode: Normal
       - type: Draggable
