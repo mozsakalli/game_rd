@@ -325,3 +325,63 @@ VEC4 fx0(VEC4 c, VEC2 uv) { bozuk }
 0(18) : error C1016: expression type incompatible with function return type
 0(18) : error C1108: function "fx0" has no statements
 
+[sokol WARN] sg (11) C:\Work\digitoygames\game_rd\engine\native\sokol/sokol_gfx.h:11689 GL_IMAGE_SAMPLER_NAME_NOT_FOUND_IN_SHADER: image-sampler name not found in shader; NOTE: may be caused by GL driver's GLSL compiler removing unused globals
+[sokol INFO] sg (11) C:\Work\digitoygames\game_rd\engine\native\sokol/sokol_gfx.h:11690 tex
+[sokol WARN] sg (11) C:\Work\digitoygames\game_rd\engine\native\sokol/sokol_gfx.h:11689 GL_IMAGE_SAMPLER_NAME_NOT_FOUND_IN_SHADER: image-sampler name not found in shader; NOTE: may be caused by GL driver's GLSL compiler removing unused globals
+[sokol INFO] sg (11) C:\Work\digitoygames\game_rd\engine\native\sokol/sokol_gfx.h:11690 tex
+[sokol WARN] sg (11) C:\Work\digitoygames\game_rd\engine\native\sokol/sokol_gfx.h:11689 GL_IMAGE_SAMPLER_NAME_NOT_FOUND_IN_SHADER: image-sampler name not found in shader; NOTE: may be caused by GL driver's GLSL compiler removing unused globals
+[sokol INFO] sg (11) C:\Work\digitoygames\game_rd\engine\native\sokol/sokol_gfx.h:11690 tex
+[sokol ERROR] sg (7) C:\Work\digitoygames\game_rd\engine\native\sokol/sokol_gfx.h:11518 GL_SHADER_COMPILATION_FAILED: shader compilation failed (gl)
+[sokol INFO] sg (7) C:\Work\digitoygames\game_rd\engine\native\sokol/sokol_gfx.h:11519 0(18) : error C1503: undefined variable "bozuk"
+0(18) : error C0000: syntax error, unexpected '}', expecting ',' or ';' at token "}"
+0(18) : error C1016: expression type incompatible with function return type
+0(18) : error C1108: function "fx0" has no statements
+
+[sokol WARN] sg (11) C:\Work\digitoygames\game_rd\engine\native\sokol/sokol_gfx.h:11689 GL_IMAGE_SAMPLER_NAME_NOT_FOUND_IN_SHADER: image-sampler name not found in shader; NOTE: may be caused by GL driver's GLSL compiler removing unused globals
+[sokol INFO] sg (11) C:\Work\digitoygames\game_rd\engine\native\sokol/sokol_gfx.h:11690 tex
+[sokol WARN] sg (11) C:\Work\digitoygames\game_rd\engine\native\sokol/sokol_gfx.h:11689 GL_IMAGE_SAMPLER_NAME_NOT_FOUND_IN_SHADER: image-sampler name not found in shader; NOTE: may be caused by GL driver's GLSL compiler removing unused globals
+[sokol INFO] sg (11) C:\Work\digitoygames\game_rd\engine\native\sokol/sokol_gfx.h:11690 tex
+[sokol WARN] sg (11) C:\Work\digitoygames\game_rd\engine\native\sokol/sokol_gfx.h:11689 GL_IMAGE_SAMPLER_NAME_NOT_FOUND_IN_SHADER: image-sampler name not found in shader; NOTE: may be caused by GL driver's GLSL compiler removing unused globals
+[sokol INFO] sg (11) C:\Work\digitoygames\game_rd\engine\native\sokol/sokol_gfx.h:11690 tex
+[sokol ERROR] sg (7) C:\Work\digitoygames\game_rd\engine\native\sokol/sokol_gfx.h:11518 GL_SHADER_COMPILATION_FAILED: shader compilation failed (gl)
+[sokol INFO] sg (7) C:\Work\digitoygames\game_rd\engine\native\sokol/sokol_gfx.h:11519 0(18) : error C1503: undefined variable "bozuk"
+0(18) : error C0000: syntax error, unexpected '}', expecting ',' or ';' at token "}"
+0(18) : error C1016: expression type incompatible with function return type
+0(18) : error C1108: function "fx0" has no statements
+
+[sokol WARN] sg (11) C:\Work\digitoygames\game_rd\engine\native\sokol/sokol_gfx.h:11689 GL_IMAGE_SAMPLER_NAME_NOT_FOUND_IN_SHADER: image-sampler name not found in shader; NOTE: may be caused by GL driver's GLSL compiler removing unused globals
+[sokol INFO] sg (11) C:\Work\digitoygames\game_rd\engine\native\sokol/sokol_gfx.h:11690 tex
+[sokol WARN] sg (11) C:\Work\digitoygames\game_rd\engine\native\sokol/sokol_gfx.h:11689 GL_IMAGE_SAMPLER_NAME_NOT_FOUND_IN_SHADER: image-sampler name not found in shader; NOTE: may be caused by GL driver's GLSL compiler removing unused globals
+[sokol INFO] sg (11) C:\Work\digitoygames\game_rd\engine\native\sokol/sokol_gfx.h:11690 tex
+[sokol WARN] sg (11) C:\Work\digitoygames\game_rd\engine\native\sokol/sokol_gfx.h:11689 GL_IMAGE_SAMPLER_NAME_NOT_FOUND_IN_SHADER: image-sampler name not found in shader; NOTE: may be caused by GL driver's GLSL compiler removing unused globals
+[sokol INFO] sg (11) C:\Work\digitoygames\game_rd\engine\native\sokol/sokol_gfx.h:11690 tex
+[sokol ERROR] sg (7) C:\Work\digitoygames\game_rd\engine\native\sokol/sokol_gfx.h:11518 GL_SHADER_COMPILATION_FAILED: shader compilation failed (gl)
+[sokol INFO] sg (7) C:\Work\digitoygames\game_rd\engine\native\sokol/sokol_gfx.h:11519 0(18) : error C1503: undefined variable "bozuk"
+0(18) : error C0000: syntax error, unexpected '}', expecting ',' or ';' at token "}"
+0(18) : error C1016: expression type incompatible with function return type
+0(18) : error C1108: function "fx0" has no statements
+
+[sokol WARN] sg (11) C:\Work\digitoygames\game_rd\engine\native\sokol/sokol_gfx.h:11689 GL_IMAGE_SAMPLER_NAME_NOT_FOUND_IN_SHADER: image-sampler name not found in shader; NOTE: may be caused by GL driver's GLSL compiler removing unused globals
+[sokol INFO] sg (11) C:\Work\digitoygames\game_rd\engine\native\sokol/sokol_gfx.h:11690 tex
+[sokol WARN] sg (11) C:\Work\digitoygames\game_rd\engine\native\sokol/sokol_gfx.h:11689 GL_IMAGE_SAMPLER_NAME_NOT_FOUND_IN_SHADER: image-sampler name not found in shader; NOTE: may be caused by GL driver's GLSL compiler removing unused globals
+[sokol INFO] sg (11) C:\Work\digitoygames\game_rd\engine\native\sokol/sokol_gfx.h:11690 tex
+[sokol WARN] sg (11) C:\Work\digitoygames\game_rd\engine\native\sokol/sokol_gfx.h:11689 GL_IMAGE_SAMPLER_NAME_NOT_FOUND_IN_SHADER: image-sampler name not found in shader; NOTE: may be caused by GL driver's GLSL compiler removing unused globals
+[sokol INFO] sg (11) C:\Work\digitoygames\game_rd\engine\native\sokol/sokol_gfx.h:11690 tex
+[sokol ERROR] sg (7) C:\Work\digitoygames\game_rd\engine\native\sokol/sokol_gfx.h:11518 GL_SHADER_COMPILATION_FAILED: shader compilation failed (gl)
+[sokol INFO] sg (7) C:\Work\digitoygames\game_rd\engine\native\sokol/sokol_gfx.h:11519 0(18) : error C1503: undefined variable "bozuk"
+0(18) : error C0000: syntax error, unexpected '}', expecting ',' or ';' at token "}"
+0(18) : error C1016: expression type incompatible with function return type
+0(18) : error C1108: function "fx0" has no statements
+
+[sokol WARN] sg (11) C:\Work\digitoygames\game_rd\engine\native\sokol/sokol_gfx.h:11689 GL_IMAGE_SAMPLER_NAME_NOT_FOUND_IN_SHADER: image-sampler name not found in shader; NOTE: may be caused by GL driver's GLSL compiler removing unused globals
+[sokol INFO] sg (11) C:\Work\digitoygames\game_rd\engine\native\sokol/sokol_gfx.h:11690 tex
+[sokol WARN] sg (11) C:\Work\digitoygames\game_rd\engine\native\sokol/sokol_gfx.h:11689 GL_IMAGE_SAMPLER_NAME_NOT_FOUND_IN_SHADER: image-sampler name not found in shader; NOTE: may be caused by GL driver's GLSL compiler removing unused globals
+[sokol INFO] sg (11) C:\Work\digitoygames\game_rd\engine\native\sokol/sokol_gfx.h:11690 tex
+[sokol WARN] sg (11) C:\Work\digitoygames\game_rd\engine\native\sokol/sokol_gfx.h:11689 GL_IMAGE_SAMPLER_NAME_NOT_FOUND_IN_SHADER: image-sampler name not found in shader; NOTE: may be caused by GL driver's GLSL compiler removing unused globals
+[sokol INFO] sg (11) C:\Work\digitoygames\game_rd\engine\native\sokol/sokol_gfx.h:11690 tex
+[sokol ERROR] sg (7) C:\Work\digitoygames\game_rd\engine\native\sokol/sokol_gfx.h:11518 GL_SHADER_COMPILATION_FAILED: shader compilation failed (gl)
+[sokol INFO] sg (7) C:\Work\digitoygames\game_rd\engine\native\sokol/sokol_gfx.h:11519 0(18) : error C1503: undefined variable "bozuk"
+0(18) : error C0000: syntax error, unexpected '}', expecting ',' or ';' at token "}"
+0(18) : error C1016: expression type incompatible with function return type
+0(18) : error C1108: function "fx0" has no statements
+

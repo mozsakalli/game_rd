@@ -111,8 +111,10 @@ objects:
         textWeight: 1.1
         textSpacing: 1.01
         textSkew: 0
-        padTop: -3.4666674
-        Effects:
+        padTop: 1.48
+        Effects: ''
+        fitScreen: false
+        ignoreLayout: false
   - id: 5
     parent: 3
     name: GuestLogin
@@ -178,8 +180,14 @@ objects:
         radiusBL: 7
         fill:
           type: Solid
-          color: '#eeffb7ff'
+          color: '#eeffb700'
           color2: '#00000000'
+        font: 713ad506a3014c21aa1043ccd65aa552
+        text: Tıklayarak DigitoyGames gizlilik sözleşmesini kabul etmiş sayılırsınız...
+        textSize: 12.173332
+        textWrap: false
+        textShadowColor: '#000000ff'
+        textShadowOffset: 0 0.56666875
   - id: 9
     parent: 0
     name: LOGOSPRITE
@@ -199,7 +207,7 @@ objects:
   - id: 10
     parent: 0
     name: GameObject
-    pos: -18.52864 76.120285 0
+    pos: -81.97362 60.88105 0
     rot: 0 0 0
     scale: 1 1 1
     components:
@@ -219,7 +227,7 @@ objects:
           direction: Vertical
           color: '#fff573ff'
           color2: '#564c0eff'
-        ShadowColor: '#000000cc'
+        ShadowColor: '#000000df'
         ShadowOffset: 0 2.6999998
-        ShadowBlur: -3.7599998
+        ShadowBlur: 7.719998
         BlendMode: Normal

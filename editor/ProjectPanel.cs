@@ -15,6 +15,7 @@ public sealed class ProjectPanel : EditorWindow
 
     string _dir = "";          // gorunen klasor (Assets'e goreli, "" = kok)
     bool _dirty = true;        // satir cache'i yeniden kurulsun
+    int _seenListVersion = -1; // AssetWatcher.FileListVersion takibi
     readonly List<(string Display, string Rel, bool IsDir, string Guid)> _rows = new();
     Vec2 _scroll;
 
@@ -132,6 +133,11 @@ public sealed class ProjectPanel : EditorWindow
         }
         const float toolbarH = 26f;
 
+        if (_seenListVersion != AssetWatcher.FileListVersion)
+        {
+            _seenListVersion = AssetWatcher.FileListVersion;
+            _dirty = true;
+        }
         if (_dirty)
             RebuildRows(assets);
 

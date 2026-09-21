@@ -41,6 +41,9 @@ public static class AssetWatcher
     public static int AssetChangeVersion { get; private set; }
     public static string LastChangedAsset { get; private set; }
 
+    // Dosya SETI degisti (yeni/silinen/rename): ProjectPanel liste cache'ini tazeler.
+    public static int FileListVersion { get; private set; }
+
     // Editorun KENDI yazdigi dosyalar watcher'da yankilanmasin (reload dongusu/
     // yazma sirasinda text buffer sifirlanmasi olmasin).
     public static void NoteSelfWrite(string fullPath)
@@ -127,7 +130,10 @@ public static class AssetWatcher
 
         // Yeni/silinen dosyalar guid kazansin/dussun (tek dosya icin de ucuz tarama).
         if (!File.Exists(full) || assets.PathToGuid(rel) == null)
+        {
             assets.ScanMetas(createMissing: true);
+            FileListVersion++;
+        }
 
         switch (ext)
         {
