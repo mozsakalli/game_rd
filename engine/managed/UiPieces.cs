@@ -128,11 +128,13 @@ public static unsafe class UiPieces
 
     // Ortak UI SDF shader'i: USER.x = smoothing (0 = fwidth keskin), USER.y =
     // kenar merkezi (0 = 0.5), USER.z > 0 = ic kenar bandi (border RINGI icin;
-    // alpha dista 0 - kenarda 1 - USER.z'de tekrar 0). Kutu, golge ve metin AYNI
+    // alpha dista 0 - kenarda 1 - USER.z'de tekrar 0), USER.w > 0 = ham rampa
+    // (alpha = d dogrudan; radyal gradient). Kutu, golge ve metin AYNI
     // shader/pipeline'i paylasir -> ayni atlasa dusen bitisik draw'lar merge olur.
     public const string SdfFragment =
         "VEC4 fs_main(VEC2 uv, VEC4 color) {\n" +
         "  FLOAT d = SAMPLE(tex, uv).r;\n" +
+        "  if (USER.w > 0.0) return VEC4(color.rgb, d * color.a);\n" +
         "  FLOAT s = USER.x > 0.0 ? USER.x : FWIDTH(d);\n" +
         "  FLOAT c = USER.y > 0.0 ? USER.y : 0.5;\n" +
         "  FLOAT a = smoothstep(c - s, c + s, d);\n" +

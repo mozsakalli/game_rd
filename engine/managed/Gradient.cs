@@ -2,11 +2,13 @@ using System;
 
 namespace DigitoyEngine;
 
-public enum GradientType : byte { Solid, Linear }
+public enum GradientType : byte { Solid, Linear, Radial }
 public enum GradientDirection : byte { Vertical, Horizontal }
 
 // Renk dolgusu: Solid = tek renk, Linear = color(baslangic) -> color2(bitis);
 // direction eksene karar verir (Vertical: ust->alt, Horizontal: sol->sag).
+// Radial = color(merkez) -> color2(kenar, closest-side elips); yalniz LayoutBox
+// dolgusu cizer, diger tuketiciler At() uzerinden duz color2'ye duser.
 // Standart serializer'a [Serializable] inline nesne olarak girer (ozel yol yok).
 [Serializable]
 public struct Gradient
@@ -34,7 +36,7 @@ public struct Gradient
 
     // Herhangi bir pikselde gorunur katki var mi (a=0 dolgu hic cizilmez).
     public readonly bool Visible
-        => color.a > 0 || (type == GradientType.Linear && color2.a > 0);
+        => color.a > 0 || (type != GradientType.Solid && color2.a > 0);
 
     // Renderer'lar orneklenecek ekseni bundan secer (Solid'de eksen onemsiz).
     public readonly bool IsHorizontal
@@ -45,6 +47,8 @@ public struct Gradient
     {
         if (type == GradientType.Solid)
             return color;
+        if (type == GradientType.Radial)
+            return color2; // taban/dis renk; merkez katmani LayoutBox overlay'i
         t = Math.Clamp(t, 0f, 1f);
         return new(
             (byte)(color.r + (color2.r - color.r) * t),

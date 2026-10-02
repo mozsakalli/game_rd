@@ -808,16 +808,24 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
             EmitLayer(queue, wm, x0, y0, x1, y1,
                 radiusTL, radiusTR, radiusBR, radiusBL, bl, bt, br, bb, isBorder: true, layer);
             if (hasFill)
+            {
                 EmitLayer(queue, wm, x0 + bl, y0 + bt, x1 - br, y1 - bb,
                     MathF.Max(radiusTL - MathF.Max(bl, bt), 0),
                     MathF.Max(radiusTR - MathF.Max(br, bt), 0),
                     MathF.Max(radiusBR - MathF.Max(br, bb), 0),
                     MathF.Max(radiusBL - MathF.Max(bl, bb), 0),
                     0, 0, 0, 0, isBorder: false, layer);
+                if (fill.type == GradientType.Radial)
+                    EmitRadial(queue, wm, x0 + bl, y0 + bt, x1 - br, y1 - bb, layer);
+            }
         }
         else if (hasFill)
+        {
             EmitLayer(queue, wm, x0, y0, x1, y1,
                 radiusTL, radiusTR, radiusBR, radiusBL, 0, 0, 0, 0, isBorder: false, layer);
+            if (fill.type == GradientType.Radial)
+                EmitRadial(queue, wm, x0, y0, x1, y1, layer);
+        }
 
         if (HasText)
             EncodeText(queue, in wm, x0, y0, layer); // submit sirasi: kutunun ustunde
@@ -825,6 +833,35 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
 
     const float AaOut = 2f;  // sekil disina tasan AA payi (dunya birimi)
     const float EdgeIn = 2f; // kenar seridinin ic kalinligi (SDF degeri 1'e ulasir)
+
+    // Radyal dolgu overlay'i: taban katman (color2 duz) uzerine merkez rengi,
+    // alpha = Shadow parcasinin lineer rampasi (1 - d/128) USER.w ham gecis.
+    // Elips closest-side: kenar ortalarina teget, sinirinda 0 -> yuvarlak
+    // koseler elips disinda, kirpma gerekmez. 4 aynali ceyrek quad, ayni
+    // materyal -> kutunun draw'ina merge olur.
+    void EmitRadial(RenderQueue q, Mat4 wm, float x0, float y0, float x1, float y1, int layer)
+    {
+        if (x1 <= x0 || y1 <= y0 || fill.color.a == 0)
+            return;
+        var at = PiecesAtlas(out var mat);
+        float texW = at.Tex.Width, texH = at.Tex.Height;
+        float pbx = at.X + UiPieces.ShadowX, pby = at.Y + UiPieces.ShadowY;
+        float uNear = pbx / texW, uFar = (pbx + UiPieces.ShadowSize) / texW;
+        float vNear = pby / texH, vFar = (pby + UiPieces.ShadowSize) / texH;
+        float cx = (x0 + x1) * 0.5f, cy = (y0 + y1) * 0.5f;
+        var col = fill.color;
+        var user = new Vec4(0f, 0f, 0f, 1f);
+
+        void Quarter(float qx0, float qy0, float qx1, float qy1, bool farLeft, bool farTop)
+            => EmitQuad(q, mat, wm, qx0, qy0, qx1, qy1,
+                farLeft ? uFar : uNear, farTop ? vNear : vFar,
+                farLeft ? uNear : uFar, farTop ? vFar : vNear,
+                col, col, false, user, layer);
+        Quarter(x0, y0, cx, cy, true, true);
+        Quarter(cx, y0, x1, cy, false, true);
+        Quarter(cx, cy, x1, y1, false, false);
+        Quarter(x0, cy, cx, y1, true, false);
+    }
 
     // Golge: kutunun yumusak kenarli kopyasi (SDF parca + USER smoothing — RT/blur
     // pass YOK). Falloff kenar merkezli ±blur; kose yuvarlagi blur'la buyur

@@ -55,12 +55,8 @@ public unsafe class App
 
         Sokol.Setup();
 
-        // SDF font (Windows sistem fontu; yoksa text cizilmez, UI yine calisir).
-        /*
-        Gui.Font = GuiFont.Load("C:\\Windows\\Fonts\\segoeui.ttf")
-                ?? GuiFont.Load("C:\\Windows\\Fonts\\arial.ttf");
-                */
-        Gui.Font = GuiFont.Load("font.ttf");
+        // SDF font: koda gomulu font.ttf (EmbeddedFont.cs).
+        Gui.Font = GuiFont.FromMemory(EmbeddedFont.Data);
 
         var cb = new CommandBuffer();
 

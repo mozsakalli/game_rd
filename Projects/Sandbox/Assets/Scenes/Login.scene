@@ -108,8 +108,8 @@ objects:
         borderBottom: 2
         padLeft: 20
         padRight: 20
-        textWeight: 1.1
-        textSpacing: 1.01
+        textWeight: 1
+        textSpacing: 0
         textSkew: 0
         padTop: 1.48
         Effects: ''
@@ -123,17 +123,32 @@ objects:
     scale: 1 1 1
     components:
       - type: LayoutBox
-        width: 150
-        height: 46
+        width: 40
+        height: 40
         fillColor: '#6b7280ff'
         radiusTL: 10
         radiusTR: 10
         radiusBR: 10
         radiusBL: 10
         fill:
-          type: Solid
-          color: '#ffffffff'
+          type: Radial
+          color: '#ffffff70'
           color2: '#00000000'
+          direction: Vertical
+        borderLeft: 1
+        borderTop: 1
+        borderRight: 1
+        borderBottom: 1
+        borderFill:
+          type: Linear
+          direction: Vertical
+          color: '#ffffff70'
+          color2: '#ffffff70'
+        font: 713ad506a3014c21aa1043ccd65aa552
+        text: X
+        textAlign: Center
+        textAlignV: Center
+        textSize: 16
   - id: 6
     parent: 3
     name: AppleLogin
@@ -231,3 +246,26 @@ objects:
         ShadowOffset: 0 2.6999998
         ShadowBlur: 7.719998
         BlendMode: Normal
+  - id: 11
+    parent: 4
+    name: GameObject (1)
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        fill:
+          type: Linear
+          direction: Vertical
+          color: '#ffffff70'
+          color2: '#ffffff00'
+        width: 170
+        height: 10
+        layout: None
+        grow: 0
+        anchorMin: 0.025 0.5
+        anchorMax: -0.025 0.5
+        pivot: 0 0.5
+        radiusTL: 10
+        radiusTR: 10
+        anchoredPos: -0.666687 -21
