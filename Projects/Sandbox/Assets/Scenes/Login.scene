@@ -294,6 +294,7 @@ objects:
           color: '#000000ff'
           color2: '#00000000'
         border: 1 0 0 0
+        justifyChildren: Center
   - id: 16
     parent: 15
     name: prebutton (1)

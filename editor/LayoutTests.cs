@@ -31,6 +31,9 @@ public static class LayoutTests
         Scale9Smoke(s);
         OverflowSmoke(s);
         WrapSmoke(s);
+        JustifySmoke(s);
+        DeepInvalidation(s);
+        ClipChainReparent(s);
 
         Scene.SetActive(prev);
         Scene.Unload(s);
@@ -263,6 +266,92 @@ public static class LayoutTests
         Check(Near(p.RectHeight, 20 + 30 + 20 + 30 + 30), "Wrap: spacing satirlari da acar");
 
         GameObject.Destroy(p.gameObject);
+        s.Update(0f);
+    }
+
+    // JustifyChildren: ana eksende grup dagilimi (grow yokken); grow varsa etkisiz.
+    static void JustifySmoke(Scene s)
+    {
+        var p = NewBox("justify");
+        p.Layout = LayoutMode.Horizontal;
+        p.Width = 300; p.Height = 50;
+        p.OverflowX = OverflowMode.Visible; // authored 300 kalsin (icerik 100)
+        var a = NewBox("a", p.transform); a.Width = 40; a.Height = 50;
+        var b = NewBox("b", p.transform); b.Width = 60; b.Height = 50;
+        // transform.localPosition pull YAPMAZ; RectWidth okumasi cozumu tetikler.
+        float Ax() { _ = p.RectWidth; return a.transform.localPosition.x; }
+        float Bx() { _ = p.RectWidth; return b.transform.localPosition.x; }
+
+        Check(Near(Ax(), -130), "Justify Start: sol kenar");
+        p.JustifyChildren = LayoutJustify.End;
+        Check(Near(Bx(), 120), "Justify End: sag kenar");
+        p.JustifyChildren = LayoutJustify.Center;
+        Check(Near(Ax(), -30) && Near(Bx(), 20), "Justify Center");
+        p.JustifyChildren = LayoutJustify.SpaceBetween;
+        Check(Near(Ax(), -130) && Near(Bx(), 120), "Justify SpaceBetween");
+        p.JustifyChildren = LayoutJustify.SpaceEvenly; // 200/3 bosluk
+        Check(Near(Ax(), -150 + 200f / 3 + 20), "Justify SpaceEvenly");
+        b.Grow = 1; // grow kalan alani alir -> justify etkisiz, a solda
+        Check(Near(Ax(), -130) && Near(b.RectWidth, 260), "Justify grow ile etkisiz");
+        GameObject.Destroy(p.gameObject);
+        s.Update(0f);
+    }
+
+    // Derin agacta yaprak degisimi: olcum cache'i dusup koke kadar yeniden
+    // olculmeli; artimli arrange boyutu degismeyen kardes dali atlarken degisen
+    // dal dogru guncellenmeli (lazy pull ile).
+    static void DeepInvalidation(Scene s)
+    {
+        var root = NewBox("droot");
+        root.Layout = LayoutMode.Vertical;
+        var row = NewBox("row", root.transform);
+        row.Layout = LayoutMode.Horizontal;
+        var leaf = NewBox("leaf", row.transform); leaf.Width = 30; leaf.Height = 10;
+        var side = NewBox("side", row.transform); side.Width = 20; side.Height = 10;
+        var sideKid = NewBox("sidekid", side.transform);
+        sideKid.AnchorMin = new Vec2(0, 0); sideKid.AnchorMax = new Vec2(1, 1); // stretch
+
+        Check(Near(root.RectWidth, 50) && Near(sideKid.RectWidth, 20), "derin: ilk cozum");
+        leaf.Width = 70; // yaprak -> row -> root olcumu degismeli
+        Check(Near(row.RectWidth, 90) && Near(root.RectWidth, 90), "derin: yaprak degisimi koke yansidi");
+        Check(Near(sideKid.RectWidth, 20), "derin: boyutu degismeyen kardes dal bozulmadi");
+        side.Width = 40; // kardes degisince stretch torun da buyumeli
+        // Torun TEMIZ (kirli olan atalar); pull yine de kirli atayi cozmeli.
+        Check(Near(sideKid.RectWidth, 40) && Near(root.RectWidth, 110), "derin: degisen dal torunu guncelledi (temiz torundan pull)");
+        // Yalniz pozisyon degisimi (leaf kuculur, side kayar): side boyutu ayni,
+        // alt agaci atlanir ama pozisyon dogru.
+        leaf.Width = 10;
+        _ = root.RectWidth;
+        Check(Near(side.transform.localPosition.x, -25 + 10 + 20), "derin: kaydirilan kardes pozisyonu");
+        Check(Near(sideKid.RectWidth, 40), "derin: atlanan alt agac gecerli kaldi");
+        GameObject.Destroy(root.gameObject);
+        s.Update(0f);
+    }
+
+    // Klip zinciri cozumden gelir (GetComponent yok): reparent sonrasi Hidden
+    // ata degisince kirpma yeni ataya gore olmali.
+    static void ClipChainReparent(Scene s)
+    {
+        var hidden = NewBox("hidden");
+        hidden.Width = 100; hidden.Height = 40;
+        hidden.Overflow = OverflowMode.Hidden;
+        var open = NewBox("open");
+        open.Width = 100; open.Height = 40;
+        var c = NewBox("c", hidden.transform);
+        c.Width = 100; c.Height = 40;
+        c.AnchoredPos = new Vec2(0, 500); // tamamen disarida
+        c.Fill = new Gradient(Color.Red);
+
+        var q = new RenderQueue();
+        hidden.ResolveIfDirty();
+        q.Begin(); c.Encode(q);
+        Check(q.Count == 0, "klip: Hidden ata altinda disaridaki cocuk cizilmedi");
+        c.transform.SetParent(open.transform, false);
+        open.ResolveIfDirty();
+        q.Begin(); c.Encode(q);
+        Check(q.Count > 0, "klip: Visible ataya tasininca cizildi");
+        GameObject.Destroy(hidden.gameObject);
+        GameObject.Destroy(open.gameObject);
         s.Update(0f);
     }
 }

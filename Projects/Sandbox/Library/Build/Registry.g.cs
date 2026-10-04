@@ -173,8 +173,8 @@ public static class Registry
 
     static void Reg_2(global::DigitoyEngine.TypeCatalog cat)
     {
-        var s_21 = new global::DigitoyEngine.SerializedType.FieldSchema[4];
-        s_21[0] = new global::DigitoyEngine.SerializedType.FieldSchema
+        var s_22 = new global::DigitoyEngine.SerializedType.FieldSchema[4];
+        s_22[0] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
             Name = "type",
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
@@ -183,7 +183,7 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.Gradient)o).type,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.Gradient>(o).type = (global::DigitoyEngine.GradientType)v,
         };
-        s_21[1] = new global::DigitoyEngine.SerializedType.FieldSchema
+        s_22[1] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
             Name = "direction",
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
@@ -192,7 +192,7 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.Gradient)o).direction,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.Gradient>(o).direction = (global::DigitoyEngine.GradientDirection)v,
         };
-        s_21[2] = new global::DigitoyEngine.SerializedType.FieldSchema
+        s_22[2] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
             Name = "color",
             Kind = global::DigitoyEngine.SerializedType.Kind.Color,
@@ -201,7 +201,7 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.Gradient)o).color,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.Gradient>(o).color = (global::DigitoyEngine.Color)v,
         };
-        s_21[3] = new global::DigitoyEngine.SerializedType.FieldSchema
+        s_22[3] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
             Name = "color2",
             Kind = global::DigitoyEngine.SerializedType.Kind.Color,
@@ -210,12 +210,12 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.Gradient)o).color2,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.Gradient>(o).color2 = (global::DigitoyEngine.Color)v,
         };
-        s_21[1].ShowIf = s_21[0];
-        s_21[1].ShowIfScalar = "Linear";
-        s_21[3].ShowIf = s_21[0];
-        s_21[3].ShowIfScalar = "Linear";
-        var s_23 = new global::DigitoyEngine.SerializedType.FieldSchema[4];
-        s_23[0] = new global::DigitoyEngine.SerializedType.FieldSchema
+        s_22[1].ShowIf = s_22[0];
+        s_22[1].ShowIfScalar = "Linear";
+        s_22[3].ShowIf = s_22[0];
+        s_22[3].ShowIfScalar = "Linear";
+        var s_24 = new global::DigitoyEngine.SerializedType.FieldSchema[4];
+        s_24[0] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
             Name = "type",
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
@@ -224,7 +224,7 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.Gradient)o).type,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.Gradient>(o).type = (global::DigitoyEngine.GradientType)v,
         };
-        s_23[1] = new global::DigitoyEngine.SerializedType.FieldSchema
+        s_24[1] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
             Name = "direction",
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
@@ -233,7 +233,7 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.Gradient)o).direction,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.Gradient>(o).direction = (global::DigitoyEngine.GradientDirection)v,
         };
-        s_23[2] = new global::DigitoyEngine.SerializedType.FieldSchema
+        s_24[2] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
             Name = "color",
             Kind = global::DigitoyEngine.SerializedType.Kind.Color,
@@ -242,7 +242,7 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.Gradient)o).color,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.Gradient>(o).color = (global::DigitoyEngine.Color)v,
         };
-        s_23[3] = new global::DigitoyEngine.SerializedType.FieldSchema
+        s_24[3] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
             Name = "color2",
             Kind = global::DigitoyEngine.SerializedType.Kind.Color,
@@ -251,12 +251,12 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.Gradient)o).color2,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.Gradient>(o).color2 = (global::DigitoyEngine.Color)v,
         };
-        s_23[1].ShowIf = s_23[0];
-        s_23[1].ShowIfScalar = "Linear";
-        s_23[3].ShowIf = s_23[0];
-        s_23[3].ShowIfScalar = "Linear";
-        var s_41 = new global::DigitoyEngine.SerializedType.FieldSchema[4];
-        s_41[0] = new global::DigitoyEngine.SerializedType.FieldSchema
+        s_24[1].ShowIf = s_24[0];
+        s_24[1].ShowIfScalar = "Linear";
+        s_24[3].ShowIf = s_24[0];
+        s_24[3].ShowIfScalar = "Linear";
+        var s_42 = new global::DigitoyEngine.SerializedType.FieldSchema[4];
+        s_42[0] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
             Name = "type",
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
@@ -265,7 +265,7 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.Gradient)o).type,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.Gradient>(o).type = (global::DigitoyEngine.GradientType)v,
         };
-        s_41[1] = new global::DigitoyEngine.SerializedType.FieldSchema
+        s_42[1] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
             Name = "direction",
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
@@ -274,7 +274,7 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.Gradient)o).direction,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.Gradient>(o).direction = (global::DigitoyEngine.GradientDirection)v,
         };
-        s_41[2] = new global::DigitoyEngine.SerializedType.FieldSchema
+        s_42[2] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
             Name = "color",
             Kind = global::DigitoyEngine.SerializedType.Kind.Color,
@@ -283,7 +283,7 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.Gradient)o).color,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.Gradient>(o).color = (global::DigitoyEngine.Color)v,
         };
-        s_41[3] = new global::DigitoyEngine.SerializedType.FieldSchema
+        s_42[3] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
             Name = "color2",
             Kind = global::DigitoyEngine.SerializedType.Kind.Color,
@@ -292,12 +292,12 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.Gradient)o).color2,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.Gradient>(o).color2 = (global::DigitoyEngine.Color)v,
         };
-        s_41[1].ShowIf = s_41[0];
-        s_41[1].ShowIfScalar = "Linear";
-        s_41[3].ShowIf = s_41[0];
-        s_41[3].ShowIfScalar = "Linear";
-        var s_43 = new global::DigitoyEngine.SerializedType.FieldSchema[4];
-        s_43[0] = new global::DigitoyEngine.SerializedType.FieldSchema
+        s_42[1].ShowIf = s_42[0];
+        s_42[1].ShowIfScalar = "Linear";
+        s_42[3].ShowIf = s_42[0];
+        s_42[3].ShowIfScalar = "Linear";
+        var s_44 = new global::DigitoyEngine.SerializedType.FieldSchema[4];
+        s_44[0] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
             Name = "type",
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
@@ -306,7 +306,7 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.Gradient)o).type,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.Gradient>(o).type = (global::DigitoyEngine.GradientType)v,
         };
-        s_43[1] = new global::DigitoyEngine.SerializedType.FieldSchema
+        s_44[1] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
             Name = "direction",
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
@@ -315,7 +315,7 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.Gradient)o).direction,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.Gradient>(o).direction = (global::DigitoyEngine.GradientDirection)v,
         };
-        s_43[2] = new global::DigitoyEngine.SerializedType.FieldSchema
+        s_44[2] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
             Name = "color",
             Kind = global::DigitoyEngine.SerializedType.Kind.Color,
@@ -324,7 +324,7 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.Gradient)o).color,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.Gradient>(o).color = (global::DigitoyEngine.Color)v,
         };
-        s_43[3] = new global::DigitoyEngine.SerializedType.FieldSchema
+        s_44[3] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
             Name = "color2",
             Kind = global::DigitoyEngine.SerializedType.Kind.Color,
@@ -333,11 +333,11 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.Gradient)o).color2,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.Gradient>(o).color2 = (global::DigitoyEngine.Color)v,
         };
-        s_43[1].ShowIf = s_43[0];
-        s_43[1].ShowIfScalar = "Linear";
-        s_43[3].ShowIf = s_43[0];
-        s_43[3].ShowIfScalar = "Linear";
-        var s = new global::DigitoyEngine.SerializedType.FieldSchema[47];
+        s_44[1].ShowIf = s_44[0];
+        s_44[1].ShowIfScalar = "Linear";
+        s_44[3].ShowIf = s_44[0];
+        s_44[3].ShowIfScalar = "Linear";
+        var s = new global::DigitoyEngine.SerializedType.FieldSchema[48];
         s[0] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
             Name = "SortingOrder",
@@ -515,25 +515,25 @@ public static class Registry
         };
         s[18] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
+            Name = "justifyChildren",
+            Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
+            FieldType = typeof(global::DigitoyEngine.LayoutJustify),
+            DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
+            Get = o => F2_17((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_17((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.LayoutJustify)v,
+        };
+        s[19] = new global::DigitoyEngine.SerializedType.FieldSchema
+        {
             Name = "reverse",
             Kind = global::DigitoyEngine.SerializedType.Kind.Bool,
             FieldType = typeof(global::System.Boolean),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
-            Get = o => F2_17((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_17((global::DigitoyEngine.LayoutBox)o) = (global::System.Boolean)v,
-        };
-        s[19] = new global::DigitoyEngine.SerializedType.FieldSchema
-        {
-            Name = "overflowX",
-            Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
-            FieldType = typeof(global::DigitoyEngine.OverflowMode),
-            DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
             Get = o => F2_18((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_18((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.OverflowMode)v,
+            Set = (o, v) => F2_18((global::DigitoyEngine.LayoutBox)o) = (global::System.Boolean)v,
         };
         s[20] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
-            Name = "overflowY",
+            Name = "overflowX",
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
             FieldType = typeof(global::DigitoyEngine.OverflowMode),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
@@ -542,163 +542,163 @@ public static class Registry
         };
         s[21] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
+            Name = "overflowY",
+            Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
+            FieldType = typeof(global::DigitoyEngine.OverflowMode),
+            DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
+            Get = o => F2_20((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_20((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.OverflowMode)v,
+        };
+        s[22] = new global::DigitoyEngine.SerializedType.FieldSchema
+        {
             Name = "fill",
             Kind = global::DigitoyEngine.SerializedType.Kind.Object,
             ElementType = typeof(global::DigitoyEngine.Gradient),
-            Nested = s_21,
+            Nested = s_22,
             FieldType = typeof(global::DigitoyEngine.Gradient),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
-            Get = o => F2_20((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_20((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Gradient)v,
+            Get = o => F2_21((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_21((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Gradient)v,
             NewElement = () => (object)default(global::DigitoyEngine.Gradient),
         };
-        s[22] = new global::DigitoyEngine.SerializedType.FieldSchema
+        s[23] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
             Name = "border",
             Kind = global::DigitoyEngine.SerializedType.Kind.Vec4,
             FieldType = typeof(global::DigitoyEngine.Vec4),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
-            Get = o => F2_21((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_21((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Vec4)v,
+            Get = o => F2_22((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_22((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Vec4)v,
         };
-        s[23] = new global::DigitoyEngine.SerializedType.FieldSchema
+        s[24] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
             Name = "borderFill",
             Kind = global::DigitoyEngine.SerializedType.Kind.Object,
             ElementType = typeof(global::DigitoyEngine.Gradient),
-            Nested = s_23,
+            Nested = s_24,
             FieldType = typeof(global::DigitoyEngine.Gradient),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
-            Get = o => F2_22((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_22((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Gradient)v,
+            Get = o => F2_23((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_23((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Gradient)v,
             NewElement = () => (object)default(global::DigitoyEngine.Gradient),
         };
-        s[24] = new global::DigitoyEngine.SerializedType.FieldSchema
+        s[25] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
             Name = "radius",
             Kind = global::DigitoyEngine.SerializedType.Kind.Vec4,
             FieldType = typeof(global::DigitoyEngine.Vec4),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
-            Get = o => F2_23((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_23((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Vec4)v,
+            Get = o => F2_24((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_24((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Vec4)v,
         };
-        s[25] = new global::DigitoyEngine.SerializedType.FieldSchema
+        s[26] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
             Name = "sprite",
             Kind = global::DigitoyEngine.SerializedType.Kind.Asset,
             FieldType = typeof(global::DigitoyEngine.Sprite),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
-            Get = o => F2_24((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_24((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Sprite)v,
+            Get = o => F2_25((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_25((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Sprite)v,
         };
-        s[26] = new global::DigitoyEngine.SerializedType.FieldSchema
+        s[27] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
             Name = "slice9",
             Kind = global::DigitoyEngine.SerializedType.Kind.Vec4,
             FieldType = typeof(global::DigitoyEngine.Vec4),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
-            Get = o => F2_25((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_25((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Vec4)v,
+            Get = o => F2_26((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_26((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Vec4)v,
         };
-        s[27] = new global::DigitoyEngine.SerializedType.FieldSchema
+        s[28] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
             Name = "shadowColor",
             Kind = global::DigitoyEngine.SerializedType.Kind.Color,
             FieldType = typeof(global::DigitoyEngine.Color),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
-            Get = o => F2_26((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_26((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Color)v,
+            Get = o => F2_27((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_27((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Color)v,
         };
-        s[28] = new global::DigitoyEngine.SerializedType.FieldSchema
+        s[29] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
             Name = "shadowOffset",
             Kind = global::DigitoyEngine.SerializedType.Kind.Vec2,
             FieldType = typeof(global::DigitoyEngine.Vec2),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
-            Get = o => F2_27((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_27((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Vec2)v,
+            Get = o => F2_28((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_28((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Vec2)v,
         };
-        s[29] = new global::DigitoyEngine.SerializedType.FieldSchema
+        s[30] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
             Name = "shadowBlur",
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
-            Get = o => F2_28((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_28((global::DigitoyEngine.LayoutBox)o) = (global::System.Single)v,
-            GetFloat = c => F2_29((global::DigitoyEngine.LayoutBox)c),
-            SetFloat = (c, v) => F2_29((global::DigitoyEngine.LayoutBox)c) = v,
+            Get = o => F2_29((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_29((global::DigitoyEngine.LayoutBox)o) = (global::System.Single)v,
+            GetFloat = c => F2_30((global::DigitoyEngine.LayoutBox)c),
+            SetFloat = (c, v) => F2_30((global::DigitoyEngine.LayoutBox)c) = v,
         };
-        s[30] = new global::DigitoyEngine.SerializedType.FieldSchema
+        s[31] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
             Name = "shadowGrow",
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
-            Get = o => F2_30((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_30((global::DigitoyEngine.LayoutBox)o) = (global::System.Single)v,
-            GetFloat = c => F2_31((global::DigitoyEngine.LayoutBox)c),
-            SetFloat = (c, v) => F2_31((global::DigitoyEngine.LayoutBox)c) = v,
+            Get = o => F2_31((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_31((global::DigitoyEngine.LayoutBox)o) = (global::System.Single)v,
+            GetFloat = c => F2_32((global::DigitoyEngine.LayoutBox)c),
+            SetFloat = (c, v) => F2_32((global::DigitoyEngine.LayoutBox)c) = v,
         };
-        s[31] = new global::DigitoyEngine.SerializedType.FieldSchema
+        s[32] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
             Name = "font",
             Kind = global::DigitoyEngine.SerializedType.Kind.Asset,
             FieldType = typeof(global::DigitoyEngine.Font),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
-            Get = o => F2_32((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_32((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Font)v,
+            Get = o => F2_33((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_33((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Font)v,
         };
-        s[32] = new global::DigitoyEngine.SerializedType.FieldSchema
+        s[33] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
             Name = "text",
             Kind = global::DigitoyEngine.SerializedType.Kind.String,
             FieldType = typeof(global::System.String),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
-            Get = o => F2_33((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_33((global::DigitoyEngine.LayoutBox)o) = (global::System.String)v,
+            Get = o => F2_34((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_34((global::DigitoyEngine.LayoutBox)o) = (global::System.String)v,
         };
-        s[33] = new global::DigitoyEngine.SerializedType.FieldSchema
+        s[34] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
             Name = "textSize",
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
-            Get = o => F2_34((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_34((global::DigitoyEngine.LayoutBox)o) = (global::System.Single)v,
-            GetFloat = c => F2_35((global::DigitoyEngine.LayoutBox)c),
-            SetFloat = (c, v) => F2_35((global::DigitoyEngine.LayoutBox)c) = v,
+            Get = o => F2_35((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_35((global::DigitoyEngine.LayoutBox)o) = (global::System.Single)v,
+            GetFloat = c => F2_36((global::DigitoyEngine.LayoutBox)c),
+            SetFloat = (c, v) => F2_36((global::DigitoyEngine.LayoutBox)c) = v,
         };
-        s[34] = new global::DigitoyEngine.SerializedType.FieldSchema
+        s[35] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
             Name = "textAlign",
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
             FieldType = typeof(global::DigitoyEngine.TextAlign),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
-            Get = o => F2_36((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_36((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.TextAlign)v,
+            Get = o => F2_37((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_37((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.TextAlign)v,
         };
-        s[35] = new global::DigitoyEngine.SerializedType.FieldSchema
+        s[36] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
             Name = "textAlignV",
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
             FieldType = typeof(global::DigitoyEngine.LayoutAlign),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
-            Get = o => F2_37((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_37((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.LayoutAlign)v,
-        };
-        s[36] = new global::DigitoyEngine.SerializedType.FieldSchema
-        {
-            Name = "textWrap",
-            Kind = global::DigitoyEngine.SerializedType.Kind.Bool,
-            FieldType = typeof(global::System.Boolean),
-            DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
             Get = o => F2_38((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_38((global::DigitoyEngine.LayoutBox)o) = (global::System.Boolean)v,
+            Set = (o, v) => F2_38((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.LayoutAlign)v,
         };
         s[37] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
-            Name = "textEllipsis",
+            Name = "textWrap",
             Kind = global::DigitoyEngine.SerializedType.Kind.Bool,
             FieldType = typeof(global::System.Boolean),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
@@ -707,116 +707,125 @@ public static class Registry
         };
         s[38] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
+            Name = "textEllipsis",
+            Kind = global::DigitoyEngine.SerializedType.Kind.Bool,
+            FieldType = typeof(global::System.Boolean),
+            DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
+            Get = o => F2_40((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_40((global::DigitoyEngine.LayoutBox)o) = (global::System.Boolean)v,
+        };
+        s[39] = new global::DigitoyEngine.SerializedType.FieldSchema
+        {
             Name = "textWeight",
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
-            Get = o => F2_40((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_40((global::DigitoyEngine.LayoutBox)o) = (global::System.Single)v,
-            GetFloat = c => F2_41((global::DigitoyEngine.LayoutBox)c),
-            SetFloat = (c, v) => F2_41((global::DigitoyEngine.LayoutBox)c) = v,
+            Get = o => F2_41((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_41((global::DigitoyEngine.LayoutBox)o) = (global::System.Single)v,
+            GetFloat = c => F2_42((global::DigitoyEngine.LayoutBox)c),
+            SetFloat = (c, v) => F2_42((global::DigitoyEngine.LayoutBox)c) = v,
         };
-        s[39] = new global::DigitoyEngine.SerializedType.FieldSchema
+        s[40] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
             Name = "textSkew",
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
-            Get = o => F2_42((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_42((global::DigitoyEngine.LayoutBox)o) = (global::System.Single)v,
-            GetFloat = c => F2_43((global::DigitoyEngine.LayoutBox)c),
-            SetFloat = (c, v) => F2_43((global::DigitoyEngine.LayoutBox)c) = v,
+            Get = o => F2_43((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_43((global::DigitoyEngine.LayoutBox)o) = (global::System.Single)v,
+            GetFloat = c => F2_44((global::DigitoyEngine.LayoutBox)c),
+            SetFloat = (c, v) => F2_44((global::DigitoyEngine.LayoutBox)c) = v,
         };
-        s[40] = new global::DigitoyEngine.SerializedType.FieldSchema
+        s[41] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
             Name = "textSpacing",
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
-            Get = o => F2_44((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_44((global::DigitoyEngine.LayoutBox)o) = (global::System.Single)v,
-            GetFloat = c => F2_45((global::DigitoyEngine.LayoutBox)c),
-            SetFloat = (c, v) => F2_45((global::DigitoyEngine.LayoutBox)c) = v,
+            Get = o => F2_45((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_45((global::DigitoyEngine.LayoutBox)o) = (global::System.Single)v,
+            GetFloat = c => F2_46((global::DigitoyEngine.LayoutBox)c),
+            SetFloat = (c, v) => F2_46((global::DigitoyEngine.LayoutBox)c) = v,
         };
-        s[41] = new global::DigitoyEngine.SerializedType.FieldSchema
+        s[42] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
             Name = "textFill",
             Kind = global::DigitoyEngine.SerializedType.Kind.Object,
             ElementType = typeof(global::DigitoyEngine.Gradient),
-            Nested = s_41,
+            Nested = s_42,
             FieldType = typeof(global::DigitoyEngine.Gradient),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
-            Get = o => F2_46((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_46((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Gradient)v,
+            Get = o => F2_47((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_47((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Gradient)v,
             NewElement = () => (object)default(global::DigitoyEngine.Gradient),
         };
-        s[42] = new global::DigitoyEngine.SerializedType.FieldSchema
+        s[43] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
             Name = "textOutlineWidth",
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
-            Get = o => F2_47((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_47((global::DigitoyEngine.LayoutBox)o) = (global::System.Single)v,
-            GetFloat = c => F2_48((global::DigitoyEngine.LayoutBox)c),
-            SetFloat = (c, v) => F2_48((global::DigitoyEngine.LayoutBox)c) = v,
+            Get = o => F2_48((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_48((global::DigitoyEngine.LayoutBox)o) = (global::System.Single)v,
+            GetFloat = c => F2_49((global::DigitoyEngine.LayoutBox)c),
+            SetFloat = (c, v) => F2_49((global::DigitoyEngine.LayoutBox)c) = v,
         };
-        s[43] = new global::DigitoyEngine.SerializedType.FieldSchema
+        s[44] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
             Name = "textOutline",
             Kind = global::DigitoyEngine.SerializedType.Kind.Object,
             ElementType = typeof(global::DigitoyEngine.Gradient),
-            Nested = s_43,
+            Nested = s_44,
             FieldType = typeof(global::DigitoyEngine.Gradient),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
-            Get = o => F2_49((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_49((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Gradient)v,
+            Get = o => F2_50((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_50((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Gradient)v,
             NewElement = () => (object)default(global::DigitoyEngine.Gradient),
         };
-        s[44] = new global::DigitoyEngine.SerializedType.FieldSchema
+        s[45] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
             Name = "textShadowColor",
             Kind = global::DigitoyEngine.SerializedType.Kind.Color,
             FieldType = typeof(global::DigitoyEngine.Color),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
-            Get = o => F2_50((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_50((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Color)v,
+            Get = o => F2_51((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_51((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Color)v,
         };
-        s[45] = new global::DigitoyEngine.SerializedType.FieldSchema
+        s[46] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
             Name = "textShadowOffset",
             Kind = global::DigitoyEngine.SerializedType.Kind.Vec2,
             FieldType = typeof(global::DigitoyEngine.Vec2),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
-            Get = o => F2_51((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_51((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Vec2)v,
+            Get = o => F2_52((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_52((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Vec2)v,
         };
-        s[46] = new global::DigitoyEngine.SerializedType.FieldSchema
+        s[47] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
             Name = "textShadowBlur",
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
-            Get = o => F2_52((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_52((global::DigitoyEngine.LayoutBox)o) = (global::System.Single)v,
-            GetFloat = c => F2_53((global::DigitoyEngine.LayoutBox)c),
-            SetFloat = (c, v) => F2_53((global::DigitoyEngine.LayoutBox)c) = v,
+            Get = o => F2_53((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_53((global::DigitoyEngine.LayoutBox)o) = (global::System.Single)v,
+            GetFloat = c => F2_54((global::DigitoyEngine.LayoutBox)c),
+            SetFloat = (c, v) => F2_54((global::DigitoyEngine.LayoutBox)c) = v,
         };
-        s[32].ShowIf = s[31];
-        s[33].ShowIf = s[31];
-        s[34].ShowIf = s[31];
-        s[35].ShowIf = s[31];
-        s[36].ShowIf = s[31];
-        s[37].ShowIf = s[31];
-        s[38].ShowIf = s[31];
-        s[39].ShowIf = s[31];
-        s[40].ShowIf = s[31];
-        s[41].ShowIf = s[31];
-        s[42].ShowIf = s[31];
-        s[43].ShowIf = s[31];
-        s[44].ShowIf = s[31];
-        s[45].ShowIf = s[31];
-        s[46].ShowIf = s[31];
+        s[33].ShowIf = s[32];
+        s[34].ShowIf = s[32];
+        s[35].ShowIf = s[32];
+        s[36].ShowIf = s[32];
+        s[37].ShowIf = s[32];
+        s[38].ShowIf = s[32];
+        s[39].ShowIf = s[32];
+        s[40].ShowIf = s[32];
+        s[41].ShowIf = s[32];
+        s[42].ShowIf = s[32];
+        s[43].ShowIf = s[32];
+        s[44].ShowIf = s[32];
+        s[45].ShowIf = s[32];
+        s[46].ShowIf = s[32];
+        s[47].ShowIf = s[32];
         cat.Register(new global::DigitoyEngine.TypeCatalog.Entry
         {
             Type = typeof(global::DigitoyEngine.LayoutBox),
@@ -825,7 +834,6 @@ public static class Registry
             CopyTo = (s0, d0) =>
             {
                 var s1 = (global::DigitoyEngine.LayoutBox)s0; var d1 = (global::DigitoyEngine.LayoutBox)d0;
-                F2_54(d1) = F2_54(s1);
                 F2_55(d1) = F2_55(s1);
                 F2_56(d1) = F2_56(s1);
                 F2_57(d1) = F2_57(s1);
@@ -867,6 +875,8 @@ public static class Registry
                 F2_93(d1) = F2_93(s1);
                 F2_94(d1) = F2_94(s1);
                 F2_95(d1) = F2_95(s1);
+                F2_96(d1) = F2_96(s1);
+                F2_97(d1) = F2_97(s1);
                 d1.SortingOrder = s1.SortingOrder;
                 d1.SortingSpace = s1.SortingSpace;
                 d1.BlendMode = s1.BlendMode;
@@ -930,242 +940,248 @@ public static class Registry
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "alignChildren")]
     static extern ref global::DigitoyEngine.LayoutAlign F2_16(global::DigitoyEngine.LayoutBox o);
 
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "justifyChildren")]
+    static extern ref global::DigitoyEngine.LayoutJustify F2_17(global::DigitoyEngine.LayoutBox o);
+
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "reverse")]
-    static extern ref global::System.Boolean F2_17(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::System.Boolean F2_18(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "overflowX")]
-    static extern ref global::DigitoyEngine.OverflowMode F2_18(global::DigitoyEngine.LayoutBox o);
-
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "overflowY")]
     static extern ref global::DigitoyEngine.OverflowMode F2_19(global::DigitoyEngine.LayoutBox o);
 
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "overflowY")]
+    static extern ref global::DigitoyEngine.OverflowMode F2_20(global::DigitoyEngine.LayoutBox o);
+
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "fill")]
-    static extern ref global::DigitoyEngine.Gradient F2_20(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.Gradient F2_21(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "border")]
-    static extern ref global::DigitoyEngine.Vec4 F2_21(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.Vec4 F2_22(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "borderFill")]
-    static extern ref global::DigitoyEngine.Gradient F2_22(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.Gradient F2_23(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "radius")]
-    static extern ref global::DigitoyEngine.Vec4 F2_23(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.Vec4 F2_24(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "sprite")]
-    static extern ref global::DigitoyEngine.Sprite F2_24(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.Sprite F2_25(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "slice9")]
-    static extern ref global::DigitoyEngine.Vec4 F2_25(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.Vec4 F2_26(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "shadowColor")]
-    static extern ref global::DigitoyEngine.Color F2_26(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.Color F2_27(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "shadowOffset")]
-    static extern ref global::DigitoyEngine.Vec2 F2_27(global::DigitoyEngine.LayoutBox o);
-
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "shadowBlur")]
-    static extern ref global::System.Single F2_28(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.Vec2 F2_28(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "shadowBlur")]
     static extern ref global::System.Single F2_29(global::DigitoyEngine.LayoutBox o);
 
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "shadowGrow")]
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "shadowBlur")]
     static extern ref global::System.Single F2_30(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "shadowGrow")]
     static extern ref global::System.Single F2_31(global::DigitoyEngine.LayoutBox o);
 
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "shadowGrow")]
+    static extern ref global::System.Single F2_32(global::DigitoyEngine.LayoutBox o);
+
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "font")]
-    static extern ref global::DigitoyEngine.Font F2_32(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.Font F2_33(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "text")]
-    static extern ref global::System.String F2_33(global::DigitoyEngine.LayoutBox o);
-
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textSize")]
-    static extern ref global::System.Single F2_34(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::System.String F2_34(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textSize")]
     static extern ref global::System.Single F2_35(global::DigitoyEngine.LayoutBox o);
 
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textSize")]
+    static extern ref global::System.Single F2_36(global::DigitoyEngine.LayoutBox o);
+
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textAlign")]
-    static extern ref global::DigitoyEngine.TextAlign F2_36(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.TextAlign F2_37(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textAlignV")]
-    static extern ref global::DigitoyEngine.LayoutAlign F2_37(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.LayoutAlign F2_38(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textWrap")]
-    static extern ref global::System.Boolean F2_38(global::DigitoyEngine.LayoutBox o);
-
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textEllipsis")]
     static extern ref global::System.Boolean F2_39(global::DigitoyEngine.LayoutBox o);
 
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textWeight")]
-    static extern ref global::System.Single F2_40(global::DigitoyEngine.LayoutBox o);
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textEllipsis")]
+    static extern ref global::System.Boolean F2_40(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textWeight")]
     static extern ref global::System.Single F2_41(global::DigitoyEngine.LayoutBox o);
 
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textSkew")]
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textWeight")]
     static extern ref global::System.Single F2_42(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textSkew")]
     static extern ref global::System.Single F2_43(global::DigitoyEngine.LayoutBox o);
 
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textSpacing")]
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textSkew")]
     static extern ref global::System.Single F2_44(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textSpacing")]
     static extern ref global::System.Single F2_45(global::DigitoyEngine.LayoutBox o);
 
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textFill")]
-    static extern ref global::DigitoyEngine.Gradient F2_46(global::DigitoyEngine.LayoutBox o);
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textSpacing")]
+    static extern ref global::System.Single F2_46(global::DigitoyEngine.LayoutBox o);
 
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textOutlineWidth")]
-    static extern ref global::System.Single F2_47(global::DigitoyEngine.LayoutBox o);
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textFill")]
+    static extern ref global::DigitoyEngine.Gradient F2_47(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textOutlineWidth")]
     static extern ref global::System.Single F2_48(global::DigitoyEngine.LayoutBox o);
 
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textOutlineWidth")]
+    static extern ref global::System.Single F2_49(global::DigitoyEngine.LayoutBox o);
+
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textOutline")]
-    static extern ref global::DigitoyEngine.Gradient F2_49(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.Gradient F2_50(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textShadowColor")]
-    static extern ref global::DigitoyEngine.Color F2_50(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.Color F2_51(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textShadowOffset")]
-    static extern ref global::DigitoyEngine.Vec2 F2_51(global::DigitoyEngine.LayoutBox o);
-
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textShadowBlur")]
-    static extern ref global::System.Single F2_52(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.Vec2 F2_52(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textShadowBlur")]
     static extern ref global::System.Single F2_53(global::DigitoyEngine.LayoutBox o);
 
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textShadowBlur")]
+    static extern ref global::System.Single F2_54(global::DigitoyEngine.LayoutBox o);
+
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "fitScreen")]
-    static extern ref global::System.Boolean F2_54(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::System.Boolean F2_55(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "width")]
-    static extern ref global::System.Single F2_55(global::DigitoyEngine.LayoutBox o);
-
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "height")]
     static extern ref global::System.Single F2_56(global::DigitoyEngine.LayoutBox o);
 
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "pivot")]
-    static extern ref global::DigitoyEngine.Vec2 F2_57(global::DigitoyEngine.LayoutBox o);
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "height")]
+    static extern ref global::System.Single F2_57(global::DigitoyEngine.LayoutBox o);
 
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "anchorMin")]
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "pivot")]
     static extern ref global::DigitoyEngine.Vec2 F2_58(global::DigitoyEngine.LayoutBox o);
 
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "anchorMax")]
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "anchorMin")]
     static extern ref global::DigitoyEngine.Vec2 F2_59(global::DigitoyEngine.LayoutBox o);
 
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "anchoredPos")]
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "anchorMax")]
     static extern ref global::DigitoyEngine.Vec2 F2_60(global::DigitoyEngine.LayoutBox o);
 
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "anchoredPos")]
+    static extern ref global::DigitoyEngine.Vec2 F2_61(global::DigitoyEngine.LayoutBox o);
+
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "grow")]
-    static extern ref global::System.Single F2_61(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::System.Single F2_62(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "ignoreLayout")]
-    static extern ref global::System.Boolean F2_62(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::System.Boolean F2_63(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "layout")]
-    static extern ref global::DigitoyEngine.LayoutMode F2_63(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.LayoutMode F2_64(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "spacing")]
-    static extern ref global::System.Single F2_64(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::System.Single F2_65(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "padding")]
-    static extern ref global::DigitoyEngine.Vec4 F2_65(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.Vec4 F2_66(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "alignChildren")]
-    static extern ref global::DigitoyEngine.LayoutAlign F2_66(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.LayoutAlign F2_67(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "justifyChildren")]
+    static extern ref global::DigitoyEngine.LayoutJustify F2_68(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "reverse")]
-    static extern ref global::System.Boolean F2_67(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::System.Boolean F2_69(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "overflowX")]
-    static extern ref global::DigitoyEngine.OverflowMode F2_68(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.OverflowMode F2_70(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "overflowY")]
-    static extern ref global::DigitoyEngine.OverflowMode F2_69(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.OverflowMode F2_71(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "fill")]
-    static extern ref global::DigitoyEngine.Gradient F2_70(global::DigitoyEngine.LayoutBox o);
-
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "border")]
-    static extern ref global::DigitoyEngine.Vec4 F2_71(global::DigitoyEngine.LayoutBox o);
-
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "borderFill")]
     static extern ref global::DigitoyEngine.Gradient F2_72(global::DigitoyEngine.LayoutBox o);
 
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "radius")]
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "border")]
     static extern ref global::DigitoyEngine.Vec4 F2_73(global::DigitoyEngine.LayoutBox o);
 
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "sprite")]
-    static extern ref global::DigitoyEngine.Sprite F2_74(global::DigitoyEngine.LayoutBox o);
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "borderFill")]
+    static extern ref global::DigitoyEngine.Gradient F2_74(global::DigitoyEngine.LayoutBox o);
 
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "slice9")]
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "radius")]
     static extern ref global::DigitoyEngine.Vec4 F2_75(global::DigitoyEngine.LayoutBox o);
 
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "sprite")]
+    static extern ref global::DigitoyEngine.Sprite F2_76(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "slice9")]
+    static extern ref global::DigitoyEngine.Vec4 F2_77(global::DigitoyEngine.LayoutBox o);
+
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "shadowColor")]
-    static extern ref global::DigitoyEngine.Color F2_76(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.Color F2_78(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "shadowOffset")]
-    static extern ref global::DigitoyEngine.Vec2 F2_77(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.Vec2 F2_79(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "shadowBlur")]
-    static extern ref global::System.Single F2_78(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::System.Single F2_80(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "shadowGrow")]
-    static extern ref global::System.Single F2_79(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::System.Single F2_81(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "font")]
-    static extern ref global::DigitoyEngine.Font F2_80(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.Font F2_82(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "text")]
-    static extern ref global::System.String F2_81(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::System.String F2_83(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textSize")]
-    static extern ref global::System.Single F2_82(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::System.Single F2_84(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textAlign")]
-    static extern ref global::DigitoyEngine.TextAlign F2_83(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.TextAlign F2_85(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textAlignV")]
-    static extern ref global::DigitoyEngine.LayoutAlign F2_84(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.LayoutAlign F2_86(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textWrap")]
-    static extern ref global::System.Boolean F2_85(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::System.Boolean F2_87(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textEllipsis")]
-    static extern ref global::System.Boolean F2_86(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::System.Boolean F2_88(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textWeight")]
-    static extern ref global::System.Single F2_87(global::DigitoyEngine.LayoutBox o);
-
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textSkew")]
-    static extern ref global::System.Single F2_88(global::DigitoyEngine.LayoutBox o);
-
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textSpacing")]
     static extern ref global::System.Single F2_89(global::DigitoyEngine.LayoutBox o);
 
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textFill")]
-    static extern ref global::DigitoyEngine.Gradient F2_90(global::DigitoyEngine.LayoutBox o);
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textSkew")]
+    static extern ref global::System.Single F2_90(global::DigitoyEngine.LayoutBox o);
 
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textOutlineWidth")]
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textSpacing")]
     static extern ref global::System.Single F2_91(global::DigitoyEngine.LayoutBox o);
 
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textOutline")]
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textFill")]
     static extern ref global::DigitoyEngine.Gradient F2_92(global::DigitoyEngine.LayoutBox o);
 
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textOutlineWidth")]
+    static extern ref global::System.Single F2_93(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textOutline")]
+    static extern ref global::DigitoyEngine.Gradient F2_94(global::DigitoyEngine.LayoutBox o);
+
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textShadowColor")]
-    static extern ref global::DigitoyEngine.Color F2_93(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.Color F2_95(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textShadowOffset")]
-    static extern ref global::DigitoyEngine.Vec2 F2_94(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.Vec2 F2_96(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textShadowBlur")]
-    static extern ref global::System.Single F2_95(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::System.Single F2_97(global::DigitoyEngine.LayoutBox o);
 
     static void Reg_3(global::DigitoyEngine.TypeCatalog cat)
     {

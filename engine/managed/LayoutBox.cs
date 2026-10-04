@@ -4,6 +4,11 @@ namespace DigitoyEngine;
 
 public enum LayoutMode { None = 0, Horizontal = 1, Vertical = 2 }
 public enum LayoutAlign { Start = 0, Center = 1, End = 2 }
+// Ana eksende cocuk GRUBUNUN dagilimi (CSS justify-content). Yalniz grow'lu
+// cocuk yokken anlamli: grow varsa kalan alan zaten cocuklara dagitilir.
+// SpaceBetween = ilk/son kenara yapisik, kalan esit aralara; SpaceAround = her
+// cocugun iki yaninda esit pay (kenarlarda yarim); SpaceEvenly = tum araliklar esit.
+public enum LayoutJustify { Start = 0, Center = 1, End = 2, SpaceBetween = 3, SpaceAround = 4, SpaceEvenly = 5 }
 
 // Eksen basina tasma davranisi (CSS overflow benzeri; Grow = mevcut varsayilan):
 // Grow    = icerik kutuyu buyutur (preferred = max(authored, icerik)).
@@ -76,6 +81,7 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
     [SerializeField] float spacing;
     [SerializeField] Vec4 padding; // left, top, right, bottom
     [SerializeField] LayoutAlign alignChildren = LayoutAlign.Start;
+    [SerializeField] LayoutJustify justifyChildren = LayoutJustify.Start;
     [SerializeField] bool reverse;
     [SerializeField] OverflowMode overflowX;   // Grow degilse icerik bu ekseni buyutmez
     [SerializeField] OverflowMode overflowY;
@@ -119,6 +125,10 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
     bool _hasPlaced;            // false = pozisyon authored (bagimsiz kutu)
     internal bool _dirty = true;
     internal bool _queued;
+    // Son cozumde beni dizen ebeveyn kutu (ResolveTop/FinishChild yazar). Cizim
+    // yolu (klip zinciri) her frame GetComponent ile ata aramak yerine bunu izler;
+    // reparent/overflow degisimi relayout tetikledigi icin hep guncel.
+    LayoutBox _parentBox;
 
     // --- stil geometri durumu ---
     // Cizim sirasi icin ozel bir sey YOK: Scene.Render hiyerarsi DFS'iyle submit eder,
@@ -142,6 +152,7 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
     public float PadRight { get => padRight; set { if (padRight != value) { padRight = value; MarkDirty(); } } }
     public float PadBottom { get => padBottom; set { if (padBottom != value) { padBottom = value; MarkDirty(); } } }
     public LayoutAlign AlignChildren { get => alignChildren; set { if (alignChildren != value) { alignChildren = value; MarkDirty(); } } }
+    public LayoutJustify JustifyChildren { get => justifyChildren; set { if (justifyChildren != value) { justifyChildren = value; MarkDirty(); } } }
     public bool Reverse { get => reverse; set { if (reverse != value) { reverse = value; MarkDirty(); } } }
     public OverflowMode OverflowX { get => overflowX; set { if (overflowX != value) { overflowX = value; MarkDirty(); } } }
     public OverflowMode OverflowY { get => overflowY; set { if (overflowY != value) { overflowY = value; MarkDirty(); } } }
@@ -234,12 +245,15 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
 
     // Kirlet + zinciri yukari kirlet (autosize etkisi) + sweep kuyruguna gir.
     // INVARIANT: dirty kutu ⇒ tum ata kutulari dirty (cozum hep zincir tepesinden).
+    // Olcum cache'i dirty ile birlikte duser: zaten dirty olan atanin cache'i o
+    // anda dusmustu ve cozum tamamlanana kadar yeniden dolmaz (cozum senkron).
     public void MarkDirty()
     {
         var b = this;
         while (b != null && !b._dirty)
         {
             b._dirty = true;
+            b._prefWValid = b._prefHValid = false;
             b = b.ParentBox();
         }
         QueueSweep();
@@ -295,7 +309,18 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
             && (_rw != fw || _rh != fh || _fitX != fx || _fitY != fy))
             _dirty = true;
         if (!_dirty)
+        {
+            // Temiz kutu, kirli atanin altinda olabilir (ata buyuyunce stretch
+            // cocuk da degisir): son cozumun ebeveyn zincirinde kirli ata ara.
+            // Ucuz pointer yuruyusu (GetComponent yok); temiz kutunun zinciri
+            // guncel (reparent kendisini kirletir).
+            LayoutBox dirtyTop = null;
+            for (var p = _parentBox; p != null && p._enabled && !p._destroyed; p = p._parentBox)
+                if (p._dirty)
+                    dirtyTop = p;
+            dirtyTop?.ResolveTop();
             return;
+        }
         var top = this;
         for (var p = ParentBox(); p != null; p = p.ParentBox())
             if (p._dirty)
@@ -309,6 +334,7 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
     {
         _dirty = false;
         var parent = ParentBox();
+        _parentBox = parent;
         if (fitScreen)
         {
             if (FitRect(out float fx, out float fy, out float fw, out float fh))
@@ -337,8 +363,32 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
     }
 
     // --- olcum (measure): asagidan yukari, yalniz kutulardan ---
+    // Cache: alt agac olcumu pahali (metin satir kirma, wrap taramasi) ve ayni kutu
+    // bir cozumde atalarinin her seviyesinden tekrar olculur (O(n*derinlik)).
+    // MarkDirty zinciri yukari kirletirken cache'i de dusurur -> tutarlilik dirty
+    // invariantindan gelir; cozum sirasinda her kutu en fazla 1 kez olculur.
+    float _prefW, _prefH;
+    bool _prefWValid, _prefHValid;
 
     float PreferredW()
+    {
+        if (_prefWValid)
+            return _prefW;
+        _prefW = ComputePreferredW();
+        _prefWValid = true;
+        return _prefW;
+    }
+
+    float PreferredH()
+    {
+        if (_prefHValid)
+            return _prefH;
+        _prefH = ComputePreferredH();
+        _prefHValid = true;
+        return _prefH;
+    }
+
+    float ComputePreferredW()
     {
         // Grow disinda icerik kutuyu buyutmez: eksen boyutu salt authored.
         if (overflowX != OverflowMode.Grow)
@@ -377,7 +427,7 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
         return MathF.Max(aw, mx + pad);
     }
 
-    float PreferredH()
+    float ComputePreferredH()
     {
         if (overflowY != OverflowMode.Grow)
             return height;
@@ -501,6 +551,18 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
             transform.localPosition = new Vec3(x, y, lp.z);
     }
 
+    // Cozumde cocuga yazilan rect sonrasi: alt agaca yalniz GEREKINCE inilir.
+    // Cocuklar ebeveynin BOYUTUNA gore yerlesir (pozisyonuna degil): boyut ayni ve
+    // cocuk kirli degilse (invariant: alt agacta kirli varsa cocuk da kirli) alt
+    // agac zaten gecerli — tum agac relayout'u yalniz etkilenen dala iner.
+    void FinishChild(LayoutBox b, bool wasDirty, float oldW, float oldH)
+    {
+        b._parentBox = this;
+        b._dirty = false;
+        if (wasDirty || b._rw != oldW || b._rh != oldH)
+            b.ArrangeChildren();
+    }
+
     void ArrangeChildren()
     {
         if (layout == LayoutMode.None)
@@ -510,9 +572,10 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
                 var b = BoxOf(t);
                 if (b == null)
                     continue;
-                b._dirty = false;
+                bool wasDirty = b._dirty;
+                float ow = b._rw, oh = b._rh;
                 b.PlaceInParent(this);
-                b.ArrangeChildren();
+                FinishChild(b, wasDirty, ow, oh);
             }
             return;
         }
@@ -547,6 +610,14 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
         float crossAvail = horiz ? _rh - padTop - padBottom : _rw - padLeft - padRight;
         float tlx = -pivot.x * _rw, tly = -pivot.y * _rh;
         float cursor = horiz ? tlx + padLeft : tly + padTop;
+        // grow'lu cocuk kalan alani tuketir; yoksa justify grubu ana eksende dagitir.
+        float gap = spacing;
+        if (growSum <= 0)
+        {
+            JustifyOffsets(leftover, count, out float lead, out float extraGap);
+            cursor += lead;
+            gap += extraGap;
+        }
 
         // 2. gecis: yerlestir (reverse: son cocuktan geriye).
         for (var t = reverse ? transform.LastChild : transform.FirstChild;
@@ -556,11 +627,12 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
             var b = BoxOf(t);
             if (b == null)
                 continue;
-            b._dirty = false;
+            bool wasDirty = b._dirty;
+            float ow = b._rw, oh = b._rh;
             if (b.ignoreLayout)
             {
                 b.PlaceInParent(this); // dekor/arkaplan: grup disi, anchor'la yerlesir
-                b.ArrangeChildren();
+                FinishChild(b, wasDirty, ow, oh);
                 continue;
             }
 
@@ -586,8 +658,34 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
                 b._rh = main;
                 b.SetPos(tlx + padLeft + crossOff + b.pivot.x * cross, cursor + b.pivot.y * main);
             }
-            cursor += main + spacing;
-            b.ArrangeChildren();
+            cursor += main + gap;
+            FinishChild(b, wasDirty, ow, oh);
+        }
+    }
+
+    // justifyChildren -> (ilk cocuk oncesi bosluk, her araliga eklenecek pay).
+    // leftover = ana eksende cocuklar + spacing sonrasi kalan alan (>= 0).
+    void JustifyOffsets(float leftover, int count, out float lead, out float extraGap)
+    {
+        lead = 0; extraGap = 0;
+        if (leftover <= 0 || count <= 0)
+            return;
+        switch (justifyChildren)
+        {
+            case LayoutJustify.Center: lead = leftover * 0.5f; break;
+            case LayoutJustify.End: lead = leftover; break;
+            case LayoutJustify.SpaceBetween:
+                if (count > 1) extraGap = leftover / (count - 1);
+                else lead = leftover * 0.5f; // tek cocuk: CSS gibi ortala
+                break;
+            case LayoutJustify.SpaceAround:
+                extraGap = leftover / count;
+                lead = extraGap * 0.5f;
+                break;
+            case LayoutJustify.SpaceEvenly:
+                extraGap = leftover / (count + 1);
+                lead = extraGap;
+                break;
         }
     }
 
@@ -624,18 +722,21 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
                 n++;
                 lineCross = MathF.Max(lineCross, horiz ? b.PreferredH() : b.PreferredW());
             }
-            // 2) yerlestirme: [node, scan) arasi.
-            float cursor = mainStart;
+            // 2) yerlestirme: [node, scan) arasi; satir ici justify (CSS gibi satir bazli).
+            JustifyOffsets(MathF.Max(0, availMain - used), n, out float lead, out float extraGap);
+            float cursor = mainStart + lead;
+            float gap = spacing + extraGap;
             for (var t = node; t != scan; t = reverse ? t.PrevSibling : t.NextSibling)
             {
                 var b = BoxOf(t);
                 if (b == null)
                     continue;
-                b._dirty = false;
+                bool wasDirty = b._dirty;
+                float ow = b._rw, oh = b._rh;
                 if (b.ignoreLayout)
                 {
                     b.PlaceInParent(this); // dekor/arkaplan: grup disi, anchor'la yerlesir
-                    b.ArrangeChildren();
+                    FinishChild(b, wasDirty, ow, oh);
                     continue;
                 }
                 float main = horiz ? b.PreferredW() : b.PreferredH();
@@ -658,8 +759,8 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
                     b._rh = main;
                     b.SetPos(crossCursor + crossOff + b.pivot.x * cross, cursor + b.pivot.y * main);
                 }
-                cursor += main + spacing;
-                b.ArrangeChildren();
+                cursor += main + gap;
+                FinishChild(b, wasDirty, ow, oh);
             }
             node = scan;
             crossCursor += lineCross + spacing;
@@ -696,7 +797,9 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
             return;
         float wx0 = float.MinValue, wy0 = float.MinValue;
         float wx1 = float.MaxValue, wy1 = float.MaxValue;
-        for (var p = ParentBox(); p != null; p = p.ParentBox())
+        // Cozumun yazdigi ebeveyn zinciri: GetComponent yok, yalniz bayrak kiyasi.
+        // Devre disi/yok edilmis ata (ParentBox'in dislayacagi) zinciri keser.
+        for (var p = _parentBox; p != null && p._enabled && !p._destroyed; p = p._parentBox)
         {
             bool hx = p.overflowX == OverflowMode.Hidden;
             bool hy = p.overflowY == OverflowMode.Hidden;
