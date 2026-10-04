@@ -23,6 +23,9 @@ public sealed class Scene
     public float ScreenWidth, ScreenHeight;
     // true: UpdateAll atlar — sahibi (preview paneli gibi) kendi saatiyle elle Update surer.
     public bool ExternallyDriven;
+    // Son Update'in simulate degeri (editor edit modu = false): component'ler oyun
+    // zamani davranisini (PlayOnStart gibi) buna gore atlar — Unity Application.isPlaying.
+    public bool Simulating { get; private set; } = true;
 
     // Sahneye ait tween havuzu: sahne saatiyle akar, sahneyle olur.
     public readonly TweenPool Tweens = new();
@@ -348,6 +351,7 @@ public sealed class Scene
     // sahneleri sahibi surer. Girişte ambient pencereler bu sahneye cevrilir.
     public void Update(float dt, bool simulate = true)
     {
+        Simulating = simulate;
         if (simulate)
             SceneTime += dt;
         Time.time = SceneTime;

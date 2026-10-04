@@ -289,7 +289,10 @@ public sealed class HierarchyPanel : EditorWindow
         float indent = 4 + depth * 14;
         var arrow = new Rect(indent, y, 14, RowH - 1);
 
-        if (ev.Type == EventType.MouseDown && ev.Button == 0 && row.Contains(ev.MousePosition))
+        // Yalniz GORUNUR alandaki satir tiklanir ve baska bir kontrol (acik combo popup'i
+        // gibi) hot degilken: scroll disindaki satirlar / modal popup ustundeki tiklama yutulmasin.
+        if (ev.Type == EventType.MouseDown && ev.Button == 0 && row.Contains(ev.MousePosition)
+            && GuiClip.VisibleRect.Contains(ev.MousePosition) && GuiUtility.HotControl == 0)
         {
             if (hasKids && arrow.Contains(ev.MousePosition))
             {

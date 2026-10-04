@@ -18,7 +18,8 @@ public sealed partial class InspectorPanel : EditorWindow
     string _inspectedTarget;
 
     const float RowH = 22f;
-    const float LabelW = 92f;
+    // Etiket sutunu genisligi: her frame panel genisliginden turetilir (LabelWidthFor).
+    float LabelW = 110f;
 
     public InspectorPanel() => Title = "Inspector";
 
@@ -47,7 +48,8 @@ public sealed partial class InspectorPanel : EditorWindow
         _scroll = Gui.BeginScrollView(new Rect(0, 0, vis.width, vis.height), _scroll,
             new Rect(0, 0, vis.width - 20, MeasureHeight(g)));
         float w = vis.width - 24;
-        float y = 2;
+        LabelW = LabelWidthFor(w);
+        float y = 4;
 
         bool active = Gui.Toggle(new Rect(4, y, 18, 18), g.Active);
         if (active != g.Active)
@@ -65,11 +67,12 @@ public sealed partial class InspectorPanel : EditorWindow
         y += RowH + 4;
 
         // Layer: kamera cullingMask yonlendirme biti (8 layer, cocuklara miras yok).
-        Gui.Label(new Rect(4, y, 44, 18), "Layer");
-        int layer = Gui.ComboBox(new Rect(48, y, 140, 18), g.Layer, _layerNames);
+        if (Event.Current.Type == EventType.Repaint)
+            GuiRenderer.DrawTextIn(new Rect(28, y, 60, 18), "Layer", LabelFont, LabelColor, false, 2);
+        int layer = Gui.ComboBox(new Rect(84, y, 160, 18), g.Layer, _layerNames);
         if (layer != g.Layer)
             es.SetLayer(g, layer);
-        y += RowH;
+        y += RowH + 2;
 
         // Prefab kaynagi (GO duzeyi): baslik + Overrides paneli + serit gostergeleri.
         SceneDoc.GoDoc prefabSrc = null;
@@ -110,33 +113,32 @@ public sealed partial class InspectorPanel : EditorWindow
         {
             long ckey = CompKey(g.Id, compIndex);
             bool open = !_collapsed.Contains(ckey);
-            if (Event.Current.Type == EventType.Repaint)
-                GuiRenderer.DrawRect(new Rect(0, y - 1, w + 12, 21), new Color(50, 54, 64, 255), 1);
-            bool en = Gui.Toggle(new Rect(24, y, 18, 18), cd.Enabled);
+            DrawHeaderBar(y, 0, w + 12);
+            float cy = y + (HeaderH - 18) * 0.5f;
+            bool en = Gui.Toggle(new Rect(26, cy, 18, 18), cd.Enabled);
             if (en != cd.Enabled)
                 es.SetEnabled(g, cd, en);
             if (Event.Current.Type == EventType.Repaint)
             {
-                GuiRenderer.DrawTextIn(new Rect(6, y, 18, 20), open ? "\u25be" : "\u25b8",
-                    Gui.FontSize - 1f, new Color(190, 194, 204, 255), false, 2);
-                GuiRenderer.DrawTextIn(new Rect(46, y, w - 68, 20), cd.Type, Gui.FontSize - 1f,
-                    new Color(230, 234, 244, 255), false, 2);
+                GuiRenderer.DrawTextIn(new Rect(4, y, 18, HeaderH), open ? "\u25be" : "\u25b8",
+                    HeaderFont, ArrowColor, false, 2);
+                GuiRenderer.DrawTextIn(new Rect(48, y, w - 72, HeaderH), Nicify(cd.Type),
+                    HeaderFont, HeaderTextColor, false, 2);
             }
-            if (Gui.Button(new Rect(w - 20, y, 18, 18), "x"))
+            if (Gui.Button(new Rect(w - 20, cy, 18, 18), "x"))
             {
                 es.RemoveComponent(g, cd);
                 break; // koleksiyon degisti: bu frame'i kes, sonraki pass taze cizer
             }
             // Baslik tiklamasi katlar/acar (toggle ve x kendi event'ini once yutar).
-            if (HeaderClick(new Rect(4, y, w - 26, 20)))
+            if (HeaderClick(new Rect(0, y, w - 26, HeaderH)))
             {
                 if (open) _collapsed.Add(ckey);
                 else _collapsed.Remove(ckey);
             }
-            y += RowH;
+            y += HeaderH + 4;
             if (!open)
             {
-                y += 2;
                 compIndex++;
                 continue;
             }
@@ -144,8 +146,11 @@ public sealed partial class InspectorPanel : EditorWindow
             var entry = App.Catalog?.Find(cd.Type);
             if (entry == null)
             {
-                Gui.Label(new Rect(12, y, w - 12, 18), "(missing script)");
+                if (Event.Current.Type == EventType.Repaint)
+                    GuiRenderer.DrawTextIn(new Rect(12, y, w - 12, 18), "(missing script)",
+                        LabelFont, LabelDimColor, false, 2);
                 y += RowH;
+                compIndex++;
                 continue;
             }
             // Prefab kaynagi (varsa): alan override gostergesi + Revert/Apply icin.
@@ -182,14 +187,17 @@ public sealed partial class InspectorPanel : EditorWindow
         }
 
         // Add Component: acilir tip listesi (katalogtan — editor tipleri isimle bilir).
-        if (Gui.Button(new Rect(12, y, w - 24, 20), _addingComp ? "(close)" : "Add Component"))
+        y += 6;
+        float addW = Math.Min(w - 24, 220f);
+        if (Gui.Button(new Rect(12 + (w - 24 - addW) * 0.5f, y, addW, 22),
+                _addingComp ? "(close)" : "Add Component"))
             _addingComp = !_addingComp;
-        y += RowH;
+        y += RowH + 4;
         if (_addingComp)
         {
             foreach (var entry in App.Catalog.Entries)
             {
-                if (Gui.Button(new Rect(24, y, w - 36, 19), entry.Name))
+                if (Gui.Button(new Rect(24, y, w - 36, 19), Nicify(entry.Name)))
                 {
                     es.AddComponent(g, entry.Name);
                     _addingComp = false;
@@ -302,12 +310,14 @@ public sealed partial class InspectorPanel : EditorWindow
         _assetScroll = Gui.BeginScrollView(new Rect(0, 0, vis.width, vis.height), _assetScroll,
             new Rect(0, 0, vis.width - 20, contentHeight));
         float w = vis.width - 24;
-        float y = 2;
+        LabelW = LabelWidthFor(w);
+        float y = 4;
+        DrawHeaderBar(y, 0, w + 12);
         if (Event.Current.Type == EventType.Repaint)
-            GuiRenderer.DrawTextIn(new Rect(4, y, w, 20),
-                System.IO.Path.GetFileName(path) + (_aIsMeta ? "  (" + importer.Type.Name + ")" : ""),
-                Gui.FontSize - 1f, new Color(230, 234, 244, 255), false, 2);
-        y += RowH + 2;
+            GuiRenderer.DrawTextIn(new Rect(8, y, w - 8, HeaderH),
+                System.IO.Path.GetFileName(path) + (_aIsMeta ? "  (" + Nicify(importer.Type.Name) + ")" : ""),
+                HeaderFont, HeaderTextColor, false, 2);
+        y += HeaderH + 6;
         if (_aObj == null)
         {
             Gui.Label(new Rect(4, y, vis.width - 8, 20), "(unknown asset type)");
@@ -371,7 +381,7 @@ public sealed partial class InspectorPanel : EditorWindow
             if (slash >= 0) ppath = ppath[(slash + 1)..];
             int dot = ppath.IndexOf('.');
             if (dot > 0) ppath = ppath[..dot];
-            GuiRenderer.DrawTextIn(new Rect(8, y, w - 130, 20), "Prefab: " + ppath, Gui.FontSize - 3f,
+            GuiRenderer.DrawTextIn(new Rect(8, y, w - 130, 20), "Prefab: " + ppath, SmallFont,
                 new Color(150, 180, 235, 255), false, 2);
         }
         if (Gui.Button(new Rect(w - 120, y + 1, 118, 18),
@@ -393,7 +403,7 @@ public sealed partial class InspectorPanel : EditorWindow
 
             bool canApply = TryDescribe(es, tg, comp, prop, out string label, out var apply, out var revert);
             if (Event.Current.Type == EventType.Repaint)
-                GuiRenderer.DrawTextIn(new Rect(12, y, w - 130, 18), label, Gui.FontSize - 3f,
+                GuiRenderer.DrawTextIn(new Rect(12, y, w - 130, 18), label, SmallFont,
                     new Color(200, 205, 215, 255), false, 2);
             if (Gui.Button(new Rect(w - 118, y, 56, 18), "Revert"))
             {
@@ -589,11 +599,10 @@ public sealed partial class InspectorPanel : EditorWindow
     // Unity paritesi: eksen etiketi drag tutamaci, alan tikla-yaz.
     static float AxisDrag(in Rect cell, ReadOnlySpan<char> axis, float v)
     {
-        const float lw = 12;
+        const float lw = 14;
         var labelRect = new Rect(cell.x, cell.y, lw, cell.height);
         if (Event.Current.Type == EventType.Repaint)
-            GuiRenderer.DrawTextIn(labelRect, axis, Gui.FontSize - 4f,
-                new Color(150, 153, 163, 255), false, 2);
+            GuiRenderer.DrawTextIn(labelRect, axis, SmallFont, LabelDimColor, false, 2);
         v = Gui.DragZone(labelRect, v, 0.05f);
         return Gui.DragFloat(new Rect(cell.x + lw, cell.y, cell.width - lw, cell.height), v, 0.05f);
     }
@@ -601,8 +610,7 @@ public sealed partial class InspectorPanel : EditorWindow
     Vec3 Vec3Row(ref float y, float w, ReadOnlySpan<char> label, Vec3 v)
     {
         if (Event.Current.Type == EventType.Repaint)
-            GuiRenderer.DrawTextIn(new Rect(12, y, LabelW, 18), label, Gui.FontSize - 3f,
-                new Color(165, 168, 178, 255), false, 2);
+            GuiRenderer.DrawTextIn(new Rect(12, y, LabelW, 18), label, LabelFont, LabelColor, false, 2);
         var nv = Vec3Drags(new Rect(12 + LabelW, y, w - LabelW - 12, 18), v, true);
         y += RowH;
         return nv;
@@ -613,8 +621,8 @@ public sealed partial class InspectorPanel : EditorWindow
     {
         if (Event.Current.Type == EventType.Repaint)
         {
-            var dim = new Color(120, 123, 132, 255);
-            GuiRenderer.DrawTextIn(new Rect(12, y, LabelW, 18), label, Gui.FontSize - 3f, dim, false, 2);
+            var dim = LabelDimColor;
+            GuiRenderer.DrawTextIn(new Rect(12, y, LabelW, 18), label, LabelFont, dim, false, 2);
             var rect = new Rect(12 + LabelW, y, w - LabelW - 12, 18);
             float pw = rect.width / 3 - 3;
             Span<char> buf = stackalloc char[32];
@@ -624,7 +632,7 @@ public sealed partial class InspectorPanel : EditorWindow
                 var cell = new Rect(rect.x + (pw + 4) * i, y, pw, 18);
                 GuiRenderer.DrawRect(cell, new Color(38, 40, 46, 255), 1);
                 val.TryFormat(buf, out int len, "0.00", CultureInfo.InvariantCulture);
-                GuiRenderer.DrawTextIn(cell, buf.Slice(0, len), Gui.FontSize - 3f, dim, false, 4);
+                GuiRenderer.DrawTextIn(cell, buf.Slice(0, len), LabelFont, dim, false, 4);
             }
         }
         y += RowH;
@@ -638,23 +646,25 @@ public sealed partial class InspectorPanel : EditorWindow
         if (overridden && Event.Current.Type == EventType.Repaint)
             GuiRenderer.DrawRect(new Rect(4, y + 1, 3, 16), new Color(95, 155, 245, 255), 1);
         if (Event.Current.Type == EventType.Repaint)
-            GuiRenderer.DrawTextIn(new Rect(12, y, LabelW, 18), label, Gui.FontSize - 3f,
-                new Color(165, 168, 178, 255), false, 2);
+            GuiRenderer.DrawTextIn(new Rect(12, y, LabelW, 18), label, LabelFont, LabelColor, false, 2);
         var nv = Vec3Drags(new Rect(12 + LabelW, y, w - LabelW - 12, 18), v, true);
         y += RowH;
         return nv;
     }
 
+    // Bolum basligi (orn. Transform): component basligiyla ayni bar dili.
     static void Header(ref float y, float w, ReadOnlySpan<char> title)
     {
+        DrawHeaderBar(y, 0, w + 12);
         if (Event.Current.Type == EventType.Repaint)
-            GuiRenderer.DrawTextIn(new Rect(4, y, w, 20), title, Gui.FontSize - 1f, new Color(230, 234, 244, 255), false, 2);
-        y += RowH;
+            GuiRenderer.DrawTextIn(new Rect(22, y, w - 22, HeaderH), title, HeaderFont, HeaderTextColor, false, 2);
+        y += HeaderH + 4;
     }
 
     float MeasureHeight(SceneDoc.GoDoc g)
     {
-        float h = RowH + 4 + RowH + RowH * 4 + 8;
+        // ad satiri + layer + Transform basligi + 3 satir + bosluk
+        float h = 4 + RowH + 4 + RowH + 2 + HeaderH + 4 + RowH * 3 + 4;
         var instRoot = App.EditScene.Doc.PrefabRootOf(g);
         if (instRoot != null)
         {
@@ -665,18 +675,18 @@ public sealed partial class InspectorPanel : EditorWindow
         int componentIndex = 0;
         foreach (var cd in g.Components)
         {
+            h += HeaderH + 4;
             if (_collapsed.Contains(CompKey(g.Id, componentIndex)))
             {
-                h += RowH + 2;
                 componentIndex++;
                 continue;
             }
             var entry = App.Catalog?.Find(cd.Type);
-            h += RowH + 6;
             if (entry == null)
                 h += RowH;
             else
             {
+                h += 6;
                 foreach (var field in entry.Schema)
                 {
                     if (!DocVisible(field, cd))
@@ -689,10 +699,10 @@ public sealed partial class InspectorPanel : EditorWindow
                 h += RowH;
             componentIndex++;
         }
-        h += RowH; // Add Component butonu
+        h += 6 + RowH + 4; // Add Component butonu
         if (_addingComp && App.Catalog != null)
             foreach (var _ in App.Catalog.Entries)
                 h += RowH - 2;
-        return h;
+        return h + 8;
     }
 }

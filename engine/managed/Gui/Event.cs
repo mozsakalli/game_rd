@@ -63,7 +63,10 @@ public sealed class Event
 
     // Hot/keyboard filtresi (Unity Event.GetTypeForControl): mouse event'leri
     // hot control baskasindayken, key event'leri keyboard focus baskasindayken
-    // bu kontrole Ignore olarak gorunur.
+    // bu kontrole Ignore olarak gorunur. Ek olarak (GUIClip semantigi): hot kontrol
+    // yokken aktif clip'in FIZIKSEL alani disindaki mouse/wheel event'leri Ignore'dur —
+    // kontrol-sirasi korunumu icin cizilen ekran-disi widget'lar baska panelin
+    // tiklamasini yakalayamaz. Hot kontrol surukleme boyunca clip disinda da event alir.
     public EventType GetTypeForControl(int controlId)
     {
         if (_type == EventType.Used)
@@ -75,7 +78,13 @@ public sealed class Event
             case EventType.MouseDrag:
             case EventType.MouseMove:
                 int hot = GuiUtility.HotControl;
-                return (hot == 0 || hot == controlId) ? _type : EventType.Ignore;
+                if (hot == controlId && hot != 0)
+                    return _type;
+                if (hot != 0)
+                    return EventType.Ignore;
+                return GuiClip.Physical.Contains(GlobalMousePosition) ? _type : EventType.Ignore;
+            case EventType.ScrollWheel:
+                return GuiClip.Physical.Contains(GlobalMousePosition) ? _type : EventType.Ignore;
             case EventType.KeyDown:
             case EventType.KeyUp:
             case EventType.TextInput:
@@ -84,6 +93,9 @@ public sealed class Event
                 return _type;
         }
     }
+
+    // Ham ev.Type kontrolu yapan kod icin: mouse aktif clip icinde ve hot kontrol yok mu?
+    public bool MouseInClip => GuiClip.Physical.Contains(GlobalMousePosition) && GuiUtility.HotControl == 0;
 
     // Pass baslatilirken host tarafindan doldurulur (instance yeniden kullanilir).
     internal void Set(

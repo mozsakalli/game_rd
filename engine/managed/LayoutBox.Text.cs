@@ -19,7 +19,7 @@ public sealed unsafe partial class LayoutBox
     [SerializeField, ShowIf(nameof(font))] LayoutAlign textAlignV = LayoutAlign.Start;
     [SerializeField, ShowIf(nameof(font))] bool textWrap = true;
     [SerializeField, ShowIf(nameof(font))] bool textEllipsis = true;
-    [SerializeField, ShowIf(nameof(font))] float textWeight = 1f;
+    [SerializeField, ShowIf(nameof(font))] float textWeight;
     [SerializeField, ShowIf(nameof(font))] float textSkew;
     [SerializeField, ShowIf(nameof(font))] float textSpacing;
     [SerializeField, ShowIf(nameof(font))] Gradient textFill = new(Color.White);
@@ -37,10 +37,11 @@ public sealed unsafe partial class LayoutBox
     public LayoutAlign TextAlignV { get => textAlignV; set { if (textAlignV != value) { textAlignV = value; MarkDirty(); } } }
     public bool TextWrap { get => textWrap; set { if (textWrap != value) { textWrap = value; MarkDirty(); } } }
     public bool TextEllipsis { get => textEllipsis; set { if (textEllipsis != value) { textEllipsis = value; MarkDirty(); } } }
-    // Fake bold (her glyph quad'i KENDI merkezinden yatay genisler; advance/kerning
-    // degismez -> yerlesim sabit, 1 = normal) ve fake italic (blok merkezli x-shear,
-    // 0 = dik; matris-only). TextSprite paritesi. Weight quad cache'ine girer,
-    // MarkDirty gerekmez (olcum degismez).
+    // SDF kalinlik (kenar esigi kaydirma; stroke her yone kalinlasir/incelir,
+    // yerlesim/olcum degismez) ve fake italic (blok merkezli x-shear, 0 = dik;
+    // matris-only). TextSprite paritesi. Weight birimi SDF px: 0 = normal, + kalin,
+    // - ince (~[-5, +3]); kontur/golge de kayan kenardan hesaplanir. Ikisi de
+    // her frame instance verisinden okunur, MarkDirty gerekmez.
     public float TextWeight { get => textWeight; set => textWeight = value; }
     public float TextSkew { get => textSkew; set => textSkew = value; }
     // Harf araligi: advance'e eklenen SABIT px (scale'den bagimsiz; olcum/wrap'a
@@ -77,7 +78,7 @@ public sealed unsafe partial class LayoutBox
     Font _tbFont;
     int _tbBind;
     string _tbText;
-    float _tbSize, _tbAvailW, _tbAvailH, _tbWeight, _tbSpacing;
+    float _tbSize, _tbAvailW, _tbAvailH, _tbSpacing;
     TextAlign _tbAlign;
     LayoutAlign _tbAlignV;
     bool _tbWrap, _tbEllipsis;
@@ -191,7 +192,7 @@ public sealed unsafe partial class LayoutBox
     {
         if (_tq != null && ReferenceEquals(_tbFont, font) && _tbBind == font.BindVersion && _tbText == text
             && _tbSize == textSize && _tbAlign == textAlign && _tbAlignV == textAlignV
-            && _tbWrap == textWrap && _tbEllipsis == textEllipsis && _tbWeight == textWeight
+            && _tbWrap == textWrap && _tbEllipsis == textEllipsis
             && _tbSpacing == textSpacing
             && _tbAvailW == availW && _tbAvailH == availH)
             return;
@@ -204,7 +205,6 @@ public sealed unsafe partial class LayoutBox
         _tbAlignV = textAlignV;
         _tbWrap = textWrap;
         _tbEllipsis = textEllipsis;
-        _tbWeight = textWeight;
         _tbSpacing = textSpacing;
         _tbAvailW = availW;
         _tbAvailH = availH;
@@ -267,12 +267,10 @@ public sealed unsafe partial class LayoutBox
     }
 
     // Glyph run'ini quad'lara doker; pen/prev SDF-px kalem durumu satir icinde surer.
-    // Weight: quad kendi merkezinden yatay genisler (advance sabit -> yerlesim ayni).
     void EmitRun(ReadOnlySpan<char> s, float xs, float baseY, float scale, ref float pen, ref int prev)
     {
         var page = font.Page;
         float invW = page != null ? 1f / page.Width : 0f, invH = page != null ? 1f / page.Height : 0f;
-        float weight = MathF.Max(textWeight, 0.01f);
         for (int i = 0; i < s.Length; i++)
         {
             int gi = font.GlyphIndex(s[i]);
@@ -281,14 +279,11 @@ public sealed unsafe partial class LayoutBox
             ref readonly var g = ref font.GlyphAt(gi);
             if (g.W > 0 && g.H > 0)
             {
-                float x0 = xs + (pen + g.XOff) * scale;
-                float x1 = xs + (pen + g.XOff + g.W) * scale;
-                float cx = (x0 + x1) * 0.5f, hw = (x1 - x0) * 0.5f * weight;
                 _tq[_tqCount++] = new TextQuad
                 {
-                    X0 = cx - hw,
+                    X0 = xs + (pen + g.XOff) * scale,
                     Y0 = baseY + g.YOff * scale,
-                    X1 = cx + hw,
+                    X1 = xs + (pen + g.XOff + g.W) * scale,
                     Y1 = baseY + (g.YOff + g.H) * scale,
                     U0 = g.AtlasX * invW,
                     V0 = (g.AtlasY + g.H) * invH,
@@ -354,17 +349,19 @@ public sealed unsafe partial class LayoutBox
             twm.m[14] -= wm.m[2] * k * cy;
         }
 
-        // Kontur kenar merkezi 0.5'ten disari kayar (SDF deger uzayi; TextSprite ile ayni).
+        // Dolgu kenari weight ile kayar; kontur kenar merkezi oradan disari kayar
+        // (SDF deger uzayi; TextSprite ile ayni).
+        float cFill = TextSprite.WeightEdge(textWeight);
         float cOut = 0f;
         if (textOutlineWidth > 0 && scale > 0)
-            cOut = MathF.Max(0.5f - textOutlineWidth / scale / TextSdfSpread, 0.05f);
+            cOut = MathF.Max(cFill - textOutlineWidth / scale / TextSdfSpread, 0.05f);
 
         // Painter sirasi ayni layer'da submit sirasi: golge -> kontur -> dolgu.
         if (textShadowColor.a > 0)
         {
             float s = textShadowBlur > 0
                 ? textShadowBlur * 0.5f / scale / TextSdfSpread : 0f;
-            var user = new Vec4(s, cOut, 0f, 0f); // kontur varsa golge silueti kontur kenarindan
+            var user = new Vec4(s, cOut > 0 ? cOut : cFill, 0f, 0f); // kontur varsa golge silueti kontur kenarindan
             float sx = ox + textShadowOffset.x, sy = oy + textShadowOffset.y;
             for (int i = 0; i < _tqCount; i++)
             {
@@ -388,6 +385,7 @@ public sealed unsafe partial class LayoutBox
             }
         }
         bool fh = textFill.IsHorizontal;
+        var fillUser = new Vec4(0f, cFill, 0f, 0f);
         for (int i = 0; i < _tqCount; i++)
         {
             ref readonly var g = ref _tq[i];
@@ -395,7 +393,7 @@ public sealed unsafe partial class LayoutBox
                 g.U0, g.V0, g.U1, g.V1,
                 TextGradAt(in textFill, fh ? g.X0 : g.Y0),
                 TextGradAt(in textFill, fh ? g.X1 : g.Y1),
-                fh, default, layer);
+                fh, fillUser, layer);
         }
     }
 

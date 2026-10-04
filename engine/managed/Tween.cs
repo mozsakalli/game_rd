@@ -3,19 +3,10 @@ using System;
 namespace DigitoyEngine;
 
 // CORE tween: sahneye ait struct havuzu — nesne yok, closure yok, alloc yok.
-// Guvenlik varsayilan: hedef yok edildi -> tween sessiz olur (exception imkansiz);
-// bayat handle (generation uyusmaz) -> no-op; sahne unload -> havuz sahneyle gider.
-// Hiz: duz dizi taramasi, kanal switch'i (sanal cagri yok), LUT easing.
-// Alan yolu: serilesen sayisal alanlar otomatik tweenable (FieldSchema erisimcileri —
-// editorde expression-compile, release'te source-gen ayni slotlari doldurur).
-
-public enum TweenChannel : byte
-{
-    PosX, PosY, Rot, ScaleX, ScaleY, ScaleUniform,
-    Alpha, ColorRgb,
-    FieldFloat,
-    Value, // hedefsiz: kullanici handle.Value okur
-}
+// Hedef = PropertyBinding (AnimProperty): HER animatable property tweenlenir, ozel
+// kanal kodu yok. Yazim: AnimValue lerp → maske birlestirme → tipli Set delegate'i.
+// Guvenlik varsayilan: hedef yok edildi -> tween sessiz olur; bayat handle -> no-op;
+// sahne unload -> havuz sahneyle gider. Ad cozumu (string → AnimProperty) YARATMA aninda.
 
 public readonly struct TweenHandle
 {
@@ -38,7 +29,8 @@ public readonly struct TweenHandle
     public TweenHandle Ease(Ease e) { Pool?.SetEase(Index, Gen, e); return this; }
     public TweenHandle WithCurve(Curve c) { Pool?.SetCurve(Index, Gen, c); return this; }
     public TweenHandle Delay(float seconds) { Pool?.SetDelay(Index, Gen, seconds); return this; }
-    public TweenHandle From(float v) { Pool?.SetFrom(Index, Gen, v, v, v, v); return this; }
+    public TweenHandle From(float v) { Pool?.SetFrom(Index, Gen, new AnimValue(v, v, v, v)); return this; }
+    public TweenHandle From(in AnimValue v) { Pool?.SetFrom(Index, Gen, v); return this; }
     public TweenHandle Loops(int count, bool yoyo = false) { Pool?.SetLoops(Index, Gen, count, yoyo); return this; }
     public TweenHandle OnDone(Action done) { Pool?.SetOnDone(Index, Gen, done); return this; }
 
@@ -61,17 +53,17 @@ public sealed class TweenPool
         public bool HasFrom;
         public bool Yoyo;
         public bool Forward;
-        public TweenChannel Channel;
+        public byte Mask;       // AnimValue kanal maskesi (1=X..8=W)
+        public AnimKind Kind;
         public Ease Ease;
         public short LoopsLeft; // -1 sonsuz
         public float Delay;
         public float T;         // 0..1 normalize
         public float Duration;
-        public float FromX, FromY, FromZ, FromW;
-        public float ToX, ToY, ToZ, ToW;
-        public Component Target;                 // olum kontrolu (Transform dahil)
-        public SerializedType.FieldSchema Field; // FieldFloat kanali
-        public Curve Curve;                      // null degilse Ease yerine
+        public AnimValue From, To;
+        public Component Target;     // null = hedefsiz deger tween'i
+        public AnimProperty Prop;    // hedefli ise zorunlu
+        public Curve Curve;          // null degilse Ease yerine
         public Action OnDone;
         public int Next;
         public int NextGen;
@@ -84,8 +76,7 @@ public sealed class TweenPool
 
     // --- Yaratma ---
 
-    internal TweenHandle Start(Component target, TweenChannel ch, SerializedType.FieldSchema field,
-        float toX, float toY, float toZ, float toW, float duration)
+    internal TweenHandle Start(Component target, AnimProperty prop, byte mask, in AnimValue to, float duration)
     {
         int i;
         if (_freeCount > 0)
@@ -105,15 +96,16 @@ public sealed class TweenPool
         s.HasFrom = false;
         s.Yoyo = false;
         s.Forward = true;
-        s.Channel = ch;
+        s.Mask = mask;
+        s.Kind = prop?.Kind ?? AnimKind.Float;
         s.Ease = DigitoyEngine.Ease.Linear;
         s.LoopsLeft = 1;
         s.Delay = 0f;
         s.T = 0f;
         s.Duration = duration > 1e-6f ? duration : 1e-6f;
-        s.ToX = toX; s.ToY = toY; s.ToZ = toZ; s.ToW = toW;
+        s.To = to;
         s.Target = target;
-        s.Field = field;
+        s.Prop = prop;
         s.Curve = null;
         s.OnDone = null;
         s.Next = -1;
@@ -144,7 +136,8 @@ public sealed class TweenPool
             }
             if (!s.HasFrom)
             {
-                CaptureFrom(ref s); // ilk tick: mevcut degerden basla
+                if (s.Prop?.Get != null)
+                    s.From = s.Prop.Get(s.Target); // ilk tick: mevcut degerden basla
                 s.HasFrom = true;
             }
 
@@ -165,111 +158,22 @@ public sealed class TweenPool
                     s.Forward = !s.Forward;
                 continue;
             }
-            // Bitti: callback + zincir + slot geri (zinciri Kill uyandirir).
+            // Bitti: callback + zincir + slot geri.
             var done = s.OnDone;
             Kill(ref s, i);
             done?.Invoke();
         }
     }
 
-    void CaptureFrom(ref Slot s)
-    {
-        switch (s.Channel)
-        {
-            case TweenChannel.PosX: s.FromX = Tr(ref s).localPosition.x; break;
-            case TweenChannel.PosY: s.FromX = Tr(ref s).localPosition.y; break;
-            case TweenChannel.Rot: s.FromX = Tr(ref s).localEulerAngles.z; break;
-            case TweenChannel.ScaleX: s.FromX = Tr(ref s).localScale.x; break;
-            case TweenChannel.ScaleY: s.FromX = Tr(ref s).localScale.y; break;
-            case TweenChannel.ScaleUniform: s.FromX = Tr(ref s).localScale.x; break;
-            case TweenChannel.Alpha: s.FromX = ((SpriteRenderer)s.Target).Color.a / 255f; break;
-            case TweenChannel.ColorRgb:
-                {
-                    var c = ((SpriteRenderer)s.Target).Color;
-                    s.FromX = c.r; s.FromY = c.g; s.FromZ = c.b;
-                    break;
-                }
-            case TweenChannel.FieldFloat: s.FromX = s.Field.GetFloat(s.Target); break;
-            case TweenChannel.Value: break; // From zaten arguman
-        }
-    }
-
-    static Transform Tr(ref Slot s) => s.Target._gameObject.transform;
-
     void Write(ref Slot s, float e)
     {
-        switch (s.Channel)
-        {
-            case TweenChannel.PosX:
-                {
-                    var tr = Tr(ref s);
-                    var p = tr.localPosition;
-                    tr.localPosition = new Vec3(L(s.FromX, s.ToX, e), p.y, p.z);
-                    break;
-                }
-            case TweenChannel.PosY:
-                {
-                    var tr = Tr(ref s);
-                    var p = tr.localPosition;
-                    tr.localPosition = new Vec3(p.x, L(s.FromX, s.ToX, e), p.z);
-                    break;
-                }
-            case TweenChannel.Rot:
-                {
-                    var tr = Tr(ref s);
-                    var r = tr.localEulerAngles;
-                    tr.localEulerAngles = new Vec3(r.x, r.y, L(s.FromX, s.ToX, e));
-                    break;
-                }
-            case TweenChannel.ScaleX:
-                {
-                    var tr = Tr(ref s);
-                    var sc = tr.localScale;
-                    tr.localScale = new Vec3(L(s.FromX, s.ToX, e), sc.y, sc.z);
-                    break;
-                }
-            case TweenChannel.ScaleY:
-                {
-                    var tr = Tr(ref s);
-                    var sc = tr.localScale;
-                    tr.localScale = new Vec3(sc.x, L(s.FromX, s.ToX, e), sc.z);
-                    break;
-                }
-            case TweenChannel.ScaleUniform:
-                {
-                    var tr = Tr(ref s);
-                    float v = L(s.FromX, s.ToX, e);
-                    var sc = tr.localScale;
-                    tr.localScale = new Vec3(v, v, sc.z);
-                    break;
-                }
-            case TweenChannel.Alpha:
-                {
-                    var sr = (SpriteRenderer)s.Target;
-                    var c = sr.Color;
-                    c.a = (byte)Math.Clamp((int)(L(s.FromX, s.ToX, e) * 255f), 0, 255);
-                    sr.Color = c;
-                    break;
-                }
-            case TweenChannel.ColorRgb:
-                {
-                    var sr = (SpriteRenderer)s.Target;
-                    var c = sr.Color;
-                    c.r = (byte)Math.Clamp((int)L(s.FromX, s.ToX, e), 0, 255);
-                    c.g = (byte)Math.Clamp((int)L(s.FromY, s.ToY, e), 0, 255);
-                    c.b = (byte)Math.Clamp((int)L(s.FromZ, s.ToZ, e), 0, 255);
-                    sr.Color = c;
-                    break;
-                }
-            case TweenChannel.FieldFloat:
-                s.Field.SetFloat(s.Target, L(s.FromX, s.ToX, e));
-                break;
-            case TweenChannel.Value:
-                break; // deger handle.Value ile okunur
-        }
+        if (s.Prop?.Set == null)
+            return; // hedefsiz: deger handle.Value ile okunur
+        var v = AnimValue.Lerp(s.From, s.To, e, s.Kind);
+        if (s.Mask != AnimValue.MaskAll && s.Prop.Get != null)
+            v = AnimValue.Merge(s.Prop.Get(s.Target), v, s.Mask);
+        s.Prop.Set(s.Target, v);
     }
-
-    static float L(float a, float b, float t) => a + (b - a) * t;
 
     void Kill(ref Slot s, int index)
     {
@@ -279,9 +183,11 @@ public sealed class TweenPool
         s.Gen++; // bayat handle'lar aninda gecersiz
         s.Alive = false;
         s.Target = null;
-        s.Field = null;
+        s.Prop = null;
         s.Curve = null;
         s.OnDone = null;
+        s.From.Ref = null;
+        s.To.Ref = null;
         s.Next = -1;
         if (_freeCount == _free.Length)
             Array.Resize(ref _free, _freeCount * 2);
@@ -302,7 +208,7 @@ public sealed class TweenPool
         ref var s = ref _slots[i];
         float p = s.Forward ? s.T : 1f - s.T;
         float e = s.Curve != null ? s.Curve.Evaluate(p) : Easing.Evaluate(s.Ease, p);
-        return L(s.FromX, s.ToX, e);
+        return s.From.X + (s.To.X - s.From.X) * e;
     }
 
     internal void Cancel(int i, int gen)
@@ -315,12 +221,12 @@ public sealed class TweenPool
     internal void SetCurve(int i, int gen, Curve c) { if (IsActive(i, gen)) _slots[i].Curve = c; }
     internal void SetDelay(int i, int gen, float d) { if (IsActive(i, gen)) _slots[i].Delay = d; }
 
-    internal void SetFrom(int i, int gen, float x, float y, float z, float w)
+    internal void SetFrom(int i, int gen, in AnimValue v)
     {
         if (!IsActive(i, gen))
             return;
         ref var s = ref _slots[i];
-        s.FromX = x; s.FromY = y; s.FromZ = z; s.FromW = w;
+        s.From = v;
         s.HasFrom = true;
     }
 
@@ -346,62 +252,80 @@ public sealed class TweenPool
 }
 
 // Kullanici yuzeyi: DOTween ergonomisi, motor tarafinda sifir bedel.
+// Genel yol: c.Tween("Fill.Color", color, 0.4f) — yol adi yaratma aninda cozulur.
 public static class TweenExtensions
 {
     static TweenPool PoolOf(Component c)
         => c?._gameObject?._scene?.Tweens;
 
-    static TweenHandle Start(Component c, TweenChannel ch, float toX, float dur,
-        float toY = 0, float toZ = 0)
+    static TweenHandle Start(Component c, AnimProperty prop, byte mask, in AnimValue to, float dur)
     {
         var pool = PoolOf(c);
-        return pool != null
-            ? pool.Start(c, ch, null, toX, toY, toZ, 0, dur)
-            : default; // sahnesiz/olu hedef: olu handle (no-op)
+        return pool != null && prop != null && prop.Set != null
+            ? pool.Start(c, prop, mask, to, dur)
+            : default; // sahnesiz/olu hedef/bilinmeyen property: olu handle (no-op)
     }
+
+    static AnimProperty Resolve(Component c, string path)
+        => c == null ? null : AnimRegistry.Find(c._gameObject?._scene?.Catalog, c.GetType(), path);
+
+    // --- Genel: her animatable property ---
+
+    public static TweenHandle Tween(this Component c, string path, in AnimValue to, float duration, byte mask = AnimValue.MaskAll)
+        => Start(c, Resolve(c, path), mask, to, duration);
+
+    public static TweenHandle Tween(this Component c, string path, float to, float duration)
+        => Start(c, Resolve(c, path), AnimValue.MaskAll, AnimValue.FromFloat(to), duration);
+
+    public static TweenHandle Tween(this Component c, string path, Vec2 to, float duration)
+        => Start(c, Resolve(c, path), AnimValue.MaskAll, AnimValue.FromVec2(to), duration);
+
+    public static TweenHandle Tween(this Component c, string path, Vec3 to, float duration)
+        => Start(c, Resolve(c, path), AnimValue.MaskAll, AnimValue.FromVec3(to), duration);
+
+    public static TweenHandle Tween(this Component c, string path, Vec4 to, float duration)
+        => Start(c, Resolve(c, path), AnimValue.MaskAll, AnimValue.FromVec4(to), duration);
+
+    public static TweenHandle Tween(this Component c, string path, Color to, float duration)
+        => Start(c, Resolve(c, path), AnimValue.MaskAll, AnimValue.FromColor(to), duration);
+
+    // Eski ad: serilesen sayisal alan.
+    public static TweenHandle TweenField(this Component c, string fieldName, float to, float duration)
+        => Tween(c, fieldName, to, duration);
+
+    // --- Transform / SpriteRenderer kisayollari (ayni motor, yalniz maske) ---
+
+    public static TweenHandle TweenMove(this Transform tr, Vec3 to, float duration)
+        => Start(tr, AnimRegistry.TransformPosition, AnimValue.MaskAll, AnimValue.FromVec3(to), duration);
 
     public static TweenHandle TweenMoveX(this Transform tr, float to, float duration)
-        => Start(tr, TweenChannel.PosX, to, duration);
+        => Start(tr, AnimRegistry.TransformPosition, AnimValue.MaskX, new AnimValue(to), duration);
 
     public static TweenHandle TweenMoveY(this Transform tr, float to, float duration)
-        => Start(tr, TweenChannel.PosY, to, duration);
+        => Start(tr, AnimRegistry.TransformPosition, AnimValue.MaskY, new AnimValue(0, to), duration);
 
-    public static TweenHandle TweenRotation(this Transform tr, float to, float duration)
-        => Start(tr, TweenChannel.Rot, to, duration);
+    public static TweenHandle TweenRotation(this Transform tr, float toZ, float duration)
+        => Start(tr, AnimRegistry.TransformRotation, AnimValue.MaskZ, new AnimValue(0, 0, toZ), duration);
 
     public static TweenHandle TweenScaleX(this Transform tr, float to, float duration)
-        => Start(tr, TweenChannel.ScaleX, to, duration);
+        => Start(tr, AnimRegistry.TransformScale, AnimValue.MaskX, new AnimValue(to), duration);
 
     public static TweenHandle TweenScaleY(this Transform tr, float to, float duration)
-        => Start(tr, TweenChannel.ScaleY, to, duration);
+        => Start(tr, AnimRegistry.TransformScale, AnimValue.MaskY, new AnimValue(0, to), duration);
 
     public static TweenHandle TweenScale(this Transform tr, float to, float duration)
-        => Start(tr, TweenChannel.ScaleUniform, to, duration);
+        => Start(tr, AnimRegistry.TransformScale, AnimValue.MaskXY, new AnimValue(to, to), duration);
 
     public static TweenHandle TweenAlpha(this SpriteRenderer sr, float to01, float duration)
-        => Start(sr, TweenChannel.Alpha, to01, duration);
+        => Start(sr, Resolve(sr, nameof(SpriteRenderer.Color)), AnimValue.MaskW, new AnimValue(0, 0, 0, to01 * 255f), duration);
 
     public static TweenHandle TweenColor(this SpriteRenderer sr, Color to, float duration)
-        => Start(sr, TweenChannel.ColorRgb, to.r, duration, to.g, to.b);
-
-    // Serilesen sayisal alan = otomatik tweenable. Ad cozumu YARATMA aninda bir kez.
-    public static TweenHandle TweenField(this Component c, string fieldName, float to, float duration)
-    {
-        var pool = PoolOf(c);
-        var catalog = c?._gameObject?._scene?.Catalog;
-        var entry = catalog?.Find(c.GetType());
-        var f = entry != null ? SerializedType.Find(entry.Schema, fieldName) : null;
-        if (pool == null || f == null
-            || (f.Kind != SerializedType.Kind.Float && f.Kind != SerializedType.Kind.Int))
-            return default;
-        SerializedType.EnsureFloatAccessors(f);
-        return pool.Start(c, TweenChannel.FieldFloat, f, to, 0, 0, 0, duration);
-    }
+        => Start(sr, Resolve(sr, nameof(SpriteRenderer.Color)), AnimValue.MaskXYZ, AnimValue.FromColor(to), duration);
 
     // Hedefsiz deger tween'i: kullanici handle.Value okur (callback yok = alloc yok).
     public static TweenHandle TweenValue(this Scene scene, float from, float to, float duration)
     {
-        var h = scene.Tweens.Start(null, TweenChannel.Value, null, to, 0, 0, 0, duration);
+        var h = scene.Tweens.Start(null, null, AnimValue.MaskAll, new AnimValue(to), duration);
         return h.From(from);
     }
 }

@@ -1185,83 +1185,174 @@ public static class Registry
 
     static void Reg_3(global::DigitoyEngine.TypeCatalog cat)
     {
-        var s_0_2 = new global::DigitoyEngine.SerializedType.FieldSchema[3];
-        s_0_2[0] = new global::DigitoyEngine.SerializedType.FieldSchema
+        var s_6_3 = new global::DigitoyEngine.SerializedType.FieldSchema[5];
+        s_6_3[0] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
-            Name = "Time",
-            Kind = global::DigitoyEngine.SerializedType.Kind.Float,
-            FieldType = typeof(global::System.Single),
-            DeclaringType = typeof(global::DigitoyEngine.MovieKey),
-            Get = o => ((global::DigitoyEngine.MovieKey)o).Time,
-            Set = (o, v) => ((global::DigitoyEngine.MovieKey)o).Time = (global::System.Single)v,
+            Name = "Frame",
+            Kind = global::DigitoyEngine.SerializedType.Kind.Int,
+            FieldType = typeof(global::System.Int32),
+            DeclaringType = typeof(global::DigitoyEngine.ClipKey),
+            Get = o => ((global::DigitoyEngine.ClipKey)o).Frame,
+            Set = (o, v) => ((global::DigitoyEngine.ClipKey)o).Frame = (global::System.Int32)v,
         };
-        s_0_2[1] = new global::DigitoyEngine.SerializedType.FieldSchema
+        s_6_3[1] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
-            Name = "Value",
-            Kind = global::DigitoyEngine.SerializedType.Kind.Float,
-            FieldType = typeof(global::System.Single),
-            DeclaringType = typeof(global::DigitoyEngine.MovieKey),
-            Get = o => ((global::DigitoyEngine.MovieKey)o).Value,
-            Set = (o, v) => ((global::DigitoyEngine.MovieKey)o).Value = (global::System.Single)v,
+            Name = "Mode",
+            Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
+            FieldType = typeof(global::DigitoyEngine.ClipKeyMode),
+            DeclaringType = typeof(global::DigitoyEngine.ClipKey),
+            Get = o => ((global::DigitoyEngine.ClipKey)o).Mode,
+            Set = (o, v) => ((global::DigitoyEngine.ClipKey)o).Mode = (global::DigitoyEngine.ClipKeyMode)v,
         };
-        s_0_2[2] = new global::DigitoyEngine.SerializedType.FieldSchema
+        s_6_3[2] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
             Name = "Ease",
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
             FieldType = typeof(global::DigitoyEngine.Ease),
-            DeclaringType = typeof(global::DigitoyEngine.MovieKey),
-            Get = o => ((global::DigitoyEngine.MovieKey)o).Ease,
-            Set = (o, v) => ((global::DigitoyEngine.MovieKey)o).Ease = (global::DigitoyEngine.Ease)v,
+            DeclaringType = typeof(global::DigitoyEngine.ClipKey),
+            Get = o => ((global::DigitoyEngine.ClipKey)o).Ease,
+            Set = (o, v) => ((global::DigitoyEngine.ClipKey)o).Ease = (global::DigitoyEngine.Ease)v,
         };
-        var s_0 = new global::DigitoyEngine.SerializedType.FieldSchema[3];
-        s_0[0] = new global::DigitoyEngine.SerializedType.FieldSchema
+        s_6_3[3] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
-            Name = "Channel",
-            Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
-            FieldType = typeof(global::DigitoyEngine.AnimChannel),
-            DeclaringType = typeof(global::DigitoyEngine.MovieTrack),
-            Get = o => ((global::DigitoyEngine.MovieTrack)o).Channel,
-            Set = (o, v) => ((global::DigitoyEngine.MovieTrack)o).Channel = (global::DigitoyEngine.AnimChannel)v,
+            Name = "Value",
+            Kind = global::DigitoyEngine.SerializedType.Kind.Vec4,
+            FieldType = typeof(global::DigitoyEngine.Vec4),
+            DeclaringType = typeof(global::DigitoyEngine.ClipKey),
+            Get = o => ((global::DigitoyEngine.ClipKey)o).Value,
+            Set = (o, v) => ((global::DigitoyEngine.ClipKey)o).Value = (global::DigitoyEngine.Vec4)v,
         };
-        s_0[1] = new global::DigitoyEngine.SerializedType.FieldSchema
+        s_6_3[4] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
-            Name = "Active",
-            Kind = global::DigitoyEngine.SerializedType.Kind.Bool,
-            FieldType = typeof(global::System.Boolean),
-            DeclaringType = typeof(global::DigitoyEngine.MovieTrack),
-            Get = o => ((global::DigitoyEngine.MovieTrack)o).Active,
-            Set = (o, v) => ((global::DigitoyEngine.MovieTrack)o).Active = (global::System.Boolean)v,
+            Name = "Ref",
+            Kind = global::DigitoyEngine.SerializedType.Kind.Asset,
+            FieldType = typeof(global::DigitoyEngine.IAsset),
+            DeclaringType = typeof(global::DigitoyEngine.ClipKey),
+            Get = o => ((global::DigitoyEngine.ClipKey)o).Ref,
+            Set = (o, v) => ((global::DigitoyEngine.ClipKey)o).Ref = (global::DigitoyEngine.IAsset)v,
         };
-        s_0[2] = new global::DigitoyEngine.SerializedType.FieldSchema
+        var s_6 = new global::DigitoyEngine.SerializedType.FieldSchema[4];
+        s_6[0] = new global::DigitoyEngine.SerializedType.FieldSchema
+        {
+            Name = "Target",
+            Kind = global::DigitoyEngine.SerializedType.Kind.CompRef,
+            FieldType = typeof(global::DigitoyEngine.Component),
+            DeclaringType = typeof(global::DigitoyEngine.ClipTrack),
+            Get = o => ((global::DigitoyEngine.ClipTrack)o).Target,
+            Set = (o, v) => ((global::DigitoyEngine.ClipTrack)o).Target = (global::DigitoyEngine.Component)v,
+        };
+        s_6[1] = new global::DigitoyEngine.SerializedType.FieldSchema
+        {
+            Name = "Path",
+            Kind = global::DigitoyEngine.SerializedType.Kind.String,
+            FieldType = typeof(global::System.String),
+            DeclaringType = typeof(global::DigitoyEngine.ClipTrack),
+            Get = o => ((global::DigitoyEngine.ClipTrack)o).Path,
+            Set = (o, v) => ((global::DigitoyEngine.ClipTrack)o).Path = (global::System.String)v,
+        };
+        s_6[2] = new global::DigitoyEngine.SerializedType.FieldSchema
+        {
+            Name = "Mask",
+            Kind = global::DigitoyEngine.SerializedType.Kind.Int,
+            FieldType = typeof(global::System.Int32),
+            DeclaringType = typeof(global::DigitoyEngine.ClipTrack),
+            Get = o => ((global::DigitoyEngine.ClipTrack)o).Mask,
+            Set = (o, v) => ((global::DigitoyEngine.ClipTrack)o).Mask = (global::System.Int32)v,
+        };
+        s_6[3] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
             Name = "Keys",
             Kind = global::DigitoyEngine.SerializedType.Kind.List,
             ElementKind = global::DigitoyEngine.SerializedType.Kind.Object,
-            ElementType = typeof(global::DigitoyEngine.MovieKey),
-            Nested = s_0_2,
-            FieldType = typeof(global::System.Collections.Generic.List<global::DigitoyEngine.MovieKey>),
-            DeclaringType = typeof(global::DigitoyEngine.MovieTrack),
-            Get = o => ((global::DigitoyEngine.MovieTrack)o).Keys,
-            Set = (o, v) => ((global::DigitoyEngine.MovieTrack)o).Keys = (global::System.Collections.Generic.List<global::DigitoyEngine.MovieKey>)v,
-            NewList = () => new global::System.Collections.Generic.List<global::DigitoyEngine.MovieKey>(),
-            NewElement = () => new global::DigitoyEngine.MovieKey(),
+            ElementType = typeof(global::DigitoyEngine.ClipKey),
+            Nested = s_6_3,
+            FieldType = typeof(global::System.Collections.Generic.List<global::DigitoyEngine.ClipKey>),
+            DeclaringType = typeof(global::DigitoyEngine.ClipTrack),
+            Get = o => ((global::DigitoyEngine.ClipTrack)o).Keys,
+            Set = (o, v) => ((global::DigitoyEngine.ClipTrack)o).Keys = (global::System.Collections.Generic.List<global::DigitoyEngine.ClipKey>)v,
+            NewList = () => new global::System.Collections.Generic.List<global::DigitoyEngine.ClipKey>(),
+            NewElement = () => new global::DigitoyEngine.ClipKey(),
         };
-        var s = new global::DigitoyEngine.SerializedType.FieldSchema[4];
+        var s_7 = new global::DigitoyEngine.SerializedType.FieldSchema[2];
+        s_7[0] = new global::DigitoyEngine.SerializedType.FieldSchema
+        {
+            Name = "Frame",
+            Kind = global::DigitoyEngine.SerializedType.Kind.Int,
+            FieldType = typeof(global::System.Int32),
+            DeclaringType = typeof(global::DigitoyEngine.ClipLabel),
+            Get = o => ((global::DigitoyEngine.ClipLabel)o).Frame,
+            Set = (o, v) => ((global::DigitoyEngine.ClipLabel)o).Frame = (global::System.Int32)v,
+        };
+        s_7[1] = new global::DigitoyEngine.SerializedType.FieldSchema
+        {
+            Name = "Name",
+            Kind = global::DigitoyEngine.SerializedType.Kind.String,
+            FieldType = typeof(global::System.String),
+            DeclaringType = typeof(global::DigitoyEngine.ClipLabel),
+            Get = o => ((global::DigitoyEngine.ClipLabel)o).Name,
+            Set = (o, v) => ((global::DigitoyEngine.ClipLabel)o).Name = (global::System.String)v,
+        };
+        var s_8 = new global::DigitoyEngine.SerializedType.FieldSchema[4];
+        s_8[0] = new global::DigitoyEngine.SerializedType.FieldSchema
+        {
+            Name = "Frame",
+            Kind = global::DigitoyEngine.SerializedType.Kind.Int,
+            FieldType = typeof(global::System.Int32),
+            DeclaringType = typeof(global::DigitoyEngine.ClipAction),
+            Get = o => ((global::DigitoyEngine.ClipAction)o).Frame,
+            Set = (o, v) => ((global::DigitoyEngine.ClipAction)o).Frame = (global::System.Int32)v,
+        };
+        s_8[1] = new global::DigitoyEngine.SerializedType.FieldSchema
+        {
+            Name = "Kind",
+            Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
+            FieldType = typeof(global::DigitoyEngine.ClipActionKind),
+            DeclaringType = typeof(global::DigitoyEngine.ClipAction),
+            Get = o => ((global::DigitoyEngine.ClipAction)o).Kind,
+            Set = (o, v) => ((global::DigitoyEngine.ClipAction)o).Kind = (global::DigitoyEngine.ClipActionKind)v,
+        };
+        s_8[2] = new global::DigitoyEngine.SerializedType.FieldSchema
+        {
+            Name = "Label",
+            Kind = global::DigitoyEngine.SerializedType.Kind.String,
+            FieldType = typeof(global::System.String),
+            DeclaringType = typeof(global::DigitoyEngine.ClipAction),
+            Get = o => ((global::DigitoyEngine.ClipAction)o).Label,
+            Set = (o, v) => ((global::DigitoyEngine.ClipAction)o).Label = (global::System.String)v,
+        };
+        s_8[3] = new global::DigitoyEngine.SerializedType.FieldSchema
+        {
+            Name = "TargetFrame",
+            Kind = global::DigitoyEngine.SerializedType.Kind.Int,
+            FieldType = typeof(global::System.Int32),
+            DeclaringType = typeof(global::DigitoyEngine.ClipAction),
+            Get = o => ((global::DigitoyEngine.ClipAction)o).TargetFrame,
+            Set = (o, v) => ((global::DigitoyEngine.ClipAction)o).TargetFrame = (global::System.Int32)v,
+        };
+        var s = new global::DigitoyEngine.SerializedType.FieldSchema[9];
         s[0] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
-            Name = "Tracks",
-            Kind = global::DigitoyEngine.SerializedType.Kind.List,
-            ElementKind = global::DigitoyEngine.SerializedType.Kind.Object,
-            ElementType = typeof(global::DigitoyEngine.MovieTrack),
-            Nested = s_0,
-            FieldType = typeof(global::System.Collections.Generic.List<global::DigitoyEngine.MovieTrack>),
+            Name = "Fps",
+            Kind = global::DigitoyEngine.SerializedType.Kind.Int,
+            FieldType = typeof(global::System.Int32),
             DeclaringType = typeof(global::DigitoyEngine.MovieClip),
-            Get = o => ((global::DigitoyEngine.MovieClip)o).Tracks,
-            Set = (o, v) => ((global::DigitoyEngine.MovieClip)o).Tracks = (global::System.Collections.Generic.List<global::DigitoyEngine.MovieTrack>)v,
-            NewList = () => new global::System.Collections.Generic.List<global::DigitoyEngine.MovieTrack>(),
-            NewElement = () => new global::DigitoyEngine.MovieTrack(),
+            Get = o => ((global::DigitoyEngine.MovieClip)o).Fps,
+            Set = (o, v) => ((global::DigitoyEngine.MovieClip)o).Fps = (global::System.Int32)v,
+            GetFloat = c => (float)((global::DigitoyEngine.MovieClip)c).Fps,
+            SetFloat = (c, v) => ((global::DigitoyEngine.MovieClip)c).Fps = (int)v,
         };
         s[1] = new global::DigitoyEngine.SerializedType.FieldSchema
+        {
+            Name = "FrameCount",
+            Kind = global::DigitoyEngine.SerializedType.Kind.Int,
+            FieldType = typeof(global::System.Int32),
+            DeclaringType = typeof(global::DigitoyEngine.MovieClip),
+            Get = o => ((global::DigitoyEngine.MovieClip)o).FrameCount,
+            Set = (o, v) => ((global::DigitoyEngine.MovieClip)o).FrameCount = (global::System.Int32)v,
+            GetFloat = c => (float)((global::DigitoyEngine.MovieClip)c).FrameCount,
+            SetFloat = (c, v) => ((global::DigitoyEngine.MovieClip)c).FrameCount = (int)v,
+        };
+        s[2] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
             Name = "Loop",
             Kind = global::DigitoyEngine.SerializedType.Kind.Bool,
@@ -1270,7 +1361,7 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.MovieClip)o).Loop,
             Set = (o, v) => ((global::DigitoyEngine.MovieClip)o).Loop = (global::System.Boolean)v,
         };
-        s[2] = new global::DigitoyEngine.SerializedType.FieldSchema
+        s[3] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
             Name = "PlayOnStart",
             Kind = global::DigitoyEngine.SerializedType.Kind.Bool,
@@ -1279,7 +1370,16 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.MovieClip)o).PlayOnStart,
             Set = (o, v) => ((global::DigitoyEngine.MovieClip)o).PlayOnStart = (global::System.Boolean)v,
         };
-        s[3] = new global::DigitoyEngine.SerializedType.FieldSchema
+        s[4] = new global::DigitoyEngine.SerializedType.FieldSchema
+        {
+            Name = "Interpolate",
+            Kind = global::DigitoyEngine.SerializedType.Kind.Bool,
+            FieldType = typeof(global::System.Boolean),
+            DeclaringType = typeof(global::DigitoyEngine.MovieClip),
+            Get = o => ((global::DigitoyEngine.MovieClip)o).Interpolate,
+            Set = (o, v) => ((global::DigitoyEngine.MovieClip)o).Interpolate = (global::System.Boolean)v,
+        };
+        s[5] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
             Name = "Speed",
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
@@ -1290,6 +1390,48 @@ public static class Registry
             GetFloat = c => ((global::DigitoyEngine.MovieClip)c).Speed,
             SetFloat = (c, v) => ((global::DigitoyEngine.MovieClip)c).Speed = v,
         };
+        s[6] = new global::DigitoyEngine.SerializedType.FieldSchema
+        {
+            Name = "Tracks",
+            Kind = global::DigitoyEngine.SerializedType.Kind.List,
+            ElementKind = global::DigitoyEngine.SerializedType.Kind.Object,
+            ElementType = typeof(global::DigitoyEngine.ClipTrack),
+            Nested = s_6,
+            FieldType = typeof(global::System.Collections.Generic.List<global::DigitoyEngine.ClipTrack>),
+            DeclaringType = typeof(global::DigitoyEngine.MovieClip),
+            Get = o => ((global::DigitoyEngine.MovieClip)o).Tracks,
+            Set = (o, v) => ((global::DigitoyEngine.MovieClip)o).Tracks = (global::System.Collections.Generic.List<global::DigitoyEngine.ClipTrack>)v,
+            NewList = () => new global::System.Collections.Generic.List<global::DigitoyEngine.ClipTrack>(),
+            NewElement = () => new global::DigitoyEngine.ClipTrack(),
+        };
+        s[7] = new global::DigitoyEngine.SerializedType.FieldSchema
+        {
+            Name = "Labels",
+            Kind = global::DigitoyEngine.SerializedType.Kind.List,
+            ElementKind = global::DigitoyEngine.SerializedType.Kind.Object,
+            ElementType = typeof(global::DigitoyEngine.ClipLabel),
+            Nested = s_7,
+            FieldType = typeof(global::System.Collections.Generic.List<global::DigitoyEngine.ClipLabel>),
+            DeclaringType = typeof(global::DigitoyEngine.MovieClip),
+            Get = o => ((global::DigitoyEngine.MovieClip)o).Labels,
+            Set = (o, v) => ((global::DigitoyEngine.MovieClip)o).Labels = (global::System.Collections.Generic.List<global::DigitoyEngine.ClipLabel>)v,
+            NewList = () => new global::System.Collections.Generic.List<global::DigitoyEngine.ClipLabel>(),
+            NewElement = () => new global::DigitoyEngine.ClipLabel(),
+        };
+        s[8] = new global::DigitoyEngine.SerializedType.FieldSchema
+        {
+            Name = "Actions",
+            Kind = global::DigitoyEngine.SerializedType.Kind.List,
+            ElementKind = global::DigitoyEngine.SerializedType.Kind.Object,
+            ElementType = typeof(global::DigitoyEngine.ClipAction),
+            Nested = s_8,
+            FieldType = typeof(global::System.Collections.Generic.List<global::DigitoyEngine.ClipAction>),
+            DeclaringType = typeof(global::DigitoyEngine.MovieClip),
+            Get = o => ((global::DigitoyEngine.MovieClip)o).Actions,
+            Set = (o, v) => ((global::DigitoyEngine.MovieClip)o).Actions = (global::System.Collections.Generic.List<global::DigitoyEngine.ClipAction>)v,
+            NewList = () => new global::System.Collections.Generic.List<global::DigitoyEngine.ClipAction>(),
+            NewElement = () => new global::DigitoyEngine.ClipAction(),
+        };
         cat.Register(new global::DigitoyEngine.TypeCatalog.Entry
         {
             Type = typeof(global::DigitoyEngine.MovieClip),
@@ -1298,10 +1440,15 @@ public static class Registry
             CopyTo = (s0, d0) =>
             {
                 var s1 = (global::DigitoyEngine.MovieClip)s0; var d1 = (global::DigitoyEngine.MovieClip)d0;
-                d1.Tracks = s1.Tracks;
+                d1.Fps = s1.Fps;
+                d1.FrameCount = s1.FrameCount;
                 d1.Loop = s1.Loop;
                 d1.PlayOnStart = s1.PlayOnStart;
+                d1.Interpolate = s1.Interpolate;
                 d1.Speed = s1.Speed;
+                d1.Tracks = s1.Tracks;
+                d1.Labels = s1.Labels;
+                d1.Actions = s1.Actions;
             },
             Flags = (global::DigitoyEngine.LifecycleFlags)13,
             Schema = s,

@@ -123,6 +123,11 @@ public sealed class EditorScene
 
     public readonly UndoStack History = new();
 
+    // Kullanici duzenlemesi kancasi (record modu): (goId, compIndex | -1 = Transform, yol).
+    // Yol: alan adi ("Width", ic ice icin ust alan "Fill"), Transform icin "Position"/
+    // "Rotation"/"Scale"/"Active", component icin "Enabled". Undo/redo tetiklemez.
+    public static Action<int, int, string, bool> LiveEdited; // son arg: false=duzenleme ONCESI, true=SONRASI
+
     public void SetProp(SceneDoc.GoDoc g, SceneDoc.CompDoc cd, SerializedType.FieldSchema f,
         string oldValue, string newValue)
         => SetProp(g, cd, f,
@@ -132,15 +137,18 @@ public sealed class EditorScene
     public void SetProp(SceneDoc.GoDoc g, SceneDoc.CompDoc cd, SerializedType.FieldSchema f,
         DocNode oldValue, DocNode newValue)
     {
+        int ci = g.Components.IndexOf(cd);
+        LiveEdited?.Invoke(g.Id, ci, f.Name, false);
         History.Push(new PropOp
         {
             GoId = g.Id,
-            CompIndex = g.Components.IndexOf(cd),
+            CompIndex = ci,
             Prop = f.Name,
             OldValue = oldValue?.Clone(),
             NewValue = newValue?.Clone(),
         });
         WriteProp(g, cd, f, newValue);
+        LiveEdited?.Invoke(g.Id, ci, f.Name, true);
     }
 
     public void SetTransform(SceneDoc.GoDoc g, Vec3 pos, Vec3 rot, Vec3 scale)
@@ -151,6 +159,13 @@ public sealed class EditorScene
         if (live != null
             && (TransformDriver.Driven(live, out _) & DrivenTransformProperties.Position) != 0)
             pos = g.Pos;
+        bool posCh = !Eq(g.Pos, pos), rotCh = !Eq(g.Rot, rot), scaleCh = !Eq(g.Scale, scale);
+        if (LiveEdited != null)
+        {
+            if (posCh) LiveEdited(g.Id, -1, "Position", false);
+            if (rotCh) LiveEdited(g.Id, -1, "Rotation", false);
+            if (scaleCh) LiveEdited(g.Id, -1, "Scale", false);
+        }
         History.Push(new TransformOp
         {
             GoId = g.Id,
@@ -165,13 +180,23 @@ public sealed class EditorScene
         g.Rot = rot;
         g.Scale = scale;
         ApplyTransform(g);
+        if (LiveEdited != null)
+        {
+            if (posCh) LiveEdited(g.Id, -1, "Position", true);
+            if (rotCh) LiveEdited(g.Id, -1, "Rotation", true);
+            if (scaleCh) LiveEdited(g.Id, -1, "Scale", true);
+        }
     }
+
+    static bool Eq(in Vec3 a, in Vec3 b) => a.x == b.x && a.y == b.y && a.z == b.z;
 
     public void SetActive(SceneDoc.GoDoc g, bool value)
     {
+        LiveEdited?.Invoke(g.Id, -1, "Active", false);
         History.Push(new ActiveOp { GoId = g.Id, Old = g.Active, New = value });
         g.Active = value;
         ApplyActive(g);
+        LiveEdited?.Invoke(g.Id, -1, "Active", true);
     }
 
     public void SetLayer(SceneDoc.GoDoc g, int value)
@@ -183,6 +208,7 @@ public sealed class EditorScene
 
     public void SetEnabled(SceneDoc.GoDoc g, SceneDoc.CompDoc cd, bool value)
     {
+        LiveEdited?.Invoke(g.Id, g.Components.IndexOf(cd), "Enabled", false);
         History.Push(new EnabledOp
         {
             GoId = g.Id,
@@ -192,6 +218,7 @@ public sealed class EditorScene
         });
         cd.Enabled = value;
         ApplyEnabled(g, cd);
+        LiveEdited?.Invoke(g.Id, g.Components.IndexOf(cd), "Enabled", true);
     }
 
     public void DoUndo() => History.Undo(this);
@@ -950,7 +977,7 @@ public sealed class EditorScene
     }
 
     // Doc'taki component'in canli esleigi: ayni tipten kacinci oldugu uzerinden.
-    Component FindLiveComponent(SceneDoc.GoDoc g, SceneDoc.CompDoc cd)
+    public Component FindLiveComponent(SceneDoc.GoDoc g, SceneDoc.CompDoc cd)
     {
         var go = Live(g.Id);
         var entry = _catalog?.Find(cd.Type);

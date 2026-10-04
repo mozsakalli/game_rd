@@ -13,12 +13,16 @@ public sealed class GuiHost
 
     readonly Event _ev = new Event();
 
+    // Aktif GUI turunun native penceresi (popup'lar ekran konumunu buradan turetir).
+    public static IntPtr CurrentWindow { get; private set; }
+
     // screen MANTIKSAL (point) uzaydadir; scale = pencerenin DPI olcegi.
     // UNITY MODELI: HER event pass'inden once ayri bir Layout pass'i kosulur —
     // bir input pass'inde degisen state (secim vb.) sonraki pass'in layout
     // cache'ini gecersiz kilamaz.
     public void Frame(IntPtr window, Rect screen, GuiFunc gui, float scale = 1f)
     {
+        CurrentWindow = window;
         float inv = scale > 0 ? 1f / scale : 1f;
         Vec2 mouse = Mul(GuiInput.MousePos(window), inv);
         GuiCursorManager.BeginFrame();

@@ -22,6 +22,10 @@ public static class InspectorTests
         var drawDoc = typeof(InspectorPanel).GetMethod("DrawDocValue", flags);
         var drawAsset = typeof(InspectorPanel).GetMethod("DrawAssetValue", flags);
         var measure = typeof(InspectorPanel).GetMethod("MeasureDocValue", flags);
+        float labelW = (float)typeof(InspectorPanel).GetField("LabelW", flags).GetValue(inspector);
+        // Vec4Drags yerlesimi: valueX = 12 + LabelW, hucre = (genislik - 12) / 4, adim = hucre + 4.
+        float valueX = 12 + labelW;
+        float axisStride = (400f - valueX - 12) / 4 + 4;
         var node = DocNode.Scal("1 2 3 4");
         Vec4 assetValue = new(1, 2, 3, 4);
         int previousHot = GuiUtility.HotControl;
@@ -29,6 +33,16 @@ public static class InspectorTests
         var previousEvent = Event.Current;
         try
         {
+            var nicify = typeof(InspectorPanel).GetMethod("Nicify",
+                BindingFlags.Static | BindingFlags.NonPublic);
+            string Nice(string s) => (string)nicify.Invoke(null, new object[] { s });
+            Check(Nice("anchorMin") == "Anchor Min", "Nicify camelCase");
+            Check(Nice("UIButton") == "UI Button", "Nicify kisaltma");
+            Check(Nice("m_Name") == "Name", "Nicify m_ on eki");
+            Check(Nice("border_fill") == "Border Fill", "Nicify snake_case");
+            Check(Nice("WatchAndEarnButton") == "Watch And Earn Button", "Nicify PascalCase");
+            Check(Nice("width") == "Width", "Nicify tek kelime");
+
             Check((float)measure.Invoke(inspector, new object[]
             {
                 SerializedType.Kind.Vec4, default(SerializedType.Kind), null, node, "vec4-test",
@@ -40,7 +54,7 @@ public static class InspectorTests
                 for (int axis = 0; axis < 4; axis++)
                 {
                     GuiUtility.HotControl = GuiUtility.KeyboardControl = 0;
-                    float x = 104 + 75 * axis + 6;
+                    float x = valueX + axisStride * axis + 6;
                     foreach (var type in new[] { EventType.Layout, EventType.MouseDown,
                         EventType.MouseDrag, EventType.MouseUp })
                     {

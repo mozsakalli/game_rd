@@ -12,7 +12,7 @@ public sealed partial class InspectorPanel
 
     float MeasureAssetContentHeight()
     {
-        float height = RowH + 8;
+        float height = 4 + HeaderH + 6;
         if (_aObj == null || _aSchema == null)
             return height + RowH;
         foreach (var field in _aSchema)
@@ -174,8 +174,8 @@ public sealed partial class InspectorPanel
                 break;
             default:
                 if (Event.Current.Type == EventType.Repaint)
-                    GuiRenderer.DrawTextIn(valueRect, "(scene reference unavailable)", Gui.FontSize - 3f,
-                        new Color(140, 143, 153, 255), false, 2);
+                    GuiRenderer.DrawTextIn(valueRect, "(scene reference unavailable)", SmallFont,
+                        LabelDimColor, false, 2);
                 break;
         }
         y += RowH;
@@ -227,7 +227,7 @@ public sealed partial class InspectorPanel
             _fieldFoldouts[path] = !expanded;
         int count = value is IList existing ? existing.Count : 0;
         DrawFieldLabel(new Rect(labelX + 22, y, Math.Max(20, LabelW - 22), 18),
-            label + " [" + count + "]");
+            Nicify(label) + "  [" + count + "]");
         bool add = Gui.Button(new Rect(right - rightReserve - 20, y, 18, 18), "+");
         y += RowH;
         var list = value as IList;
@@ -319,8 +319,7 @@ public sealed partial class InspectorPanel
         {
             GuiRenderer.DrawRect(body, hover ? new Color(70, 135, 85, 255)
                 : acceptable ? new Color(52, 74, 58, 255) : new Color(45, 48, 58, 255), 0);
-            GuiRenderer.DrawTextIn(body, asset?.Name ?? "(none)", Gui.FontSize - 3f,
-                new Color(160, 163, 173, 255), false, 2);
+            GuiRenderer.DrawTextIn(body, asset?.Name ?? "(none)", SmallFont, RefTextColor, false, 2);
             if (hover)
                 DragDrop.RegisterTarget(() =>
                 {
@@ -410,7 +409,7 @@ public sealed partial class InspectorPanel
     static void DrawFieldLabel(in Rect rect, string text)
     {
         if (Event.Current.Type == EventType.Repaint)
-            GuiRenderer.DrawTextIn(rect, text, Gui.FontSize - 3f, new Color(165, 168, 178, 255), false, 2);
+            GuiRenderer.DrawTextIn(rect, Nicify(text), LabelFont, LabelColor, false, 2);
     }
 
     bool Expanded(string path)
@@ -683,7 +682,7 @@ public sealed partial class InspectorPanel
         if (Gui.Button(new Rect(labelX, y, 18, 18), expanded ? "\u25be" : "\u25b8"))
             _fieldFoldouts[path] = !expanded;
         DrawFieldLabel(new Rect(labelX + 22, y, Math.Max(20, LabelW - 22), 18),
-            label + " [" + node.Items.Count + "]");
+            Nicify(label) + "  [" + node.Items.Count + "]");
         bool add = Gui.Button(new Rect(right - rightReserve - 20, y, 18, 18), "+");
         y += RowH;
         int removeIndex = -1;
@@ -763,8 +762,8 @@ public sealed partial class InspectorPanel
         {
             GuiRenderer.DrawRect(body, hover ? new Color(70, 135, 85, 255)
                 : acceptable ? new Color(52, 74, 58, 255) : new Color(45, 48, 58, 255), 0);
-            GuiRenderer.DrawTextIn(body, DocRefDisplay(kind, node.Scalar ?? ""), Gui.FontSize - 3f,
-                new Color(160, 163, 173, 255), false, 2);
+            GuiRenderer.DrawTextIn(body, DocRefDisplay(kind, node.Scalar ?? ""), SmallFont,
+                RefTextColor, false, 2);
             if (hover)
                 DragDrop.RegisterTarget(() =>
                 {

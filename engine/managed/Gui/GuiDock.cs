@@ -443,6 +443,7 @@ public static class GuiDock
     static int _pendingActiveLeaf = -1, _pendingActiveIndex;
     static int _pendingMovePanel = -1, _pendingMoveLeaf, _pendingMoveIndex = -1;
     static int _pendingSplitPanel = -1, _pendingSplitLeaf, _pendingSplitDir;
+    static int _pendingEdgePanel = -1; // ana pencere sag kenar bandina birakildi
 
     static void ApplyPending()
     {
@@ -461,6 +462,11 @@ public static class GuiDock
         {
             SplitNow(_pendingSplitPanel, _pendingSplitLeaf, _pendingSplitDir);
             _pendingSplitPanel = -1;
+        }
+        if (_pendingEdgePanel >= 0)
+        {
+            DockRootRightNow(_pendingEdgePanel);
+            _pendingEdgePanel = -1;
         }
         if (_pendingDetachPanel >= 0)
         {
@@ -617,6 +623,34 @@ public static class GuiDock
             _nodes[parent].B = split;
     }
 
+    // Ana pencere sag kenar bandi (Unity edge dock): panel kok agacin SAGINDA tam
+    // boy yeni sutun olur. Yeni sutun ~EdgeDockW genisliginde baslar.
+    static void DockRootRightNow(int panelId)
+    {
+        if (_root < 0 || FindLeafWithPanelAll(panelId) < 0)
+            return;
+        // Zaten kokun sag cocugu olan tek tab'li leaf = no-op.
+        ref Node rn = ref _nodes[_root];
+        if (rn.Type == TypeSplitH && _nodes[rn.B].Type == TypeLeaf
+            && _nodes[rn.B].TabCount == 1 && _tabs[rn.B * MaxTabsPerLeaf] == panelId)
+            return;
+        RemoveFromTree(panelId);
+        int newLeaf = Leaf(stackalloc int[] { panelId });
+        ref Node old = ref _nodes[_root];
+        if (old.Type == TypeLeaf && old.TabCount == 0)
+        {
+            // Ana agacta baska panel kalmadi: yeni leaf dogrudan kok olur.
+            old.Used = false;
+            _root = newLeaf;
+            return;
+        }
+        float w = _rootRect.width > 0 ? _rootRect.width : 1f;
+        float t = EdgeDockW / w;
+        if (t < 0.1f) t = 0.1f;
+        if (t > 0.5f) t = 0.5f;
+        _root = Split(horizontal: true, 1f - t, _root, newLeaf);
+    }
+
     static void DetachNow(int panelId, Vec2 screenPos)
     {
         if (FindLeafWithPanelAll(panelId) < 0)
@@ -694,11 +728,17 @@ public static class GuiDock
     // --- Frame: dock alanini coz ve ciz ---
 
     const float TabW = 84f, TabH = 22f, SplitterSize = 8f;
+    // Ana pencere sag kenar bandi: genislik ve birakilinca acilan sutunun baslangic genisligi.
+    const float EdgeZoneW = 24f, EdgeDockW = 320f;
 
     static readonly int _splitHash = "GuiDock.Split".GetHashCode();
     static readonly int _tabHash = "GuiDock.Tab".GetHashCode();
 
     static Rect _rootRect;
+    static Rect RightEdgeZone => new Rect(_rootRect.xMax - EdgeZoneW, _rootRect.y, EdgeZoneW, _rootRect.height);
+
+    // Nokta (ana pencere lokal) sag kenar bandinda mi? Bant yalniz ana pencerede var.
+    static bool OverRightEdge(Vec2 mainLocal) => _root >= 0 && RightEdgeZone.Contains(mainLocal);
     // Tab surukleme durumu (hot control uzerinden yasar).
     static int _dragPanel = -1;
     static bool _dragging;
@@ -773,6 +813,22 @@ public static class GuiDock
         _rootRect = rect;
         _ctxWin = -1;
         ResolveAndDraw(_root, rect);
+
+        // Sag kenar dock bandi (Unity edge zone): surukleme sirasinda tam boy
+        // soluk bant; imlec ustundeyken acilacak sutunun onizlemesi gosterilir.
+        if (_dragging && _dragPanel >= 0 && Event.Current.Type == EventType.Repaint)
+        {
+            Rect zone = RightEdgeZone;
+            Vec2 dm = DragMouseLocal();
+            if (zone.Contains(dm))
+            {
+                float w = MathF.Min(EdgeDockW, rect.width * 0.5f);
+                GuiRenderer.DrawRect(new Rect(rect.xMax - w, rect.y, w, rect.height), new Color(90, 150, 240, 90), 4);
+                GuiRenderer.DrawRect(zone, new Color(90, 150, 240, 160), 5);
+            }
+            else
+                GuiRenderer.DrawRect(zone, new Color(90, 150, 240, 50), 5);
+        }
     }
 
     static void ResolveAndDraw(int ni, in Rect r)
@@ -899,36 +955,45 @@ public static class GuiDock
                         ev.Use();
                         if (_dragging)
                         {
-                            // Once bu pencerenin agaci, sonra ekran uzayindan
-                            // diger pencereler (ana dahil).
-                            int target = FindLeafAt(RootOf(_ctxWin), ev.MousePosition);
-                            Vec2 tlocal = ev.MousePosition;
-                            if (target < 0)
+                            Vec2 screen = ToScreen(_ctxWin, ev.GlobalMousePosition);
+                            Vec2 mainLocal = _ctxWin == -1 ? ev.MousePosition : FromScreen(-1, screen);
+                            if (OverRightEdge(mainLocal))
                             {
-                                Vec2 screen = ToScreen(_ctxWin, ev.GlobalMousePosition);
-                                target = FindLeafAtScreen(screen, _ctxWin, out tlocal);
+                                // Ana pencere sag kenar bandi: kokun sagina tam boy sutun.
+                                _pendingEdgePanel = panelId;
+                            }
+                            else
+                            {
+                                // Once bu pencerenin agaci, sonra ekran uzayindan
+                                // diger pencereler (ana dahil).
+                                int target = FindLeafAt(RootOf(_ctxWin), ev.MousePosition);
+                                Vec2 tlocal = ev.MousePosition;
                                 if (target < 0)
                                 {
-                                    // Hicbir dock alanina denk gelmedi: yeni pencereye detach.
-                                    _pendingDetachPanel = panelId;
-                                    _pendingDetachScreenPos = screen;
+                                    target = FindLeafAtScreen(screen, _ctxWin, out tlocal);
+                                    if (target < 0)
+                                    {
+                                        // Hicbir dock alanina denk gelmedi: yeni pencereye detach.
+                                        _pendingDetachPanel = panelId;
+                                        _pendingDetachScreenPos = screen;
+                                    }
                                 }
-                            }
-                            if (target >= 0)
-                            {
-                                int dir = SplitDirAt(target, tlocal);
-                                if (dir >= 0)
+                                if (target >= 0)
                                 {
-                                    // Kenar bandina birakildi: yeni zone (split).
-                                    _pendingSplitPanel = panelId;
-                                    _pendingSplitLeaf = target;
-                                    _pendingSplitDir = dir;
-                                }
-                                else
-                                {
-                                    _pendingMovePanel = panelId;
-                                    _pendingMoveLeaf = target;
-                                    _pendingMoveIndex = TabInsertIndexAt(target, tlocal);
+                                    int dir = SplitDirAt(target, tlocal);
+                                    if (dir >= 0)
+                                    {
+                                        // Kenar bandina birakildi: yeni zone (split).
+                                        _pendingSplitPanel = panelId;
+                                        _pendingSplitLeaf = target;
+                                        _pendingSplitDir = dir;
+                                    }
+                                    else
+                                    {
+                                        _pendingMovePanel = panelId;
+                                        _pendingMoveLeaf = target;
+                                        _pendingMoveIndex = TabInsertIndexAt(target, tlocal);
+                                    }
                                 }
                             }
                         }
@@ -973,7 +1038,10 @@ public static class GuiDock
             if (_dragging && _dragPanel >= 0)
             {
                 Vec2 dm = DragMouseLocal();
-                bool over = barRect.Contains(dm);
+                // Ana pencere sag kenar bandi ustundeyken leaf gostergesi cizilmez
+                // (DockSpace bant onizlemesini cizer).
+                bool edge = _ctxWin == -1 && OverRightEdge(dm);
+                bool over = !edge && barRect.Contains(dm);
                 GuiRenderer.DrawRect(barRect,
                     over ? new Color(90, 150, 240, 140) : new Color(90, 150, 240, 45), 3);
                 if (over)
@@ -983,7 +1051,7 @@ public static class GuiDock
                     float lx = r.x + idx * (TabW + 2) - 1;
                     GuiRenderer.DrawRect(new Rect(lx, r.y, 2, TabH), new Color(255, 220, 80, 255), 4);
                 }
-                else if (content.Contains(dm))
+                else if (!edge && content.Contains(dm))
                 {
                     // Split onizlemesi: yeni zone'un kaplayacagi yarim alan.
                     int dir = SplitDirAt(ni, dm);
@@ -1042,6 +1110,7 @@ public static class GuiDock
             w.Win.Gui.Frame(w.Win.Handle, _currentWinRect, _winFunc, NativeWindow.ScreenScale(w.Win.Handle));
         }
         UpdateDragGhost();
+        GuiPopup.Update();
     }
 
     // --- Surukleme hayaleti: imleci takip eden dekorasyonsuz native pencere
@@ -1130,6 +1199,7 @@ public static class GuiDock
         }
         if (_ghostWin != null)
             _ghostWin.Camera.Encode(cb, _ghostWin.Width, _ghostWin.Height);
+        GuiPopup.Encode(cb);
     }
 
     public static void PresentWindows()
@@ -1141,6 +1211,7 @@ public static class GuiDock
                 w.Win.Present();
         }
         _ghostWin?.Present();
+        GuiPopup.Present();
     }
 }
 #endif

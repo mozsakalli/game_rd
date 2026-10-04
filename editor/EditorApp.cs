@@ -82,8 +82,7 @@ public unsafe class App
         var inspector = EditorWindow.GetWindow<InspectorPanel>();
         _sceneView = EditorWindow.GetWindow<SceneViewPanel>();
         var gameView = EditorWindow.GetWindow<GameViewPanel>();
-        var timeline = EditorWindow.GetWindow<TimelinePanel>();
-        var clip = EditorWindow.GetWindow<ClipPanel>();
+        var clip = EditorWindow.GetWindow<ClipEditorPanel>();
         var project = EditorWindow.GetWindow<ProjectPanel>();
 #if DE_EDITOR
         var dbg = EditorWindow.GetWindow<RenderDebugPanel>();
@@ -96,9 +95,9 @@ public unsafe class App
         if (!GuiDock.LoadLayout(_layoutPath))
         {
 #if DE_EDITOR
-            int bottom = GuiDock.Leaf(stackalloc int[] { project.PanelId, clip.PanelId, timeline.PanelId, dbg.PanelId });
+            int bottom = GuiDock.Leaf(stackalloc int[] { project.PanelId, clip.PanelId, dbg.PanelId });
 #else
-            int bottom = GuiDock.Leaf(stackalloc int[] { project.PanelId, clip.PanelId, timeline.PanelId });
+            int bottom = GuiDock.Leaf(stackalloc int[] { project.PanelId, clip.PanelId });
 #endif
             int center = GuiDock.Split(horizontal: false, 0.68f,
                 GuiDock.Leaf(stackalloc int[] { _sceneView.PanelId, gameView.PanelId }), bottom);
@@ -125,6 +124,7 @@ public unsafe class App
         RebuildCatalog();
 #if DE_EDITOR
         LifecycleTests.Run(_catalog); // izole sahnede kenar durum smoke testleri
+        MovieClipTests.Run(_catalog);
         SerializationTests.Run(_catalog);
         InspectorTests.Run();
         LayoutTests.Run(_catalog);

@@ -95,8 +95,8 @@ objects:
         textShadowOffset: 0 1.4333313
         overflowX: Grow
         textWrap: false
-        textWeight: 1
-        textSpacing: 0
+        textWeight: 1.1999999
+        textSpacing: 0.746665
         textSkew: 0
         Effects: ''
         fitScreen: false
@@ -131,7 +131,7 @@ objects:
         textAlign: Center
         textAlignV: Center
         textSize: 22
-        textWeight: 1
+        textWeight: 0
         textFill:
           type: Solid
           direction: Vertical
@@ -184,11 +184,12 @@ objects:
         textShadowColor: '#000000ff'
         textShadowOffset: 0 0.56666875
         radius: 7 7 7 7
+        textWeight: 0.69333494
   - id: 9
     parent: 0
     name: LOGOSPRITE
-    pos: -340.73633 -76.31074 0
-    rot: 0 0 -2
+    pos: 0 0 0
+    rot: 0 0 0
     scale: 1 1 1
     components:
       - type: SpriteRenderer
@@ -196,10 +197,52 @@ objects:
         Width: 200
         Height: 200
         SortingOrder: 13
-        Effects:
-          - 42abef621c3e49ddb6bb56bf25edd108
+        Effects: ''
         BlendMode: Normal
       - type: Draggable
+      - type: MovieClip
+        Fps: 30
+        FrameCount: 30
+        Loop: true
+        PlayOnStart: true
+        Interpolate: true
+        Speed: 1
+        Tracks:
+          - Target: '9:Transform:0'
+            Path: Scale
+            Mask: 15
+            Keys:
+              - Frame: 0
+                Mode: Tween
+                Ease: InBack
+                Value: 5 5 0 0
+                Ref: ''
+              - Frame: 20
+                Mode: Tween
+                Ease: Linear
+                Value: 1 1 1 0
+                Ref: ''
+          - Target: '9:Transform:0'
+            Path: Rotation
+            Mask: 15
+            Keys:
+              - Frame: 0
+                Mode: Tween
+                Ease: Linear
+                Value: 0 0 90 0
+                Ref: ''
+              - Frame: 14
+                Mode: Tween
+                Ease: Linear
+                Value: 0 0 180 0
+                Ref: ''
+              - Frame: 20
+                Mode: Tween
+                Ease: Linear
+                Value: 0 0 -2 0
+                Ref: ''
+        Labels:
+        Actions:
   - id: 10
     parent: 0
     name: GameObject
@@ -211,7 +254,7 @@ objects:
         Font: 713ad506a3014c21aa1043ccd65aa552
         Text: 1.250.000$
         SortingOrder: 12
-        Weight: 1
+        Weight: 0
         Fill:
           type: Linear
           direction: Vertical
@@ -303,6 +346,11 @@ objects:
     scale: 1 1 1
     prefab: bd2280378a7745e9912ad7b9ad1d52e4
     prefabIds: '1:16 2:17'
+    overrides:
+      - node: 1
+        comp: 'LayoutBox:0'
+        prop: SortingOrder
+        value: 0
   - id: 18
     parent: 15
     name: prebutton (2)
@@ -316,3 +364,7 @@ objects:
         comp: 'LayoutBox:0'
         prop: text
         value: Hurry Up!
+      - node: 1
+        comp: 'LayoutBox:0'
+        prop: SortingOrder
+        value: 0

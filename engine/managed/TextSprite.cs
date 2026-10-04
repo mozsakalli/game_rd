@@ -18,12 +18,13 @@ public sealed unsafe class TextSprite : Renderer
     public float Size = 32f;
     public TextAlign Align = TextAlign.Center;
 
-    // Fake bold/italic (SADECE geometri, shader'siz): Weight her glyph quad'ini
-    // KENDI merkezinden yatayda olcekler (1 = normal, 1.1 hafif kalin) — advance/
-    // kerning degismez, yerlesim ayni kalir; Skew blok merkezli x-shear (0 = dik,
-    // 0.2 ~ italik; ust saga yatar). Weight quad'lara girer (rebuild), Skew
-    // matris-only (rebuild yok).
-    public float Weight = 1f;
+    // SDF kalinlik: kenar esigi (USER.y) kaydirilir -> stroke her yone esit
+    // kalinlasir/incelir (gercek bold hissi; quad/advance/yerlesim degismez,
+    // rebuild yok). Birim SDF px (boyutla orantili): 0 = normal, + kalin, - ince;
+    // bake pad (6 sdf px) nedeniyle ~[-5, +3] araligina kirpilir. Kontur ve golge
+    // de kalinlasan kenardan hesaplanir. Skew blok merkezli x-shear (0 = dik,
+    // 0.2 ~ italik; ust saga yatar), matris-only.
+    public float Weight;
     public float Skew;
 
     // Harf araligi: her glyph advance'ine eklenen SABIT dunya birimi (scale'den
@@ -44,6 +45,10 @@ public sealed unsafe class TextSprite : Renderer
 
     const float SdfSpread = 21f; // shim font bake sabiti (deger bandinin sdf-px genisligi)
 
+    // Weight'in (sdf px) SDF deger uzayindaki kenar merkezi; 0.5 = normal.
+    internal static float WeightEdge(float weight)
+        => 0.5f - Math.Clamp(weight, -5f, 3f) / SdfSpread;
+
     struct GlyphQuad
     {
         public float X0, Y0, X1, Y1; // lokal uzay (y-down, blok merkezi orijin)
@@ -57,7 +62,6 @@ public sealed unsafe class TextSprite : Renderer
     string _builtText;
     float _builtSize;
     TextAlign _builtAlign;
-    float _builtWeight;
     float _builtSpacing;
     Vec2 _bounds; // kurulan blogun dunya boyutu (secim/braket)
 
@@ -97,17 +101,19 @@ public sealed unsafe class TextSprite : Renderer
         float halfH = _bounds.y * 0.5f;
         float halfW = _bounds.x * 0.5f;
 
-        // Kontur kenar merkezi 0.5'ten disari kayar (SDF deger uzayinda).
+        // Dolgu kenari weight ile kayar; kontur kenar merkezi oradan disari kayar
+        // (SDF deger uzayinda).
+        float cFill = WeightEdge(Weight);
         float cOut = 0f;
         if (OutlineWidth > 0f && scale > 0f)
-            cOut = MathF.Max(0.5f - OutlineWidth / scale / SdfSpread, 0.05f);
+            cOut = MathF.Max(cFill - OutlineWidth / scale / SdfSpread, 0.05f);
 
         // Painter sirasi ayni layer'da submit sirasi: golge -> kontur -> dolgu.
         if (ShadowColor.a > 0)
         {
             float s = ShadowBlur > 0f && scale > 0f
                 ? ShadowBlur * 0.5f / scale / SdfSpread : 0f;
-            var user = new Vec4(s, cOut, 0f, 0f); // kontur varsa golge silueti de kontur kenarindan
+            var user = new Vec4(s, cOut > 0f ? cOut : cFill, 0f, 0f); // kontur varsa golge silueti de kontur kenarindan
             for (int i = 0; i < _quadCount; i++)
                 Emit(queue, mat, in wm, in _quads[i], ShadowOffset.x, ShadowOffset.y,
                     ShadowColor, ShadowColor, false, in user, layer);
@@ -125,12 +131,13 @@ public sealed unsafe class TextSprite : Renderer
             }
         }
         bool fh = Fill.IsHorizontal;
+        var fillUser = new Vec4(0f, cFill, 0f, 0f);
         for (int i = 0; i < _quadCount; i++)
         {
             ref readonly var g = ref _quads[i];
             Color c0 = GradAt(in Fill, fh ? g.X0 : g.Y0, fh ? halfW : halfH);
             Color c1 = GradAt(in Fill, fh ? g.X1 : g.Y1, fh ? halfW : halfH);
-            Emit(queue, mat, in wm, in g, 0f, 0f, c0, c1, fh, default, layer);
+            Emit(queue, mat, in wm, in g, 0f, 0f, c0, c1, fh, in fillUser, layer);
         }
     }
 
@@ -163,7 +170,7 @@ public sealed unsafe class TextSprite : Renderer
     void EnsureLayout()
     {
         if (_quads != null && ReferenceEquals(_builtFont, Font) && _builtBind == Font.BindVersion && _builtText == Text
-            && _builtSize == Size && _builtAlign == Align && _builtWeight == Weight
+            && _builtSize == Size && _builtAlign == Align
             && _builtSpacing == Spacing)
             return;
         BuildQuads();
@@ -172,7 +179,6 @@ public sealed unsafe class TextSprite : Renderer
         _builtText = Text;
         _builtSize = Size;
         _builtAlign = Align;
-        _builtWeight = Weight;
         _builtSpacing = Spacing;
     }
 
@@ -181,7 +187,6 @@ public sealed unsafe class TextSprite : Renderer
         var font = Font;
         string text = Text;
         float scale = font.SdfSize > 0 ? Size / font.SdfSize : 1f;
-        float weight = MathF.Max(Weight, 0.01f); // glyph quad'i merkezinden yatay genisletme
 
         // Satir olcumleri (blok genisligi = en genis satir).
         int lineCount = 1;
@@ -238,17 +243,12 @@ public sealed unsafe class TextSprite : Renderer
             ref readonly var g = ref font.GlyphAt(gi);
             if (g.W > 0 && g.H > 0)
             {
-                // Quad kendi merkezinden weight kadar yatay genisler (bold hissi;
-                // advance sabit -> harf araligi degismez, "scale edilmis" gorunmez).
-                float x0 = penX + g.XOff * scale;
-                float x1 = penX + (g.XOff + g.W) * scale;
-                float cx = (x0 + x1) * 0.5f, hw = (x1 - x0) * 0.5f * weight;
                 // V takasi: CPU atlasinda satir 0 ustte (GuiRenderer SDF yoluyla ayni).
                 _quads[q++] = new GlyphQuad
                 {
-                    X0 = cx - hw,
+                    X0 = penX + g.XOff * scale,
                     Y0 = baseY + g.YOff * scale,
-                    X1 = cx + hw,
+                    X1 = penX + (g.XOff + g.W) * scale,
                     Y1 = baseY + (g.YOff + g.H) * scale,
                     U0 = g.AtlasX * invW,
                     V0 = (g.AtlasY + g.H) * invH,

@@ -23,6 +23,9 @@ public sealed class TypeCatalog
         public LifecycleFlags Flags;
         public SerializedType.FieldSchema[] Schema;
         public bool Previewable; // [Previewable] — Inspector jenerik preview kontrolu
+        // Animatable property tablosu (AnimRegistry): uretilmis katalogda dolu gelir,
+        // reflection katalogunda ilk istekte expression-compile ile kurulur.
+        public AnimProperty[] Anim;
     }
 
     readonly Dictionary<string, Entry> _byName = new();

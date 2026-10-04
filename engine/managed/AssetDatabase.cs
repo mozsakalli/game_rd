@@ -121,8 +121,8 @@ public sealed class AssetDatabase
     {
         if (!typeof(IAsset).IsAssignableFrom(t))
             return false;
-        if (t == typeof(Texture))
-            return true; // dogrudan doku alanlari (RT hedefi vs.) asset-referans kalir
+        if (t == typeof(Texture) || t == typeof(IAsset))
+            return true; // dogrudan doku alanlari; IAsset = polimorfik referans (tip yoldan cozulur)
         foreach (var v in _importers.Values)
             if (v == t)
                 return true;
@@ -159,6 +159,13 @@ public sealed class AssetDatabase
     // Serilestirme (Kind.Asset) tek bogazdan yukler — alan tipi hangi asset'se o.
     public object LoadAsset(string keyOrGuid, Type type)
     {
+        if (type == typeof(IAsset))
+        {
+            // Polimorfik referans: somut tip yolun uzantisindan.
+            type = ImportTypeOf(ResolvePath(keyOrGuid));
+            if (type == null)
+                return null;
+        }
         if (type == typeof(Sprite))
             return LoadSprite(keyOrGuid);
         if (type == typeof(Texture))

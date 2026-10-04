@@ -283,6 +283,15 @@ static class RpcCommands
         return null;
     }
 
+    [RpcCommand("select.set", "Editor secimini ayarlar (0 = temizle); paneller bu secime baglanir")]
+    static DocNode SelectSet(RpcContext ctx, int id)
+    {
+        if (id != 0)
+            RequireGo(ctx, id);
+        Selection.DocId = id;
+        return null;
+    }
+
     [RpcCommand("go.setActive", "GameObject aktifligini degistirir")]
     static DocNode SetActive(RpcContext ctx, int id, bool active)
     {

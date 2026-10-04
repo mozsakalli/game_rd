@@ -43,7 +43,7 @@ objects:
         borderBottom: 2
         padLeft: 20
         padRight: 20
-        textWeight: 1
+        textWeight: 0
         textSpacing: 0
         textSkew: 0
         padTop: 1.48
