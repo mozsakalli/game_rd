@@ -1,2 +1,3 @@
 [player] pak: C:\Work\digitoygames\game_rd\Projects\Sandbox\Build\game.pak
 [player] katalog: uretilmis registry + Sandbox.Game.dll
+[player] 1 atlas yuklendi

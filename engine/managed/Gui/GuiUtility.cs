@@ -23,6 +23,10 @@ public static class GuiUtility
     // Keyboard focus'lu kontrol.
     public static int KeyboardControl;
 
+    // Bu pass'te son uretilen id: bilesik widget'larin (TextField, DragInt) ic
+    // kontrol id'sine cagiran taraftan erismek icin (odak sahipligi takibi).
+    public static int LastControlID { get; private set; }
+
     static int _counter;
 
     // --- Tab navigasyonu: FocusType.Keyboard kontroller pass sirasiyla gezilir ---
@@ -94,6 +98,7 @@ public static class GuiUtility
             int id = (int)h;
             if (id == 0)
                 id = 1; // 0 = "kontrol yok" sentineli
+            LastControlID = id;
             if (focusType == FocusType.Keyboard)
                 TrackKeyboard(id);
             return id;

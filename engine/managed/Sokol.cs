@@ -126,6 +126,27 @@ public static unsafe class Sokol
         byte* ttf, byte* atlas, int atlasSize,
         float* glyphOut, short* kernOut, float* metricsOut);
 
+    // --- Glyph-bazli SDF baker (FontImporter; codepoint listesi + SDF boyu serbest) ---
+
+    [DllImport(Lib, EntryPoint = "de_sdf_font_open")]
+    extern public static IntPtr SdfFontOpen(byte* ttf, int length);
+
+    [DllImport(Lib, EntryPoint = "de_sdf_font_close")]
+    extern public static void SdfFontClose(IntPtr handle);
+
+    // out5 = ascent, descent, lineHeight (SDF px), kernScale, sdfSize.
+    [DllImport(Lib, EntryPoint = "de_sdf_font_metrics")]
+    extern public static int SdfFontMetrics(IntPtr handle, float sdfSize, float* out5);
+
+    // out5 = advance, xoff, yoff, w, h; buffer'a w*h SDF bayti (satir 0 ustte).
+    [DllImport(Lib, EntryPoint = "de_sdf_font_glyph")]
+    extern public static int SdfFontGlyph(IntPtr handle, int codepoint, float sdfSize,
+        byte* buffer, int bufferSize, float* out5);
+
+    // codepoints[count] icin count*count int16 kerning (font-unit).
+    [DllImport(Lib, EntryPoint = "de_sdf_font_kern_table")]
+    extern public static int SdfFontKernTable(IntPtr handle, int* codepoints, int count, short* outTable);
+
     [DllImport(Lib, EntryPoint = "de_sokol_commit")]
     extern public static void Commit();
 

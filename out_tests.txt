@@ -1,9 +1,15 @@
 [gamecode] yuklendi: Sandbox.Game (5 script)
 [lifecycle] 18 PASS, 0 FAIL
-[serialization] 14 PASS, 0 FAIL
+[serialization] 39 PASS, 0 FAIL
+[inspector] 41 PASS, 0 FAIL
 [layout] 25 PASS, 0 FAIL
-[pointer] 14 PASS, 0 FAIL
+[pointer] 22 PASS, 0 FAIL
 [fx] 9 PASS, 0 FAIL
-[registrytest] 11 PASS 0 FAIL
-[info] atlas packed: MainAtlas.asset (1 sprites, 256x256)
+[registrytest] 13 PASS 0 FAIL
 [info] [rpc] dinleniyor: localhost:5157
+[info] asset changed: MainAtlas.asset
+[info] [atlas] MainAtlas.asset: 318 bolge, 1 sayfa (RGBA8, 2 uye)
+[info] [import] MainAtlas.asset -> 3 artifact (AtlasImporter, 33ms)
+[info] asset changed: MainAtlas.asset
+[info] [atlas] MainAtlas.asset: 635 bolge, 1 sayfa (RGBA8, 3 uye)
+[info] [import] MainAtlas.asset -> 3 artifact (AtlasImporter, 40ms)

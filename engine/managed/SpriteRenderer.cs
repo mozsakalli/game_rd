@@ -4,7 +4,14 @@ namespace DigitoyEngine;
 public abstract class Renderer : Component
 {
     internal int _rendererSlot = -1;
+    // Sira: SortingSpace.Relative'de parent'in cozulmus sirasina EKLENIR (0 = parent'la
+    // ayni katman, cocuk hiyerarsi geregi zaten ustte); Absolute'ta global deger.
     public int SortingOrder;
+    public SortingSpace SortingSpace;
+    // Scene.Render'in hiyerarsi yuruyusunde her frame yazilir: cozulmus katman ve
+    // DFS sirasi. Encode layer'i ve Pointer tie-break'i buradan okur (cizim = tiklama).
+    internal int _effectiveOrder;
+    internal int _paintOrder;
     // Tum renderer'larda AYNI blend alani/tablosu (sprite/kutu/metin ayrismaz).
     public BlendMode BlendMode;
     // Pixel-effect zinciri (.fx asset'leri, sira = uygulama sirasi). null = sifir maliyet.
@@ -120,7 +127,7 @@ public sealed unsafe class SpriteRenderer : Renderer
             float aw = spr.Page.Width, ah = spr.Page.Height;
             queue.DrawMesh(Mesh.Quad(), mat, in model, Color,
                 spr.X / aw, spr.Y / ah,
-                (spr.X + spr.W) / aw, (spr.Y + spr.H) / ah, SortingOrder);
+                (spr.X + spr.W) / aw, (spr.Y + spr.H) / ah, _effectiveOrder);
             return;
         }
         if (Width != 1f)
@@ -131,6 +138,6 @@ public sealed unsafe class SpriteRenderer : Renderer
         {
             model.m[4] *= Height; model.m[5] *= Height; model.m[6] *= Height;
         }
-        queue.DrawMesh(Mesh.Quad(), mat, in model, Color, U0, V0, U1, V1, SortingOrder);
+        queue.DrawMesh(Mesh.Quad(), mat, in model, Color, U0, V0, U1, V1, _effectiveOrder);
     }
 }

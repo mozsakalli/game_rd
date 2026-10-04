@@ -1,0 +1,4 @@
+[crash] 2026-10-04 11:57:26
+System.NullReferenceException: Object reference not set to an instance of an object.
+   at DigitoyEditor.RegistryTests.Run(TypeCatalog cat) in C:\Work\digitoygames\game_rd\editor\RegistryTests.cs:line 98
+   at DigitoyEditor.App.Main() in C:\Work\digitoygames\game_rd\editor\EditorApp.cs:line 133

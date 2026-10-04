@@ -17,6 +17,12 @@ public unsafe class Texture : GpuResource
     public int Width { get; private set; }
     public int Height { get; private set; }
 
+    // Bu dokuda (atlas sayfasi / font sheet) UiPieces bolgesi varsa orijini;
+    // -1 = yok. LayoutBox kutu parcalarini icerigiyle ayni sayfadan orneklesin diye.
+    public int PiecesX { get; internal set; } = -1;
+    public int PiecesY { get; internal set; } = -1;
+    public bool HasPieces => PiecesX >= 0;
+
     // Bindings icin sokol texture-view id'si (0 = henuz senkronlanmadi).
     internal uint TextureView => (uint)_textureView;
 
@@ -178,6 +184,20 @@ public unsafe class Texture : GpuResource
             }
         }
         return texture;
+    }
+
+    // Ham RGBA8 baytlardan (atlas sayfasi): CPU kopyasi tutulur -> evict/geri
+    // yukleme calisir; GPU'ya ilk _Sync'te cikar.
+    public static Texture FromRgba(int width, int height, ReadOnlySpan<byte> rgba)
+    {
+        var t = new Texture();
+        t.Width = width;
+        t.Height = height;
+        long bytes = (long)width * height * 4;
+        t._pixels = (Color*)System.Runtime.InteropServices.Marshal.AllocHGlobal((IntPtr)bytes);
+        rgba.Slice(0, (int)bytes).CopyTo(new Span<byte>(t._pixels, (int)bytes));
+        t._dirty = true;
+        return t;
     }
 
     internal bool Loading;

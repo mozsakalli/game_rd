@@ -53,6 +53,7 @@ public sealed unsafe class TextSprite : Renderer
     GlyphQuad[] _quads;
     int _quadCount;
     Font _builtFont;
+    int _builtBind;
     string _builtText;
     float _builtSize;
     TextAlign _builtAlign;
@@ -91,7 +92,7 @@ public sealed unsafe class TextSprite : Renderer
             wm.m[6] += wm.m[2] * k;
         }
         var mat = Font.Material.ForBlend(BlendMode).ForEffects(Effects);
-        int layer = SortingOrder;
+        int layer = _effectiveOrder;
         float scale = Font.SdfSize > 0 ? Size / Font.SdfSize : 1f;
         float halfH = _bounds.y * 0.5f;
         float halfW = _bounds.x * 0.5f;
@@ -161,12 +162,13 @@ public sealed unsafe class TextSprite : Renderer
 
     void EnsureLayout()
     {
-        if (_quads != null && ReferenceEquals(_builtFont, Font) && _builtText == Text
+        if (_quads != null && ReferenceEquals(_builtFont, Font) && _builtBind == Font.BindVersion && _builtText == Text
             && _builtSize == Size && _builtAlign == Align && _builtWeight == Weight
             && _builtSpacing == Spacing)
             return;
         BuildQuads();
         _builtFont = Font;
+        _builtBind = Font.BindVersion;
         _builtText = Text;
         _builtSize = Size;
         _builtAlign = Align;
@@ -213,7 +215,8 @@ public sealed unsafe class TextSprite : Renderer
 
         // y-down dunya (SpriteRenderer paritesi): blok merkezi orijinde.
         float top = -blockH * 0.5f;
-        float invAtlas = 1f / font.AtlasSize;
+        var page = font.Page;
+        float invW = page != null ? 1f / page.Width : 0f, invH = page != null ? 1f / page.Height : 0f;
         int curLine = 0, prev = -1;
         float penX = LineStartX(lineW[0], maxW);
         float baseY = top + font.Ascent * scale;
@@ -247,10 +250,10 @@ public sealed unsafe class TextSprite : Renderer
                     Y0 = baseY + g.YOff * scale,
                     X1 = cx + hw,
                     Y1 = baseY + (g.YOff + g.H) * scale,
-                    U0 = g.AtlasX * invAtlas,
-                    V0 = (g.AtlasY + g.H) * invAtlas,
-                    U1 = (g.AtlasX + g.W) * invAtlas,
-                    V1 = g.AtlasY * invAtlas,
+                    U0 = g.AtlasX * invW,
+                    V0 = (g.AtlasY + g.H) * invH,
+                    U1 = (g.AtlasX + g.W) * invW,
+                    V1 = g.AtlasY * invH,
                 };
             }
             penX += g.Advance * scale + Spacing;

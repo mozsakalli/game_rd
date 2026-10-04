@@ -75,6 +75,7 @@ public sealed unsafe partial class LayoutBox
     int _tqCount;
     float _tbBlockH;
     Font _tbFont;
+    int _tbBind;
     string _tbText;
     float _tbSize, _tbAvailW, _tbAvailH, _tbWeight, _tbSpacing;
     TextAlign _tbAlign;
@@ -188,7 +189,7 @@ public sealed unsafe partial class LayoutBox
 
     void EnsureTextLayout(float availW, float availH)
     {
-        if (_tq != null && ReferenceEquals(_tbFont, font) && _tbText == text
+        if (_tq != null && ReferenceEquals(_tbFont, font) && _tbBind == font.BindVersion && _tbText == text
             && _tbSize == textSize && _tbAlign == textAlign && _tbAlignV == textAlignV
             && _tbWrap == textWrap && _tbEllipsis == textEllipsis && _tbWeight == textWeight
             && _tbSpacing == textSpacing
@@ -196,6 +197,7 @@ public sealed unsafe partial class LayoutBox
             return;
         BuildTextQuads(availW, availH);
         _tbFont = font;
+        _tbBind = font.BindVersion;
         _tbText = text;
         _tbSize = textSize;
         _tbAlign = textAlign;
@@ -268,7 +270,8 @@ public sealed unsafe partial class LayoutBox
     // Weight: quad kendi merkezinden yatay genisler (advance sabit -> yerlesim ayni).
     void EmitRun(ReadOnlySpan<char> s, float xs, float baseY, float scale, ref float pen, ref int prev)
     {
-        float inv = 1f / font.AtlasSize;
+        var page = font.Page;
+        float invW = page != null ? 1f / page.Width : 0f, invH = page != null ? 1f / page.Height : 0f;
         float weight = MathF.Max(textWeight, 0.01f);
         for (int i = 0; i < s.Length; i++)
         {
@@ -287,10 +290,10 @@ public sealed unsafe partial class LayoutBox
                     Y0 = baseY + g.YOff * scale,
                     X1 = cx + hw,
                     Y1 = baseY + (g.YOff + g.H) * scale,
-                    U0 = g.AtlasX * inv,
-                    V0 = (g.AtlasY + g.H) * inv,
-                    U1 = (g.AtlasX + g.W) * inv,
-                    V1 = g.AtlasY * inv,
+                    U0 = g.AtlasX * invW,
+                    V0 = (g.AtlasY + g.H) * invH,
+                    U1 = (g.AtlasX + g.W) * invW,
+                    V1 = g.AtlasY * invH,
                 };
             }
             pen += g.Advance + SpacingSdf;

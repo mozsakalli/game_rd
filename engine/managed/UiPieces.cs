@@ -38,10 +38,10 @@ public readonly struct UiAtlas
 // Prosedürel SDF UI parçaları (eski motorun pişmiş FillTexture modelinin SDF hali):
 // çeyrek disk köşe (kutu radius'u — fwidth AA ile her ölçekte keskin), geniş-spread
 // gölge köşesi (USER.x smoothing ile değişken blur) ve düz beyaz kare. Parçalar
-// HER DFNT font atlasının alt bandına (glyph hücreleri 14 satır = y<1792) VE
-// font'suz kullanım için lazy fallback atlasına AYNI fonksiyonla pişer — kutu +
-// metin aynı doku/shader'ı paylaşır (tek draw). Değer eşlemesi font SDF'iyle aynı:
-// 0.5 = kenar, >0.5 içerisi (aynı smoothstep shader'ı ikisini de çizer).
+// HER atlas sayfasına ve her font sheet'ine (paketleyicinin yerleşik üreticisi) VE
+// sayfasız kullanım için lazy fallback dokusuna AYNI fonksiyonla pişer — kutu +
+// metin + ikon aynı doku/shader'ı paylaşır (tek draw). Sayfadaki orijin Texture
+// .PiecesX/Y'de taşınır. Değer eşlemesi font SDF'iyle aynı: 0.5 = kenar.
 public static unsafe class UiPieces
 {
     // Bölgeye göreli parça yerleşimi (px). Aralarda 8px pad (bilinear sızma).
@@ -57,12 +57,11 @@ public static unsafe class UiPieces
 
     public const int RegionW = 312, RegionH = 128;
 
-    // DFNT font atlasındaki bölge orijini: 14 glyph satırı (1792) + 8 pad.
-    public const int FontRegionX = 0;
-    public const int FontRegionY = 1800;
+    // Parça içeriği değişince artır: paketleyici hash'ine girer (tüm atlas/sheet'ler yeniden pişer).
+    public const int BakeVersion = 1;
 
-    // Parçaları R8 atlasa pişirir (satır 0 üstte). Bake tarafı (editör importer)
-    // ve runtime fallback aynı fonksiyonu kullanır — çıktı birebir aynı.
+    // Parçaları R8 tampona pişirir (satır 0 üstte, tampon genişliği atlasW). Bake
+    // tarafı (editör paketleyici) ve runtime fallback aynı fonksiyonu kullanır.
     public static void BakeRegion(byte[] atlas, int atlasW, int ox, int oy)
     {
         int atlasH = atlas.Length / atlasW;
@@ -99,13 +98,12 @@ public static unsafe class UiPieces
         }
     }
 
-    // Font'suz kutular için paylaşılan atlas (lazy; içerik DFNT bölgesiyle birebir).
+    // Sayfasız kutular için paylaşılan doku (lazy; içerik atlas bölgesiyle birebir).
     static Texture _fallbackTex;
 
     // Varsayılan UI fontu: ilk yüklenen font otomatik atanır (elle de set edilebilir).
-    // Font'suz LayoutBox parçaları bu fontun atlasından örneklenir — sahnedeki
+    // Font'suz LayoutBox parçaları bu fontun sayfasından örneklenir — sahnedeki
     // metinli kutularla texview aynı kalır, hepsi tek instanced draw'a merge olur.
-    // Parça bölgesi her DFNT'de birebir aynı piştiği için görsel fark yoktur.
     public static Font DefaultFont;
 
     public static UiAtlas Fallback
@@ -121,18 +119,22 @@ public static unsafe class UiPieces
                     _fallbackTex = Texture.FromAlpha(w, h, p);
                 _fallbackTex.Name = "ui#pieces";
                 _fallbackTex.Persistent = true;
+                _fallbackTex.PiecesX = 0;
+                _fallbackTex.PiecesY = 0;
             }
             return new UiAtlas(_fallbackTex, 0, 0);
         }
     }
 
-    // Ortak UI SDF shader'i: USER.x = smoothing (0 = fwidth keskin), USER.y =
+    // Ortak UI shader'i: USER.x = smoothing (0 = fwidth keskin), USER.y =
     // kenar merkezi (0 = 0.5), USER.z > 0 = ic kenar bandi (border RINGI icin;
     // alpha dista 0 - kenarda 1 - USER.z'de tekrar 0), USER.w > 0 = ham rampa
-    // (alpha = d dogrudan; radyal gradient). Kutu, golge ve metin AYNI
-    // shader/pipeline'i paylasir -> ayni atlasa dusen bitisik draw'lar merge olur.
+    // (alpha = d dogrudan; radyal gradient), USER.w < 0 = DOKULU gecis (duz
+    // sprite: SAMPLE * color — ayni sayfadaki ikon kutu/metinle tek draw'a girer).
+    // SDF .r'den okunur: R8 sayfada tek kanal, RGBA sayfada deger dort kanala kopyali.
     public const string SdfFragment =
         "VEC4 fs_main(VEC2 uv, VEC4 color) {\n" +
+        "  if (USER.w < 0.0) return SAMPLE(tex, uv) * color;\n" +
         "  FLOAT d = SAMPLE(tex, uv).r;\n" +
         "  if (USER.w > 0.0) return VEC4(color.rgb, d * color.a);\n" +
         "  FLOAT s = USER.x > 0.0 ? USER.x : FWIDTH(d);\n" +
@@ -141,13 +143,27 @@ public static unsafe class UiPieces
         "  if (USER.z > 0.0) a *= 1.0 - smoothstep(USER.z - s, USER.z + s, d);\n" +
         "  return VEC4(color.rgb, a * color.a);\n}"; // duz renk; premultiply wrapper'da
 
+    // Dokulu gecis modunun USER degeri (LayoutBox sprite yolu).
+    public static readonly Vec4 TexturedUser = new(0f, 0f, 0f, -1f);
+
     static Shader _shader;
     public static Shader UiShader => _shader ??= Shader.CreateEffect(SdfFragment);
 
     static Material _material;
 
-    // Fallback atlasli paylasilan materyal (LayoutBox kullanir; blend = kanon default).
+    // Fallback dokulu paylasilan materyal (LayoutBox kullanir; blend = kanon default).
     public static Material SharedMaterial => _material ??= new Material
+    {
+        MainTexture = Fallback.Tex,
+        Shader = UiShader,
+        SortMode = SortMode.Transparent,
+    };
+
+    static Material _textured;
+
+    // Dokulu kutu materyali: ayni UI shader, doku cizim aninda atanir (paylasilan
+    // materyal deseni — TexView DrawMesh aninda yakalanir).
+    public static Material TexturedMaterial => _textured ??= new Material
     {
         MainTexture = Fallback.Tex,
         Shader = UiShader,

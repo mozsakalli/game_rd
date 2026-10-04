@@ -117,7 +117,8 @@ public unsafe class App
         _assets = new AssetDatabase(AssetsPath);
         _assets.ScanMetas(createMissing: true); // GUID kimligi: eksik .meta uretilir
         ImportPipeline.Init(_project);
-        _assets.ArtifactResolver = ImportPipeline.ResolveMainArtifact; // import'lu asset'ler Library'den
+        _assets.ArtifactResolver = ImportPipeline.ResolveArtifact; // import'lu asset'ler Library'den
+        AssetDatabase.LogWarning = EditorLog.Warning;
         PixelEffect.LogError = EditorLog.Error; // fx derleme hatalari Console paneline
         _gameCode = new GameCode();
         _gameCode.CompileAndLoad(_project, _assets);
@@ -125,6 +126,7 @@ public unsafe class App
 #if DE_EDITOR
         LifecycleTests.Run(_catalog); // izole sahnede kenar durum smoke testleri
         SerializationTests.Run(_catalog);
+        InspectorTests.Run();
         LayoutTests.Run(_catalog);
         PointerTests.Run(_catalog);
         PixelEffectTests.Run();
@@ -148,7 +150,7 @@ public unsafe class App
                 _editScene.Load(last, _catalog, _assets);
         }
         AssetWatcher.Start(AssetsPath); // degisiklikler otomatik derleme/refresh tetikler
-        AtlasBuilder.BuildAll(); // atlas gruplari: sprite'lar HER modda atlastan cizilir
+        AtlasSystem.RefreshAll(); // atlas gruplari: import (stamp kapisi) + sayfalar baglanir
         RpcHost.Start(); // AI/otomasyon komut kanali (localhost, satir-bazli JSON)
 
         while (GLFW.WindowShouldClose(window) == GLFWConst.FALSE)
@@ -165,7 +167,6 @@ public unsafe class App
                 _rpcCtx.Assets = _assets;
                 RpcHost.Pump(_rpcCtx);
             }
-            AtlasBuilder.Tick(); // kirli atlas gruplari (yukler indiginde) yeniden paketlenir
             GLFW.GetFramebufferSize(window, out int fbw, out int fbh);
             if (fbw <= 0 || fbh <= 0)
                 continue; // minimize

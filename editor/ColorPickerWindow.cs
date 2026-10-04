@@ -17,7 +17,7 @@ public static unsafe class ColorPickerWindow
     static byte _a = 255;
 
     const float LogicalW = 240f;
-    const float LogicalH = 246f;
+    const float LogicalH = 242f;
 
     static NativeWindow _win;
     static Rect _winRect;
@@ -28,6 +28,14 @@ public static unsafe class ColorPickerWindow
     static readonly int _svHash = "ColorPicker.SV".GetHashCode();
     static readonly int _hueHash = "ColorPicker.Hue".GetHashCode();
     static readonly int _alphaHash = "ColorPicker.Alpha".GetHashCode();
+
+    // Picker'in kendi kontrol id'leri: HotControl/KeyboardControl GLOBAL
+    // (pencereler arasi paylasilir); kapanis/yeniden acilista yalniz bize ait
+    // odak/hot state birakilir, ana pencerenin odagi ellenmez.
+    static int _svId, _hueId, _alphaId, _hexId;
+    static readonly int[] _channelIds = new int[4];
+    static readonly Rect[] _channelRects = new Rect[4];
+    static Rect _hexRect;
 
     static char[] _hexBuf = new char[16];
     static int _hexLen;
@@ -60,9 +68,11 @@ public static unsafe class ColorPickerWindow
 
     public static void Open(string key, Color initial)
     {
+        ReleaseGuiState(); // onceki alanin hex/kanal odagi yeni renge sizmasin
         _owner = key;
         ColorToHsv(initial, ref _h, ref _s, ref _v);
         _a = initial.a;
+        WriteHex(initial);
         _wasFocused = false;
         _openFrames = 0;
 
@@ -83,13 +93,17 @@ public static unsafe class ColorPickerWindow
         }
         // Yalniz bu cagrinin hint'leri elle geri alinir: DefaultWindowHints
         // GL context hint'lerini de sifirlar (sonraki detach pencereleri bozulur).
+        // SCALE_TO_MONITOR ana pencere icin acik kalmistir; boyut zaten k ile
+        // olceklendiginden kapatilmazsa Windows'ta pencere DPI ile ikinci kez buyur.
         GLFW.WindowHint(GLFWConst.DECORATED, GLFWConst.FALSE);
         GLFW.WindowHint(GLFWConst.FLOATING, GLFWConst.TRUE);
         GLFW.WindowHint(GLFWConst.RESIZABLE, GLFWConst.FALSE);
+        GLFW.WindowHint(GLFWConst.SCALE_TO_MONITOR, GLFWConst.FALSE);
         _win = NativeWindow.Open("Color", px, py, pw, ph);
         GLFW.WindowHint(GLFWConst.DECORATED, GLFWConst.TRUE);
         GLFW.WindowHint(GLFWConst.FLOATING, GLFWConst.FALSE);
         GLFW.WindowHint(GLFWConst.RESIZABLE, GLFWConst.TRUE);
+        GLFW.WindowHint(GLFWConst.SCALE_TO_MONITOR, GLFWConst.TRUE);
         if (_win != null)
         {
             _win.Camera.BackgroundColor = new Color(32, 34, 40, 255);
@@ -100,10 +114,46 @@ public static unsafe class ColorPickerWindow
     public static void Close()
     {
         _owner = null;
+        ReleaseGuiState();
         if (_win == null)
             return;
         _win.Destroy();
         _win = null;
+    }
+
+    static bool Owns(int id)
+    {
+        if (id == 0)
+            return false;
+        if (id == _svId || id == _hueId || id == _alphaId || id == _hexId)
+            return true;
+        for (int i = 0; i < _channelIds.Length; i++)
+            if (id == _channelIds[i])
+                return true;
+        return false;
+    }
+
+    static bool IsChannel(int id)
+    {
+        if (id == 0)
+            return false;
+        for (int i = 0; i < _channelIds.Length; i++)
+            if (id == _channelIds[i])
+                return true;
+        return false;
+    }
+
+    // Picker'a ait hot/keyboard state'i birak. Pencere kapaninca bu kontroller
+    // bir daha cizilmez: birakilmazsa ana pencere kisayollari/RPC (KeyboardControl
+    // != 0) ve mouse (HotControl != 0 -> tum event'ler Ignore) kilitli kalir.
+    static void ReleaseGuiState()
+    {
+        if (Owns(GuiUtility.HotControl))
+            GuiUtility.HotControl = 0;
+        if (IsChannel(GuiUtility.KeyboardControl))
+            Gui.CancelNumericEdit();
+        if (Owns(GuiUtility.KeyboardControl))
+            GuiUtility.KeyboardControl = 0;
     }
 
     // Alan sahibi frame'de guncel degeri ceker; picker bu alani duzenlemiyorsa false.
@@ -160,6 +210,16 @@ public static unsafe class ColorPickerWindow
         Event ev = Event.Current;
         Color rgb = HsvToColor(_h, _s, _v, 255);
 
+        // Odakli metin/kanal alaninin DISINA tik = klavye odagini birak. Widget'in
+        // kendi "disari tik" mantigi SV/hue gibi event'i Use eden kontrollerin
+        // ardinda calismaz; odak kalirsa hex/kanal tamponu rengi geri ezer.
+        if (ev.Type == EventType.MouseDown)
+        {
+            int kb = GuiUtility.KeyboardControl;
+            if (kb != 0 && Owns(kb) && !FocusedRect(kb).Contains(ev.MousePosition))
+                GuiUtility.KeyboardControl = 0;
+        }
+
         if (ev.Type == EventType.Repaint) // dekorasyonsuz pencereye ince cerceve
         {
             GuiRenderer.DrawRect(_winRect, new Color(70, 73, 84, 255), 0);
@@ -172,7 +232,7 @@ public static unsafe class ColorPickerWindow
         var alphaRect = new Rect(212, 10, 18, 168);
 
         // --- SV karesi (TL=beyaz TR=hue BR/BL=siyah: bilinear mix tam SV duzlemi) ---
-        int svId = GuiUtility.GetControlID(_svHash, FocusType.Passive);
+        int svId = _svId = GuiUtility.GetControlID(_svHash, FocusType.Passive);
         switch (ev.GetTypeForControl(svId))
         {
             case EventType.MouseDown:
@@ -200,7 +260,7 @@ public static unsafe class ColorPickerWindow
         }
 
         // --- Hue seridi (dikey, 6 gradyan segmenti) ---
-        int hueId = GuiUtility.GetControlID(_hueHash, FocusType.Passive);
+        int hueId = _hueId = GuiUtility.GetControlID(_hueHash, FocusType.Passive);
         switch (ev.GetTypeForControl(hueId))
         {
             case EventType.MouseDown:
@@ -235,7 +295,7 @@ public static unsafe class ColorPickerWindow
         }
 
         // --- Alfa seridi (dikey: ustte opak renk, altta seffaf) ---
-        int alphaId = GuiUtility.GetControlID(_alphaHash, FocusType.Passive);
+        int alphaId = _alphaId = GuiUtility.GetControlID(_alphaHash, FocusType.Passive);
         switch (ev.GetTypeForControl(alphaId))
         {
             case EventType.MouseDown:
@@ -268,10 +328,10 @@ public static unsafe class ColorPickerWindow
         // --- RGBA drag alanlari ---
         float y = 188;
         Color current = HsvToColor(_h, _s, _v, _a);
-        byte r = ChannelDrag(10, y, "R", current.r);
-        byte g = ChannelDrag(66, y, "G", current.g);
-        byte b = ChannelDrag(122, y, "B", current.b);
-        byte a2 = ChannelDrag(178, y, "A", current.a);
+        byte r = ChannelDrag(0, 10, y, "R", current.r);
+        byte g = ChannelDrag(1, 66, y, "G", current.g);
+        byte b = ChannelDrag(2, 122, y, "B", current.b);
+        byte a2 = ChannelDrag(3, 178, y, "A", current.a);
         if (r != current.r || g != current.g || b != current.b)
             ColorToHsv(new Color(r, g, b, 255), ref _h, ref _s, ref _v);
         _a = a2;
@@ -282,10 +342,17 @@ public static unsafe class ColorPickerWindow
             GuiRenderer.DrawTextIn(new Rect(10, y, 30, 18), "Hex", Gui.FontSize - 3f,
                 new Color(165, 168, 178, 255), false, 2);
         Color now = HsvToColor(_h, _s, _v, _a);
-        if (GuiUtility.KeyboardControl == 0)
-            WriteHex(now); // odak yokken buffer daima guncel renk
-        Gui.TextField(new Rect(44, y, 116, 18), ref _hexBuf, ref _hexLen);
-        if (TryParseHex(_hexBuf, _hexLen, now, out Color hexColor)
+        // Tampon yalniz HEX ALANI odakliyken kullanicinindir; aksi halde daima
+        // guncel rengi yansitir. Global KeyboardControl==0 kosulu yanlisti: baska
+        // bir alan (kanal, ana pencere) odakliyken bayat hex rengi geri eziyordu.
+        _hexRect = new Rect(44, y, 116, 18);
+        bool hexFocused = _hexId != 0 && GuiUtility.KeyboardControl == _hexId;
+        if (!hexFocused)
+            WriteHex(now);
+        Gui.TextField(_hexRect, ref _hexBuf, ref _hexLen);
+        _hexId = GuiUtility.LastControlID;
+        if (GuiUtility.KeyboardControl == _hexId
+            && TryParseHex(_hexBuf, _hexLen, now, out Color hexColor)
             && !Same(hexColor, now))
         {
             ColorToHsv(hexColor, ref _h, ref _s, ref _v);
@@ -315,12 +382,27 @@ public static unsafe class ColorPickerWindow
     static void ApplyBar(in Rect rect, float mouseY, Action<float> set)
         => set(Clamp01((mouseY - rect.y) / rect.height));
 
-    static byte ChannelDrag(float x, float y, string label, byte value)
+    static byte ChannelDrag(int index, float x, float y, string label, byte value)
     {
         if (Event.Current.Type == EventType.Repaint)
             GuiRenderer.DrawTextIn(new Rect(x, y, 12, 18), label, Gui.FontSize - 3f,
                 new Color(165, 168, 178, 255), false, 2);
-        return (byte)Gui.DragInt(new Rect(x + 14, y, 38, 18), value, 1f, 0, 255);
+        var rect = new Rect(x + 14, y, 38, 18);
+        _channelRects[index] = rect;
+        int result = Gui.DragInt(rect, value, 1f, 0, 255);
+        _channelIds[index] = GuiUtility.LastControlID;
+        return (byte)result;
+    }
+
+    // Odakli (bize ait) kontrolun rect'i; disari-tik tespiti icin.
+    static Rect FocusedRect(int id)
+    {
+        if (id == _hexId)
+            return _hexRect;
+        for (int i = 0; i < _channelIds.Length; i++)
+            if (id == _channelIds[i])
+                return _channelRects[i];
+        return default;
     }
 
     static void DrawBarMarker(in Rect bar, float t)

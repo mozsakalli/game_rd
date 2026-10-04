@@ -2,5 +2,10 @@ type: AtlasGroup
 fields:
   folders:
     - Textures
+  fonts:
+    - Fonts/arial.ttf
+    - Fonts/NotoSans-Black.ttf
   padding: 2
   maxSize: 2048
+  format: Auto
+  uiPieces: true

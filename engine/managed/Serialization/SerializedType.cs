@@ -14,7 +14,7 @@ namespace DigitoyEngine;
 //   SINIR: ic ice STRUCT icinde Go/CompRef yok (boxed kopya vs deferred cozum)
 public static class SerializedType
 {
-    public enum Kind : byte { Float, Int, Bool, String, Enum, Vec2, Vec3, Color, Asset, GoRef, CompRef, List, Object }
+    public enum Kind : byte { Float, Int, Bool, String, Enum, Vec2, Vec3, Color, Asset, GoRef, CompRef, List, Object, Vec4 }
 
     public sealed class FieldSchema
     {
@@ -381,6 +381,7 @@ public static class SerializedType
         if (ft.IsEnum) { k = Kind.Enum; return true; }
         if (ft == typeof(Vec2)) { k = Kind.Vec2; return true; }
         if (ft == typeof(Vec3)) { k = Kind.Vec3; return true; }
+        if (ft == typeof(Vec4)) { k = Kind.Vec4; return true; }
         if (ft == typeof(Color)) { k = Kind.Color; return true; }
         if (AssetDatabase.IsAssetType(ft)) { k = Kind.Asset; return true; }
         if (ft == typeof(GameObject)) { k = Kind.GoRef; return true; }
@@ -400,6 +401,7 @@ public static class SerializedType
         Kind.Enum => v.ToString(),
         Kind.Vec2 => FormatVec2((Vec2)v),
         Kind.Vec3 => FormatVec3((Vec3)v),
+        Kind.Vec4 => FormatVec4((Vec4)v),
         Kind.Color => FormatColor((Color)v),
         Kind.Asset => (v as IAsset)?.Name ?? "", // asset anahtari (AssetDatabase key)
         // Go/CompRef sahne baglami ister (localId haritasi) — SceneDoc ozel isler.
@@ -416,6 +418,7 @@ public static class SerializedType
         Kind.Enum => Enum.TryParse(fieldType, s, out object ev) ? ev : Enum.ToObject(fieldType, 0),
         Kind.Vec2 => ParseVec2(s),
         Kind.Vec3 => ParseVec3(s),
+        Kind.Vec4 => ParseVec4(s),
         Kind.Color => ParseColor(s),
         Kind.Asset => string.IsNullOrEmpty(s) ? null : assets?.LoadAsset(s, fieldType),
         _ => null,
@@ -424,6 +427,7 @@ public static class SerializedType
     static string F(float v) => v.ToString("R", CultureInfo.InvariantCulture);
     static string FormatVec2(Vec2 v) => F(v.x) + " " + F(v.y);
     static string FormatVec3(Vec3 v) => F(v.x) + " " + F(v.y) + " " + F(v.z);
+    static string FormatVec4(Vec4 v) => F(v.x) + " " + F(v.y) + " " + F(v.z) + " " + F(v.w);
     static string FormatColor(Color c) => $"#{c.r:x2}{c.g:x2}{c.b:x2}{c.a:x2}";
 
     static Vec2 ParseVec2(string s)
@@ -436,6 +440,12 @@ public static class SerializedType
     {
         var p = s.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         return new Vec3(PF(p, 0), PF(p, 1), PF(p, 2));
+    }
+
+    internal static Vec4 ParseVec4(string s)
+    {
+        var p = s.Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        return new Vec4(PF(p, 0), PF(p, 1), PF(p, 2), PF(p, 3));
     }
 
     static float PF(string[] p, int i)

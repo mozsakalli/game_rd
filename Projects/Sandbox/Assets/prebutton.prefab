@@ -1,0 +1,63 @@
+scene: prebutton
+objects:
+  - id: 1
+    parent: 0
+    name: prebutton
+    pos: 80.66681 -84.00005 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 200
+        height: 70
+        border: 2 2 2 2
+        borderFill:
+          type: Solid
+          direction: Vertical
+          color: '#ffffffff'
+          color2: '#00000000'
+        radius: 15 15 15 15
+        fill:
+          type: Solid
+          direction: Vertical
+          color: '#15192eff'
+          color2: '#00000000'
+        font: fd5600eb13f947c7af4439bb29c33b96
+        text: Good Luck!
+        textAlign: Center
+        textAlignV: Center
+        textSize: 38.946667
+        textSpacing: -0.24
+        SortingOrder: 17
+        shadowColor: '#000000ff'
+        textOutlineWidth: 4.0666676
+        textOutline:
+          type: Solid
+          direction: Vertical
+          color: '#ffffff00'
+          color2: '#000000ff'
+        textFill:
+          type: Solid
+          direction: Vertical
+          color: '#ffffffff'
+          color2: '#ffffffff'
+        textShadowColor: '#e479f66e'
+        textShadowOffset: 0 -0.06666899
+        textShadowBlur: 0
+  - id: 2
+    parent: 1
+    name: GameObject (4)
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 6.3028054 0.46395567 1
+    components:
+      - type: LayoutBox
+        fill:
+          type: Radial
+          direction: Vertical
+          color: '#f8ceff99'
+          color2: '#00000000'
+        width: 20
+        height: 20
+        anchoredPos: 19.197733 -25.511086
+        SortingOrder: 18

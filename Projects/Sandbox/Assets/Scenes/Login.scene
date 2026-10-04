@@ -42,15 +42,12 @@ objects:
         pivot: 0.5 0
         anchoredPos: 321.74835 137.49911
         fillColor: '#ffffffe6'
-        radiusTL: 18
-        radiusTR: 18
-        radiusBR: 18
-        radiusBL: 18
         fill:
           type: Solid
           color: '#ffffffff'
           color2: '#00000000'
         sprite: 075be890f3654858ba989f833e31109a
+        radius: 18 18 18 18
   - id: 3
     parent: 1
     name: ButtonRow
@@ -76,10 +73,6 @@ objects:
         width: 170
         height: 60
         fillColor: '#1877f2ff'
-        radiusTL: 10
-        radiusTR: 10
-        radiusBR: 10
-        radiusBL: 10
         fill:
           type: Linear
           color: '#347ccaff'
@@ -90,8 +83,6 @@ objects:
           color: '#455f7d00'
           color2: '#007aff72'
           direction: Vertical
-        borderLeft: 2
-        borderTop: 2
         shadowColor: '#0000007a'
         shadowBlur: 12.64
         font: 713ad506a3014c21aa1043ccd65aa552
@@ -104,17 +95,16 @@ objects:
         textShadowOffset: 0 1.4333313
         overflowX: Grow
         textWrap: false
-        borderRight: 2
-        borderBottom: 2
-        padLeft: 20
-        padRight: 20
         textWeight: 1
         textSpacing: 0
         textSkew: 0
-        padTop: 1.48
         Effects: ''
         fitScreen: false
         ignoreLayout: false
+        padding: 20 1.48 20 0
+        border: 2 2 2 2
+        radius: 10 10 10 10
+        SortingOrder: 0
   - id: 5
     parent: 3
     name: GuestLogin
@@ -126,29 +116,29 @@ objects:
         width: 40
         height: 40
         fillColor: '#6b7280ff'
-        radiusTL: 10
-        radiusTR: 10
-        radiusBR: 10
-        radiusBL: 10
         fill:
           type: Radial
-          color: '#ffffff70'
+          color: '#28167d70'
           color2: '#00000000'
           direction: Vertical
-        borderLeft: 1
-        borderTop: 1
-        borderRight: 1
-        borderBottom: 1
         borderFill:
-          type: Linear
+          type: Solid
           direction: Vertical
           color: '#ffffff70'
           color2: '#ffffff70'
-        font: 713ad506a3014c21aa1043ccd65aa552
+        font: fd5600eb13f947c7af4439bb29c33b96
         text: X
         textAlign: Center
         textAlignV: Center
-        textSize: 16
+        textSize: 22
+        textWeight: 1
+        textFill:
+          type: Solid
+          direction: Vertical
+          color: '#fff97cff'
+          color2: '#ffffffff'
+        border: 0 0 0 0
+        radius: 10 10 10 10
   - id: 6
     parent: 3
     name: AppleLogin
@@ -160,19 +150,13 @@ objects:
         width: 150
         height: 46
         fillColor: '#0a0a0aff'
-        borderLeft: 1
-        borderTop: 1
-        borderRight: 1
-        borderBottom: 1
         borderColor: '#ffffff80'
-        radiusTL: 10
-        radiusTR: 10
-        radiusBR: 10
-        radiusBL: 10
         fill:
           type: Solid
           color: '#000000ff'
           color2: '#00000000'
+        border: 1 1 1 1
+        radius: 10 10 10 10
       - type: ApplePlatformOnly
   - id: 7
     parent: 1
@@ -189,10 +173,6 @@ objects:
         pivot: 0.5 1
         anchoredPos: 0 -20
         fillColor: '#ffffff59'
-        radiusTL: 7
-        radiusTR: 7
-        radiusBR: 7
-        radiusBL: 7
         fill:
           type: Solid
           color: '#eeffb700'
@@ -203,6 +183,7 @@ objects:
         textWrap: false
         textShadowColor: '#000000ff'
         textShadowOffset: 0 0.56666875
+        radius: 7 7 7 7
   - id: 9
     parent: 0
     name: LOGOSPRITE
@@ -266,6 +247,71 @@ objects:
         anchorMin: 0.025 0.5
         anchorMax: -0.025 0.5
         pivot: 0 0.5
-        radiusTL: 10
-        radiusTR: 10
         anchoredPos: -0.666687 -21
+        radius: 10 10 0 0
+  - id: 12
+    parent: 5
+    name: GameObject (2)
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        borderFill:
+          type: Linear
+          direction: Vertical
+          color: '#16085933'
+          color2: '#2504ccff'
+        width: 40
+        height: 40
+        border: 1 1 1 1
+        radius: 30 30 30 30
+  - id: 15
+    parent: 1
+    name: >>buttons<<
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        layout: Vertical
+        spacing: 20
+        anchorMin: 1 0
+        pivot: 1 0.5
+        anchorMax: 1 1
+        anchoredPos: 0 0
+        fill:
+          type: Solid
+          direction: Vertical
+          color: '#0d0442ff'
+          color2: '#00000000'
+        padding: 10 10 50 0
+        shadowColor: '#0000005f'
+        shadowOffset: -15.600003 0
+        borderFill:
+          type: Solid
+          direction: Vertical
+          color: '#000000ff'
+          color2: '#00000000'
+        border: 1 0 0 0
+  - id: 16
+    parent: 15
+    name: prebutton (1)
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    prefab: bd2280378a7745e9912ad7b9ad1d52e4
+    prefabIds: '1:16 2:17'
+  - id: 18
+    parent: 15
+    name: prebutton (2)
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    prefab: bd2280378a7745e9912ad7b9ad1d52e4
+    prefabIds: '1:18 2:19'
+    overrides:
+      - node: 1
+        comp: 'LayoutBox:0'
+        prop: text
+        value: Hurry Up!

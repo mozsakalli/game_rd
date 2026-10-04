@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("DigitoyEngine")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+b512504d0c28692f7cb560745d6cd381fbf2e0f7")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+b29b581e1294af1d46657feb95a601b815952254")]
 [assembly: System.Reflection.AssemblyProductAttribute("DigitoyEngine")]
 [assembly: System.Reflection.AssemblyTitleAttribute("DigitoyEngine")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

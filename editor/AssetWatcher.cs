@@ -135,13 +135,14 @@ public static class AssetWatcher
             FileListVersion++;
         }
 
+        bool atlasDirty = false;
         switch (ext)
         {
             case ".png" or ".jpg" or ".jpeg":
                 // Yerinde piksel patch'i: sahne/play/referanslar hic bozulmaz.
                 if (assets.ReloadTexture(rel))
                     EditorLog.Info($"texture patched in-place: {rel}");
-                AtlasBuilder.MarkDirtyByMember(rel); // uye oldugu gruplar tazelenir
+                atlasDirty = true; // uye oldugu gruplar stamp'ten yeniden paketlenir
                 break;
             case ".prefab":
                 assets.InvalidatePrefab(rel);
@@ -167,20 +168,22 @@ public static class AssetWatcher
             case ".asset":
                 AssetChangeVersion++;
                 LastChangedAsset = full;
-                if (File.Exists(full) && AtlasBuilder.IsAtlasGroupAsset(full))
-                    AtlasBuilder.MarkDirtyGroup(rel);
+                atlasDirty = true; // grup tanimi degisti/silindi: RefreshAll karar verir
                 EditorLog.Info($"asset changed: {rel}");
                 break;
             default:
                 // Importer'li kaynak (ttf vs.): artifact tazelenir, cache duser.
-                if (File.Exists(full) && ImportPipeline.ImporterFor(ext) != null)
+                if (File.Exists(full) && ImportPipeline.ImporterFor(rel) != null)
                 {
                     ImportPipeline.EnsureImported(rel, force: true);
                     assets.InvalidateImported(rel);
                     AssetChangeVersion++;
+                    atlasDirty = true; // fontu alan gruplar yeniden paketlenir
                 }
                 break;
         }
+        if (atlasDirty)
+            AtlasSystem.RefreshAll();
     }
 
     // El ile de cagrilabilir (Project/Compile+Load Code menusu buna yonlenebilir).

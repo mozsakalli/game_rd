@@ -241,6 +241,8 @@ public sealed partial class SceneDoc
                 continue;
             }
             var clone = value?.Clone() ?? DocNode.Scal("");
+            if (ApplyLegacyLayoutBoxOverride(cd, prop, clone))
+                continue;
             for (int i = 0; i < cd.Props.Count; i++)
             {
                 if (cd.Props[i].Key == prop)

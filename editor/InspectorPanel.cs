@@ -244,6 +244,7 @@ public sealed partial class InspectorPanel : EditorWindow
     // [Serializable] taramasindan (App.AssetTypes) gelir. ---
     string _aPath;
     object _aObj;
+    bool _aIsMeta; // importer ayarlari (.meta "importer:" blogu) duzenleniyor
     int _aSeenChange = -1;
     SerializedType.FieldSchema[] _aSchema;
     readonly Dictionary<string, char[]> _aStrBufs = new();
@@ -252,8 +253,18 @@ public sealed partial class InspectorPanel : EditorWindow
     bool DrawAssetInspector(in Rect vis)
     {
         string path = Selection.AssetPath;
-        if (path == null || !path.EndsWith(".asset", StringComparison.OrdinalIgnoreCase))
+        if (path == null)
             return false;
+        bool isAsset = path.EndsWith(".asset", StringComparison.OrdinalIgnoreCase);
+        ImportPipeline.Entry importer = null;
+        string rel = null;
+        if (!isAsset)
+        {
+            rel = RelAssetPath(path);
+            importer = rel != null ? ImportPipeline.ImporterFor(rel) : null;
+            if (importer?.SettingsType == null)
+                return false;
+        }
         // Dosya diskte degistiyse (watcher) cache dusur: taze degerler gorunsun.
         if (_aSeenChange != AssetWatcher.AssetChangeVersion)
         {
@@ -267,15 +278,24 @@ public sealed partial class InspectorPanel : EditorWindow
             _aPath = path;
             _aObj = null;
             _aSchema = null;
+            _aIsMeta = !isAsset;
             _aStrBufs.Clear();
             _aStrLens.Clear();
-            string tn = ObjectSerializer.TypeNameOf(path);
-            var t = App.AssetTypes.Find(x => x.Name == tn);
-            if (t != null)
+            if (isAsset)
             {
-                _aObj = Activator.CreateInstance(t);
-                ObjectSerializer.LoadInto(_aObj, path, App.Assets);
-                _aSchema = SerializedType.Build(t);
+                string tn = ObjectSerializer.TypeNameOf(path);
+                var t = App.AssetTypes.Find(x => x.Name == tn);
+                if (t != null)
+                {
+                    _aObj = Activator.CreateInstance(t);
+                    ObjectSerializer.LoadInto(_aObj, path, App.Assets);
+                    _aSchema = SerializedType.Build(t);
+                }
+            }
+            else
+            {
+                _aObj = ImportPipeline.LoadSettings(rel, importer);
+                _aSchema = SerializedType.Build(importer.SettingsType);
             }
         }
         float contentHeight = MeasureAssetContentHeight();
@@ -285,7 +305,8 @@ public sealed partial class InspectorPanel : EditorWindow
         float y = 2;
         if (Event.Current.Type == EventType.Repaint)
             GuiRenderer.DrawTextIn(new Rect(4, y, w, 20),
-                System.IO.Path.GetFileName(path), Gui.FontSize - 1f, new Color(230, 234, 244, 255), false, 2);
+                System.IO.Path.GetFileName(path) + (_aIsMeta ? "  (" + importer.Type.Name + ")" : ""),
+                Gui.FontSize - 1f, new Color(230, 234, 244, 255), false, 2);
         y += RowH + 2;
         if (_aObj == null)
         {
@@ -297,12 +318,22 @@ public sealed partial class InspectorPanel : EditorWindow
         foreach (var f in _aSchema)
             DrawAssetField(f, ref y, w, ref changed);
         if (changed)
-        {
-            AssetWatcher.NoteSelfWrite(_aPath);
-            ObjectSerializer.Save(_aObj, _aPath, App.Assets);
-        }
+            SaveAssetNow();
         Gui.EndScrollView();
         return true;
+    }
+
+    // Secili asset'in Assets'e goreli anahtari (Selection tam yol tutar).
+    static string RelAssetPath(string fullPath)
+    {
+        var assets = App.Assets;
+        if (assets?.Root == null)
+            return null;
+        string root = System.IO.Path.GetFullPath(assets.Root);
+        string full = System.IO.Path.GetFullPath(fullPath);
+        if (!full.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+            return null;
+        return System.IO.Path.GetRelativePath(root, full).Replace('\\', '/');
     }
 
     void DrawAssetField(SerializedType.FieldSchema f, ref float y, float w, ref bool changed)
@@ -528,6 +559,7 @@ public sealed partial class InspectorPanel : EditorWindow
         => float.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out float v) ? v : 0f;
 
     static bool Same(Vec3 a, Vec3 b) => a.x == b.x && a.y == b.y && a.z == b.z;
+    static bool Same(Vec4 a, Vec4 b) => a.x == b.x && a.y == b.y && a.z == b.z && a.w == b.w;
 
     static string V3(Vec3 v, bool three)
         => three
@@ -542,6 +574,16 @@ public sealed partial class InspectorPanel : EditorWindow
         float yv = AxisDrag(new Rect(rect.x + pw + 4, rect.y, pw, 18), "Y", v.y);
         float z = three ? AxisDrag(new Rect(rect.x + (pw + 4) * 2, rect.y, pw, 18), "Z", v.z) : v.z;
         return new Vec3(x, yv, z);
+    }
+
+    static Vec4 Vec4Drags(in Rect rect, Vec4 v)
+    {
+        float pw = (rect.width - 12) / 4;
+        return new Vec4(
+            AxisDrag(new Rect(rect.x, rect.y, pw, 18), "X", v.x),
+            AxisDrag(new Rect(rect.x + pw + 4, rect.y, pw, 18), "Y", v.y),
+            AxisDrag(new Rect(rect.x + (pw + 4) * 2, rect.y, pw, 18), "Z", v.z),
+            AxisDrag(new Rect(rect.x + (pw + 4) * 3, rect.y, pw, 18), "W", v.w));
     }
 
     // Unity paritesi: eksen etiketi drag tutamaci, alan tikla-yaz.

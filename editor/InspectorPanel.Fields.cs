@@ -155,6 +155,13 @@ public sealed partial class InspectorPanel
                     }
                     break;
                 }
+            case SerializedType.Kind.Vec4:
+                {
+                    Vec4 current = value is Vec4 v4 ? v4 : default;
+                    Vec4 next = Vec4Drags(valueRect, current);
+                    if (!Same(next, current)) { setValue(next); changed = true; }
+                    break;
+                }
             case SerializedType.Kind.Color:
                 {
                     Color current = value is Color color ? color : Color.White;
@@ -331,8 +338,23 @@ public sealed partial class InspectorPanel
 
     void SaveAssetNow()
     {
+        if (_aIsMeta)
+        {
+            // Importer ayarlari: meta'ya yaz, stamp degisir -> reimport, canli font
+            // yerinde tazelenir, bagimli atlas gruplari yeniden paketlenir.
+            string rel = RelAssetPath(_aPath);
+            if (rel == null)
+                return;
+            ImportPipeline.SaveSettings(rel, _aObj);
+            ImportPipeline.EnsureImported(rel);
+            App.Assets.InvalidateImported(rel);
+            AtlasSystem.RefreshAll();
+            return;
+        }
         AssetWatcher.NoteSelfWrite(_aPath);
         ObjectSerializer.Save(_aObj, _aPath, App.Assets);
+        if (AtlasSystem.IsAtlasGroupAsset(_aPath))
+            AtlasSystem.RefreshAll(); // grup ayari degisti: hemen yeniden paketle
     }
 
     static readonly int _colorHash = "Inspector.Color".GetHashCode();
@@ -588,6 +610,17 @@ public sealed partial class InspectorPanel
                     Vec3 current = SerializedType.ParseVec3(scalar.Length > 0 ? scalar : "0 0 0");
                     Vec3 next = Vec3Drags(valueRect, current, three);
                     if (!Same(next, current)) { node.Scalar = V3(next, three); changed = true; }
+                    break;
+                }
+            case SerializedType.Kind.Vec4:
+                {
+                    Vec4 current = SerializedType.ParseVec4(scalar);
+                    Vec4 next = Vec4Drags(valueRect, current);
+                    if (!Same(next, current))
+                    {
+                        node.Scalar = SerializedType.Format(next, kind);
+                        changed = true;
+                    }
                     break;
                 }
             case SerializedType.Kind.Color:

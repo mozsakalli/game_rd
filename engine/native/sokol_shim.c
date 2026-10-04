@@ -25,6 +25,7 @@
 
 #include "sokol/sokol_gfx.h"
 #include <stddef.h>
+#include <stdlib.h>
 #include <string.h>
 
 #define STB_TRUETYPE_IMPLEMENTATION
@@ -741,6 +742,124 @@ SOKOL_API int de_font_bake(
     metricsOut[4] = DE_FONT_SDF_SIZE;
     return count;
 }
+
+// ---------------------------------------------------------------------------
+// Glyph-bazli SDF baker (FontImporter): sabit hucre/atlas YOK — cagiran codepoint
+// listesini ve SDF boyunu verir, glyph'leri tek tek alir ve kendi paketler.
+// Handle = fontinfo + ttf kopyasi (importer omru boyunca acik kalir).
+//   de_sdf_font_open      : ttf baytlarindan handle (NULL = gecersiz font)
+//   de_sdf_font_metrics   : out5 = ascent, descent, lineHeight (SDF px), kernScale, sdfSize
+//   de_sdf_font_glyph     : out5 = advance, xoff, yoff, w, h; buffer'a w*h SDF (satir 0 ustte)
+//   de_sdf_font_kern_table: cps[n] icin n*n int16 (font-unit; kernScale ile carpilir)
+// SDF parametreleri de_font_bake ile ayni (onedge 128, spread 21, pad 6) — shader
+// esikleri ve TextSprite.SdfSpread sabitiyle birebir uyumlu kalir.
+// ---------------------------------------------------------------------------
+
+typedef struct de_sdf_font_t
+{
+    stbtt_fontinfo info;
+    unsigned char *ttf;
+} de_sdf_font_t;
+
+SOKOL_API void *de_sdf_font_open(const unsigned char *ttf, int length)
+{
+    if (!ttf || length <= 0)
+        return NULL;
+    de_sdf_font_t *f = (de_sdf_font_t *)malloc(sizeof(de_sdf_font_t));
+    if (!f)
+        return NULL;
+    f->ttf = (unsigned char *)malloc((size_t)length);
+    if (!f->ttf)
+    {
+        free(f);
+        return NULL;
+    }
+    memcpy(f->ttf, ttf, (size_t)length);
+    if (!stbtt_InitFont(&f->info, f->ttf, 0))
+    {
+        free(f->ttf);
+        free(f);
+        return NULL;
+    }
+    return f;
+}
+
+SOKOL_API void de_sdf_font_close(void *handle)
+{
+    de_sdf_font_t *f = (de_sdf_font_t *)handle;
+    if (!f)
+        return;
+    free(f->ttf);
+    free(f);
+}
+
+SOKOL_API int de_sdf_font_metrics(void *handle, float sdfSize, float *out5)
+{
+    de_sdf_font_t *f = (de_sdf_font_t *)handle;
+    if (!f || sdfSize <= 0)
+        return 0;
+    float scale = stbtt_ScaleForPixelHeight(&f->info, sdfSize);
+    int ascent = 0, descent = 0, lineGap = 0;
+    stbtt_GetFontVMetrics(&f->info, &ascent, &descent, &lineGap);
+    out5[0] = scale * (float)ascent;
+    out5[1] = scale * (float)descent;
+    out5[2] = scale * (float)(ascent - descent + lineGap);
+    out5[3] = scale;
+    out5[4] = sdfSize;
+    return 1;
+}
+
+// Donus: 1 ok (w*h buffer'a yazildi; w veya h 0 olabilir: bosluk), 0 hata/sigmadi.
+SOKOL_API int de_sdf_font_glyph(void *handle, int codepoint, float sdfSize,
+                                unsigned char *buffer, int bufferSize, float *out5)
+{
+    de_sdf_font_t *f = (de_sdf_font_t *)handle;
+    if (!f || sdfSize <= 0)
+        return 0;
+    float scale = stbtt_ScaleForPixelHeight(&f->info, sdfSize);
+    int glyphIndex = stbtt_FindGlyphIndex(&f->info, codepoint);
+    int advance = 0, lsb = 0, x0 = 0, y0 = 0, w = 0, h = 0;
+    stbtt_GetGlyphHMetrics(&f->info, glyphIndex, &advance, &lsb);
+    unsigned char *sdf = stbtt_GetGlyphSDF(&f->info, scale, glyphIndex,
+                                           DE_FONT_SDF_PAD, 128, DE_FONT_SDF_SPREAD, &w, &h, &x0, &y0);
+    if (sdf && w > 0 && h > 0)
+    {
+        if (w * h > bufferSize)
+        {
+            stbtt_FreeSDF(sdf, NULL);
+            return 0;
+        }
+        memcpy(buffer, sdf, (size_t)(w * h));
+    }
+    else
+        w = h = 0;
+    if (sdf)
+        stbtt_FreeSDF(sdf, NULL);
+    out5[0] = scale * (float)advance;
+    out5[1] = (float)x0;
+    out5[2] = (float)y0;
+    out5[3] = (float)w;
+    out5[4] = (float)h;
+    return 1;
+}
+
+SOKOL_API int de_sdf_font_kern_table(void *handle, const int *codepoints, int count, short *out)
+{
+    de_sdf_font_t *f = (de_sdf_font_t *)handle;
+    if (!f || count <= 0)
+        return 0;
+    int *gi = (int *)malloc(sizeof(int) * (size_t)count);
+    if (!gi)
+        return 0;
+    for (int i = 0; i < count; ++i)
+        gi[i] = stbtt_FindGlyphIndex(&f->info, codepoints[i]);
+    for (int l = 0; l < count; ++l)
+        for (int r = 0; r < count; ++r)
+            out[l * count + r] = (short)stbtt_GetGlyphKernAdvance(&f->info, gi[l], gi[r]);
+    free(gi);
+    return 1;
+}
+
 SOKOL_API void de_sokol_pipeline_shader(unsigned int shader)
 {
     sg_shader h = {shader};

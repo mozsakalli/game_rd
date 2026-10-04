@@ -349,6 +349,7 @@ public sealed partial class SceneDoc
         foreach (var kv in cm.Fields)
             if (kv.Key != "type" && kv.Key != "enabled")
                 cd.Props.Add(kv);
+        MigrateLayoutBox(cd);
         return cd;
     }
 

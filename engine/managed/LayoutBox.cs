@@ -74,7 +74,7 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
     [SerializeField] bool ignoreLayout;            // grup beni dizmesin (anchor'la yerlesirim)
     [SerializeField] LayoutMode layout;            // cocuk dizme modu
     [SerializeField] float spacing;
-    [SerializeField] float padLeft, padTop, padRight, padBottom;
+    [SerializeField] Vec4 padding; // left, top, right, bottom
     [SerializeField] LayoutAlign alignChildren = LayoutAlign.Start;
     [SerializeField] bool reverse;
     [SerializeField] OverflowMode overflowX;   // Grow degilse icerik bu ekseni buyutmez
@@ -82,13 +82,30 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
 
     // --- stil (StyleBox) ---
     [SerializeField] Gradient fill = new(Color.Transparent);
-    [SerializeField] float borderLeft, borderTop, borderRight, borderBottom;
+    [SerializeField] Vec4 border; // left, top, right, bottom
     [SerializeField] Gradient borderFill = new(Color.Transparent);
-    [SerializeField] float radiusTL, radiusTR, radiusBR, radiusBL;
+    [SerializeField] Vec4 radius; // top-left, top-right, bottom-right, bottom-left
 
     // --- doku (opsiyonel arkaplan resmi; slice9* > 0 ise 9-slice) ---
     [SerializeField] Sprite sprite;
-    [SerializeField] float slice9Left, slice9Top, slice9Right, slice9Bottom; // kaynak doku pikseli
+    [SerializeField] Vec4 slice9; // left, top, right, bottom; kaynak doku pikseli
+
+    float padLeft { get => padding.x; set => padding.x = value; }
+    float padTop { get => padding.y; set => padding.y = value; }
+    float padRight { get => padding.z; set => padding.z = value; }
+    float padBottom { get => padding.w; set => padding.w = value; }
+    float borderLeft { get => border.x; set => border.x = value; }
+    float borderTop { get => border.y; set => border.y = value; }
+    float borderRight { get => border.z; set => border.z = value; }
+    float borderBottom { get => border.w; set => border.w = value; }
+    float radiusTL { get => radius.x; set => radius.x = value; }
+    float radiusTR { get => radius.y; set => radius.y = value; }
+    float radiusBR { get => radius.z; set => radius.z = value; }
+    float radiusBL { get => radius.w; set => radius.w = value; }
+    float slice9Left { get => slice9.x; set => slice9.x = value; }
+    float slice9Top { get => slice9.y; set => slice9.y = value; }
+    float slice9Right { get => slice9.z; set => slice9.z = value; }
+    float slice9Bottom { get => slice9.w; set => slice9.w = value; }
 
     // --- golge (alpha > 0 ise kutunun altina yumusak kopya cizilir) ---
     [SerializeField] Color shadowColor = Color.Transparent;
@@ -104,9 +121,8 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
     internal bool _queued;
 
     // --- stil geometri durumu ---
-    // Agac ici painter sirasi (resolve DFS'inde numaralanir): ayni SortingOrder'da
-    // cocuk hep parent USTUNE cizilir (Encode layer = SortingOrder + _paintSeq).
-    internal int _paintSeq;
+    // Cizim sirasi icin ozel bir sey YOK: Scene.Render hiyerarsi DFS'iyle submit eder,
+    // ayni katmanda parent < cocuk kendiliginden; katman = Renderer._effectiveOrder.
 
     // --- public API (property'ler kirletir; alanlara dogrudan erisim yok) ---
     public bool FitScreen { get => fitScreen; set { if (fitScreen != value) { fitScreen = value; MarkDirty(); } } }
@@ -120,6 +136,7 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
     public bool IgnoreLayout { get => ignoreLayout; set { if (ignoreLayout != value) { ignoreLayout = value; MarkDirty(); } } }
     public LayoutMode Layout { get => layout; set { if (layout != value) { layout = value; MarkDirty(); } } }
     public float Spacing { get => spacing; set { if (spacing != value) { spacing = value; MarkDirty(); } } }
+    public Vec4 Padding { get => padding; set { padding = value; MarkDirty(); } }
     public float PadLeft { get => padLeft; set { if (padLeft != value) { padLeft = value; MarkDirty(); } } }
     public float PadTop { get => padTop; set { if (padTop != value) { padTop = value; MarkDirty(); } } }
     public float PadRight { get => padRight; set { if (padRight != value) { padRight = value; MarkDirty(); } } }
@@ -133,12 +150,14 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
     // Stil degisimi layout'u ETKILEMEZ; quad emisyonu her frame stil alanlarindan
     // okur — cache yok, kirletme gerekmez.
     public Gradient Fill { get => fill; set => fill = value; }
+    public Vec4 Border { get => border; set => border = value; }
     public float BorderLeft { get => borderLeft; set => borderLeft = value; }
     public float BorderTop { get => borderTop; set => borderTop = value; }
     public float BorderRight { get => borderRight; set => borderRight = value; }
     public float BorderBottom { get => borderBottom; set => borderBottom = value; }
     public float BorderWidth { get => borderLeft; set { borderLeft = borderTop = borderRight = borderBottom = value; } }
     public Gradient BorderFill { get => borderFill; set => borderFill = value; }
+    public Vec4 Radius { get => radius; set => radius = value; }
     public float RadiusTL { get => radiusTL; set => radiusTL = value; }
     public float RadiusTR { get => radiusTR; set => radiusTR = value; }
     public float RadiusBR { get => radiusBR; set => radiusBR = value; }
@@ -146,6 +165,7 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
     public float CornerRadius { get => radiusTL; set { radiusTL = radiusTR = radiusBR = radiusBL = value; } }
 
     public Sprite Sprite { get => sprite; set => sprite = value; }
+    public Vec4 Scale9 { get => slice9; set => slice9 = value; }
     public float Slice9Left { get => slice9Left; set => slice9Left = value; }
     public float Slice9Top { get => slice9Top; set => slice9Top = value; }
     public float Slice9Right { get => slice9Right; set => slice9Right = value; }
@@ -313,9 +333,7 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
             _rh = PreferredH();
             _hasPlaced = false;
         }
-        int seq = 0;
-        _paintSeq = seq++;
-        ArrangeChildren(ref seq);
+        ArrangeChildren();
     }
 
     // --- olcum (measure): asagidan yukari, yalniz kutulardan ---
@@ -483,7 +501,7 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
             transform.localPosition = new Vec3(x, y, lp.z);
     }
 
-    void ArrangeChildren(ref int seq)
+    void ArrangeChildren()
     {
         if (layout == LayoutMode.None)
         {
@@ -493,9 +511,8 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
                 if (b == null)
                     continue;
                 b._dirty = false;
-                b._paintSeq = seq++;
                 b.PlaceInParent(this);
-                b.ArrangeChildren(ref seq);
+                b.ArrangeChildren();
             }
             return;
         }
@@ -505,7 +522,7 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
         // Ana eksen Wrap ise satir dizimi ayri yol (grow bu modda yok sayilir).
         if ((horiz ? overflowX : overflowY) == OverflowMode.Wrap)
         {
-            ArrangeWrapped(ref seq, horiz);
+            ArrangeWrapped(horiz);
             return;
         }
 
@@ -540,11 +557,10 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
             if (b == null)
                 continue;
             b._dirty = false;
-            b._paintSeq = seq++;
             if (b.ignoreLayout)
             {
                 b.PlaceInParent(this); // dekor/arkaplan: grup disi, anchor'la yerlesir
-                b.ArrangeChildren(ref seq);
+                b.ArrangeChildren();
                 continue;
             }
 
@@ -571,7 +587,7 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
                 b.SetPos(tlx + padLeft + crossOff + b.pivot.x * cross, cursor + b.pivot.y * main);
             }
             cursor += main + spacing;
-            b.ArrangeChildren(ref seq);
+            b.ArrangeChildren();
         }
     }
 
@@ -581,7 +597,7 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
     // hizalar (End ~ alt hizalama, baseline yaklasigi). grow yok sayilir (kelime
     // kutulari icin anlamsiz; satir-ici pay dagitimi gerekirse 2. faz). reverse
     // uyeleri ters siradan paketler. Satir arasi bosluk = spacing (CSS gap analogu).
-    void ArrangeWrapped(ref int seq, bool horiz)
+    void ArrangeWrapped(bool horiz)
     {
         float availMain = horiz ? _rw - padLeft - padRight : _rh - padTop - padBottom;
         float tlx = -pivot.x * _rw, tly = -pivot.y * _rh;
@@ -616,11 +632,10 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
                 if (b == null)
                     continue;
                 b._dirty = false;
-                b._paintSeq = seq++;
                 if (b.ignoreLayout)
                 {
                     b.PlaceInParent(this); // dekor/arkaplan: grup disi, anchor'la yerlesir
-                    b.ArrangeChildren(ref seq);
+                    b.ArrangeChildren();
                     continue;
                 }
                 float main = horiz ? b.PreferredW() : b.PreferredH();
@@ -644,7 +659,7 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
                     b.SetPos(crossCursor + crossOff + b.pivot.x * cross, cursor + b.pivot.y * main);
                 }
                 cursor += main + spacing;
-                b.ArrangeChildren(ref seq);
+                b.ArrangeChildren();
             }
             node = scan;
             crossCursor += lineCross + spacing;
@@ -718,25 +733,6 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
         _clX1 = _clY1 = float.MaxValue;
     }
 
-    static Material _styleMat;
-    static Texture _white;
-
-    internal static Material StyleMat
-    {
-        get
-        {
-            if (_styleMat == null)
-            {
-                _white = Texture.FromColor(1, 1, Color.White);
-                _white.Persistent = true;
-                _styleMat = new Material { MainTexture = _white };
-            }
-            return _styleMat;
-        }
-    }
-
-    internal static Texture StyleWhite { get { _ = StyleMat; return _white; } }
-
     bool HasBorder => borderFill.Visible
         && (borderLeft > 0 || borderTop > 0 || borderRight > 0 || borderBottom > 0);
 
@@ -745,13 +741,27 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
     bool HasStyle
         => sprite != null || fill.Visible || HasBorder || HasShadow;
 
-    // Kutu SDF parcalari font atlasinin sabit bolgesinden orneklenir (kendi fontu,
-    // yoksa DefaultFont) — sahnedeki metin + tum kutular ayni texview'i paylasip
-    // tek instanced draw'a merge olur. Hic font yoksa lazy fallback atlasi.
+    // Kutu SDF parcalari icerigin yasadigi SAYFADAN orneklenir: metin varsa fontun
+    // sayfasi, ikon varsa sprite'in sayfasi (atlas sayfalari UiPieces tasir), yoksa
+    // DefaultFont — kutu + metin + ikon ayni texview'i paylasip tek instanced
+    // draw'a merge olur. Hic sayfa yoksa lazy fallback dokusu.
     UiAtlas PiecesAtlas(out Material mat)
     {
-        var f = font ?? UiPieces.DefaultFont;
-        if (f?.Atlas != null)
+        var f = font;
+        if (f?.Page != null && f.Page.HasPieces)
+        {
+            mat = f.Material.ForBlend(BlendMode).ForEffects(Effects);
+            return f.Pieces;
+        }
+        var page = sprite?.Page;
+        if (page != null && page.HasPieces)
+        {
+            mat = UiPieces.TexturedMaterial.ForBlend(BlendMode).ForEffects(Effects);
+            mat.MainTexture = page;
+            return new UiAtlas(page, page.PiecesX, page.PiecesY);
+        }
+        f = UiPieces.DefaultFont;
+        if (f?.Page != null && f.Page.HasPieces)
         {
             mat = f.Material.ForBlend(BlendMode).ForEffects(Effects);
             return f.Pieces;
@@ -782,7 +792,7 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
 
         Mat4 wm = transform._getWorldMatrix(); // kopya: lokal fonksiyonlar ref yakalayamaz
         ComputeClip(in wm);
-        int layer = SortingOrder + _paintSeq;  // ayni layer'da parent < cocuk (DFS sirasi)
+        int layer = _effectiveOrder;  // ayni layer'da parent < cocuk (Scene DFS submit sirasi)
         float x0 = -pivot.x * _rw, y0 = -pivot.y * _rh;
         float x1 = x0 + _rw, y1 = y0 + _rh;
 
@@ -1090,8 +1100,9 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
         if (sBR < tB) Solid(ix1 - sBR, iy1 - tB, ix1, iy1 - sBR);
     }
 
-    // Dokulu kutu: stretch tek quad / slice9 3x3 grid. Radius/border bu modda
-    // uygulanmaz (SDF parca ile doku ayni sampler'i paylasamaz — bilinen sinir).
+    // Dokulu kutu: stretch tek quad / slice9 3x3 grid. UI shader'in dokulu gecis
+    // modu (USER.w<0) — sprite atlas sayfasindaysa kutu parcalari/metinle ayni
+    // pipeline+doku, tek draw. Radius/border bu modda uygulanmaz (bilinen sinir).
     void EncodeTextured(RenderQueue q, in Mat4 world, float x0, float y0, float x1, float y1, int layer)
     {
         var tex = sprite.Page;
@@ -1104,8 +1115,9 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
             uu0 = sprite.X / aw; uuS = sprite.W / aw;
             vv0 = sprite.Y / ah; vvS = sprite.H / ah;
         }
-        var mat = StyleMat.ForBlend(BlendMode).ForEffects(Effects);
+        var mat = UiPieces.TexturedMaterial.ForBlend(BlendMode).ForEffects(Effects);
         mat.MainTexture = tex; // TexView DrawMesh aninda yakalanir (paylasilan materyal deseni)
+        var user = UiPieces.TexturedUser;
         bool tinted = fill.Visible;
         bool gh = fill.IsHorizontal;
         Color cTop = tinted ? FillAt(gh ? x0 : y0) : Color.White;
@@ -1114,7 +1126,7 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
         if (slice9Left <= 0 && slice9Top <= 0 && slice9Right <= 0 && slice9Bottom <= 0)
         {
             EmitQuad(q, mat, world, x0, y0, x1, y1,
-                uu0, vv0, uu0 + uuS, vv0 + vvS, cTop, cBot, gh, default, layer);
+                uu0, vv0, uu0 + uuS, vv0 + vvS, cTop, cBot, gh, user, layer);
             return;
         }
 
@@ -1137,7 +1149,7 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
                     uu0 + us[c] * uuS, vv0 + vs[r + 1] * vvS,
                     uu0 + us[c + 1] * uuS, vv0 + vs[r] * vvS,
                     tinted ? FillAt(gh ? xs[c] : ys[r]) : Color.White,
-                    tinted ? FillAt(gh ? xs[c + 1] : ys[r + 1]) : Color.White, gh, default, layer);
+                    tinted ? FillAt(gh ? xs[c + 1] : ys[r + 1]) : Color.White, gh, user, layer);
     }
 
     // Lokal-uzay dikdortgenini world matrisiyle tek instanced quad'a cevirir.

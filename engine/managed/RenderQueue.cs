@@ -171,7 +171,10 @@ public sealed unsafe class RenderQueue
     static ulong MakeSortKey(SortMode mode, Material mat, Mesh mesh, int layer)
     {
         ulong bucket = (ulong)(byte)mode << 60;
-        ulong baseL = (ulong)(ushort)layer << 32;
+        // Isaretli -> sirali 16 bit: negatif katmanlar (parent'in altina itilen dekor)
+        // ushort'a sarmasin diye 32768 kaydirilir (-32768..32767).
+        ulong l16 = (ulong)(ushort)(Math.Clamp(layer, short.MinValue, short.MaxValue) + 32768);
+        ulong baseL = l16 << 32;
         ulong materialKey = (ulong)(ushort)((int)mat.CullMode
                           | ((mat.DepthTest ? 1 : 0) << 2)
                           | ((mat.DepthWrite ? 1 : 0) << 3));
@@ -181,7 +184,7 @@ public sealed unsafe class RenderQueue
         {
             SortMode.Transparent => baseL, // yalniz layer: ayni layer = submit sirasi
             SortMode.Ui => baseL | (materialKey << 8) | meshKey,
-            SortMode.Painter => ((ulong)(ushort)layer << 48) | (materialKey << 16) | meshKey,
+            SortMode.Painter => (l16 << 48) | (materialKey << 16) | meshKey,
             _ => meshKey | (materialKey << 8) | baseL, // Opaque / None
         };
     }

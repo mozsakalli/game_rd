@@ -18,6 +18,9 @@ public abstract class AssetSource
 
     public abstract bool Exists(string key);
 
+    // Kaynaktaki tum anahtarlar (atlas kesfi gibi toplu isler; sicak yolda cagrilmaz).
+    public abstract IEnumerable<string> Keys { get; }
+
     // Release'te guid->yol eslemesi kaynaktan gelir (ScanMetas kosmaz).
     public virtual void FillGuidTable(
         Dictionary<string, string> guidToPath, Dictionary<string, string> pathToGuid)
@@ -39,6 +42,21 @@ public sealed class LooseFileSource : AssetSource
     }
 
     public override bool Exists(string key) => File.Exists(Path.Combine(Root, key));
+
+    public override IEnumerable<string> Keys
+    {
+        get
+        {
+            if (!Directory.Exists(Root))
+                yield break;
+            foreach (var f in Directory.GetFiles(Root, "*", SearchOption.AllDirectories))
+            {
+                if (f.EndsWith(".meta", StringComparison.OrdinalIgnoreCase))
+                    continue;
+                yield return Path.GetRelativePath(Root, f).Replace('\\', '/');
+            }
+        }
+    }
 }
 
 // Pak dosyasi: [magic][count][index: key,guid,offset,storedLen,rawLen]*[blob].
@@ -87,7 +105,7 @@ public sealed class PakSource : AssetSource
     public int Count => _entries.Count;
 
     public override int StartLoad(string key)
-        => _entries.TryGetValue(key, out var e)
+        => _entries.TryGetValue(key, out var e) && e.StoredLength > 0 // bos stub (atlas uyesi) = yuklenemez
             ? Sokol.AssetLoadRange(_path, e.Offset, e.StoredLength, e.RawLength) : -1;
 
     public override byte[] ReadBytes(string key)
@@ -107,6 +125,8 @@ public sealed class PakSource : AssetSource
     }
 
     public override bool Exists(string key) => _entries.ContainsKey(key);
+
+    public override IEnumerable<string> Keys => _entries.Keys;
 
     public override void FillGuidTable(
         Dictionary<string, string> guidToPath, Dictionary<string, string> pathToGuid)

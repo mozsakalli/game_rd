@@ -30,6 +30,8 @@ public static class PointerTests
         BubbleToParent(s);
         LayerMaskBlocks(s, cam);
         TopMostWins(s);
+        HierarchyOrderWins(s);
+        RelativeAndAbsoluteOrder(s);
         PerspectivePick(s, cam);
 
         Scene.SetActive(prev);
@@ -149,6 +151,85 @@ public static class PointerTests
             "topmost: buyuk SortingOrder kazanir");
         GameObject.Destroy(below);
         GameObject.Destroy(above);
+        s.Update(0f);
+    }
+
+    // Esit katmanda hiyerarsi sirasi: cocuk parent'in ustunde; sonraki kardes
+    // oncekinin ustunde; SetAsFirstSibling ile sira degisir (enable sirasi DEGIL).
+    // Event'ler parent'a bubble ettigi icin karar e.target uzerinden okunur.
+    static void HierarchyOrderWins(Scene s)
+    {
+        var parent = Sprite("p", 500, 200);
+        var hp = parent.AddComponent<Handler>();
+        var child = Sprite("c", 0, 0);
+        child.transform.SetParent(parent.transform, false);
+        s.Pointer.Down(500, 200); s.Pointer.Up(500, 200);
+        Check(hp.LastTarget == child, "hiyerarsi: cocuk parent'in ustunde");
+
+        var group = new GameObject("grup");
+        group.transform.localPosition = new Vec3(500, 200, 0);
+        var hg = group.AddComponent<Handler>();
+        var first = Sprite("k1", 0, 0);
+        first.transform.SetParent(group.transform, false);
+        var second = Sprite("k2", 0, 0);
+        second.transform.SetParent(group.transform, false);
+        GameObject.Destroy(parent);
+        s.Update(0f);
+        s.Pointer.Down(500, 200); s.Pointer.Up(500, 200);
+        Check(hg.LastTarget == second, "hiyerarsi: sonraki kardes ustte");
+        second.transform.SetAsFirstSibling(); // artik k2 < k1
+        s.Pointer.Down(500, 200); s.Pointer.Up(500, 200);
+        Check(hg.LastTarget == first, "hiyerarsi: kardes sirasi degisince cizim sirasi degisir");
+
+        GameObject.Destroy(group);
+        s.Update(0f);
+    }
+
+    // Relative: cocuk parent'in cozulmus katmanini miras alir (+kendi); negatif
+    // cocuk parent'in altina iner. Absolute: parent yok sayilir, global deger.
+    static void RelativeAndAbsoluteOrder(Scene s)
+    {
+        var panel = Sprite("panel", 500, 200);
+        panel.GetComponent<SpriteRenderer>().SortingOrder = 10;
+        var hpanel = panel.AddComponent<Handler>();
+        var item = Sprite("item", 0, 0);
+        item.transform.SetParent(panel.transform, false);
+        var hud = Sprite("hud", 500, 200);
+        hud.GetComponent<SpriteRenderer>().SortingOrder = 5;
+        var hhud = hud.AddComponent<Handler>();
+
+        s.Pointer.Down(500, 200); s.Pointer.Up(500, 200);
+        Check(hpanel.LastTarget == item && hhud.Log.Length == 0,
+            "relative: cocuk 0+10=10 > hud 5 (parent katmani miras)");
+
+        item.GetComponent<SpriteRenderer>().SortingOrder = -1; // 9: panel'in altina, hud'un ustunde
+        s.Pointer.Down(500, 200); s.Pointer.Up(500, 200);
+        Check(hpanel.LastTarget == panel && hhud.Log.Length == 0,
+            "relative: negatif cocuk parent'in altina iner");
+
+        hud.GetComponent<SpriteRenderer>().SortingOrder = 50;
+        var tip = Sprite("tip", 0, 0);
+        tip.transform.SetParent(panel.transform, false);
+        var tr = tip.GetComponent<SpriteRenderer>();
+        tr.SortingSpace = SortingSpace.Absolute;
+        tr.SortingOrder = 1000;
+        s.Pointer.Down(500, 200); s.Pointer.Up(500, 200);
+        Check(hpanel.LastTarget == tip && hhud.Log.Length == 0,
+            "absolute: panel(10) cocugu 1000 ile hud(50) ustune cikar");
+
+        var tipText = Sprite("tipText", 0, 0);
+        tipText.transform.SetParent(tip.transform, false);
+        s.Pointer.Down(500, 200); s.Pointer.Up(500, 200);
+        Check(hpanel.LastTarget == tipText && hhud.Log.Length == 0,
+            "absolute: alt agac ona goreli devam eder (0+1000)");
+
+        tr.SortingSpace = SortingSpace.Relative; // 10+1000 — hala hud'un ustunde ama panel'e bagli
+        tr.SortingOrder = -20;                   // 10-20 = -10 < hud 50: hud kazanir
+        s.Pointer.Down(500, 200); s.Pointer.Up(500, 200);
+        Check(hhud.Log.ToString() == "DUC", "relative'e donunce parent'a gore hesaplanir");
+
+        GameObject.Destroy(panel);
+        GameObject.Destroy(hud);
         s.Update(0f);
     }
 

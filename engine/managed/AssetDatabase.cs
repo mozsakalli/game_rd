@@ -179,13 +179,21 @@ public sealed class AssetDatabase
             return null;
         if (_sprites.TryGetValue(key, out var s))
             return s;
-        s = Sprite.FromTexture(LoadTexture(key), key);
+        // Atlas uyesi: kaynak png hic yuklenmez, sayfaya baglanir.
+        if (_regions.TryGetValue(key, out var reg))
+        {
+            s = Sprite.FromTexture(null, key);
+            BindSpriteRegion(s, in reg);
+        }
+        else
+            s = Sprite.FromTexture(LoadTexture(key), key);
         _sprites[key] = s;
         return s;
     }
 
     // Prebaked font: baytlar artifact'ten (editor: Library, release: pak) SENKRON
     // gelir — metrikler layout girdisi oldugu icin async placeholder anlamsiz.
+    // Glyph sayfasi: atlas grubu bu fontu almissa onun sayfasi, yoksa kendi sheet'i.
     public Font LoadFont(string key)
     {
         key = ResolvePath(key);
@@ -193,16 +201,212 @@ public sealed class AssetDatabase
             return null;
         if (_fonts.TryGetValue(key, out var f))
             return f;
-        var bytes = ArtifactResolver?.Invoke(key) ?? _source.ReadBytes(key);
+        var bytes = ReadArtifact(key, null);
         f = bytes != null ? Font.FromArtifact(bytes, key) : null;
-        if (f != null)
-            _fonts[key] = f; // basarisiz yukleme cache'lenmez (sonraki deneme taze okur)
+        if (f == null)
+            return null; // basarisiz yukleme cache'lenmez (sonraki deneme taze okur)
+        _fonts[key] = f;
+        BindFont(f);
         return f;
     }
 
-    // Dis degisiklik (reimport): font cache dusurulur (canli referanslar sahne
-    // reload'unda tazelenir); pixel effect AYNI instance'ta yerinde tazelenir
-    // (Version++ compose cache'leri bayatlatir -> renderer'lar aninda iyilesir).
+    // --- Artifact erisimi ---
+
+    // Importer ciktisi: "main" (name=null) veya adli artifact ("sheet", "page0").
+    // Anahtar bicimi "<asset>#<ad>": editorde ArtifactResolver Library'den cozer,
+    // release'te pak ayni anahtarla tasir.
+    public byte[] ReadArtifact(string key, string name)
+    {
+        string k = name == null ? key : key + "#" + name;
+        return ArtifactResolver?.Invoke(k) ?? _source.ReadBytes(k);
+    }
+
+    // --- Atlas: bolge tablosu + sayfa dokulari ---
+
+    sealed class LoadedAtlas
+    {
+        public string Key;
+        public readonly List<Texture> Pages = new();
+        public readonly List<string> RegionNames = new();
+    }
+
+    readonly Dictionary<string, AtlasRegion> _regions = new();
+    readonly Dictionary<string, Texture> _regionPages = new(); // bolge adi -> sayfa dokusu
+    readonly Dictionary<string, LoadedAtlas> _atlases = new();
+
+    public bool HasRegion(string name) => _regions.ContainsKey(name);
+
+    public IEnumerable<string> LoadedAtlases => _atlases.Keys;
+
+    // Atlas artifact'ini (DATL "main" + "pageN" DPIX) yukler; bolgeleri tabloya
+    // yazar ve YUKLU sprite/font'lari yerinde yeniden baglar (referanslar bozulmaz).
+    public bool LoadAtlas(string key)
+    {
+        key = ResolvePath(key);
+        if (string.IsNullOrEmpty(key))
+            return false;
+        if (_atlases.ContainsKey(key))
+            UnloadAtlas(key);
+        var bytes = ReadArtifact(key, null);
+        var data = bytes != null ? AtlasData.Parse(bytes) : null;
+        if (data == null)
+            return false;
+
+        var la = new LoadedAtlas { Key = key };
+        for (int i = 0; i < data.Pages.Count; i++)
+        {
+            var pi = data.Pages[i];
+            var blob = ReadArtifact(key, AtlasData.PageArtifact(i));
+            Texture tex = MakePageTexture(blob, pi.Width, pi.Height);
+            if (tex == null)
+            {
+                foreach (var t in la.Pages)
+                    t.Destroy();
+                return false;
+            }
+            tex.Name = key + "#" + AtlasData.PageArtifact(i);
+            tex.PiecesX = pi.PiecesX;
+            tex.PiecesY = pi.PiecesY;
+            la.Pages.Add(tex);
+        }
+
+        var touchedFonts = new HashSet<string>();
+        foreach (var r in data.Regions)
+        {
+            if (r.Page < 0 || r.Page >= la.Pages.Count)
+                continue;
+            if (_regions.TryGetValue(r.Name, out var old) && _regionPages.TryGetValue(r.Name, out var oldPage))
+                LogWarning?.Invoke($"[atlas] bolge iki atlasta: {r.Name} ({oldPage.Name} vs {key}) — sonuncusu kazanir");
+            _regions[r.Name] = r;
+            _regionPages[r.Name] = la.Pages[r.Page];
+            la.RegionNames.Add(r.Name);
+            int hash = r.Name.IndexOf('#');
+            if (hash < 0)
+            {
+                if (_sprites.TryGetValue(r.Name, out var s))
+                    BindSpriteRegion(s, in r);
+            }
+            else
+                touchedFonts.Add(r.Name.Substring(0, hash));
+        }
+        foreach (var fk in touchedFonts)
+            if (_fonts.TryGetValue(fk, out var f))
+                BindFont(f);
+        _atlases[key] = la;
+        return true;
+    }
+
+    // Atlas duser: uyeler kaynaklarina geri doner (png -> kendi dokusu, font -> sheet).
+    public void UnloadAtlas(string key)
+    {
+        key = ResolvePath(key);
+        if (key == null || !_atlases.TryGetValue(key, out var la))
+            return;
+        _atlases.Remove(key);
+        var touchedFonts = new HashSet<string>();
+        foreach (var name in la.RegionNames)
+        {
+            if (!_regionPages.TryGetValue(name, out var page) || !la.Pages.Contains(page))
+                continue; // baska atlas bu adi sonradan almis
+            _regions.Remove(name);
+            _regionPages.Remove(name);
+            int hash = name.IndexOf('#');
+            if (hash < 0)
+            {
+                if (_sprites.TryGetValue(name, out var s))
+                    s.BindFull(LoadTexture(name));
+            }
+            else
+                touchedFonts.Add(name.Substring(0, hash));
+        }
+        foreach (var fk in touchedFonts)
+            if (_fonts.TryGetValue(fk, out var f))
+                BindFont(f);
+        foreach (var t in la.Pages)
+            t.Destroy();
+    }
+
+    public bool ReloadAtlas(string key) => LoadAtlas(key);
+
+    // Tum atlas tanimlarini bulup yukler (acilis): ".asset" anahtarlarindan artifact'i
+    // DATL olanlar. Editorde ArtifactResolver gerekirse once import eder.
+    public int LoadAtlases()
+    {
+        int n = 0;
+        var keys = new List<string>();
+        foreach (var k in _source.Keys)
+            if (k.EndsWith(".asset", StringComparison.OrdinalIgnoreCase))
+                keys.Add(k);
+        keys.Sort(StringComparer.Ordinal);
+        foreach (var k in keys)
+        {
+            var bytes = ReadArtifact(k, null);
+            if (AtlasData.IsAtlas(bytes) && LoadAtlas(k))
+                n++;
+        }
+        return n;
+    }
+
+    // Uyari kanali (editor Console'a baglar; runtime'da null = sessiz).
+    public static Action<string> LogWarning;
+
+    static unsafe Texture MakePageTexture(byte[] blob, int w, int h)
+    {
+        if (!PixelBlob.TryParse(blob, out int ch, out int bw, out int bh) || bw != w || bh != h)
+            return null;
+        if (ch == 1)
+        {
+            Texture t;
+            fixed (byte* p = &blob[PixelBlob.HeaderSize])
+                t = Texture.FromAlpha(w, h, p);
+            t.Persistent = true; // R8: CPU kopyasi yok, evict edilirse geri yuklenemez
+            return t;
+        }
+        return Texture.FromRgba(w, h, blob.AsSpan(PixelBlob.HeaderSize));
+    }
+
+    void BindSpriteRegion(Sprite s, in AtlasRegion r)
+    {
+        if (!_regionPages.TryGetValue(r.Name, out var page))
+            return;
+        s.BindRegion(page, r.X, r.Y, r.W, r.H, r.OffX, r.OffY, r.OrigW, r.OrigH);
+    }
+
+    // Font sayfasi: atlas bolgeleri varsa (pikselli ilk glyph'in anahtari tabloda)
+    // atlas sayfasi, yoksa fontun kendi "sheet" artifact'i.
+    void BindFont(Font f)
+    {
+        if (f.GlyphCount == 0)
+            return;
+        Texture page = null;
+        for (int i = 0; i < f.GlyphCount && page == null; i++)
+        {
+            ref readonly var g = ref f.GlyphAt(i);
+            if (g.W > 0 && g.H > 0)
+                _regionPages.TryGetValue(f.Name + "#" + AtlasData.GlyphName(g.Codepoint), out page);
+        }
+        if (page != null)
+        {
+            f.BeginAtlasBind(page);
+            for (int i = 0; i < f.GlyphCount; i++)
+            {
+                string gk = f.Name + "#" + AtlasData.GlyphName(f.GlyphAt(i).Codepoint);
+                if (_regions.TryGetValue(gk, out var r))
+                    f.SetGlyphPosition(i, r.X, r.Y);
+            }
+            return;
+        }
+        var sheet = ReadArtifact(f.Name, "sheet");
+        if (sheet == null || !f.BindSheet(sheet))
+        {
+            f.Unbind();
+            LogWarning?.Invoke($"[font] sayfa yok: {f.Name} (sheet artifact'i eksik, atlas uyesi degil)");
+        }
+    }
+
+    // Dis degisiklik (reimport): font AYNI instance'ta yerinde tazelenir ve sayfasi
+    // yeniden baglanir (BindVersion artar, metin quad'lari yenilenir); pixel effect
+    // de yerinde tazelenir (Version++ compose cache'leri bayatlatir).
     public bool InvalidateImported(string relPath)
     {
         if (_fx.TryGetValue(relPath, out var fx))
@@ -211,7 +415,18 @@ public sealed class AssetDatabase
             fx.SetBody(bytes != null ? System.Text.Encoding.UTF8.GetString(bytes) : null);
             return true;
         }
-        return _fonts.Remove(relPath);
+        if (_fonts.TryGetValue(relPath, out var f))
+        {
+            var bytes = ReadArtifact(relPath, null);
+            if (bytes != null && f.ReloadFrom(bytes))
+            {
+                BindFont(f);
+                return true;
+            }
+            _fonts.Remove(relPath);
+            return true;
+        }
+        return false;
     }
 
     readonly Dictionary<string, PixelEffect> _fx = new();

@@ -41,9 +41,23 @@ public enum BlendMode
     Screen = 3,   // One / OneMinusSrcColor
 }
 
+// Renderer.SortingOrder'in referans noktasi (Godot z_as_relative / CSS stacking context).
+//   Relative: effective = parentEffective + SortingOrder — alt agac parent'la birlikte
+//             tasinir, icerideki sayilar yalniz kardesler arasi sirayi degistirir.
+//   Absolute: effective = SortingOrder — parent yok sayilir (popup/tooltip/surukleme:
+//             hiyerarside cocuk kalir ama ekranin en ustune cikar). Kendi alt agaci
+//             yine ona goreli devam eder.
+public enum SortingSpace
+{
+    Relative = 0,
+    Absolute = 1,
+}
+
 // Unity Material.renderQueue karsiligi: siralama MATERYALIN ozelligi, komutun degil.
 // Kovalar numara sirasiyla cizilir (Unity: Geometry 2000 -> Transparent 3000 -> Overlay 4000).
-// DrawMesh'teki 'layer' Unity sortingOrder karsiligidir: kova ICINDEKI sira ipucu.
+// DrawMesh'teki 'layer' Renderer'in COZULMUS sirasidir (_effectiveOrder): kova ICINDEKI
+// sira. Esit layer'da submit sirasi (= hiyerarsi DFS) korunur: parent altta, cocuk ustte,
+// sonraki kardes oncekinin ustunde.
 public enum SortMode
 {
     None = 0,

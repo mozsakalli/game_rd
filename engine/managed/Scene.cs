@@ -96,19 +96,21 @@ public sealed class Scene
         go._rootIndex = _rootCount++;
     }
 
+    // Kok sirasi KORUNUR (kaydirmali silme): cizim sirasi ve sahne dosyasi sirasi
+    // hiyerarsi paneliyle ayni olsun.
     internal void RemoveRoot(GameObject go)
     {
         int i = go._rootIndex;
         if (i < 0)
             return;
         go._rootIndex = -1;
-        var last = _roots[--_rootCount];
-        _roots[_rootCount] = null;
-        if (last != go)
+        _rootCount--;
+        for (; i < _rootCount; i++)
         {
-            _roots[i] = last; // swap-remove: kok sirasi onemsiz
-            last._rootIndex = i;
+            _roots[i] = _roots[i + 1];
+            _roots[i]._rootIndex = i;
         }
+        _roots[_rootCount] = null;
     }
 
     // --- Dispatch listeleri (instance) ---
@@ -400,20 +402,54 @@ public sealed class Scene
 
     // Aktif renderer'lari kuyruga encode eder (kamera-bagimsiz; cagiran secer).
     // layerMask: bit i = layer i cizilir (kamera cullingMask'i; -1 = hepsi).
+    // Submit sirasi = hiyerarsi DFS (kok sirasi, sonra kardes sirasi, derinlemesine):
+    // ayni katmanda parent altta, cocuk ustte, sonraki kardes oncekinin ustunde.
+    // Ayni yuruyuste SortingOrder cozulur (Relative: parent + kendi; Absolute: kendi).
     public void Render(RenderQueue queue, int layerMask = -1)
     {
         for (int i = 0; i < _systemCount; i++)
             _systems[i].BeginRender(this, queue);
-        int n = _rendererCount;
-        for (int i = 0; i < n; i++)
-        {
-            var r = _renderers[i];
-            if (r != null && !r._destroyed
-                && (layerMask & (1 << r._gameObject.layer)) != 0)
-                r.Encode(queue);
-        }
+        int paint = 0;
+        for (int i = 0; i < _rootCount; i++)
+            WalkRenderers(_roots[i], 0, queue, layerMask, ref paint);
         for (int i = 0; i < _systemCount; i++)
             _systems[i].EndRender(this, queue);
+    }
+
+    // Yalniz sira cozumu (encode yok): Pointer pick'ten once cagrilir ki o frame
+    // eklenen/tasinan renderer'lar da cizimle ayni karari gorsun.
+    internal void ResolveSortOrder()
+    {
+        int paint = 0;
+        for (int i = 0; i < _rootCount; i++)
+            WalkRenderers(_roots[i], 0, null, 0, ref paint);
+    }
+
+    void WalkRenderers(GameObject go, int parentOrder, RenderQueue queue, int layerMask, ref int paint)
+    {
+        if (!go.activeInHierarchy)
+            return;
+        int childOrder = parentOrder;
+        bool first = true;
+        int n = go.ComponentCount;
+        for (int i = 0; i < n; i++)
+        {
+            if (go.ComponentAt(i) is not Renderer r || r._rendererSlot < 0 || r._destroyed)
+                continue;
+            int eff = r.SortingSpace == SortingSpace.Absolute
+                ? r.SortingOrder : parentOrder + r.SortingOrder;
+            r._effectiveOrder = eff;
+            r._paintOrder = paint++;  // mask'ten bagimsiz: Pointer tum kameralarda ayni sirayi gorur
+            if (first)
+            {
+                childOrder = eff; // cocuklar GO'nun ilk renderer'ina goreli
+                first = false;
+            }
+            if (queue != null && (layerMask & (1 << go.layer)) != 0)
+                r.Encode(queue);
+        }
+        for (var t = go.transform.FirstChild; t != null; t = t.NextSibling)
+            WalkRenderers(t._gameObject, childOrder, queue, layerMask, ref paint);
     }
 
     void FlushDestroyed()

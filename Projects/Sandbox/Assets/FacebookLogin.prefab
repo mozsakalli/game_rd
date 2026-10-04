@@ -1,0 +1,75 @@
+scene: FacebookLogin
+objects:
+  - id: 1
+    parent: 0
+    name: FacebookLogin
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 170
+        height: 60
+        fillColor: '#1877f2ff'
+        radiusTL: 10
+        radiusTR: 10
+        radiusBR: 10
+        radiusBL: 10
+        fill:
+          type: Linear
+          color: '#347ccaff'
+          color2: '#34485dff'
+          direction: Vertical
+        borderFill:
+          type: Linear
+          color: '#455f7d00'
+          color2: '#007aff72'
+          direction: Vertical
+        borderLeft: 2
+        borderTop: 2
+        shadowColor: '#0000007a'
+        shadowBlur: 12.64
+        font: 713ad506a3014c21aa1043ccd65aa552
+        text: Facebook Login
+        textSize: 20
+        textAlign: Center
+        textAlignV: Center
+        textOutlineWidth: 0
+        textShadowColor: '#00000036'
+        textShadowOffset: 0 1.4333313
+        overflowX: Grow
+        textWrap: false
+        borderRight: 2
+        borderBottom: 2
+        padLeft: 20
+        padRight: 20
+        textWeight: 1
+        textSpacing: 0
+        textSkew: 0
+        padTop: 1.48
+        Effects: ''
+        fitScreen: false
+        ignoreLayout: false
+  - id: 2
+    parent: 1
+    name: GameObject (1)
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        fill:
+          type: Linear
+          direction: Vertical
+          color: '#ffffff70'
+          color2: '#ffffff00'
+        width: 170
+        height: 10
+        layout: None
+        grow: 0
+        anchorMin: 0.025 0.5
+        anchorMax: -0.025 0.5
+        pivot: 0 0.5
+        radiusTL: 10
+        radiusTR: 10
+        anchoredPos: -0.666687 -21

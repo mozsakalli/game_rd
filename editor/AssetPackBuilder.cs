@@ -22,7 +22,7 @@ static class AssetPackBuilder
         || rel.StartsWith("Editor/", StringComparison.OrdinalIgnoreCase);
 
     [MenuItem("Project/Build Asset Pack", 1)]
-    static void Build()
+    internal static void Build()
     {
         var assets = App.Assets;
         string root = assets.Root;
@@ -37,13 +37,26 @@ static class AssetPackBuilder
         }
         files.Sort((a, b) => string.CompareOrdinal(a.Key, b.Key)); // deterministik cikti
 
-        int dtexCount = 0;
+        // Atlas gruplarina alinan uyeler: pak'ta sayfalarda yasar, tekil kopya gereksiz
+        // (png tamamen atlanir; fontun yalniz "sheet" artifact'i atlanir).
+        var claimed = AtlasImporter.ClaimedMembers(AtlasSystem.GroupAssets());
+
+        int dtexCount = 0, skipped = 0;
         var items = new List<(string Key, string Guid, byte[] Data)>();
+        string texKey = null, texFile = null;
         foreach (var (key, file) in files)
         {
             byte[] data;
             if (AssetDatabase.ImportTypeOf(key) == typeof(Sprite))
             {
+                if (claimed.Contains(key))
+                {
+                    // Pikseller atlas sayfasinda; guid->yol eslemesi icin bos stub girisi kalir
+                    // (sahne guid'le referanslar, LoadSprite bolge tablosundan baglar).
+                    items.Add((key, assets.PathToGuid(key), Array.Empty<byte>()));
+                    skipped++;
+                    continue;
+                }
                 data = DecodeToDtex(file);
                 if (data != null)
                     dtexCount++;
@@ -52,15 +65,35 @@ static class AssetPackBuilder
                     EditorLog.Warning($"[pak] decode edilemedi, ham kopyalandi: {key}");
                     data = File.ReadAllBytes(file); // runtime stbi yolu hala calisir
                 }
+                if (texKey == null)
+                {
+                    texKey = key;
+                    texFile = file;
+                }
             }
             else if (ImportPipeline.ImporterFor(key) != null)
             {
-                // Importer'li kaynak: pak'a ARTIFACT girer, kaynak degil (ttf disarida kalir).
+                // Importer'li kaynak: pak'a ARTIFACT'ler girer, kaynak degil (ttf disarida
+                // kalir). "main" asset anahtariyla, digerleri "<anahtar>#<ad>" ile.
                 data = ImportPipeline.GetArtifact(key, "main");
                 if (data == null)
                 {
                     EditorLog.Warning($"[pak] import basarisiz, atlandi: {key}");
                     continue;
+                }
+                bool claimedFont = claimed.Contains(key);
+                foreach (var name in ImportPipeline.ArtifactNames(key))
+                {
+                    if (name == "main" || name == "members" || name == "regions")
+                        continue; // editor-ici sozlesmeler; runtime okumaz
+                    if (claimedFont && name == "sheet")
+                    {
+                        skipped++;
+                        continue;
+                    }
+                    var extra = ImportPipeline.GetArtifact(key, name);
+                    if (extra != null)
+                        items.Add((key + "#" + name, "", extra));
                 }
             }
             else
@@ -69,49 +102,21 @@ static class AssetPackBuilder
         }
 
         var (rawTotal, pakSize) = PakWriter.Write(outPath, items);
-        EditorLog.Info($"[pak] {items.Count} asset ({dtexCount} dtex) -> {outPath} " +
+        EditorLog.Info($"[pak] {items.Count} giris ({dtexCount} dtex, {skipped} atlas uyesi atlandi) -> {outPath} " +
             $"({pakSize / 1024.0:0.0} KB, acik {rawTotal / 1024.0:0.0} KB, %{100.0 * pakSize / Math.Max(1, rawTotal):0.0})");
 
-        var texPair = files.Find(f => AssetDatabase.ImportTypeOf(f.Key) == typeof(Sprite));
-        Verify(outPath, items, texPair.Key, texPair.File);
+        Verify(outPath, items, texKey, texFile);
     }
 
     // Kaynak texture'i native worker'la cozup DTEX blobu uretir (build-time,
     // senkron bekleme kabul). Basarisiz olursa null (cagiran ham dosyaya duser).
     static byte[] DecodeToDtex(string file)
     {
-        var rgba = AwaitPixels(Sokol.AssetLoad(file), out int w, out int h);
+        var rgba = EditorPixels.DecodeFile(file, out int w, out int h);
         return rgba != null ? DtexFormat.BuildFiltered(w, h, rgba) : null;
     }
 
-    // Job'u sinirli bekleyip piksel kopyasini dondurur (~5s, build/verify baglami).
-    static byte[] AwaitPixels(int job, out int w, out int h)
-    {
-        w = h = 0;
-        if (job < 0)
-            return null;
-        try
-        {
-            for (int i = 0; i < 1000; i++)
-            {
-                int r = Sokol.AssetPoll(job, out var pixels, out w, out h);
-                if (r < 0)
-                    return null;
-                if (r == 1)
-                {
-                    var rgba = new byte[w * h * 4];
-                    Marshal.Copy(pixels, rgba, 0, rgba.Length);
-                    return rgba;
-                }
-                System.Threading.Thread.Sleep(5);
-            }
-            return null;
-        }
-        finally
-        {
-            Sokol.AssetFreeJob(job);
-        }
-    }
+    static byte[] AwaitPixels(int job, out int w, out int h) => EditorPixels.Await(job, out w, out h);
 
     // Yazilan pak'i geri okuyup dogrular: index sayisi, tum girisler bayt-esit
     // (zlib round-trip dahil), texture pikselleri pak(DTEX+inflate+defilter)

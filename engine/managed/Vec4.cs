@@ -1,6 +1,6 @@
 namespace DigitoyEngine;
 
-// Instance USER kanali ve genel 4-bilesenli deger icin minimal vektor.
+// Instance USER kanali ve Inspector'da tek satirlik dortlu degerler.
 public struct Vec4
 {
     public float x, y, z, w;

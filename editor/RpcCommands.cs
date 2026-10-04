@@ -434,6 +434,7 @@ static class RpcCommands
         if (dir == null)
             throw new RpcError($"import basarisiz: {rel} (log.tail ile detay)");
         ctx.Assets.InvalidateImported(rel);
+        AtlasSystem.RefreshAll(); // bu kaynagi alan atlas gruplari (stamp) yeniden paketlenir
         var r = DocNode.Map();
         r.Add("ok", DocNode.Scal("true"));
         r.Add("ms", DocNode.Scal(sw.ElapsedMilliseconds.ToString(CultureInfo.InvariantCulture)));
@@ -449,6 +450,15 @@ static class RpcCommands
             arts.Items.Add(m);
         }
         r.Add("artifacts", arts);
+        return r;
+    }
+
+    [RpcCommand("asset.buildPak", "Release asset paketini (Build/game.pak) uretir; sonuc log.tail'de")]
+    static DocNode AssetBuildPak()
+    {
+        AssetPackBuilder.Build();
+        var r = DocNode.Map();
+        r.Add("ok", DocNode.Scal("true"));
         return r;
     }
 

@@ -188,12 +188,13 @@ public sealed class PointerInput
 
     // Kameralar ters depth (ustteki once): bir kamerada hit varsa alttakilere
     // bakilmaz (UI kamerasi dunyayi dogal olarak bloklar). Kamera icinde en yakin
-    // mesafe kazanir; esit mesafede (2D ayni duzlem) buyuk SortingOrder / gec
-    // kayit (ustte cizilen) kazanir.
+    // mesafe kazanir; esit mesafede (2D ayni duzlem) cizimle AYNI karar: buyuk
+    // cozulmus katman (_effectiveOrder), esitse gec cizilen (_paintOrder) kazanir.
     bool Pick(float sx, float sy, out RayHit best, out CameraComponent bestCam)
     {
         best = default;
         bestCam = null;
+        _scene.ResolveSortOrder();
         float vw = _scene.ScreenWidth, vh = _scene.ScreenHeight;
         int camCount = _scene.CameraCount;
         if (_order.Length < camCount)
@@ -230,7 +231,7 @@ public sealed class PointerInput
             }
 
             bool found = false;
-            int bestOrder = 0, bestSlot = 0;
+            int bestOrder = 0, bestPaint = 0;
             int n = _scene.RendererCount;
             for (int i = 0; i < n; i++)
             {
@@ -247,13 +248,13 @@ public sealed class PointerInput
                 bool win = !found
                     || dist < best.Distance - eps
                     || (dist <= best.Distance + eps
-                        && (r.SortingOrder > bestOrder
-                            || (r.SortingOrder == bestOrder && i > bestSlot)));
+                        && (r._effectiveOrder > bestOrder
+                            || (r._effectiveOrder == bestOrder && r._paintOrder > bestPaint)));
                 if (!win)
                     continue;
                 found = true;
-                bestOrder = r.SortingOrder;
-                bestSlot = i;
+                bestOrder = r._effectiveOrder;
+                bestPaint = r._paintOrder;
                 best = new RayHit { Renderer = r, Distance = dist, Point = point };
             }
             if (found)

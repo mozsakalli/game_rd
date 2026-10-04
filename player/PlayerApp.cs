@@ -26,6 +26,7 @@ public unsafe class PlayerApp
         };
 
         string root = Path.GetFullPath(args.Length > 0 ? args[0] : DefaultProjectPath);
+        AssetDatabase.LogWarning = m => Console.WriteLine("[warn] " + m);
         string name = "Game", startScene = "Scenes/Main.scene";
         string settings = Path.Combine(root, "ProjectSettings", "project.yaml");
         if (File.Exists(settings))
@@ -50,15 +51,18 @@ public unsafe class PlayerApp
             _source = new LooseFileSource(assetsPath);
             assets = new AssetDatabase(assetsPath);
             assets.ScanMetas(createMissing: false);
-            // Importer'li asset'ler (font vb.) editorun urettigi artifact'lardan:
-            // Library/Artifacts/<guid>/main. Yoksa null -> kaynaga duser.
+            // Importer'li asset'ler (font, atlas vb.) editorun urettigi artifact'lardan:
+            // Library/Artifacts/<guid>/main; "anahtar#ad" -> adli artifact. Yoksa null -> kaynaga duser.
             string artifacts = Path.Combine(root, "Library", "Artifacts");
             assets.ArtifactResolver = key =>
             {
-                string guid = assets.PathToGuid(key);
+                int hash = key.IndexOf('#');
+                string rel = hash < 0 ? key : key.Substring(0, hash);
+                string name = hash < 0 ? "main" : key.Substring(hash + 1);
+                string guid = assets.PathToGuid(rel);
                 if (guid == null)
                     return null;
-                string p = Path.Combine(artifacts, guid, "main");
+                string p = Path.Combine(artifacts, guid, name);
                 return File.Exists(p) ? File.ReadAllBytes(p) : null;
             };
             Console.WriteLine("[player] loose: " + assetsPath + " (pak yok)");
@@ -87,6 +91,11 @@ public unsafe class PlayerApp
         GLFW.SwapInterval(1);
 #endif
         Sokol.Setup();
+
+        // Atlas sayfalari (GL baglami hazir): sprite/font'lar yuklenirken bolgelere baglanir.
+        int atlases = assets.LoadAtlases();
+        if (atlases > 0)
+            Console.WriteLine($"[player] {atlases} atlas yuklendi");
 
         // --- sahne ---
         var scene = Scene.Active;
