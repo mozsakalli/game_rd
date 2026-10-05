@@ -1,3 +1,4 @@
+#if DE_EDITOR // YAML/SceneDoc: yalniz editor. Release/AOT sahneler SceneBinary (pismis) ile gelir; metin format yoktur.
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -468,3 +469,4 @@ public sealed partial class SceneDoc
     public static string RemapScalar(string s, SerializedType.Kind kind, Dictionary<int, int> map)
         => RemapRefScalar(s, kind, map);
 }
+#endif

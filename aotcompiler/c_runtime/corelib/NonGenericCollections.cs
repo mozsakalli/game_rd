@@ -87,6 +87,32 @@ namespace System
             array = resized;
         }
 
+        public static void Sort<T>(T[] array, Comparison<T> comparison)
+        {
+            if (array == null) throw new NullReferenceException();
+            for (int i = 1; i < array.Length; i++)
+            {
+                T value = array[i];
+                int cursor = i - 1;
+                while (cursor >= 0 && comparison(array[cursor], value) > 0) { array[cursor + 1] = array[cursor]; cursor--; }
+                array[cursor + 1] = value;
+            }
+        }
+
+        public static TOutput[] ConvertAll<TInput, TOutput>(TInput[] array, Converter<TInput, TOutput> converter)
+        {
+            if (array == null) throw new NullReferenceException();
+            TOutput[] r = new TOutput[array.Length];
+            for (int i = 0; i < array.Length; i++) r[i] = converter(array[i]);
+            return r;
+        }
+
+        public static void Clear<T>(T[] array)
+        {
+            if (array == null) throw new NullReferenceException();
+            for (int i = 0; i < array.Length; i++) array[i] = default(T);
+        }
+
         public static void Sort<T>(T[] array, int index, int length, Collections.Generic.IComparer<T> comparer)
         {
             if (array == null) throw new NullReferenceException();

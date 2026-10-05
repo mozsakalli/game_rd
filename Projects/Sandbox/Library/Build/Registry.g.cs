@@ -41,7 +41,20 @@ public static class Registry
             Flags = (global::DigitoyEngine.LifecycleFlags)1,
             Schema = s,
             Previewable = false,
+            ReadBaked = Read_0,
         });
+    }
+
+    static void Read_0(global::DigitoyEngine.Component o, global::DigitoyEngine.SceneBinary.Reader r)
+    {
+        var c = (global::ApplePlatformOnly)o;
+        int n = r.U16();
+        for (int i = 0; i < n; i++)
+        {
+            switch (r.U16())
+            {
+            }
+        }
     }
 
     static void Reg_1(global::DigitoyEngine.TypeCatalog cat)
@@ -53,8 +66,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Int,
             FieldType = typeof(global::System.Int32),
             DeclaringType = typeof(global::DigitoyEngine.CameraComponent),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.CameraComponent)o).depth,
             Set = (o, v) => ((global::DigitoyEngine.CameraComponent)o).depth = (global::System.Int32)v,
+#endif
             GetFloat = c => (float)((global::DigitoyEngine.CameraComponent)c).depth,
             SetFloat = (c, v) => ((global::DigitoyEngine.CameraComponent)c).depth = (int)v,
         };
@@ -64,8 +79,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Color,
             FieldType = typeof(global::DigitoyEngine.Color),
             DeclaringType = typeof(global::DigitoyEngine.CameraComponent),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.CameraComponent)o).background,
             Set = (o, v) => ((global::DigitoyEngine.CameraComponent)o).background = (global::DigitoyEngine.Color)v,
+#endif
         };
         s[2] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -73,8 +90,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Int,
             FieldType = typeof(global::System.Int32),
             DeclaringType = typeof(global::DigitoyEngine.CameraComponent),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.CameraComponent)o).cullingMask,
             Set = (o, v) => ((global::DigitoyEngine.CameraComponent)o).cullingMask = (global::System.Int32)v,
+#endif
             GetFloat = c => (float)((global::DigitoyEngine.CameraComponent)c).cullingMask,
             SetFloat = (c, v) => ((global::DigitoyEngine.CameraComponent)c).cullingMask = (int)v,
         };
@@ -84,8 +103,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
             FieldType = typeof(global::DigitoyEngine.CameraClearFlags),
             DeclaringType = typeof(global::DigitoyEngine.CameraComponent),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.CameraComponent)o).clearFlags,
             Set = (o, v) => ((global::DigitoyEngine.CameraComponent)o).clearFlags = (global::DigitoyEngine.CameraClearFlags)v,
+#endif
         };
         s[4] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -93,8 +114,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
             FieldType = typeof(global::DigitoyEngine.CameraProjection),
             DeclaringType = typeof(global::DigitoyEngine.CameraComponent),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.CameraComponent)o).projection,
             Set = (o, v) => ((global::DigitoyEngine.CameraComponent)o).projection = (global::DigitoyEngine.CameraProjection)v,
+#endif
         };
         s[5] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -102,8 +125,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.CameraComponent),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.CameraComponent)o).orthoSize,
             Set = (o, v) => ((global::DigitoyEngine.CameraComponent)o).orthoSize = (global::System.Single)v,
+#endif
             GetFloat = c => ((global::DigitoyEngine.CameraComponent)c).orthoSize,
             SetFloat = (c, v) => ((global::DigitoyEngine.CameraComponent)c).orthoSize = v,
         };
@@ -113,8 +138,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.CameraComponent),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.CameraComponent)o).fov,
             Set = (o, v) => ((global::DigitoyEngine.CameraComponent)o).fov = (global::System.Single)v,
+#endif
             GetFloat = c => ((global::DigitoyEngine.CameraComponent)c).fov,
             SetFloat = (c, v) => ((global::DigitoyEngine.CameraComponent)c).fov = v,
         };
@@ -124,8 +151,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.CameraComponent),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.CameraComponent)o).nearClip,
             Set = (o, v) => ((global::DigitoyEngine.CameraComponent)o).nearClip = (global::System.Single)v,
+#endif
             GetFloat = c => ((global::DigitoyEngine.CameraComponent)c).nearClip,
             SetFloat = (c, v) => ((global::DigitoyEngine.CameraComponent)c).nearClip = v,
         };
@@ -135,8 +164,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.CameraComponent),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.CameraComponent)o).farClip,
             Set = (o, v) => ((global::DigitoyEngine.CameraComponent)o).farClip = (global::System.Single)v,
+#endif
             GetFloat = c => ((global::DigitoyEngine.CameraComponent)c).farClip,
             SetFloat = (c, v) => ((global::DigitoyEngine.CameraComponent)c).farClip = v,
         };
@@ -169,7 +200,65 @@ public static class Registry
             Flags = (global::DigitoyEngine.LifecycleFlags)34,
             Schema = s,
             Previewable = false,
+            ReadBaked = Read_1,
         });
+    }
+
+    static void Read_1(global::DigitoyEngine.Component o, global::DigitoyEngine.SceneBinary.Reader r)
+    {
+        var c = (global::DigitoyEngine.CameraComponent)o;
+        int n = r.U16();
+        for (int i = 0; i < n; i++)
+        {
+            switch (r.U16())
+            {
+                case 0:
+                {
+                    c.depth = r.I32();
+                    break;
+                }
+                case 1:
+                {
+                    c.background = r.Col();
+                    break;
+                }
+                case 2:
+                {
+                    c.cullingMask = r.I32();
+                    break;
+                }
+                case 3:
+                {
+                    c.clearFlags = (global::DigitoyEngine.CameraClearFlags)r.I32();
+                    break;
+                }
+                case 4:
+                {
+                    c.projection = (global::DigitoyEngine.CameraProjection)r.I32();
+                    break;
+                }
+                case 5:
+                {
+                    c.orthoSize = r.F32();
+                    break;
+                }
+                case 6:
+                {
+                    c.fov = r.F32();
+                    break;
+                }
+                case 7:
+                {
+                    c.nearClip = r.F32();
+                    break;
+                }
+                case 8:
+                {
+                    c.farClip = r.F32();
+                    break;
+                }
+            }
+        }
     }
 
     static void Reg_2(global::DigitoyEngine.TypeCatalog cat)
@@ -181,8 +270,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
             FieldType = typeof(global::DigitoyEngine.GradientType),
             DeclaringType = typeof(global::DigitoyEngine.Gradient),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Gradient)o).type,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.Gradient>(o).type = (global::DigitoyEngine.GradientType)v,
+#endif
         };
         s_22[1] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -190,8 +281,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
             FieldType = typeof(global::DigitoyEngine.GradientDirection),
             DeclaringType = typeof(global::DigitoyEngine.Gradient),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Gradient)o).direction,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.Gradient>(o).direction = (global::DigitoyEngine.GradientDirection)v,
+#endif
         };
         s_22[2] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -199,8 +292,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Color,
             FieldType = typeof(global::DigitoyEngine.Color),
             DeclaringType = typeof(global::DigitoyEngine.Gradient),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Gradient)o).color,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.Gradient>(o).color = (global::DigitoyEngine.Color)v,
+#endif
         };
         s_22[3] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -208,8 +303,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Color,
             FieldType = typeof(global::DigitoyEngine.Color),
             DeclaringType = typeof(global::DigitoyEngine.Gradient),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Gradient)o).color2,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.Gradient>(o).color2 = (global::DigitoyEngine.Color)v,
+#endif
         };
         s_22[1].ShowIf = s_22[0];
         s_22[1].ShowIfScalar = "Linear";
@@ -222,8 +319,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
             FieldType = typeof(global::DigitoyEngine.GradientType),
             DeclaringType = typeof(global::DigitoyEngine.Gradient),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Gradient)o).type,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.Gradient>(o).type = (global::DigitoyEngine.GradientType)v,
+#endif
         };
         s_24[1] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -231,8 +330,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
             FieldType = typeof(global::DigitoyEngine.GradientDirection),
             DeclaringType = typeof(global::DigitoyEngine.Gradient),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Gradient)o).direction,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.Gradient>(o).direction = (global::DigitoyEngine.GradientDirection)v,
+#endif
         };
         s_24[2] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -240,8 +341,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Color,
             FieldType = typeof(global::DigitoyEngine.Color),
             DeclaringType = typeof(global::DigitoyEngine.Gradient),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Gradient)o).color,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.Gradient>(o).color = (global::DigitoyEngine.Color)v,
+#endif
         };
         s_24[3] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -249,8 +352,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Color,
             FieldType = typeof(global::DigitoyEngine.Color),
             DeclaringType = typeof(global::DigitoyEngine.Gradient),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Gradient)o).color2,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.Gradient>(o).color2 = (global::DigitoyEngine.Color)v,
+#endif
         };
         s_24[1].ShowIf = s_24[0];
         s_24[1].ShowIfScalar = "Linear";
@@ -263,8 +368,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
             FieldType = typeof(global::DigitoyEngine.GradientType),
             DeclaringType = typeof(global::DigitoyEngine.Gradient),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Gradient)o).type,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.Gradient>(o).type = (global::DigitoyEngine.GradientType)v,
+#endif
         };
         s_42[1] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -272,8 +379,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
             FieldType = typeof(global::DigitoyEngine.GradientDirection),
             DeclaringType = typeof(global::DigitoyEngine.Gradient),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Gradient)o).direction,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.Gradient>(o).direction = (global::DigitoyEngine.GradientDirection)v,
+#endif
         };
         s_42[2] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -281,8 +390,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Color,
             FieldType = typeof(global::DigitoyEngine.Color),
             DeclaringType = typeof(global::DigitoyEngine.Gradient),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Gradient)o).color,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.Gradient>(o).color = (global::DigitoyEngine.Color)v,
+#endif
         };
         s_42[3] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -290,8 +401,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Color,
             FieldType = typeof(global::DigitoyEngine.Color),
             DeclaringType = typeof(global::DigitoyEngine.Gradient),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Gradient)o).color2,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.Gradient>(o).color2 = (global::DigitoyEngine.Color)v,
+#endif
         };
         s_42[1].ShowIf = s_42[0];
         s_42[1].ShowIfScalar = "Linear";
@@ -304,8 +417,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
             FieldType = typeof(global::DigitoyEngine.GradientType),
             DeclaringType = typeof(global::DigitoyEngine.Gradient),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Gradient)o).type,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.Gradient>(o).type = (global::DigitoyEngine.GradientType)v,
+#endif
         };
         s_44[1] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -313,8 +428,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
             FieldType = typeof(global::DigitoyEngine.GradientDirection),
             DeclaringType = typeof(global::DigitoyEngine.Gradient),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Gradient)o).direction,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.Gradient>(o).direction = (global::DigitoyEngine.GradientDirection)v,
+#endif
         };
         s_44[2] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -322,8 +439,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Color,
             FieldType = typeof(global::DigitoyEngine.Color),
             DeclaringType = typeof(global::DigitoyEngine.Gradient),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Gradient)o).color,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.Gradient>(o).color = (global::DigitoyEngine.Color)v,
+#endif
         };
         s_44[3] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -331,8 +450,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Color,
             FieldType = typeof(global::DigitoyEngine.Color),
             DeclaringType = typeof(global::DigitoyEngine.Gradient),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Gradient)o).color2,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.Gradient>(o).color2 = (global::DigitoyEngine.Color)v,
+#endif
         };
         s_44[1].ShowIf = s_44[0];
         s_44[1].ShowIfScalar = "Linear";
@@ -345,8 +466,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Int,
             FieldType = typeof(global::System.Int32),
             DeclaringType = typeof(global::DigitoyEngine.Renderer),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Renderer)o).SortingOrder,
             Set = (o, v) => ((global::DigitoyEngine.Renderer)o).SortingOrder = (global::System.Int32)v,
+#endif
             GetFloat = c => (float)((global::DigitoyEngine.Renderer)c).SortingOrder,
             SetFloat = (c, v) => ((global::DigitoyEngine.Renderer)c).SortingOrder = (int)v,
         };
@@ -356,8 +479,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
             FieldType = typeof(global::DigitoyEngine.SortingSpace),
             DeclaringType = typeof(global::DigitoyEngine.Renderer),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Renderer)o).SortingSpace,
             Set = (o, v) => ((global::DigitoyEngine.Renderer)o).SortingSpace = (global::DigitoyEngine.SortingSpace)v,
+#endif
         };
         s[2] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -365,8 +490,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
             FieldType = typeof(global::DigitoyEngine.BlendMode),
             DeclaringType = typeof(global::DigitoyEngine.Renderer),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Renderer)o).BlendMode,
             Set = (o, v) => ((global::DigitoyEngine.Renderer)o).BlendMode = (global::DigitoyEngine.BlendMode)v,
+#endif
         };
         s[3] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -376,8 +503,10 @@ public static class Registry
             ElementType = typeof(global::DigitoyEngine.PixelEffect),
             FieldType = typeof(global::System.Collections.Generic.List<global::DigitoyEngine.PixelEffect>),
             DeclaringType = typeof(global::DigitoyEngine.Renderer),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Renderer)o).Effects,
             Set = (o, v) => ((global::DigitoyEngine.Renderer)o).Effects = (global::System.Collections.Generic.List<global::DigitoyEngine.PixelEffect>)v,
+#endif
             NewList = () => new global::System.Collections.Generic.List<global::DigitoyEngine.PixelEffect>(),
         };
         s[4] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -386,8 +515,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Bool,
             FieldType = typeof(global::System.Boolean),
             DeclaringType = typeof(global::DigitoyEngine.Renderer),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Renderer)o).BlocksRaycast,
             Set = (o, v) => ((global::DigitoyEngine.Renderer)o).BlocksRaycast = (global::System.Boolean)v,
+#endif
         };
         s[5] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -395,8 +526,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Bool,
             FieldType = typeof(global::System.Boolean),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
+#if !DE_AOT
             Get = o => F2_0((global::DigitoyEngine.LayoutBox)o),
             Set = (o, v) => F2_0((global::DigitoyEngine.LayoutBox)o) = (global::System.Boolean)v,
+#endif
         };
         s[6] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -404,8 +537,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
+#if !DE_AOT
             Get = o => F2_1((global::DigitoyEngine.LayoutBox)o),
             Set = (o, v) => F2_1((global::DigitoyEngine.LayoutBox)o) = (global::System.Single)v,
+#endif
             GetFloat = c => F2_2((global::DigitoyEngine.LayoutBox)c),
             SetFloat = (c, v) => F2_2((global::DigitoyEngine.LayoutBox)c) = v,
         };
@@ -415,8 +550,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
+#if !DE_AOT
             Get = o => F2_3((global::DigitoyEngine.LayoutBox)o),
             Set = (o, v) => F2_3((global::DigitoyEngine.LayoutBox)o) = (global::System.Single)v,
+#endif
             GetFloat = c => F2_4((global::DigitoyEngine.LayoutBox)c),
             SetFloat = (c, v) => F2_4((global::DigitoyEngine.LayoutBox)c) = v,
         };
@@ -426,8 +563,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Vec2,
             FieldType = typeof(global::DigitoyEngine.Vec2),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
+#if !DE_AOT
             Get = o => F2_5((global::DigitoyEngine.LayoutBox)o),
             Set = (o, v) => F2_5((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Vec2)v,
+#endif
         };
         s[9] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -435,8 +574,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Vec2,
             FieldType = typeof(global::DigitoyEngine.Vec2),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
+#if !DE_AOT
             Get = o => F2_6((global::DigitoyEngine.LayoutBox)o),
             Set = (o, v) => F2_6((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Vec2)v,
+#endif
         };
         s[10] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -444,8 +585,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Vec2,
             FieldType = typeof(global::DigitoyEngine.Vec2),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
+#if !DE_AOT
             Get = o => F2_7((global::DigitoyEngine.LayoutBox)o),
             Set = (o, v) => F2_7((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Vec2)v,
+#endif
         };
         s[11] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -453,8 +596,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Vec2,
             FieldType = typeof(global::DigitoyEngine.Vec2),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
+#if !DE_AOT
             Get = o => F2_8((global::DigitoyEngine.LayoutBox)o),
             Set = (o, v) => F2_8((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Vec2)v,
+#endif
         };
         s[12] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -462,8 +607,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
+#if !DE_AOT
             Get = o => F2_9((global::DigitoyEngine.LayoutBox)o),
             Set = (o, v) => F2_9((global::DigitoyEngine.LayoutBox)o) = (global::System.Single)v,
+#endif
             GetFloat = c => F2_10((global::DigitoyEngine.LayoutBox)c),
             SetFloat = (c, v) => F2_10((global::DigitoyEngine.LayoutBox)c) = v,
         };
@@ -473,8 +620,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Bool,
             FieldType = typeof(global::System.Boolean),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
+#if !DE_AOT
             Get = o => F2_11((global::DigitoyEngine.LayoutBox)o),
             Set = (o, v) => F2_11((global::DigitoyEngine.LayoutBox)o) = (global::System.Boolean)v,
+#endif
         };
         s[14] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -482,8 +631,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
             FieldType = typeof(global::DigitoyEngine.LayoutMode),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
+#if !DE_AOT
             Get = o => F2_12((global::DigitoyEngine.LayoutBox)o),
             Set = (o, v) => F2_12((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.LayoutMode)v,
+#endif
         };
         s[15] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -491,8 +642,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
+#if !DE_AOT
             Get = o => F2_13((global::DigitoyEngine.LayoutBox)o),
             Set = (o, v) => F2_13((global::DigitoyEngine.LayoutBox)o) = (global::System.Single)v,
+#endif
             GetFloat = c => F2_14((global::DigitoyEngine.LayoutBox)c),
             SetFloat = (c, v) => F2_14((global::DigitoyEngine.LayoutBox)c) = v,
         };
@@ -502,8 +655,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Vec4,
             FieldType = typeof(global::DigitoyEngine.Vec4),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
+#if !DE_AOT
             Get = o => F2_15((global::DigitoyEngine.LayoutBox)o),
             Set = (o, v) => F2_15((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Vec4)v,
+#endif
         };
         s[17] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -511,8 +666,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
             FieldType = typeof(global::DigitoyEngine.LayoutAlign),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
+#if !DE_AOT
             Get = o => F2_16((global::DigitoyEngine.LayoutBox)o),
             Set = (o, v) => F2_16((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.LayoutAlign)v,
+#endif
         };
         s[18] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -520,8 +677,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
             FieldType = typeof(global::DigitoyEngine.LayoutJustify),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
+#if !DE_AOT
             Get = o => F2_17((global::DigitoyEngine.LayoutBox)o),
             Set = (o, v) => F2_17((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.LayoutJustify)v,
+#endif
         };
         s[19] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -529,8 +688,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Bool,
             FieldType = typeof(global::System.Boolean),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
+#if !DE_AOT
             Get = o => F2_18((global::DigitoyEngine.LayoutBox)o),
             Set = (o, v) => F2_18((global::DigitoyEngine.LayoutBox)o) = (global::System.Boolean)v,
+#endif
         };
         s[20] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -538,8 +699,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
             FieldType = typeof(global::DigitoyEngine.OverflowMode),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
+#if !DE_AOT
             Get = o => F2_19((global::DigitoyEngine.LayoutBox)o),
             Set = (o, v) => F2_19((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.OverflowMode)v,
+#endif
         };
         s[21] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -547,8 +710,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
             FieldType = typeof(global::DigitoyEngine.OverflowMode),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
+#if !DE_AOT
             Get = o => F2_20((global::DigitoyEngine.LayoutBox)o),
             Set = (o, v) => F2_20((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.OverflowMode)v,
+#endif
         };
         s[22] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -558,9 +723,13 @@ public static class Registry
             Nested = s_22,
             FieldType = typeof(global::DigitoyEngine.Gradient),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
+#if !DE_AOT
             Get = o => F2_21((global::DigitoyEngine.LayoutBox)o),
             Set = (o, v) => F2_21((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Gradient)v,
+#endif
+#if !DE_AOT
             NewElement = () => (object)default(global::DigitoyEngine.Gradient),
+#endif
         };
         s[23] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -568,8 +737,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Vec4,
             FieldType = typeof(global::DigitoyEngine.Vec4),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
+#if !DE_AOT
             Get = o => F2_22((global::DigitoyEngine.LayoutBox)o),
             Set = (o, v) => F2_22((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Vec4)v,
+#endif
         };
         s[24] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -579,9 +750,13 @@ public static class Registry
             Nested = s_24,
             FieldType = typeof(global::DigitoyEngine.Gradient),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
+#if !DE_AOT
             Get = o => F2_23((global::DigitoyEngine.LayoutBox)o),
             Set = (o, v) => F2_23((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Gradient)v,
+#endif
+#if !DE_AOT
             NewElement = () => (object)default(global::DigitoyEngine.Gradient),
+#endif
         };
         s[25] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -589,8 +764,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Vec4,
             FieldType = typeof(global::DigitoyEngine.Vec4),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
+#if !DE_AOT
             Get = o => F2_24((global::DigitoyEngine.LayoutBox)o),
             Set = (o, v) => F2_24((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Vec4)v,
+#endif
         };
         s[26] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -598,8 +775,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Asset,
             FieldType = typeof(global::DigitoyEngine.Sprite),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
+#if !DE_AOT
             Get = o => F2_25((global::DigitoyEngine.LayoutBox)o),
             Set = (o, v) => F2_25((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Sprite)v,
+#endif
         };
         s[27] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -607,8 +786,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Vec4,
             FieldType = typeof(global::DigitoyEngine.Vec4),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
+#if !DE_AOT
             Get = o => F2_26((global::DigitoyEngine.LayoutBox)o),
             Set = (o, v) => F2_26((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Vec4)v,
+#endif
         };
         s[28] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -616,8 +797,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Color,
             FieldType = typeof(global::DigitoyEngine.Color),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
+#if !DE_AOT
             Get = o => F2_27((global::DigitoyEngine.LayoutBox)o),
             Set = (o, v) => F2_27((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Color)v,
+#endif
         };
         s[29] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -625,8 +808,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Vec2,
             FieldType = typeof(global::DigitoyEngine.Vec2),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
+#if !DE_AOT
             Get = o => F2_28((global::DigitoyEngine.LayoutBox)o),
             Set = (o, v) => F2_28((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Vec2)v,
+#endif
         };
         s[30] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -634,8 +819,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
+#if !DE_AOT
             Get = o => F2_29((global::DigitoyEngine.LayoutBox)o),
             Set = (o, v) => F2_29((global::DigitoyEngine.LayoutBox)o) = (global::System.Single)v,
+#endif
             GetFloat = c => F2_30((global::DigitoyEngine.LayoutBox)c),
             SetFloat = (c, v) => F2_30((global::DigitoyEngine.LayoutBox)c) = v,
         };
@@ -645,8 +832,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
+#if !DE_AOT
             Get = o => F2_31((global::DigitoyEngine.LayoutBox)o),
             Set = (o, v) => F2_31((global::DigitoyEngine.LayoutBox)o) = (global::System.Single)v,
+#endif
             GetFloat = c => F2_32((global::DigitoyEngine.LayoutBox)c),
             SetFloat = (c, v) => F2_32((global::DigitoyEngine.LayoutBox)c) = v,
         };
@@ -656,8 +845,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Asset,
             FieldType = typeof(global::DigitoyEngine.Font),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
+#if !DE_AOT
             Get = o => F2_33((global::DigitoyEngine.LayoutBox)o),
             Set = (o, v) => F2_33((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Font)v,
+#endif
         };
         s[33] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -665,8 +856,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.String,
             FieldType = typeof(global::System.String),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
+#if !DE_AOT
             Get = o => F2_34((global::DigitoyEngine.LayoutBox)o),
             Set = (o, v) => F2_34((global::DigitoyEngine.LayoutBox)o) = (global::System.String)v,
+#endif
         };
         s[34] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -674,8 +867,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
+#if !DE_AOT
             Get = o => F2_35((global::DigitoyEngine.LayoutBox)o),
             Set = (o, v) => F2_35((global::DigitoyEngine.LayoutBox)o) = (global::System.Single)v,
+#endif
             GetFloat = c => F2_36((global::DigitoyEngine.LayoutBox)c),
             SetFloat = (c, v) => F2_36((global::DigitoyEngine.LayoutBox)c) = v,
         };
@@ -685,8 +880,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
             FieldType = typeof(global::DigitoyEngine.TextAlign),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
+#if !DE_AOT
             Get = o => F2_37((global::DigitoyEngine.LayoutBox)o),
             Set = (o, v) => F2_37((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.TextAlign)v,
+#endif
         };
         s[36] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -694,8 +891,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
             FieldType = typeof(global::DigitoyEngine.LayoutAlign),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
+#if !DE_AOT
             Get = o => F2_38((global::DigitoyEngine.LayoutBox)o),
             Set = (o, v) => F2_38((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.LayoutAlign)v,
+#endif
         };
         s[37] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -703,8 +902,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Bool,
             FieldType = typeof(global::System.Boolean),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
+#if !DE_AOT
             Get = o => F2_39((global::DigitoyEngine.LayoutBox)o),
             Set = (o, v) => F2_39((global::DigitoyEngine.LayoutBox)o) = (global::System.Boolean)v,
+#endif
         };
         s[38] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -712,8 +913,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Bool,
             FieldType = typeof(global::System.Boolean),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
+#if !DE_AOT
             Get = o => F2_40((global::DigitoyEngine.LayoutBox)o),
             Set = (o, v) => F2_40((global::DigitoyEngine.LayoutBox)o) = (global::System.Boolean)v,
+#endif
         };
         s[39] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -721,8 +924,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
+#if !DE_AOT
             Get = o => F2_41((global::DigitoyEngine.LayoutBox)o),
             Set = (o, v) => F2_41((global::DigitoyEngine.LayoutBox)o) = (global::System.Single)v,
+#endif
             GetFloat = c => F2_42((global::DigitoyEngine.LayoutBox)c),
             SetFloat = (c, v) => F2_42((global::DigitoyEngine.LayoutBox)c) = v,
         };
@@ -732,8 +937,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
+#if !DE_AOT
             Get = o => F2_43((global::DigitoyEngine.LayoutBox)o),
             Set = (o, v) => F2_43((global::DigitoyEngine.LayoutBox)o) = (global::System.Single)v,
+#endif
             GetFloat = c => F2_44((global::DigitoyEngine.LayoutBox)c),
             SetFloat = (c, v) => F2_44((global::DigitoyEngine.LayoutBox)c) = v,
         };
@@ -743,8 +950,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
+#if !DE_AOT
             Get = o => F2_45((global::DigitoyEngine.LayoutBox)o),
             Set = (o, v) => F2_45((global::DigitoyEngine.LayoutBox)o) = (global::System.Single)v,
+#endif
             GetFloat = c => F2_46((global::DigitoyEngine.LayoutBox)c),
             SetFloat = (c, v) => F2_46((global::DigitoyEngine.LayoutBox)c) = v,
         };
@@ -756,9 +965,13 @@ public static class Registry
             Nested = s_42,
             FieldType = typeof(global::DigitoyEngine.Gradient),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
+#if !DE_AOT
             Get = o => F2_47((global::DigitoyEngine.LayoutBox)o),
             Set = (o, v) => F2_47((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Gradient)v,
+#endif
+#if !DE_AOT
             NewElement = () => (object)default(global::DigitoyEngine.Gradient),
+#endif
         };
         s[43] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -766,8 +979,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
+#if !DE_AOT
             Get = o => F2_48((global::DigitoyEngine.LayoutBox)o),
             Set = (o, v) => F2_48((global::DigitoyEngine.LayoutBox)o) = (global::System.Single)v,
+#endif
             GetFloat = c => F2_49((global::DigitoyEngine.LayoutBox)c),
             SetFloat = (c, v) => F2_49((global::DigitoyEngine.LayoutBox)c) = v,
         };
@@ -779,9 +994,13 @@ public static class Registry
             Nested = s_44,
             FieldType = typeof(global::DigitoyEngine.Gradient),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
+#if !DE_AOT
             Get = o => F2_50((global::DigitoyEngine.LayoutBox)o),
             Set = (o, v) => F2_50((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Gradient)v,
+#endif
+#if !DE_AOT
             NewElement = () => (object)default(global::DigitoyEngine.Gradient),
+#endif
         };
         s[45] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -789,8 +1008,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Color,
             FieldType = typeof(global::DigitoyEngine.Color),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
+#if !DE_AOT
             Get = o => F2_51((global::DigitoyEngine.LayoutBox)o),
             Set = (o, v) => F2_51((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Color)v,
+#endif
         };
         s[46] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -798,8 +1019,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Vec2,
             FieldType = typeof(global::DigitoyEngine.Vec2),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
+#if !DE_AOT
             Get = o => F2_52((global::DigitoyEngine.LayoutBox)o),
             Set = (o, v) => F2_52((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Vec2)v,
+#endif
         };
         s[47] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -807,8 +1030,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
+#if !DE_AOT
             Get = o => F2_53((global::DigitoyEngine.LayoutBox)o),
             Set = (o, v) => F2_53((global::DigitoyEngine.LayoutBox)o) = (global::System.Single)v,
+#endif
             GetFloat = c => F2_54((global::DigitoyEngine.LayoutBox)c),
             SetFloat = (c, v) => F2_54((global::DigitoyEngine.LayoutBox)c) = v,
         };
@@ -887,7 +1112,393 @@ public static class Registry
             Flags = (global::DigitoyEngine.LifecycleFlags)418,
             Schema = s,
             Previewable = false,
+            ReadBaked = Read_2,
         });
+    }
+
+    static void Read_2(global::DigitoyEngine.Component o, global::DigitoyEngine.SceneBinary.Reader r)
+    {
+        var c = (global::DigitoyEngine.LayoutBox)o;
+        int n = r.U16();
+        for (int i = 0; i < n; i++)
+        {
+            switch (r.U16())
+            {
+                case 0:
+                {
+                    c.SortingOrder = r.I32();
+                    break;
+                }
+                case 1:
+                {
+                    c.SortingSpace = (global::DigitoyEngine.SortingSpace)r.I32();
+                    break;
+                }
+                case 2:
+                {
+                    c.BlendMode = (global::DigitoyEngine.BlendMode)r.I32();
+                    break;
+                }
+                case 3:
+                {
+                    int cnt = r.I32();
+                    if (cnt >= 0)
+                    {
+                        var tmp = new global::System.Collections.Generic.List<global::DigitoyEngine.PixelEffect>();
+                        for (int k = 0; k < cnt; k++)
+                        {
+                            tmp.Add((global::DigitoyEngine.PixelEffect)r.Asset(typeof(global::DigitoyEngine.PixelEffect)));
+                        }
+                        c.Effects = tmp;
+                    }
+                    break;
+                }
+                case 4:
+                {
+                    c.BlocksRaycast = r.Bool();
+                    break;
+                }
+                case 5:
+                {
+                    F2_98(c) = r.Bool();
+                    break;
+                }
+                case 6:
+                {
+                    F2_99(c) = r.F32();
+                    break;
+                }
+                case 7:
+                {
+                    F2_100(c) = r.F32();
+                    break;
+                }
+                case 8:
+                {
+                    F2_101(c) = r.V2();
+                    break;
+                }
+                case 9:
+                {
+                    F2_102(c) = r.V2();
+                    break;
+                }
+                case 10:
+                {
+                    F2_103(c) = r.V2();
+                    break;
+                }
+                case 11:
+                {
+                    F2_104(c) = r.V2();
+                    break;
+                }
+                case 12:
+                {
+                    F2_105(c) = r.F32();
+                    break;
+                }
+                case 13:
+                {
+                    F2_106(c) = r.Bool();
+                    break;
+                }
+                case 14:
+                {
+                    F2_107(c) = (global::DigitoyEngine.LayoutMode)r.I32();
+                    break;
+                }
+                case 15:
+                {
+                    F2_108(c) = r.F32();
+                    break;
+                }
+                case 16:
+                {
+                    F2_109(c) = r.V4();
+                    break;
+                }
+                case 17:
+                {
+                    F2_110(c) = (global::DigitoyEngine.LayoutAlign)r.I32();
+                    break;
+                }
+                case 18:
+                {
+                    F2_111(c) = (global::DigitoyEngine.LayoutJustify)r.I32();
+                    break;
+                }
+                case 19:
+                {
+                    F2_112(c) = r.Bool();
+                    break;
+                }
+                case 20:
+                {
+                    F2_113(c) = (global::DigitoyEngine.OverflowMode)r.I32();
+                    break;
+                }
+                case 21:
+                {
+                    F2_114(c) = (global::DigitoyEngine.OverflowMode)r.I32();
+                    break;
+                }
+                case 22:
+                {
+                    if (r.U8() != 0) Read_2_n0(ref F2_115(c), r);
+                    break;
+                }
+                case 23:
+                {
+                    F2_116(c) = r.V4();
+                    break;
+                }
+                case 24:
+                {
+                    if (r.U8() != 0) Read_2_n1(ref F2_117(c), r);
+                    break;
+                }
+                case 25:
+                {
+                    F2_118(c) = r.V4();
+                    break;
+                }
+                case 26:
+                {
+                    F2_119(c) = (global::DigitoyEngine.Sprite)r.Asset(typeof(global::DigitoyEngine.Sprite));
+                    break;
+                }
+                case 27:
+                {
+                    F2_120(c) = r.V4();
+                    break;
+                }
+                case 28:
+                {
+                    F2_121(c) = r.Col();
+                    break;
+                }
+                case 29:
+                {
+                    F2_122(c) = r.V2();
+                    break;
+                }
+                case 30:
+                {
+                    F2_123(c) = r.F32();
+                    break;
+                }
+                case 31:
+                {
+                    F2_124(c) = r.F32();
+                    break;
+                }
+                case 32:
+                {
+                    F2_125(c) = (global::DigitoyEngine.Font)r.Asset(typeof(global::DigitoyEngine.Font));
+                    break;
+                }
+                case 33:
+                {
+                    F2_126(c) = r.String();
+                    break;
+                }
+                case 34:
+                {
+                    F2_127(c) = r.F32();
+                    break;
+                }
+                case 35:
+                {
+                    F2_128(c) = (global::DigitoyEngine.TextAlign)r.I32();
+                    break;
+                }
+                case 36:
+                {
+                    F2_129(c) = (global::DigitoyEngine.LayoutAlign)r.I32();
+                    break;
+                }
+                case 37:
+                {
+                    F2_130(c) = r.Bool();
+                    break;
+                }
+                case 38:
+                {
+                    F2_131(c) = r.Bool();
+                    break;
+                }
+                case 39:
+                {
+                    F2_132(c) = r.F32();
+                    break;
+                }
+                case 40:
+                {
+                    F2_133(c) = r.F32();
+                    break;
+                }
+                case 41:
+                {
+                    F2_134(c) = r.F32();
+                    break;
+                }
+                case 42:
+                {
+                    if (r.U8() != 0) Read_2_n2(ref F2_135(c), r);
+                    break;
+                }
+                case 43:
+                {
+                    F2_136(c) = r.F32();
+                    break;
+                }
+                case 44:
+                {
+                    if (r.U8() != 0) Read_2_n3(ref F2_137(c), r);
+                    break;
+                }
+                case 45:
+                {
+                    F2_138(c) = r.Col();
+                    break;
+                }
+                case 46:
+                {
+                    F2_139(c) = r.V2();
+                    break;
+                }
+                case 47:
+                {
+                    F2_140(c) = r.F32();
+                    break;
+                }
+            }
+        }
+    }
+
+    static void Read_2_n0(ref global::DigitoyEngine.Gradient o, global::DigitoyEngine.SceneBinary.Reader r)
+    {
+        int n = r.U16();
+        for (int i = 0; i < n; i++)
+        {
+            switch (r.U16())
+            {
+                case 0:
+                {
+                    o.type = (global::DigitoyEngine.GradientType)r.I32();
+                    break;
+                }
+                case 1:
+                {
+                    o.direction = (global::DigitoyEngine.GradientDirection)r.I32();
+                    break;
+                }
+                case 2:
+                {
+                    o.color = r.Col();
+                    break;
+                }
+                case 3:
+                {
+                    o.color2 = r.Col();
+                    break;
+                }
+            }
+        }
+    }
+
+    static void Read_2_n1(ref global::DigitoyEngine.Gradient o, global::DigitoyEngine.SceneBinary.Reader r)
+    {
+        int n = r.U16();
+        for (int i = 0; i < n; i++)
+        {
+            switch (r.U16())
+            {
+                case 0:
+                {
+                    o.type = (global::DigitoyEngine.GradientType)r.I32();
+                    break;
+                }
+                case 1:
+                {
+                    o.direction = (global::DigitoyEngine.GradientDirection)r.I32();
+                    break;
+                }
+                case 2:
+                {
+                    o.color = r.Col();
+                    break;
+                }
+                case 3:
+                {
+                    o.color2 = r.Col();
+                    break;
+                }
+            }
+        }
+    }
+
+    static void Read_2_n2(ref global::DigitoyEngine.Gradient o, global::DigitoyEngine.SceneBinary.Reader r)
+    {
+        int n = r.U16();
+        for (int i = 0; i < n; i++)
+        {
+            switch (r.U16())
+            {
+                case 0:
+                {
+                    o.type = (global::DigitoyEngine.GradientType)r.I32();
+                    break;
+                }
+                case 1:
+                {
+                    o.direction = (global::DigitoyEngine.GradientDirection)r.I32();
+                    break;
+                }
+                case 2:
+                {
+                    o.color = r.Col();
+                    break;
+                }
+                case 3:
+                {
+                    o.color2 = r.Col();
+                    break;
+                }
+            }
+        }
+    }
+
+    static void Read_2_n3(ref global::DigitoyEngine.Gradient o, global::DigitoyEngine.SceneBinary.Reader r)
+    {
+        int n = r.U16();
+        for (int i = 0; i < n; i++)
+        {
+            switch (r.U16())
+            {
+                case 0:
+                {
+                    o.type = (global::DigitoyEngine.GradientType)r.I32();
+                    break;
+                }
+                case 1:
+                {
+                    o.direction = (global::DigitoyEngine.GradientDirection)r.I32();
+                    break;
+                }
+                case 2:
+                {
+                    o.color = r.Col();
+                    break;
+                }
+                case 3:
+                {
+                    o.color2 = r.Col();
+                    break;
+                }
+            }
+        }
     }
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "fitScreen")]
@@ -1184,6 +1795,135 @@ public static class Registry
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textShadowBlur")]
     static extern ref global::System.Single F2_97(global::DigitoyEngine.LayoutBox o);
 
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "fitScreen")]
+    static extern ref global::System.Boolean F2_98(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "width")]
+    static extern ref global::System.Single F2_99(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "height")]
+    static extern ref global::System.Single F2_100(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "pivot")]
+    static extern ref global::DigitoyEngine.Vec2 F2_101(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "anchorMin")]
+    static extern ref global::DigitoyEngine.Vec2 F2_102(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "anchorMax")]
+    static extern ref global::DigitoyEngine.Vec2 F2_103(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "anchoredPos")]
+    static extern ref global::DigitoyEngine.Vec2 F2_104(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "grow")]
+    static extern ref global::System.Single F2_105(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "ignoreLayout")]
+    static extern ref global::System.Boolean F2_106(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "layout")]
+    static extern ref global::DigitoyEngine.LayoutMode F2_107(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "spacing")]
+    static extern ref global::System.Single F2_108(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "padding")]
+    static extern ref global::DigitoyEngine.Vec4 F2_109(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "alignChildren")]
+    static extern ref global::DigitoyEngine.LayoutAlign F2_110(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "justifyChildren")]
+    static extern ref global::DigitoyEngine.LayoutJustify F2_111(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "reverse")]
+    static extern ref global::System.Boolean F2_112(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "overflowX")]
+    static extern ref global::DigitoyEngine.OverflowMode F2_113(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "overflowY")]
+    static extern ref global::DigitoyEngine.OverflowMode F2_114(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "fill")]
+    static extern ref global::DigitoyEngine.Gradient F2_115(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "border")]
+    static extern ref global::DigitoyEngine.Vec4 F2_116(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "borderFill")]
+    static extern ref global::DigitoyEngine.Gradient F2_117(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "radius")]
+    static extern ref global::DigitoyEngine.Vec4 F2_118(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "sprite")]
+    static extern ref global::DigitoyEngine.Sprite F2_119(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "slice9")]
+    static extern ref global::DigitoyEngine.Vec4 F2_120(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "shadowColor")]
+    static extern ref global::DigitoyEngine.Color F2_121(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "shadowOffset")]
+    static extern ref global::DigitoyEngine.Vec2 F2_122(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "shadowBlur")]
+    static extern ref global::System.Single F2_123(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "shadowGrow")]
+    static extern ref global::System.Single F2_124(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "font")]
+    static extern ref global::DigitoyEngine.Font F2_125(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "text")]
+    static extern ref global::System.String F2_126(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textSize")]
+    static extern ref global::System.Single F2_127(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textAlign")]
+    static extern ref global::DigitoyEngine.TextAlign F2_128(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textAlignV")]
+    static extern ref global::DigitoyEngine.LayoutAlign F2_129(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textWrap")]
+    static extern ref global::System.Boolean F2_130(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textEllipsis")]
+    static extern ref global::System.Boolean F2_131(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textWeight")]
+    static extern ref global::System.Single F2_132(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textSkew")]
+    static extern ref global::System.Single F2_133(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textSpacing")]
+    static extern ref global::System.Single F2_134(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textFill")]
+    static extern ref global::DigitoyEngine.Gradient F2_135(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textOutlineWidth")]
+    static extern ref global::System.Single F2_136(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textOutline")]
+    static extern ref global::DigitoyEngine.Gradient F2_137(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textShadowColor")]
+    static extern ref global::DigitoyEngine.Color F2_138(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textShadowOffset")]
+    static extern ref global::DigitoyEngine.Vec2 F2_139(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textShadowBlur")]
+    static extern ref global::System.Single F2_140(global::DigitoyEngine.LayoutBox o);
+
     static void Reg_3(global::DigitoyEngine.TypeCatalog cat)
     {
         var s_6_3 = new global::DigitoyEngine.SerializedType.FieldSchema[5];
@@ -1193,8 +1933,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Int,
             FieldType = typeof(global::System.Int32),
             DeclaringType = typeof(global::DigitoyEngine.ClipKey),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ClipKey)o).Frame,
             Set = (o, v) => ((global::DigitoyEngine.ClipKey)o).Frame = (global::System.Int32)v,
+#endif
         };
         s_6_3[1] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1202,8 +1944,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
             FieldType = typeof(global::DigitoyEngine.ClipKeyMode),
             DeclaringType = typeof(global::DigitoyEngine.ClipKey),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ClipKey)o).Mode,
             Set = (o, v) => ((global::DigitoyEngine.ClipKey)o).Mode = (global::DigitoyEngine.ClipKeyMode)v,
+#endif
         };
         s_6_3[2] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1211,8 +1955,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
             FieldType = typeof(global::DigitoyEngine.Ease),
             DeclaringType = typeof(global::DigitoyEngine.ClipKey),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ClipKey)o).Ease,
             Set = (o, v) => ((global::DigitoyEngine.ClipKey)o).Ease = (global::DigitoyEngine.Ease)v,
+#endif
         };
         s_6_3[3] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1220,8 +1966,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Vec4,
             FieldType = typeof(global::DigitoyEngine.Vec4),
             DeclaringType = typeof(global::DigitoyEngine.ClipKey),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ClipKey)o).Value,
             Set = (o, v) => ((global::DigitoyEngine.ClipKey)o).Value = (global::DigitoyEngine.Vec4)v,
+#endif
         };
         s_6_3[4] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1229,8 +1977,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Asset,
             FieldType = typeof(global::DigitoyEngine.IAsset),
             DeclaringType = typeof(global::DigitoyEngine.ClipKey),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ClipKey)o).Ref,
             Set = (o, v) => ((global::DigitoyEngine.ClipKey)o).Ref = (global::DigitoyEngine.IAsset)v,
+#endif
         };
         var s_6 = new global::DigitoyEngine.SerializedType.FieldSchema[4];
         s_6[0] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -1239,8 +1989,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.CompRef,
             FieldType = typeof(global::DigitoyEngine.Component),
             DeclaringType = typeof(global::DigitoyEngine.ClipTrack),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ClipTrack)o).Target,
             Set = (o, v) => ((global::DigitoyEngine.ClipTrack)o).Target = (global::DigitoyEngine.Component)v,
+#endif
         };
         s_6[1] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1248,8 +2000,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.String,
             FieldType = typeof(global::System.String),
             DeclaringType = typeof(global::DigitoyEngine.ClipTrack),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ClipTrack)o).Path,
             Set = (o, v) => ((global::DigitoyEngine.ClipTrack)o).Path = (global::System.String)v,
+#endif
         };
         s_6[2] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1257,8 +2011,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Int,
             FieldType = typeof(global::System.Int32),
             DeclaringType = typeof(global::DigitoyEngine.ClipTrack),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ClipTrack)o).Mask,
             Set = (o, v) => ((global::DigitoyEngine.ClipTrack)o).Mask = (global::System.Int32)v,
+#endif
         };
         s_6[3] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1269,8 +2025,10 @@ public static class Registry
             Nested = s_6_3,
             FieldType = typeof(global::System.Collections.Generic.List<global::DigitoyEngine.ClipKey>),
             DeclaringType = typeof(global::DigitoyEngine.ClipTrack),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ClipTrack)o).Keys,
             Set = (o, v) => ((global::DigitoyEngine.ClipTrack)o).Keys = (global::System.Collections.Generic.List<global::DigitoyEngine.ClipKey>)v,
+#endif
             NewList = () => new global::System.Collections.Generic.List<global::DigitoyEngine.ClipKey>(),
             NewElement = () => new global::DigitoyEngine.ClipKey(),
         };
@@ -1281,8 +2039,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Int,
             FieldType = typeof(global::System.Int32),
             DeclaringType = typeof(global::DigitoyEngine.ClipLabel),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ClipLabel)o).Frame,
             Set = (o, v) => ((global::DigitoyEngine.ClipLabel)o).Frame = (global::System.Int32)v,
+#endif
         };
         s_7[1] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1290,8 +2050,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.String,
             FieldType = typeof(global::System.String),
             DeclaringType = typeof(global::DigitoyEngine.ClipLabel),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ClipLabel)o).Name,
             Set = (o, v) => ((global::DigitoyEngine.ClipLabel)o).Name = (global::System.String)v,
+#endif
         };
         var s_8 = new global::DigitoyEngine.SerializedType.FieldSchema[4];
         s_8[0] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -1300,8 +2062,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Int,
             FieldType = typeof(global::System.Int32),
             DeclaringType = typeof(global::DigitoyEngine.ClipAction),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ClipAction)o).Frame,
             Set = (o, v) => ((global::DigitoyEngine.ClipAction)o).Frame = (global::System.Int32)v,
+#endif
         };
         s_8[1] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1309,8 +2073,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
             FieldType = typeof(global::DigitoyEngine.ClipActionKind),
             DeclaringType = typeof(global::DigitoyEngine.ClipAction),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ClipAction)o).Kind,
             Set = (o, v) => ((global::DigitoyEngine.ClipAction)o).Kind = (global::DigitoyEngine.ClipActionKind)v,
+#endif
         };
         s_8[2] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1318,8 +2084,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.String,
             FieldType = typeof(global::System.String),
             DeclaringType = typeof(global::DigitoyEngine.ClipAction),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ClipAction)o).Label,
             Set = (o, v) => ((global::DigitoyEngine.ClipAction)o).Label = (global::System.String)v,
+#endif
         };
         s_8[3] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1327,8 +2095,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Int,
             FieldType = typeof(global::System.Int32),
             DeclaringType = typeof(global::DigitoyEngine.ClipAction),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ClipAction)o).TargetFrame,
             Set = (o, v) => ((global::DigitoyEngine.ClipAction)o).TargetFrame = (global::System.Int32)v,
+#endif
         };
         var s = new global::DigitoyEngine.SerializedType.FieldSchema[9];
         s[0] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -1337,8 +2107,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Int,
             FieldType = typeof(global::System.Int32),
             DeclaringType = typeof(global::DigitoyEngine.MovieClip),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.MovieClip)o).Fps,
             Set = (o, v) => ((global::DigitoyEngine.MovieClip)o).Fps = (global::System.Int32)v,
+#endif
             GetFloat = c => (float)((global::DigitoyEngine.MovieClip)c).Fps,
             SetFloat = (c, v) => ((global::DigitoyEngine.MovieClip)c).Fps = (int)v,
         };
@@ -1348,8 +2120,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Int,
             FieldType = typeof(global::System.Int32),
             DeclaringType = typeof(global::DigitoyEngine.MovieClip),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.MovieClip)o).FrameCount,
             Set = (o, v) => ((global::DigitoyEngine.MovieClip)o).FrameCount = (global::System.Int32)v,
+#endif
             GetFloat = c => (float)((global::DigitoyEngine.MovieClip)c).FrameCount,
             SetFloat = (c, v) => ((global::DigitoyEngine.MovieClip)c).FrameCount = (int)v,
         };
@@ -1359,8 +2133,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Bool,
             FieldType = typeof(global::System.Boolean),
             DeclaringType = typeof(global::DigitoyEngine.MovieClip),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.MovieClip)o).Loop,
             Set = (o, v) => ((global::DigitoyEngine.MovieClip)o).Loop = (global::System.Boolean)v,
+#endif
         };
         s[3] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1368,8 +2144,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Bool,
             FieldType = typeof(global::System.Boolean),
             DeclaringType = typeof(global::DigitoyEngine.MovieClip),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.MovieClip)o).PlayOnStart,
             Set = (o, v) => ((global::DigitoyEngine.MovieClip)o).PlayOnStart = (global::System.Boolean)v,
+#endif
         };
         s[4] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1377,8 +2155,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Bool,
             FieldType = typeof(global::System.Boolean),
             DeclaringType = typeof(global::DigitoyEngine.MovieClip),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.MovieClip)o).Interpolate,
             Set = (o, v) => ((global::DigitoyEngine.MovieClip)o).Interpolate = (global::System.Boolean)v,
+#endif
         };
         s[5] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1386,8 +2166,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.MovieClip),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.MovieClip)o).Speed,
             Set = (o, v) => ((global::DigitoyEngine.MovieClip)o).Speed = (global::System.Single)v,
+#endif
             GetFloat = c => ((global::DigitoyEngine.MovieClip)c).Speed,
             SetFloat = (c, v) => ((global::DigitoyEngine.MovieClip)c).Speed = v,
         };
@@ -1400,8 +2182,10 @@ public static class Registry
             Nested = s_6,
             FieldType = typeof(global::System.Collections.Generic.List<global::DigitoyEngine.ClipTrack>),
             DeclaringType = typeof(global::DigitoyEngine.MovieClip),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.MovieClip)o).Tracks,
             Set = (o, v) => ((global::DigitoyEngine.MovieClip)o).Tracks = (global::System.Collections.Generic.List<global::DigitoyEngine.ClipTrack>)v,
+#endif
             NewList = () => new global::System.Collections.Generic.List<global::DigitoyEngine.ClipTrack>(),
             NewElement = () => new global::DigitoyEngine.ClipTrack(),
         };
@@ -1414,8 +2198,10 @@ public static class Registry
             Nested = s_7,
             FieldType = typeof(global::System.Collections.Generic.List<global::DigitoyEngine.ClipLabel>),
             DeclaringType = typeof(global::DigitoyEngine.MovieClip),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.MovieClip)o).Labels,
             Set = (o, v) => ((global::DigitoyEngine.MovieClip)o).Labels = (global::System.Collections.Generic.List<global::DigitoyEngine.ClipLabel>)v,
+#endif
             NewList = () => new global::System.Collections.Generic.List<global::DigitoyEngine.ClipLabel>(),
             NewElement = () => new global::DigitoyEngine.ClipLabel(),
         };
@@ -1428,8 +2214,10 @@ public static class Registry
             Nested = s_8,
             FieldType = typeof(global::System.Collections.Generic.List<global::DigitoyEngine.ClipAction>),
             DeclaringType = typeof(global::DigitoyEngine.MovieClip),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.MovieClip)o).Actions,
             Set = (o, v) => ((global::DigitoyEngine.MovieClip)o).Actions = (global::System.Collections.Generic.List<global::DigitoyEngine.ClipAction>)v,
+#endif
             NewList = () => new global::System.Collections.Generic.List<global::DigitoyEngine.ClipAction>(),
             NewElement = () => new global::DigitoyEngine.ClipAction(),
         };
@@ -1454,7 +2242,228 @@ public static class Registry
             Flags = (global::DigitoyEngine.LifecycleFlags)13,
             Schema = s,
             Previewable = true,
+            ReadBaked = Read_3,
         });
+    }
+
+    static void Read_3(global::DigitoyEngine.Component o, global::DigitoyEngine.SceneBinary.Reader r)
+    {
+        var c = (global::DigitoyEngine.MovieClip)o;
+        int n = r.U16();
+        for (int i = 0; i < n; i++)
+        {
+            switch (r.U16())
+            {
+                case 0:
+                {
+                    c.Fps = r.I32();
+                    break;
+                }
+                case 1:
+                {
+                    c.FrameCount = r.I32();
+                    break;
+                }
+                case 2:
+                {
+                    c.Loop = r.Bool();
+                    break;
+                }
+                case 3:
+                {
+                    c.PlayOnStart = r.Bool();
+                    break;
+                }
+                case 4:
+                {
+                    c.Interpolate = r.Bool();
+                    break;
+                }
+                case 5:
+                {
+                    c.Speed = r.F32();
+                    break;
+                }
+                case 6:
+                {
+                    int cnt = r.I32();
+                    if (cnt >= 0)
+                    {
+                        var tmp = new global::System.Collections.Generic.List<global::DigitoyEngine.ClipTrack>();
+                        for (int k = 0; k < cnt; k++)
+                        {
+                            var el = new global::DigitoyEngine.ClipTrack();
+                            if (r.U8() != 0) Read_3_n0(el, r);
+                            tmp.Add(el);
+                        }
+                        c.Tracks = tmp;
+                    }
+                    break;
+                }
+                case 7:
+                {
+                    int cnt = r.I32();
+                    if (cnt >= 0)
+                    {
+                        var tmp = new global::System.Collections.Generic.List<global::DigitoyEngine.ClipLabel>();
+                        for (int k = 0; k < cnt; k++)
+                        {
+                            var el = new global::DigitoyEngine.ClipLabel();
+                            if (r.U8() != 0) Read_3_n2(el, r);
+                            tmp.Add(el);
+                        }
+                        c.Labels = tmp;
+                    }
+                    break;
+                }
+                case 8:
+                {
+                    int cnt = r.I32();
+                    if (cnt >= 0)
+                    {
+                        var tmp = new global::System.Collections.Generic.List<global::DigitoyEngine.ClipAction>();
+                        for (int k = 0; k < cnt; k++)
+                        {
+                            var el = new global::DigitoyEngine.ClipAction();
+                            if (r.U8() != 0) Read_3_n3(el, r);
+                            tmp.Add(el);
+                        }
+                        c.Actions = tmp;
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    static void Read_3_n1(global::DigitoyEngine.ClipKey o, global::DigitoyEngine.SceneBinary.Reader r)
+    {
+        int n = r.U16();
+        for (int i = 0; i < n; i++)
+        {
+            switch (r.U16())
+            {
+                case 0:
+                {
+                    o.Frame = r.I32();
+                    break;
+                }
+                case 1:
+                {
+                    o.Mode = (global::DigitoyEngine.ClipKeyMode)r.I32();
+                    break;
+                }
+                case 2:
+                {
+                    o.Ease = (global::DigitoyEngine.Ease)r.I32();
+                    break;
+                }
+                case 3:
+                {
+                    o.Value = r.V4();
+                    break;
+                }
+                case 4:
+                {
+                    o.Ref = (global::DigitoyEngine.IAsset)r.Asset(typeof(global::DigitoyEngine.IAsset));
+                    break;
+                }
+            }
+        }
+    }
+
+    static void Read_3_n0(global::DigitoyEngine.ClipTrack o, global::DigitoyEngine.SceneBinary.Reader r)
+    {
+        int n = r.U16();
+        for (int i = 0; i < n; i++)
+        {
+            switch (r.U16())
+            {
+                case 0:
+                {
+                    r.CompRef(v => o.Target = (global::DigitoyEngine.Component)v);
+                    break;
+                }
+                case 1:
+                {
+                    o.Path = r.String();
+                    break;
+                }
+                case 2:
+                {
+                    o.Mask = r.I32();
+                    break;
+                }
+                case 3:
+                {
+                    int cnt = r.I32();
+                    if (cnt >= 0)
+                    {
+                        var tmp = new global::System.Collections.Generic.List<global::DigitoyEngine.ClipKey>();
+                        for (int k = 0; k < cnt; k++)
+                        {
+                            var el = new global::DigitoyEngine.ClipKey();
+                            if (r.U8() != 0) Read_3_n1(el, r);
+                            tmp.Add(el);
+                        }
+                        o.Keys = tmp;
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    static void Read_3_n2(global::DigitoyEngine.ClipLabel o, global::DigitoyEngine.SceneBinary.Reader r)
+    {
+        int n = r.U16();
+        for (int i = 0; i < n; i++)
+        {
+            switch (r.U16())
+            {
+                case 0:
+                {
+                    o.Frame = r.I32();
+                    break;
+                }
+                case 1:
+                {
+                    o.Name = r.String();
+                    break;
+                }
+            }
+        }
+    }
+
+    static void Read_3_n3(global::DigitoyEngine.ClipAction o, global::DigitoyEngine.SceneBinary.Reader r)
+    {
+        int n = r.U16();
+        for (int i = 0; i < n; i++)
+        {
+            switch (r.U16())
+            {
+                case 0:
+                {
+                    o.Frame = r.I32();
+                    break;
+                }
+                case 1:
+                {
+                    o.Kind = (global::DigitoyEngine.ClipActionKind)r.I32();
+                    break;
+                }
+                case 2:
+                {
+                    o.Label = r.String();
+                    break;
+                }
+                case 3:
+                {
+                    o.TargetFrame = r.I32();
+                    break;
+                }
+            }
+        }
     }
 
     static void Reg_4(global::DigitoyEngine.TypeCatalog cat)
@@ -1466,8 +2475,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.FloatRange),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.FloatRange)o).min,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.FloatRange>(o).min = (global::System.Single)v,
+#endif
         };
         s_15[1] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1475,8 +2486,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.FloatRange),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.FloatRange)o).max,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.FloatRange>(o).max = (global::System.Single)v,
+#endif
         };
         var s_16 = new global::DigitoyEngine.SerializedType.FieldSchema[2];
         s_16[0] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -1485,8 +2498,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.FloatRange),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.FloatRange)o).min,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.FloatRange>(o).min = (global::System.Single)v,
+#endif
         };
         s_16[1] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1494,8 +2509,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.FloatRange),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.FloatRange)o).max,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.FloatRange>(o).max = (global::System.Single)v,
+#endif
         };
         var s_17 = new global::DigitoyEngine.SerializedType.FieldSchema[2];
         s_17[0] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -1504,8 +2521,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.FloatRange),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.FloatRange)o).min,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.FloatRange>(o).min = (global::System.Single)v,
+#endif
         };
         s_17[1] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1513,8 +2532,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.FloatRange),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.FloatRange)o).max,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.FloatRange>(o).max = (global::System.Single)v,
+#endif
         };
         var s_19 = new global::DigitoyEngine.SerializedType.FieldSchema[2];
         s_19[0] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -1523,8 +2544,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Vec3,
             FieldType = typeof(global::DigitoyEngine.Vec3),
             DeclaringType = typeof(global::DigitoyEngine.Vec3Range),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Vec3Range)o).min,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.Vec3Range>(o).min = (global::DigitoyEngine.Vec3)v,
+#endif
         };
         s_19[1] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1532,8 +2555,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Vec3,
             FieldType = typeof(global::DigitoyEngine.Vec3),
             DeclaringType = typeof(global::DigitoyEngine.Vec3Range),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Vec3Range)o).max,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.Vec3Range>(o).max = (global::DigitoyEngine.Vec3)v,
+#endif
         };
         var s_20 = new global::DigitoyEngine.SerializedType.FieldSchema[4];
         s_20[0] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -1542,8 +2567,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
             FieldType = typeof(global::DigitoyEngine.GradientType),
             DeclaringType = typeof(global::DigitoyEngine.Gradient),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Gradient)o).type,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.Gradient>(o).type = (global::DigitoyEngine.GradientType)v,
+#endif
         };
         s_20[1] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1551,8 +2578,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
             FieldType = typeof(global::DigitoyEngine.GradientDirection),
             DeclaringType = typeof(global::DigitoyEngine.Gradient),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Gradient)o).direction,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.Gradient>(o).direction = (global::DigitoyEngine.GradientDirection)v,
+#endif
         };
         s_20[2] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1560,8 +2589,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Color,
             FieldType = typeof(global::DigitoyEngine.Color),
             DeclaringType = typeof(global::DigitoyEngine.Gradient),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Gradient)o).color,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.Gradient>(o).color = (global::DigitoyEngine.Color)v,
+#endif
         };
         s_20[3] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1569,8 +2600,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Color,
             FieldType = typeof(global::DigitoyEngine.Color),
             DeclaringType = typeof(global::DigitoyEngine.Gradient),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Gradient)o).color2,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.Gradient>(o).color2 = (global::DigitoyEngine.Color)v,
+#endif
         };
         s_20[1].ShowIf = s_20[0];
         s_20[1].ShowIfScalar = "Linear";
@@ -1583,8 +2616,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.ParticleBurst),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ParticleBurst)o).time,
             Set = (o, v) => ((global::DigitoyEngine.ParticleBurst)o).time = (global::System.Single)v,
+#endif
         };
         s_25_2[1] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1592,8 +2627,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Int,
             FieldType = typeof(global::System.Int32),
             DeclaringType = typeof(global::DigitoyEngine.ParticleBurst),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ParticleBurst)o).count,
             Set = (o, v) => ((global::DigitoyEngine.ParticleBurst)o).count = (global::System.Int32)v,
+#endif
         };
         s_25_2[2] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1601,8 +2638,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Int,
             FieldType = typeof(global::System.Int32),
             DeclaringType = typeof(global::DigitoyEngine.ParticleBurst),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ParticleBurst)o).countMax,
             Set = (o, v) => ((global::DigitoyEngine.ParticleBurst)o).countMax = (global::System.Int32)v,
+#endif
         };
         s_25_2[3] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1610,8 +2649,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Int,
             FieldType = typeof(global::System.Int32),
             DeclaringType = typeof(global::DigitoyEngine.ParticleBurst),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ParticleBurst)o).cycles,
             Set = (o, v) => ((global::DigitoyEngine.ParticleBurst)o).cycles = (global::System.Int32)v,
+#endif
         };
         s_25_2[4] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1619,8 +2660,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.ParticleBurst),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ParticleBurst)o).interval,
             Set = (o, v) => ((global::DigitoyEngine.ParticleBurst)o).interval = (global::System.Single)v,
+#endif
         };
         s_25_2[5] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1628,8 +2671,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.ParticleBurst),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ParticleBurst)o).probability,
             Set = (o, v) => ((global::DigitoyEngine.ParticleBurst)o).probability = (global::System.Single)v,
+#endif
         };
         var s_25 = new global::DigitoyEngine.SerializedType.FieldSchema[3];
         s_25[0] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -1638,8 +2683,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.EmissionModule),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.EmissionModule)o).rateOverTime,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.EmissionModule>(o).rateOverTime = (global::System.Single)v,
+#endif
         };
         s_25[1] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1647,8 +2694,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.EmissionModule),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.EmissionModule)o).rateOverDistance,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.EmissionModule>(o).rateOverDistance = (global::System.Single)v,
+#endif
         };
         s_25[2] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1659,8 +2708,10 @@ public static class Registry
             Nested = s_25_2,
             FieldType = typeof(global::System.Collections.Generic.List<global::DigitoyEngine.ParticleBurst>),
             DeclaringType = typeof(global::DigitoyEngine.EmissionModule),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.EmissionModule)o).bursts,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.EmissionModule>(o).bursts = (global::System.Collections.Generic.List<global::DigitoyEngine.ParticleBurst>)v,
+#endif
             NewList = () => new global::System.Collections.Generic.List<global::DigitoyEngine.ParticleBurst>(),
             NewElement = () => new global::DigitoyEngine.ParticleBurst(),
         };
@@ -1671,8 +2722,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
             FieldType = typeof(global::DigitoyEngine.ParticleShapeType),
             DeclaringType = typeof(global::DigitoyEngine.ShapeModule),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ShapeModule)o).type,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.ShapeModule>(o).type = (global::DigitoyEngine.ParticleShapeType)v,
+#endif
         };
         s_26[1] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1680,8 +2733,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.ShapeModule),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ShapeModule)o).radius,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.ShapeModule>(o).radius = (global::System.Single)v,
+#endif
         };
         s_26[2] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1689,8 +2744,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.ShapeModule),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ShapeModule)o).radiusThickness,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.ShapeModule>(o).radiusThickness = (global::System.Single)v,
+#endif
         };
         s_26[3] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1698,8 +2755,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.ShapeModule),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ShapeModule)o).arc,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.ShapeModule>(o).arc = (global::System.Single)v,
+#endif
         };
         s_26[4] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1707,8 +2766,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Vec3,
             FieldType = typeof(global::DigitoyEngine.Vec3),
             DeclaringType = typeof(global::DigitoyEngine.ShapeModule),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ShapeModule)o).boxSize,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.ShapeModule>(o).boxSize = (global::DigitoyEngine.Vec3)v,
+#endif
         };
         s_26[5] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1716,8 +2777,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.ShapeModule),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ShapeModule)o).coneAngle,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.ShapeModule>(o).coneAngle = (global::System.Single)v,
+#endif
         };
         s_26[6] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1725,8 +2788,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.ShapeModule),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ShapeModule)o).coneLength,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.ShapeModule>(o).coneLength = (global::System.Single)v,
+#endif
         };
         s_26[7] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1734,8 +2799,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Vec3,
             FieldType = typeof(global::DigitoyEngine.Vec3),
             DeclaringType = typeof(global::DigitoyEngine.ShapeModule),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ShapeModule)o).offset,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.ShapeModule>(o).offset = (global::DigitoyEngine.Vec3)v,
+#endif
         };
         s_26[8] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1743,8 +2810,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Vec3,
             FieldType = typeof(global::DigitoyEngine.Vec3),
             DeclaringType = typeof(global::DigitoyEngine.ShapeModule),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ShapeModule)o).rotation,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.ShapeModule>(o).rotation = (global::DigitoyEngine.Vec3)v,
+#endif
         };
         s_26[9] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1752,8 +2821,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.ShapeModule),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ShapeModule)o).randomDirection,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.ShapeModule>(o).randomDirection = (global::System.Single)v,
+#endif
         };
         s_26[10] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1761,8 +2832,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Bool,
             FieldType = typeof(global::System.Boolean),
             DeclaringType = typeof(global::DigitoyEngine.ShapeModule),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ShapeModule)o).emit3D,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.ShapeModule>(o).emit3D = (global::System.Boolean)v,
+#endif
         };
         s_26[11] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1770,8 +2843,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Bool,
             FieldType = typeof(global::System.Boolean),
             DeclaringType = typeof(global::DigitoyEngine.ShapeModule),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ShapeModule)o).alignToDirection,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.ShapeModule>(o).alignToDirection = (global::System.Boolean)v,
+#endif
         };
         var s_27_5 = new global::DigitoyEngine.SerializedType.FieldSchema[2];
         s_27_5[0] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -1780,8 +2855,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Vec3,
             FieldType = typeof(global::DigitoyEngine.Vec3),
             DeclaringType = typeof(global::DigitoyEngine.Vec3Range),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Vec3Range)o).min,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.Vec3Range>(o).min = (global::DigitoyEngine.Vec3)v,
+#endif
         };
         s_27_5[1] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1789,8 +2866,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Vec3,
             FieldType = typeof(global::DigitoyEngine.Vec3),
             DeclaringType = typeof(global::DigitoyEngine.Vec3Range),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Vec3Range)o).max,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.Vec3Range>(o).max = (global::DigitoyEngine.Vec3)v,
+#endif
         };
         var s_27_6_4_0 = new global::DigitoyEngine.SerializedType.FieldSchema[4];
         s_27_6_4_0[0] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -1799,8 +2878,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.CurveKey),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.CurveKey)o).Time,
             Set = (o, v) => ((global::DigitoyEngine.CurveKey)o).Time = (global::System.Single)v,
+#endif
         };
         s_27_6_4_0[1] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1808,8 +2889,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.CurveKey),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.CurveKey)o).Value,
             Set = (o, v) => ((global::DigitoyEngine.CurveKey)o).Value = (global::System.Single)v,
+#endif
         };
         s_27_6_4_0[2] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1817,8 +2900,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.CurveKey),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.CurveKey)o).InTangent,
             Set = (o, v) => ((global::DigitoyEngine.CurveKey)o).InTangent = (global::System.Single)v,
+#endif
         };
         s_27_6_4_0[3] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1826,8 +2911,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.CurveKey),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.CurveKey)o).OutTangent,
             Set = (o, v) => ((global::DigitoyEngine.CurveKey)o).OutTangent = (global::System.Single)v,
+#endif
         };
         var s_27_6_4 = new global::DigitoyEngine.SerializedType.FieldSchema[1];
         s_27_6_4[0] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -1839,8 +2926,10 @@ public static class Registry
             Nested = s_27_6_4_0,
             FieldType = typeof(global::System.Collections.Generic.List<global::DigitoyEngine.CurveKey>),
             DeclaringType = typeof(global::DigitoyEngine.Curve),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Curve)o).Keys,
             Set = (o, v) => ((global::DigitoyEngine.Curve)o).Keys = (global::System.Collections.Generic.List<global::DigitoyEngine.CurveKey>)v,
+#endif
             NewList = () => new global::System.Collections.Generic.List<global::DigitoyEngine.CurveKey>(),
             NewElement = () => new global::DigitoyEngine.CurveKey(),
         };
@@ -1851,8 +2940,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
             FieldType = typeof(global::DigitoyEngine.LifeCurveMode),
             DeclaringType = typeof(global::DigitoyEngine.LifeCurve),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.LifeCurve)o).mode,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.LifeCurve>(o).mode = (global::DigitoyEngine.LifeCurveMode)v,
+#endif
         };
         s_27_6[1] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1860,8 +2951,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.LifeCurve),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.LifeCurve)o).from,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.LifeCurve>(o).from = (global::System.Single)v,
+#endif
         };
         s_27_6[2] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1869,8 +2962,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.LifeCurve),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.LifeCurve)o).to,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.LifeCurve>(o).to = (global::System.Single)v,
+#endif
         };
         s_27_6[3] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1878,8 +2973,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
             FieldType = typeof(global::DigitoyEngine.Ease),
             DeclaringType = typeof(global::DigitoyEngine.LifeCurve),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.LifeCurve)o).ease,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.LifeCurve>(o).ease = (global::DigitoyEngine.Ease)v,
+#endif
         };
         s_27_6[4] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1889,8 +2986,10 @@ public static class Registry
             Nested = s_27_6_4,
             FieldType = typeof(global::DigitoyEngine.Curve),
             DeclaringType = typeof(global::DigitoyEngine.LifeCurve),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.LifeCurve)o).curve,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.LifeCurve>(o).curve = (global::DigitoyEngine.Curve)v,
+#endif
             NewElement = () => new global::DigitoyEngine.Curve(),
         };
         s_27_6[5] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -1899,8 +2998,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.LifeCurve),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.LifeCurve)o).randomize,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.LifeCurve>(o).randomize = (global::System.Single)v,
+#endif
         };
         var s_27 = new global::DigitoyEngine.SerializedType.FieldSchema[7];
         s_27[0] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -1909,8 +3010,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Vec3,
             FieldType = typeof(global::DigitoyEngine.Vec3),
             DeclaringType = typeof(global::DigitoyEngine.VelocityModule),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.VelocityModule)o).gravity,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.VelocityModule>(o).gravity = (global::DigitoyEngine.Vec3)v,
+#endif
         };
         s_27[1] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1918,8 +3021,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Vec3,
             FieldType = typeof(global::DigitoyEngine.Vec3),
             DeclaringType = typeof(global::DigitoyEngine.VelocityModule),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.VelocityModule)o).force,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.VelocityModule>(o).force = (global::DigitoyEngine.Vec3)v,
+#endif
         };
         s_27[2] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1927,8 +3032,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.VelocityModule),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.VelocityModule)o).drag,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.VelocityModule>(o).drag = (global::System.Single)v,
+#endif
         };
         s_27[3] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1936,8 +3043,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.VelocityModule),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.VelocityModule)o).orbitalSpeed,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.VelocityModule>(o).orbitalSpeed = (global::System.Single)v,
+#endif
         };
         s_27[4] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1945,8 +3054,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.VelocityModule),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.VelocityModule)o).radialSpeed,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.VelocityModule>(o).radialSpeed = (global::System.Single)v,
+#endif
         };
         s_27[5] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1956,9 +3067,13 @@ public static class Registry
             Nested = s_27_5,
             FieldType = typeof(global::DigitoyEngine.Vec3Range),
             DeclaringType = typeof(global::DigitoyEngine.VelocityModule),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.VelocityModule)o).linear,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.VelocityModule>(o).linear = (global::DigitoyEngine.Vec3Range)v,
+#endif
+#if !DE_AOT
             NewElement = () => (object)default(global::DigitoyEngine.Vec3Range),
+#endif
         };
         s_27[6] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1968,9 +3083,13 @@ public static class Registry
             Nested = s_27_6,
             FieldType = typeof(global::DigitoyEngine.LifeCurve),
             DeclaringType = typeof(global::DigitoyEngine.VelocityModule),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.VelocityModule)o).speed,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.VelocityModule>(o).speed = (global::DigitoyEngine.LifeCurve)v,
+#endif
+#if !DE_AOT
             NewElement = () => (object)default(global::DigitoyEngine.LifeCurve),
+#endif
         };
         var s_28 = new global::DigitoyEngine.SerializedType.FieldSchema[3];
         s_28[0] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -1979,8 +3098,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.NoiseModule),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.NoiseModule)o).strength,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.NoiseModule>(o).strength = (global::System.Single)v,
+#endif
         };
         s_28[1] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1988,8 +3109,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.NoiseModule),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.NoiseModule)o).frequency,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.NoiseModule>(o).frequency = (global::System.Single)v,
+#endif
         };
         s_28[2] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1997,8 +3120,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.NoiseModule),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.NoiseModule)o).scrollSpeed,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.NoiseModule>(o).scrollSpeed = (global::System.Single)v,
+#endif
         };
         var s_29_0 = new global::DigitoyEngine.SerializedType.FieldSchema[2];
         s_29_0[0] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -2007,8 +3132,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.GradientKey),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.GradientKey)o).time,
             Set = (o, v) => ((global::DigitoyEngine.GradientKey)o).time = (global::System.Single)v,
+#endif
         };
         s_29_0[1] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -2016,8 +3143,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Color,
             FieldType = typeof(global::DigitoyEngine.Color),
             DeclaringType = typeof(global::DigitoyEngine.GradientKey),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.GradientKey)o).color,
             Set = (o, v) => ((global::DigitoyEngine.GradientKey)o).color = (global::DigitoyEngine.Color)v,
+#endif
         };
         var s_29 = new global::DigitoyEngine.SerializedType.FieldSchema[1];
         s_29[0] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -2029,8 +3158,10 @@ public static class Registry
             Nested = s_29_0,
             FieldType = typeof(global::System.Collections.Generic.List<global::DigitoyEngine.GradientKey>),
             DeclaringType = typeof(global::DigitoyEngine.ColorGradient),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ColorGradient)o).keys,
             Set = (o, v) => ((global::DigitoyEngine.ColorGradient)o).keys = (global::System.Collections.Generic.List<global::DigitoyEngine.GradientKey>)v,
+#endif
             NewList = () => new global::System.Collections.Generic.List<global::DigitoyEngine.GradientKey>(),
             NewElement = () => new global::DigitoyEngine.GradientKey(),
         };
@@ -2041,8 +3172,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.CurveKey),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.CurveKey)o).Time,
             Set = (o, v) => ((global::DigitoyEngine.CurveKey)o).Time = (global::System.Single)v,
+#endif
         };
         s_30_4_0[1] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -2050,8 +3183,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.CurveKey),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.CurveKey)o).Value,
             Set = (o, v) => ((global::DigitoyEngine.CurveKey)o).Value = (global::System.Single)v,
+#endif
         };
         s_30_4_0[2] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -2059,8 +3194,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.CurveKey),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.CurveKey)o).InTangent,
             Set = (o, v) => ((global::DigitoyEngine.CurveKey)o).InTangent = (global::System.Single)v,
+#endif
         };
         s_30_4_0[3] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -2068,8 +3205,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.CurveKey),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.CurveKey)o).OutTangent,
             Set = (o, v) => ((global::DigitoyEngine.CurveKey)o).OutTangent = (global::System.Single)v,
+#endif
         };
         var s_30_4 = new global::DigitoyEngine.SerializedType.FieldSchema[1];
         s_30_4[0] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -2081,8 +3220,10 @@ public static class Registry
             Nested = s_30_4_0,
             FieldType = typeof(global::System.Collections.Generic.List<global::DigitoyEngine.CurveKey>),
             DeclaringType = typeof(global::DigitoyEngine.Curve),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Curve)o).Keys,
             Set = (o, v) => ((global::DigitoyEngine.Curve)o).Keys = (global::System.Collections.Generic.List<global::DigitoyEngine.CurveKey>)v,
+#endif
             NewList = () => new global::System.Collections.Generic.List<global::DigitoyEngine.CurveKey>(),
             NewElement = () => new global::DigitoyEngine.CurveKey(),
         };
@@ -2093,8 +3234,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
             FieldType = typeof(global::DigitoyEngine.LifeCurveMode),
             DeclaringType = typeof(global::DigitoyEngine.LifeCurve),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.LifeCurve)o).mode,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.LifeCurve>(o).mode = (global::DigitoyEngine.LifeCurveMode)v,
+#endif
         };
         s_30[1] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -2102,8 +3245,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.LifeCurve),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.LifeCurve)o).from,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.LifeCurve>(o).from = (global::System.Single)v,
+#endif
         };
         s_30[2] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -2111,8 +3256,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.LifeCurve),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.LifeCurve)o).to,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.LifeCurve>(o).to = (global::System.Single)v,
+#endif
         };
         s_30[3] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -2120,8 +3267,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
             FieldType = typeof(global::DigitoyEngine.Ease),
             DeclaringType = typeof(global::DigitoyEngine.LifeCurve),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.LifeCurve)o).ease,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.LifeCurve>(o).ease = (global::DigitoyEngine.Ease)v,
+#endif
         };
         s_30[4] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -2131,8 +3280,10 @@ public static class Registry
             Nested = s_30_4,
             FieldType = typeof(global::DigitoyEngine.Curve),
             DeclaringType = typeof(global::DigitoyEngine.LifeCurve),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.LifeCurve)o).curve,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.LifeCurve>(o).curve = (global::DigitoyEngine.Curve)v,
+#endif
             NewElement = () => new global::DigitoyEngine.Curve(),
         };
         s_30[5] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -2141,8 +3292,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.LifeCurve),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.LifeCurve)o).randomize,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.LifeCurve>(o).randomize = (global::System.Single)v,
+#endif
         };
         var s_31_0 = new global::DigitoyEngine.SerializedType.FieldSchema[2];
         s_31_0[0] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -2151,8 +3304,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Vec3,
             FieldType = typeof(global::DigitoyEngine.Vec3),
             DeclaringType = typeof(global::DigitoyEngine.Vec3Range),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Vec3Range)o).min,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.Vec3Range>(o).min = (global::DigitoyEngine.Vec3)v,
+#endif
         };
         s_31_0[1] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -2160,8 +3315,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Vec3,
             FieldType = typeof(global::DigitoyEngine.Vec3),
             DeclaringType = typeof(global::DigitoyEngine.Vec3Range),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Vec3Range)o).max,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.Vec3Range>(o).max = (global::DigitoyEngine.Vec3)v,
+#endif
         };
         var s_31_1_4_0 = new global::DigitoyEngine.SerializedType.FieldSchema[4];
         s_31_1_4_0[0] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -2170,8 +3327,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.CurveKey),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.CurveKey)o).Time,
             Set = (o, v) => ((global::DigitoyEngine.CurveKey)o).Time = (global::System.Single)v,
+#endif
         };
         s_31_1_4_0[1] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -2179,8 +3338,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.CurveKey),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.CurveKey)o).Value,
             Set = (o, v) => ((global::DigitoyEngine.CurveKey)o).Value = (global::System.Single)v,
+#endif
         };
         s_31_1_4_0[2] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -2188,8 +3349,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.CurveKey),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.CurveKey)o).InTangent,
             Set = (o, v) => ((global::DigitoyEngine.CurveKey)o).InTangent = (global::System.Single)v,
+#endif
         };
         s_31_1_4_0[3] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -2197,8 +3360,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.CurveKey),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.CurveKey)o).OutTangent,
             Set = (o, v) => ((global::DigitoyEngine.CurveKey)o).OutTangent = (global::System.Single)v,
+#endif
         };
         var s_31_1_4 = new global::DigitoyEngine.SerializedType.FieldSchema[1];
         s_31_1_4[0] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -2210,8 +3375,10 @@ public static class Registry
             Nested = s_31_1_4_0,
             FieldType = typeof(global::System.Collections.Generic.List<global::DigitoyEngine.CurveKey>),
             DeclaringType = typeof(global::DigitoyEngine.Curve),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Curve)o).Keys,
             Set = (o, v) => ((global::DigitoyEngine.Curve)o).Keys = (global::System.Collections.Generic.List<global::DigitoyEngine.CurveKey>)v,
+#endif
             NewList = () => new global::System.Collections.Generic.List<global::DigitoyEngine.CurveKey>(),
             NewElement = () => new global::DigitoyEngine.CurveKey(),
         };
@@ -2222,8 +3389,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
             FieldType = typeof(global::DigitoyEngine.LifeCurveMode),
             DeclaringType = typeof(global::DigitoyEngine.LifeCurve),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.LifeCurve)o).mode,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.LifeCurve>(o).mode = (global::DigitoyEngine.LifeCurveMode)v,
+#endif
         };
         s_31_1[1] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -2231,8 +3400,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.LifeCurve),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.LifeCurve)o).from,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.LifeCurve>(o).from = (global::System.Single)v,
+#endif
         };
         s_31_1[2] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -2240,8 +3411,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.LifeCurve),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.LifeCurve)o).to,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.LifeCurve>(o).to = (global::System.Single)v,
+#endif
         };
         s_31_1[3] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -2249,8 +3422,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
             FieldType = typeof(global::DigitoyEngine.Ease),
             DeclaringType = typeof(global::DigitoyEngine.LifeCurve),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.LifeCurve)o).ease,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.LifeCurve>(o).ease = (global::DigitoyEngine.Ease)v,
+#endif
         };
         s_31_1[4] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -2260,8 +3435,10 @@ public static class Registry
             Nested = s_31_1_4,
             FieldType = typeof(global::DigitoyEngine.Curve),
             DeclaringType = typeof(global::DigitoyEngine.LifeCurve),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.LifeCurve)o).curve,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.LifeCurve>(o).curve = (global::DigitoyEngine.Curve)v,
+#endif
             NewElement = () => new global::DigitoyEngine.Curve(),
         };
         s_31_1[5] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -2270,8 +3447,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.LifeCurve),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.LifeCurve)o).randomize,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.LifeCurve>(o).randomize = (global::System.Single)v,
+#endif
         };
         var s_31 = new global::DigitoyEngine.SerializedType.FieldSchema[4];
         s_31[0] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -2282,9 +3461,13 @@ public static class Registry
             Nested = s_31_0,
             FieldType = typeof(global::DigitoyEngine.Vec3Range),
             DeclaringType = typeof(global::DigitoyEngine.RotationModule),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.RotationModule)o).angularVelocity,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.RotationModule>(o).angularVelocity = (global::DigitoyEngine.Vec3Range)v,
+#endif
+#if !DE_AOT
             NewElement = () => (object)default(global::DigitoyEngine.Vec3Range),
+#endif
         };
         s_31[1] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -2294,9 +3477,13 @@ public static class Registry
             Nested = s_31_1,
             FieldType = typeof(global::DigitoyEngine.LifeCurve),
             DeclaringType = typeof(global::DigitoyEngine.RotationModule),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.RotationModule)o).speed,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.RotationModule>(o).speed = (global::DigitoyEngine.LifeCurve)v,
+#endif
+#if !DE_AOT
             NewElement = () => (object)default(global::DigitoyEngine.LifeCurve),
+#endif
         };
         s_31[2] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -2304,8 +3491,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Bool,
             FieldType = typeof(global::System.Boolean),
             DeclaringType = typeof(global::DigitoyEngine.RotationModule),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.RotationModule)o).alignToVelocity,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.RotationModule>(o).alignToVelocity = (global::System.Boolean)v,
+#endif
         };
         s_31[3] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -2313,8 +3502,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.RotationModule),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.RotationModule)o).alignOffset,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.RotationModule>(o).alignOffset = (global::System.Single)v,
+#endif
         };
         var s_32_3 = new global::DigitoyEngine.SerializedType.FieldSchema[2];
         s_32_3[0] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -2323,8 +3514,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.FloatRange),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.FloatRange)o).min,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.FloatRange>(o).min = (global::System.Single)v,
+#endif
         };
         s_32_3[1] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -2332,8 +3525,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.FloatRange),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.FloatRange)o).max,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.FloatRange>(o).max = (global::System.Single)v,
+#endif
         };
         var s_32 = new global::DigitoyEngine.SerializedType.FieldSchema[4];
         s_32[0] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -2342,8 +3537,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
             FieldType = typeof(global::DigitoyEngine.ParticleFrameMode),
             DeclaringType = typeof(global::DigitoyEngine.FrameModule),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.FrameModule)o).mode,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.FrameModule>(o).mode = (global::DigitoyEngine.ParticleFrameMode)v,
+#endif
         };
         s_32[1] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -2351,8 +3548,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.FrameModule),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.FrameModule)o).cycles,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.FrameModule>(o).cycles = (global::System.Single)v,
+#endif
         };
         s_32[2] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -2360,8 +3559,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.FrameModule),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.FrameModule)o).fps,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.FrameModule>(o).fps = (global::System.Single)v,
+#endif
         };
         s_32[3] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -2371,9 +3572,13 @@ public static class Registry
             Nested = s_32_3,
             FieldType = typeof(global::DigitoyEngine.FloatRange),
             DeclaringType = typeof(global::DigitoyEngine.FrameModule),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.FrameModule)o).startFrame,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.FrameModule>(o).startFrame = (global::DigitoyEngine.FloatRange)v,
+#endif
+#if !DE_AOT
             NewElement = () => (object)default(global::DigitoyEngine.FloatRange),
+#endif
         };
         var s = new global::DigitoyEngine.SerializedType.FieldSchema[35];
         s[0] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -2382,8 +3587,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Int,
             FieldType = typeof(global::System.Int32),
             DeclaringType = typeof(global::DigitoyEngine.Renderer),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Renderer)o).SortingOrder,
             Set = (o, v) => ((global::DigitoyEngine.Renderer)o).SortingOrder = (global::System.Int32)v,
+#endif
             GetFloat = c => (float)((global::DigitoyEngine.Renderer)c).SortingOrder,
             SetFloat = (c, v) => ((global::DigitoyEngine.Renderer)c).SortingOrder = (int)v,
         };
@@ -2393,8 +3600,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
             FieldType = typeof(global::DigitoyEngine.SortingSpace),
             DeclaringType = typeof(global::DigitoyEngine.Renderer),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Renderer)o).SortingSpace,
             Set = (o, v) => ((global::DigitoyEngine.Renderer)o).SortingSpace = (global::DigitoyEngine.SortingSpace)v,
+#endif
         };
         s[2] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -2402,8 +3611,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
             FieldType = typeof(global::DigitoyEngine.BlendMode),
             DeclaringType = typeof(global::DigitoyEngine.Renderer),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Renderer)o).BlendMode,
             Set = (o, v) => ((global::DigitoyEngine.Renderer)o).BlendMode = (global::DigitoyEngine.BlendMode)v,
+#endif
         };
         s[3] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -2413,8 +3624,10 @@ public static class Registry
             ElementType = typeof(global::DigitoyEngine.PixelEffect),
             FieldType = typeof(global::System.Collections.Generic.List<global::DigitoyEngine.PixelEffect>),
             DeclaringType = typeof(global::DigitoyEngine.Renderer),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Renderer)o).Effects,
             Set = (o, v) => ((global::DigitoyEngine.Renderer)o).Effects = (global::System.Collections.Generic.List<global::DigitoyEngine.PixelEffect>)v,
+#endif
             NewList = () => new global::System.Collections.Generic.List<global::DigitoyEngine.PixelEffect>(),
         };
         s[4] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -2423,8 +3636,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Bool,
             FieldType = typeof(global::System.Boolean),
             DeclaringType = typeof(global::DigitoyEngine.Renderer),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Renderer)o).BlocksRaycast,
             Set = (o, v) => ((global::DigitoyEngine.Renderer)o).BlocksRaycast = (global::System.Boolean)v,
+#endif
         };
         s[5] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -2432,8 +3647,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.ParticleSystem),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ParticleSystem)o).duration,
             Set = (o, v) => ((global::DigitoyEngine.ParticleSystem)o).duration = (global::System.Single)v,
+#endif
             GetFloat = c => ((global::DigitoyEngine.ParticleSystem)c).duration,
             SetFloat = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).duration = v,
         };
@@ -2443,8 +3660,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Bool,
             FieldType = typeof(global::System.Boolean),
             DeclaringType = typeof(global::DigitoyEngine.ParticleSystem),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ParticleSystem)o).looping,
             Set = (o, v) => ((global::DigitoyEngine.ParticleSystem)o).looping = (global::System.Boolean)v,
+#endif
         };
         s[7] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -2452,8 +3671,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Bool,
             FieldType = typeof(global::System.Boolean),
             DeclaringType = typeof(global::DigitoyEngine.ParticleSystem),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ParticleSystem)o).prewarm,
             Set = (o, v) => ((global::DigitoyEngine.ParticleSystem)o).prewarm = (global::System.Boolean)v,
+#endif
         };
         s[8] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -2461,8 +3682,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.ParticleSystem),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ParticleSystem)o).startDelay,
             Set = (o, v) => ((global::DigitoyEngine.ParticleSystem)o).startDelay = (global::System.Single)v,
+#endif
             GetFloat = c => ((global::DigitoyEngine.ParticleSystem)c).startDelay,
             SetFloat = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).startDelay = v,
         };
@@ -2472,8 +3695,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Bool,
             FieldType = typeof(global::System.Boolean),
             DeclaringType = typeof(global::DigitoyEngine.ParticleSystem),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ParticleSystem)o).playOnAwake,
             Set = (o, v) => ((global::DigitoyEngine.ParticleSystem)o).playOnAwake = (global::System.Boolean)v,
+#endif
         };
         s[10] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -2481,8 +3706,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.ParticleSystem),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ParticleSystem)o).simulationSpeed,
             Set = (o, v) => ((global::DigitoyEngine.ParticleSystem)o).simulationSpeed = (global::System.Single)v,
+#endif
             GetFloat = c => ((global::DigitoyEngine.ParticleSystem)c).simulationSpeed,
             SetFloat = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).simulationSpeed = v,
         };
@@ -2492,8 +3719,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
             FieldType = typeof(global::DigitoyEngine.ParticleSpace),
             DeclaringType = typeof(global::DigitoyEngine.ParticleSystem),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ParticleSystem)o).simulationSpace,
             Set = (o, v) => ((global::DigitoyEngine.ParticleSystem)o).simulationSpace = (global::DigitoyEngine.ParticleSpace)v,
+#endif
         };
         s[12] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -2501,8 +3730,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Int,
             FieldType = typeof(global::System.Int32),
             DeclaringType = typeof(global::DigitoyEngine.ParticleSystem),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ParticleSystem)o).maxParticles,
             Set = (o, v) => ((global::DigitoyEngine.ParticleSystem)o).maxParticles = (global::System.Int32)v,
+#endif
             GetFloat = c => (float)((global::DigitoyEngine.ParticleSystem)c).maxParticles,
             SetFloat = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).maxParticles = (int)v,
         };
@@ -2512,8 +3743,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Int,
             FieldType = typeof(global::System.Int32),
             DeclaringType = typeof(global::DigitoyEngine.ParticleSystem),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ParticleSystem)o).randomSeed,
             Set = (o, v) => ((global::DigitoyEngine.ParticleSystem)o).randomSeed = (global::System.Int32)v,
+#endif
             GetFloat = c => (float)((global::DigitoyEngine.ParticleSystem)c).randomSeed,
             SetFloat = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).randomSeed = (int)v,
         };
@@ -2523,8 +3756,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
             FieldType = typeof(global::DigitoyEngine.ParticleStopAction),
             DeclaringType = typeof(global::DigitoyEngine.ParticleSystem),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ParticleSystem)o).stopAction,
             Set = (o, v) => ((global::DigitoyEngine.ParticleSystem)o).stopAction = (global::DigitoyEngine.ParticleStopAction)v,
+#endif
         };
         s[15] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -2534,9 +3769,13 @@ public static class Registry
             Nested = s_15,
             FieldType = typeof(global::DigitoyEngine.FloatRange),
             DeclaringType = typeof(global::DigitoyEngine.ParticleSystem),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ParticleSystem)o).startLifetime,
             Set = (o, v) => ((global::DigitoyEngine.ParticleSystem)o).startLifetime = (global::DigitoyEngine.FloatRange)v,
+#endif
+#if !DE_AOT
             NewElement = () => (object)default(global::DigitoyEngine.FloatRange),
+#endif
         };
         s[16] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -2546,9 +3785,13 @@ public static class Registry
             Nested = s_16,
             FieldType = typeof(global::DigitoyEngine.FloatRange),
             DeclaringType = typeof(global::DigitoyEngine.ParticleSystem),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ParticleSystem)o).startSpeed,
             Set = (o, v) => ((global::DigitoyEngine.ParticleSystem)o).startSpeed = (global::DigitoyEngine.FloatRange)v,
+#endif
+#if !DE_AOT
             NewElement = () => (object)default(global::DigitoyEngine.FloatRange),
+#endif
         };
         s[17] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -2558,9 +3801,13 @@ public static class Registry
             Nested = s_17,
             FieldType = typeof(global::DigitoyEngine.FloatRange),
             DeclaringType = typeof(global::DigitoyEngine.ParticleSystem),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ParticleSystem)o).startSize,
             Set = (o, v) => ((global::DigitoyEngine.ParticleSystem)o).startSize = (global::DigitoyEngine.FloatRange)v,
+#endif
+#if !DE_AOT
             NewElement = () => (object)default(global::DigitoyEngine.FloatRange),
+#endif
         };
         s[18] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -2568,8 +3815,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.ParticleSystem),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ParticleSystem)o).aspect,
             Set = (o, v) => ((global::DigitoyEngine.ParticleSystem)o).aspect = (global::System.Single)v,
+#endif
             GetFloat = c => ((global::DigitoyEngine.ParticleSystem)c).aspect,
             SetFloat = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).aspect = v,
         };
@@ -2581,9 +3830,13 @@ public static class Registry
             Nested = s_19,
             FieldType = typeof(global::DigitoyEngine.Vec3Range),
             DeclaringType = typeof(global::DigitoyEngine.ParticleSystem),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ParticleSystem)o).startRotation,
             Set = (o, v) => ((global::DigitoyEngine.ParticleSystem)o).startRotation = (global::DigitoyEngine.Vec3Range)v,
+#endif
+#if !DE_AOT
             NewElement = () => (object)default(global::DigitoyEngine.Vec3Range),
+#endif
         };
         s[20] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -2593,9 +3846,13 @@ public static class Registry
             Nested = s_20,
             FieldType = typeof(global::DigitoyEngine.Gradient),
             DeclaringType = typeof(global::DigitoyEngine.ParticleSystem),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ParticleSystem)o).startColor,
             Set = (o, v) => ((global::DigitoyEngine.ParticleSystem)o).startColor = (global::DigitoyEngine.Gradient)v,
+#endif
+#if !DE_AOT
             NewElement = () => (object)default(global::DigitoyEngine.Gradient),
+#endif
         };
         s[21] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -2605,8 +3862,10 @@ public static class Registry
             ElementType = typeof(global::DigitoyEngine.Sprite),
             FieldType = typeof(global::System.Collections.Generic.List<global::DigitoyEngine.Sprite>),
             DeclaringType = typeof(global::DigitoyEngine.ParticleSystem),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ParticleSystem)o).sprites,
             Set = (o, v) => ((global::DigitoyEngine.ParticleSystem)o).sprites = (global::System.Collections.Generic.List<global::DigitoyEngine.Sprite>)v,
+#endif
             NewList = () => new global::System.Collections.Generic.List<global::DigitoyEngine.Sprite>(),
         };
         s[22] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -2615,8 +3874,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
             FieldType = typeof(global::DigitoyEngine.ParticleRenderMode),
             DeclaringType = typeof(global::DigitoyEngine.ParticleSystem),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ParticleSystem)o).renderMode,
             Set = (o, v) => ((global::DigitoyEngine.ParticleSystem)o).renderMode = (global::DigitoyEngine.ParticleRenderMode)v,
+#endif
         };
         s[23] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -2624,8 +3885,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.ParticleSystem),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ParticleSystem)o).lengthScale,
             Set = (o, v) => ((global::DigitoyEngine.ParticleSystem)o).lengthScale = (global::System.Single)v,
+#endif
             GetFloat = c => ((global::DigitoyEngine.ParticleSystem)c).lengthScale,
             SetFloat = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).lengthScale = v,
         };
@@ -2635,8 +3898,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.ParticleSystem),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ParticleSystem)o).speedScale,
             Set = (o, v) => ((global::DigitoyEngine.ParticleSystem)o).speedScale = (global::System.Single)v,
+#endif
             GetFloat = c => ((global::DigitoyEngine.ParticleSystem)c).speedScale,
             SetFloat = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).speedScale = v,
         };
@@ -2648,9 +3913,13 @@ public static class Registry
             Nested = s_25,
             FieldType = typeof(global::DigitoyEngine.EmissionModule),
             DeclaringType = typeof(global::DigitoyEngine.ParticleSystem),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ParticleSystem)o).emission,
             Set = (o, v) => ((global::DigitoyEngine.ParticleSystem)o).emission = (global::DigitoyEngine.EmissionModule)v,
+#endif
+#if !DE_AOT
             NewElement = () => (object)default(global::DigitoyEngine.EmissionModule),
+#endif
         };
         s[26] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -2660,9 +3929,13 @@ public static class Registry
             Nested = s_26,
             FieldType = typeof(global::DigitoyEngine.ShapeModule),
             DeclaringType = typeof(global::DigitoyEngine.ParticleSystem),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ParticleSystem)o).shape,
             Set = (o, v) => ((global::DigitoyEngine.ParticleSystem)o).shape = (global::DigitoyEngine.ShapeModule)v,
+#endif
+#if !DE_AOT
             NewElement = () => (object)default(global::DigitoyEngine.ShapeModule),
+#endif
         };
         s[27] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -2672,9 +3945,13 @@ public static class Registry
             Nested = s_27,
             FieldType = typeof(global::DigitoyEngine.VelocityModule),
             DeclaringType = typeof(global::DigitoyEngine.ParticleSystem),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ParticleSystem)o).velocity,
             Set = (o, v) => ((global::DigitoyEngine.ParticleSystem)o).velocity = (global::DigitoyEngine.VelocityModule)v,
+#endif
+#if !DE_AOT
             NewElement = () => (object)default(global::DigitoyEngine.VelocityModule),
+#endif
         };
         s[28] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -2684,9 +3961,13 @@ public static class Registry
             Nested = s_28,
             FieldType = typeof(global::DigitoyEngine.NoiseModule),
             DeclaringType = typeof(global::DigitoyEngine.ParticleSystem),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ParticleSystem)o).noise,
             Set = (o, v) => ((global::DigitoyEngine.ParticleSystem)o).noise = (global::DigitoyEngine.NoiseModule)v,
+#endif
+#if !DE_AOT
             NewElement = () => (object)default(global::DigitoyEngine.NoiseModule),
+#endif
         };
         s[29] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -2696,8 +3977,10 @@ public static class Registry
             Nested = s_29,
             FieldType = typeof(global::DigitoyEngine.ColorGradient),
             DeclaringType = typeof(global::DigitoyEngine.ParticleSystem),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ParticleSystem)o).colorOverLifetime,
             Set = (o, v) => ((global::DigitoyEngine.ParticleSystem)o).colorOverLifetime = (global::DigitoyEngine.ColorGradient)v,
+#endif
             NewElement = () => new global::DigitoyEngine.ColorGradient(),
         };
         s[30] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -2708,9 +3991,13 @@ public static class Registry
             Nested = s_30,
             FieldType = typeof(global::DigitoyEngine.LifeCurve),
             DeclaringType = typeof(global::DigitoyEngine.ParticleSystem),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ParticleSystem)o).sizeOverLifetime,
             Set = (o, v) => ((global::DigitoyEngine.ParticleSystem)o).sizeOverLifetime = (global::DigitoyEngine.LifeCurve)v,
+#endif
+#if !DE_AOT
             NewElement = () => (object)default(global::DigitoyEngine.LifeCurve),
+#endif
         };
         s[31] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -2720,9 +4007,13 @@ public static class Registry
             Nested = s_31,
             FieldType = typeof(global::DigitoyEngine.RotationModule),
             DeclaringType = typeof(global::DigitoyEngine.ParticleSystem),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ParticleSystem)o).rotation,
             Set = (o, v) => ((global::DigitoyEngine.ParticleSystem)o).rotation = (global::DigitoyEngine.RotationModule)v,
+#endif
+#if !DE_AOT
             NewElement = () => (object)default(global::DigitoyEngine.RotationModule),
+#endif
         };
         s[32] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -2732,9 +4023,13 @@ public static class Registry
             Nested = s_32,
             FieldType = typeof(global::DigitoyEngine.FrameModule),
             DeclaringType = typeof(global::DigitoyEngine.ParticleSystem),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ParticleSystem)o).frames,
             Set = (o, v) => ((global::DigitoyEngine.ParticleSystem)o).frames = (global::DigitoyEngine.FrameModule)v,
+#endif
+#if !DE_AOT
             NewElement = () => (object)default(global::DigitoyEngine.FrameModule),
+#endif
         };
         s[33] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -2742,8 +4037,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.CompRef,
             FieldType = typeof(global::DigitoyEngine.ParticleSystem),
             DeclaringType = typeof(global::DigitoyEngine.ParticleSystem),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ParticleSystem)o).subEmitterOnDeath,
             Set = (o, v) => ((global::DigitoyEngine.ParticleSystem)o).subEmitterOnDeath = (global::DigitoyEngine.ParticleSystem)v,
+#endif
         };
         s[34] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -2751,8 +4048,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Int,
             FieldType = typeof(global::System.Int32),
             DeclaringType = typeof(global::DigitoyEngine.ParticleSystem),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.ParticleSystem)o).subEmitterCount,
             Set = (o, v) => ((global::DigitoyEngine.ParticleSystem)o).subEmitterCount = (global::System.Int32)v,
+#endif
             GetFloat = c => (float)((global::DigitoyEngine.ParticleSystem)c).subEmitterCount,
             SetFloat = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).subEmitterCount = (int)v,
         };
@@ -2804,7 +4103,1039 @@ public static class Registry
             Flags = (global::DigitoyEngine.LifecycleFlags)46,
             Schema = s,
             Previewable = true,
+            ReadBaked = Read_4,
         });
+    }
+
+    static void Read_4(global::DigitoyEngine.Component o, global::DigitoyEngine.SceneBinary.Reader r)
+    {
+        var c = (global::DigitoyEngine.ParticleSystem)o;
+        int n = r.U16();
+        for (int i = 0; i < n; i++)
+        {
+            switch (r.U16())
+            {
+                case 0:
+                {
+                    c.SortingOrder = r.I32();
+                    break;
+                }
+                case 1:
+                {
+                    c.SortingSpace = (global::DigitoyEngine.SortingSpace)r.I32();
+                    break;
+                }
+                case 2:
+                {
+                    c.BlendMode = (global::DigitoyEngine.BlendMode)r.I32();
+                    break;
+                }
+                case 3:
+                {
+                    int cnt = r.I32();
+                    if (cnt >= 0)
+                    {
+                        var tmp = new global::System.Collections.Generic.List<global::DigitoyEngine.PixelEffect>();
+                        for (int k = 0; k < cnt; k++)
+                        {
+                            tmp.Add((global::DigitoyEngine.PixelEffect)r.Asset(typeof(global::DigitoyEngine.PixelEffect)));
+                        }
+                        c.Effects = tmp;
+                    }
+                    break;
+                }
+                case 4:
+                {
+                    c.BlocksRaycast = r.Bool();
+                    break;
+                }
+                case 5:
+                {
+                    c.duration = r.F32();
+                    break;
+                }
+                case 6:
+                {
+                    c.looping = r.Bool();
+                    break;
+                }
+                case 7:
+                {
+                    c.prewarm = r.Bool();
+                    break;
+                }
+                case 8:
+                {
+                    c.startDelay = r.F32();
+                    break;
+                }
+                case 9:
+                {
+                    c.playOnAwake = r.Bool();
+                    break;
+                }
+                case 10:
+                {
+                    c.simulationSpeed = r.F32();
+                    break;
+                }
+                case 11:
+                {
+                    c.simulationSpace = (global::DigitoyEngine.ParticleSpace)r.I32();
+                    break;
+                }
+                case 12:
+                {
+                    c.maxParticles = r.I32();
+                    break;
+                }
+                case 13:
+                {
+                    c.randomSeed = r.I32();
+                    break;
+                }
+                case 14:
+                {
+                    c.stopAction = (global::DigitoyEngine.ParticleStopAction)r.I32();
+                    break;
+                }
+                case 15:
+                {
+                    if (r.U8() != 0) Read_4_n0(ref c.startLifetime, r);
+                    break;
+                }
+                case 16:
+                {
+                    if (r.U8() != 0) Read_4_n1(ref c.startSpeed, r);
+                    break;
+                }
+                case 17:
+                {
+                    if (r.U8() != 0) Read_4_n2(ref c.startSize, r);
+                    break;
+                }
+                case 18:
+                {
+                    c.aspect = r.F32();
+                    break;
+                }
+                case 19:
+                {
+                    if (r.U8() != 0) Read_4_n3(ref c.startRotation, r);
+                    break;
+                }
+                case 20:
+                {
+                    if (r.U8() != 0) Read_4_n4(ref c.startColor, r);
+                    break;
+                }
+                case 21:
+                {
+                    int cnt = r.I32();
+                    if (cnt >= 0)
+                    {
+                        var tmp = new global::System.Collections.Generic.List<global::DigitoyEngine.Sprite>();
+                        for (int k = 0; k < cnt; k++)
+                        {
+                            tmp.Add((global::DigitoyEngine.Sprite)r.Asset(typeof(global::DigitoyEngine.Sprite)));
+                        }
+                        c.sprites = tmp;
+                    }
+                    break;
+                }
+                case 22:
+                {
+                    c.renderMode = (global::DigitoyEngine.ParticleRenderMode)r.I32();
+                    break;
+                }
+                case 23:
+                {
+                    c.lengthScale = r.F32();
+                    break;
+                }
+                case 24:
+                {
+                    c.speedScale = r.F32();
+                    break;
+                }
+                case 25:
+                {
+                    if (r.U8() != 0) Read_4_n5(ref c.emission, r);
+                    break;
+                }
+                case 26:
+                {
+                    if (r.U8() != 0) Read_4_n7(ref c.shape, r);
+                    break;
+                }
+                case 27:
+                {
+                    if (r.U8() != 0) Read_4_n8(ref c.velocity, r);
+                    break;
+                }
+                case 28:
+                {
+                    if (r.U8() != 0) Read_4_n13(ref c.noise, r);
+                    break;
+                }
+                case 29:
+                {
+                    if (r.U8() != 0)
+                    {
+                        var o2 = c.colorOverLifetime ?? new global::DigitoyEngine.ColorGradient();
+                        Read_4_n14(o2, r);
+                        c.colorOverLifetime = o2;
+                    }
+                    break;
+                }
+                case 30:
+                {
+                    if (r.U8() != 0) Read_4_n16(ref c.sizeOverLifetime, r);
+                    break;
+                }
+                case 31:
+                {
+                    if (r.U8() != 0) Read_4_n19(ref c.rotation, r);
+                    break;
+                }
+                case 32:
+                {
+                    if (r.U8() != 0) Read_4_n24(ref c.frames, r);
+                    break;
+                }
+                case 33:
+                {
+                    r.CompRef(v => c.subEmitterOnDeath = (global::DigitoyEngine.ParticleSystem)v);
+                    break;
+                }
+                case 34:
+                {
+                    c.subEmitterCount = r.I32();
+                    break;
+                }
+            }
+        }
+    }
+
+    static void Read_4_n0(ref global::DigitoyEngine.FloatRange o, global::DigitoyEngine.SceneBinary.Reader r)
+    {
+        int n = r.U16();
+        for (int i = 0; i < n; i++)
+        {
+            switch (r.U16())
+            {
+                case 0:
+                {
+                    o.min = r.F32();
+                    break;
+                }
+                case 1:
+                {
+                    o.max = r.F32();
+                    break;
+                }
+            }
+        }
+    }
+
+    static void Read_4_n1(ref global::DigitoyEngine.FloatRange o, global::DigitoyEngine.SceneBinary.Reader r)
+    {
+        int n = r.U16();
+        for (int i = 0; i < n; i++)
+        {
+            switch (r.U16())
+            {
+                case 0:
+                {
+                    o.min = r.F32();
+                    break;
+                }
+                case 1:
+                {
+                    o.max = r.F32();
+                    break;
+                }
+            }
+        }
+    }
+
+    static void Read_4_n2(ref global::DigitoyEngine.FloatRange o, global::DigitoyEngine.SceneBinary.Reader r)
+    {
+        int n = r.U16();
+        for (int i = 0; i < n; i++)
+        {
+            switch (r.U16())
+            {
+                case 0:
+                {
+                    o.min = r.F32();
+                    break;
+                }
+                case 1:
+                {
+                    o.max = r.F32();
+                    break;
+                }
+            }
+        }
+    }
+
+    static void Read_4_n3(ref global::DigitoyEngine.Vec3Range o, global::DigitoyEngine.SceneBinary.Reader r)
+    {
+        int n = r.U16();
+        for (int i = 0; i < n; i++)
+        {
+            switch (r.U16())
+            {
+                case 0:
+                {
+                    o.min = r.V3();
+                    break;
+                }
+                case 1:
+                {
+                    o.max = r.V3();
+                    break;
+                }
+            }
+        }
+    }
+
+    static void Read_4_n4(ref global::DigitoyEngine.Gradient o, global::DigitoyEngine.SceneBinary.Reader r)
+    {
+        int n = r.U16();
+        for (int i = 0; i < n; i++)
+        {
+            switch (r.U16())
+            {
+                case 0:
+                {
+                    o.type = (global::DigitoyEngine.GradientType)r.I32();
+                    break;
+                }
+                case 1:
+                {
+                    o.direction = (global::DigitoyEngine.GradientDirection)r.I32();
+                    break;
+                }
+                case 2:
+                {
+                    o.color = r.Col();
+                    break;
+                }
+                case 3:
+                {
+                    o.color2 = r.Col();
+                    break;
+                }
+            }
+        }
+    }
+
+    static void Read_4_n6(global::DigitoyEngine.ParticleBurst o, global::DigitoyEngine.SceneBinary.Reader r)
+    {
+        int n = r.U16();
+        for (int i = 0; i < n; i++)
+        {
+            switch (r.U16())
+            {
+                case 0:
+                {
+                    o.time = r.F32();
+                    break;
+                }
+                case 1:
+                {
+                    o.count = r.I32();
+                    break;
+                }
+                case 2:
+                {
+                    o.countMax = r.I32();
+                    break;
+                }
+                case 3:
+                {
+                    o.cycles = r.I32();
+                    break;
+                }
+                case 4:
+                {
+                    o.interval = r.F32();
+                    break;
+                }
+                case 5:
+                {
+                    o.probability = r.F32();
+                    break;
+                }
+            }
+        }
+    }
+
+    static void Read_4_n5(ref global::DigitoyEngine.EmissionModule o, global::DigitoyEngine.SceneBinary.Reader r)
+    {
+        int n = r.U16();
+        for (int i = 0; i < n; i++)
+        {
+            switch (r.U16())
+            {
+                case 0:
+                {
+                    o.rateOverTime = r.F32();
+                    break;
+                }
+                case 1:
+                {
+                    o.rateOverDistance = r.F32();
+                    break;
+                }
+                case 2:
+                {
+                    int cnt = r.I32();
+                    if (cnt >= 0)
+                    {
+                        var tmp = new global::System.Collections.Generic.List<global::DigitoyEngine.ParticleBurst>();
+                        for (int k = 0; k < cnt; k++)
+                        {
+                            var el = new global::DigitoyEngine.ParticleBurst();
+                            if (r.U8() != 0) Read_4_n6(el, r);
+                            tmp.Add(el);
+                        }
+                        o.bursts = tmp;
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    static void Read_4_n7(ref global::DigitoyEngine.ShapeModule o, global::DigitoyEngine.SceneBinary.Reader r)
+    {
+        int n = r.U16();
+        for (int i = 0; i < n; i++)
+        {
+            switch (r.U16())
+            {
+                case 0:
+                {
+                    o.type = (global::DigitoyEngine.ParticleShapeType)r.I32();
+                    break;
+                }
+                case 1:
+                {
+                    o.radius = r.F32();
+                    break;
+                }
+                case 2:
+                {
+                    o.radiusThickness = r.F32();
+                    break;
+                }
+                case 3:
+                {
+                    o.arc = r.F32();
+                    break;
+                }
+                case 4:
+                {
+                    o.boxSize = r.V3();
+                    break;
+                }
+                case 5:
+                {
+                    o.coneAngle = r.F32();
+                    break;
+                }
+                case 6:
+                {
+                    o.coneLength = r.F32();
+                    break;
+                }
+                case 7:
+                {
+                    o.offset = r.V3();
+                    break;
+                }
+                case 8:
+                {
+                    o.rotation = r.V3();
+                    break;
+                }
+                case 9:
+                {
+                    o.randomDirection = r.F32();
+                    break;
+                }
+                case 10:
+                {
+                    o.emit3D = r.Bool();
+                    break;
+                }
+                case 11:
+                {
+                    o.alignToDirection = r.Bool();
+                    break;
+                }
+            }
+        }
+    }
+
+    static void Read_4_n9(ref global::DigitoyEngine.Vec3Range o, global::DigitoyEngine.SceneBinary.Reader r)
+    {
+        int n = r.U16();
+        for (int i = 0; i < n; i++)
+        {
+            switch (r.U16())
+            {
+                case 0:
+                {
+                    o.min = r.V3();
+                    break;
+                }
+                case 1:
+                {
+                    o.max = r.V3();
+                    break;
+                }
+            }
+        }
+    }
+
+    static void Read_4_n12(global::DigitoyEngine.CurveKey o, global::DigitoyEngine.SceneBinary.Reader r)
+    {
+        int n = r.U16();
+        for (int i = 0; i < n; i++)
+        {
+            switch (r.U16())
+            {
+                case 0:
+                {
+                    o.Time = r.F32();
+                    break;
+                }
+                case 1:
+                {
+                    o.Value = r.F32();
+                    break;
+                }
+                case 2:
+                {
+                    o.InTangent = r.F32();
+                    break;
+                }
+                case 3:
+                {
+                    o.OutTangent = r.F32();
+                    break;
+                }
+            }
+        }
+    }
+
+    static void Read_4_n11(global::DigitoyEngine.Curve o, global::DigitoyEngine.SceneBinary.Reader r)
+    {
+        int n = r.U16();
+        for (int i = 0; i < n; i++)
+        {
+            switch (r.U16())
+            {
+                case 0:
+                {
+                    int cnt = r.I32();
+                    if (cnt >= 0)
+                    {
+                        var tmp = new global::System.Collections.Generic.List<global::DigitoyEngine.CurveKey>();
+                        for (int k = 0; k < cnt; k++)
+                        {
+                            var el = new global::DigitoyEngine.CurveKey();
+                            if (r.U8() != 0) Read_4_n12(el, r);
+                            tmp.Add(el);
+                        }
+                        o.Keys = tmp;
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    static void Read_4_n10(ref global::DigitoyEngine.LifeCurve o, global::DigitoyEngine.SceneBinary.Reader r)
+    {
+        int n = r.U16();
+        for (int i = 0; i < n; i++)
+        {
+            switch (r.U16())
+            {
+                case 0:
+                {
+                    o.mode = (global::DigitoyEngine.LifeCurveMode)r.I32();
+                    break;
+                }
+                case 1:
+                {
+                    o.from = r.F32();
+                    break;
+                }
+                case 2:
+                {
+                    o.to = r.F32();
+                    break;
+                }
+                case 3:
+                {
+                    o.ease = (global::DigitoyEngine.Ease)r.I32();
+                    break;
+                }
+                case 4:
+                {
+                    if (r.U8() != 0)
+                    {
+                        var o2 = o.curve ?? new global::DigitoyEngine.Curve();
+                        Read_4_n11(o2, r);
+                        o.curve = o2;
+                    }
+                    break;
+                }
+                case 5:
+                {
+                    o.randomize = r.F32();
+                    break;
+                }
+            }
+        }
+    }
+
+    static void Read_4_n8(ref global::DigitoyEngine.VelocityModule o, global::DigitoyEngine.SceneBinary.Reader r)
+    {
+        int n = r.U16();
+        for (int i = 0; i < n; i++)
+        {
+            switch (r.U16())
+            {
+                case 0:
+                {
+                    o.gravity = r.V3();
+                    break;
+                }
+                case 1:
+                {
+                    o.force = r.V3();
+                    break;
+                }
+                case 2:
+                {
+                    o.drag = r.F32();
+                    break;
+                }
+                case 3:
+                {
+                    o.orbitalSpeed = r.F32();
+                    break;
+                }
+                case 4:
+                {
+                    o.radialSpeed = r.F32();
+                    break;
+                }
+                case 5:
+                {
+                    if (r.U8() != 0) Read_4_n9(ref o.linear, r);
+                    break;
+                }
+                case 6:
+                {
+                    if (r.U8() != 0) Read_4_n10(ref o.speed, r);
+                    break;
+                }
+            }
+        }
+    }
+
+    static void Read_4_n13(ref global::DigitoyEngine.NoiseModule o, global::DigitoyEngine.SceneBinary.Reader r)
+    {
+        int n = r.U16();
+        for (int i = 0; i < n; i++)
+        {
+            switch (r.U16())
+            {
+                case 0:
+                {
+                    o.strength = r.F32();
+                    break;
+                }
+                case 1:
+                {
+                    o.frequency = r.F32();
+                    break;
+                }
+                case 2:
+                {
+                    o.scrollSpeed = r.F32();
+                    break;
+                }
+            }
+        }
+    }
+
+    static void Read_4_n15(global::DigitoyEngine.GradientKey o, global::DigitoyEngine.SceneBinary.Reader r)
+    {
+        int n = r.U16();
+        for (int i = 0; i < n; i++)
+        {
+            switch (r.U16())
+            {
+                case 0:
+                {
+                    o.time = r.F32();
+                    break;
+                }
+                case 1:
+                {
+                    o.color = r.Col();
+                    break;
+                }
+            }
+        }
+    }
+
+    static void Read_4_n14(global::DigitoyEngine.ColorGradient o, global::DigitoyEngine.SceneBinary.Reader r)
+    {
+        int n = r.U16();
+        for (int i = 0; i < n; i++)
+        {
+            switch (r.U16())
+            {
+                case 0:
+                {
+                    int cnt = r.I32();
+                    if (cnt >= 0)
+                    {
+                        var tmp = new global::System.Collections.Generic.List<global::DigitoyEngine.GradientKey>();
+                        for (int k = 0; k < cnt; k++)
+                        {
+                            var el = new global::DigitoyEngine.GradientKey();
+                            if (r.U8() != 0) Read_4_n15(el, r);
+                            tmp.Add(el);
+                        }
+                        o.keys = tmp;
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    static void Read_4_n18(global::DigitoyEngine.CurveKey o, global::DigitoyEngine.SceneBinary.Reader r)
+    {
+        int n = r.U16();
+        for (int i = 0; i < n; i++)
+        {
+            switch (r.U16())
+            {
+                case 0:
+                {
+                    o.Time = r.F32();
+                    break;
+                }
+                case 1:
+                {
+                    o.Value = r.F32();
+                    break;
+                }
+                case 2:
+                {
+                    o.InTangent = r.F32();
+                    break;
+                }
+                case 3:
+                {
+                    o.OutTangent = r.F32();
+                    break;
+                }
+            }
+        }
+    }
+
+    static void Read_4_n17(global::DigitoyEngine.Curve o, global::DigitoyEngine.SceneBinary.Reader r)
+    {
+        int n = r.U16();
+        for (int i = 0; i < n; i++)
+        {
+            switch (r.U16())
+            {
+                case 0:
+                {
+                    int cnt = r.I32();
+                    if (cnt >= 0)
+                    {
+                        var tmp = new global::System.Collections.Generic.List<global::DigitoyEngine.CurveKey>();
+                        for (int k = 0; k < cnt; k++)
+                        {
+                            var el = new global::DigitoyEngine.CurveKey();
+                            if (r.U8() != 0) Read_4_n18(el, r);
+                            tmp.Add(el);
+                        }
+                        o.Keys = tmp;
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    static void Read_4_n16(ref global::DigitoyEngine.LifeCurve o, global::DigitoyEngine.SceneBinary.Reader r)
+    {
+        int n = r.U16();
+        for (int i = 0; i < n; i++)
+        {
+            switch (r.U16())
+            {
+                case 0:
+                {
+                    o.mode = (global::DigitoyEngine.LifeCurveMode)r.I32();
+                    break;
+                }
+                case 1:
+                {
+                    o.from = r.F32();
+                    break;
+                }
+                case 2:
+                {
+                    o.to = r.F32();
+                    break;
+                }
+                case 3:
+                {
+                    o.ease = (global::DigitoyEngine.Ease)r.I32();
+                    break;
+                }
+                case 4:
+                {
+                    if (r.U8() != 0)
+                    {
+                        var o2 = o.curve ?? new global::DigitoyEngine.Curve();
+                        Read_4_n17(o2, r);
+                        o.curve = o2;
+                    }
+                    break;
+                }
+                case 5:
+                {
+                    o.randomize = r.F32();
+                    break;
+                }
+            }
+        }
+    }
+
+    static void Read_4_n20(ref global::DigitoyEngine.Vec3Range o, global::DigitoyEngine.SceneBinary.Reader r)
+    {
+        int n = r.U16();
+        for (int i = 0; i < n; i++)
+        {
+            switch (r.U16())
+            {
+                case 0:
+                {
+                    o.min = r.V3();
+                    break;
+                }
+                case 1:
+                {
+                    o.max = r.V3();
+                    break;
+                }
+            }
+        }
+    }
+
+    static void Read_4_n23(global::DigitoyEngine.CurveKey o, global::DigitoyEngine.SceneBinary.Reader r)
+    {
+        int n = r.U16();
+        for (int i = 0; i < n; i++)
+        {
+            switch (r.U16())
+            {
+                case 0:
+                {
+                    o.Time = r.F32();
+                    break;
+                }
+                case 1:
+                {
+                    o.Value = r.F32();
+                    break;
+                }
+                case 2:
+                {
+                    o.InTangent = r.F32();
+                    break;
+                }
+                case 3:
+                {
+                    o.OutTangent = r.F32();
+                    break;
+                }
+            }
+        }
+    }
+
+    static void Read_4_n22(global::DigitoyEngine.Curve o, global::DigitoyEngine.SceneBinary.Reader r)
+    {
+        int n = r.U16();
+        for (int i = 0; i < n; i++)
+        {
+            switch (r.U16())
+            {
+                case 0:
+                {
+                    int cnt = r.I32();
+                    if (cnt >= 0)
+                    {
+                        var tmp = new global::System.Collections.Generic.List<global::DigitoyEngine.CurveKey>();
+                        for (int k = 0; k < cnt; k++)
+                        {
+                            var el = new global::DigitoyEngine.CurveKey();
+                            if (r.U8() != 0) Read_4_n23(el, r);
+                            tmp.Add(el);
+                        }
+                        o.Keys = tmp;
+                    }
+                    break;
+                }
+            }
+        }
+    }
+
+    static void Read_4_n21(ref global::DigitoyEngine.LifeCurve o, global::DigitoyEngine.SceneBinary.Reader r)
+    {
+        int n = r.U16();
+        for (int i = 0; i < n; i++)
+        {
+            switch (r.U16())
+            {
+                case 0:
+                {
+                    o.mode = (global::DigitoyEngine.LifeCurveMode)r.I32();
+                    break;
+                }
+                case 1:
+                {
+                    o.from = r.F32();
+                    break;
+                }
+                case 2:
+                {
+                    o.to = r.F32();
+                    break;
+                }
+                case 3:
+                {
+                    o.ease = (global::DigitoyEngine.Ease)r.I32();
+                    break;
+                }
+                case 4:
+                {
+                    if (r.U8() != 0)
+                    {
+                        var o2 = o.curve ?? new global::DigitoyEngine.Curve();
+                        Read_4_n22(o2, r);
+                        o.curve = o2;
+                    }
+                    break;
+                }
+                case 5:
+                {
+                    o.randomize = r.F32();
+                    break;
+                }
+            }
+        }
+    }
+
+    static void Read_4_n19(ref global::DigitoyEngine.RotationModule o, global::DigitoyEngine.SceneBinary.Reader r)
+    {
+        int n = r.U16();
+        for (int i = 0; i < n; i++)
+        {
+            switch (r.U16())
+            {
+                case 0:
+                {
+                    if (r.U8() != 0) Read_4_n20(ref o.angularVelocity, r);
+                    break;
+                }
+                case 1:
+                {
+                    if (r.U8() != 0) Read_4_n21(ref o.speed, r);
+                    break;
+                }
+                case 2:
+                {
+                    o.alignToVelocity = r.Bool();
+                    break;
+                }
+                case 3:
+                {
+                    o.alignOffset = r.F32();
+                    break;
+                }
+            }
+        }
+    }
+
+    static void Read_4_n25(ref global::DigitoyEngine.FloatRange o, global::DigitoyEngine.SceneBinary.Reader r)
+    {
+        int n = r.U16();
+        for (int i = 0; i < n; i++)
+        {
+            switch (r.U16())
+            {
+                case 0:
+                {
+                    o.min = r.F32();
+                    break;
+                }
+                case 1:
+                {
+                    o.max = r.F32();
+                    break;
+                }
+            }
+        }
+    }
+
+    static void Read_4_n24(ref global::DigitoyEngine.FrameModule o, global::DigitoyEngine.SceneBinary.Reader r)
+    {
+        int n = r.U16();
+        for (int i = 0; i < n; i++)
+        {
+            switch (r.U16())
+            {
+                case 0:
+                {
+                    o.mode = (global::DigitoyEngine.ParticleFrameMode)r.I32();
+                    break;
+                }
+                case 1:
+                {
+                    o.cycles = r.F32();
+                    break;
+                }
+                case 2:
+                {
+                    o.fps = r.F32();
+                    break;
+                }
+                case 3:
+                {
+                    if (r.U8() != 0) Read_4_n25(ref o.startFrame, r);
+                    break;
+                }
+            }
+        }
     }
 
     static void Reg_5(global::DigitoyEngine.TypeCatalog cat)
@@ -2816,8 +5147,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Int,
             FieldType = typeof(global::System.Int32),
             DeclaringType = typeof(global::DigitoyEngine.Renderer),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Renderer)o).SortingOrder,
             Set = (o, v) => ((global::DigitoyEngine.Renderer)o).SortingOrder = (global::System.Int32)v,
+#endif
             GetFloat = c => (float)((global::DigitoyEngine.Renderer)c).SortingOrder,
             SetFloat = (c, v) => ((global::DigitoyEngine.Renderer)c).SortingOrder = (int)v,
         };
@@ -2827,8 +5160,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
             FieldType = typeof(global::DigitoyEngine.SortingSpace),
             DeclaringType = typeof(global::DigitoyEngine.Renderer),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Renderer)o).SortingSpace,
             Set = (o, v) => ((global::DigitoyEngine.Renderer)o).SortingSpace = (global::DigitoyEngine.SortingSpace)v,
+#endif
         };
         s[2] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -2836,8 +5171,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
             FieldType = typeof(global::DigitoyEngine.BlendMode),
             DeclaringType = typeof(global::DigitoyEngine.Renderer),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Renderer)o).BlendMode,
             Set = (o, v) => ((global::DigitoyEngine.Renderer)o).BlendMode = (global::DigitoyEngine.BlendMode)v,
+#endif
         };
         s[3] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -2847,8 +5184,10 @@ public static class Registry
             ElementType = typeof(global::DigitoyEngine.PixelEffect),
             FieldType = typeof(global::System.Collections.Generic.List<global::DigitoyEngine.PixelEffect>),
             DeclaringType = typeof(global::DigitoyEngine.Renderer),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Renderer)o).Effects,
             Set = (o, v) => ((global::DigitoyEngine.Renderer)o).Effects = (global::System.Collections.Generic.List<global::DigitoyEngine.PixelEffect>)v,
+#endif
             NewList = () => new global::System.Collections.Generic.List<global::DigitoyEngine.PixelEffect>(),
         };
         s[4] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -2857,8 +5196,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Bool,
             FieldType = typeof(global::System.Boolean),
             DeclaringType = typeof(global::DigitoyEngine.Renderer),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Renderer)o).BlocksRaycast,
             Set = (o, v) => ((global::DigitoyEngine.Renderer)o).BlocksRaycast = (global::System.Boolean)v,
+#endif
         };
         s[5] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -2866,8 +5207,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Asset,
             FieldType = typeof(global::DigitoyEngine.Sprite),
             DeclaringType = typeof(global::DigitoyEngine.SpriteRenderer),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.SpriteRenderer)o).Sprite,
             Set = (o, v) => ((global::DigitoyEngine.SpriteRenderer)o).Sprite = (global::DigitoyEngine.Sprite)v,
+#endif
         };
         s[6] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -2875,8 +5218,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Color,
             FieldType = typeof(global::DigitoyEngine.Color),
             DeclaringType = typeof(global::DigitoyEngine.SpriteRenderer),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.SpriteRenderer)o).Color,
             Set = (o, v) => ((global::DigitoyEngine.SpriteRenderer)o).Color = (global::DigitoyEngine.Color)v,
+#endif
         };
         s[7] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -2884,8 +5229,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.SpriteRenderer),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.SpriteRenderer)o).Width,
             Set = (o, v) => ((global::DigitoyEngine.SpriteRenderer)o).Width = (global::System.Single)v,
+#endif
             GetFloat = c => ((global::DigitoyEngine.SpriteRenderer)c).Width,
             SetFloat = (c, v) => ((global::DigitoyEngine.SpriteRenderer)c).Width = v,
         };
@@ -2895,8 +5242,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.SpriteRenderer),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.SpriteRenderer)o).Height,
             Set = (o, v) => ((global::DigitoyEngine.SpriteRenderer)o).Height = (global::System.Single)v,
+#endif
             GetFloat = c => ((global::DigitoyEngine.SpriteRenderer)c).Height,
             SetFloat = (c, v) => ((global::DigitoyEngine.SpriteRenderer)c).Height = v,
         };
@@ -2906,8 +5255,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.SpriteRenderer),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.SpriteRenderer)o).U0,
             Set = (o, v) => ((global::DigitoyEngine.SpriteRenderer)o).U0 = (global::System.Single)v,
+#endif
             GetFloat = c => ((global::DigitoyEngine.SpriteRenderer)c).U0,
             SetFloat = (c, v) => ((global::DigitoyEngine.SpriteRenderer)c).U0 = v,
         };
@@ -2917,8 +5268,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.SpriteRenderer),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.SpriteRenderer)o).V0,
             Set = (o, v) => ((global::DigitoyEngine.SpriteRenderer)o).V0 = (global::System.Single)v,
+#endif
             GetFloat = c => ((global::DigitoyEngine.SpriteRenderer)c).V0,
             SetFloat = (c, v) => ((global::DigitoyEngine.SpriteRenderer)c).V0 = v,
         };
@@ -2928,8 +5281,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.SpriteRenderer),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.SpriteRenderer)o).U1,
             Set = (o, v) => ((global::DigitoyEngine.SpriteRenderer)o).U1 = (global::System.Single)v,
+#endif
             GetFloat = c => ((global::DigitoyEngine.SpriteRenderer)c).U1,
             SetFloat = (c, v) => ((global::DigitoyEngine.SpriteRenderer)c).U1 = v,
         };
@@ -2939,8 +5294,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.SpriteRenderer),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.SpriteRenderer)o).V1,
             Set = (o, v) => ((global::DigitoyEngine.SpriteRenderer)o).V1 = (global::System.Single)v,
+#endif
             GetFloat = c => ((global::DigitoyEngine.SpriteRenderer)c).V1,
             SetFloat = (c, v) => ((global::DigitoyEngine.SpriteRenderer)c).V1 = v,
         };
@@ -2970,7 +5327,94 @@ public static class Registry
             Flags = (global::DigitoyEngine.LifecycleFlags)0,
             Schema = s,
             Previewable = false,
+            ReadBaked = Read_5,
         });
+    }
+
+    static void Read_5(global::DigitoyEngine.Component o, global::DigitoyEngine.SceneBinary.Reader r)
+    {
+        var c = (global::DigitoyEngine.SpriteRenderer)o;
+        int n = r.U16();
+        for (int i = 0; i < n; i++)
+        {
+            switch (r.U16())
+            {
+                case 0:
+                {
+                    c.SortingOrder = r.I32();
+                    break;
+                }
+                case 1:
+                {
+                    c.SortingSpace = (global::DigitoyEngine.SortingSpace)r.I32();
+                    break;
+                }
+                case 2:
+                {
+                    c.BlendMode = (global::DigitoyEngine.BlendMode)r.I32();
+                    break;
+                }
+                case 3:
+                {
+                    int cnt = r.I32();
+                    if (cnt >= 0)
+                    {
+                        var tmp = new global::System.Collections.Generic.List<global::DigitoyEngine.PixelEffect>();
+                        for (int k = 0; k < cnt; k++)
+                        {
+                            tmp.Add((global::DigitoyEngine.PixelEffect)r.Asset(typeof(global::DigitoyEngine.PixelEffect)));
+                        }
+                        c.Effects = tmp;
+                    }
+                    break;
+                }
+                case 4:
+                {
+                    c.BlocksRaycast = r.Bool();
+                    break;
+                }
+                case 5:
+                {
+                    c.Sprite = (global::DigitoyEngine.Sprite)r.Asset(typeof(global::DigitoyEngine.Sprite));
+                    break;
+                }
+                case 6:
+                {
+                    c.Color = r.Col();
+                    break;
+                }
+                case 7:
+                {
+                    c.Width = r.F32();
+                    break;
+                }
+                case 8:
+                {
+                    c.Height = r.F32();
+                    break;
+                }
+                case 9:
+                {
+                    c.U0 = r.F32();
+                    break;
+                }
+                case 10:
+                {
+                    c.V0 = r.F32();
+                    break;
+                }
+                case 11:
+                {
+                    c.U1 = r.F32();
+                    break;
+                }
+                case 12:
+                {
+                    c.V1 = r.F32();
+                    break;
+                }
+            }
+        }
     }
 
     static void Reg_6(global::DigitoyEngine.TypeCatalog cat)
@@ -2982,8 +5426,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
             FieldType = typeof(global::DigitoyEngine.GradientType),
             DeclaringType = typeof(global::DigitoyEngine.Gradient),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Gradient)o).type,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.Gradient>(o).type = (global::DigitoyEngine.GradientType)v,
+#endif
         };
         s_12[1] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -2991,8 +5437,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
             FieldType = typeof(global::DigitoyEngine.GradientDirection),
             DeclaringType = typeof(global::DigitoyEngine.Gradient),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Gradient)o).direction,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.Gradient>(o).direction = (global::DigitoyEngine.GradientDirection)v,
+#endif
         };
         s_12[2] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -3000,8 +5448,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Color,
             FieldType = typeof(global::DigitoyEngine.Color),
             DeclaringType = typeof(global::DigitoyEngine.Gradient),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Gradient)o).color,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.Gradient>(o).color = (global::DigitoyEngine.Color)v,
+#endif
         };
         s_12[3] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -3009,8 +5459,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Color,
             FieldType = typeof(global::DigitoyEngine.Color),
             DeclaringType = typeof(global::DigitoyEngine.Gradient),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Gradient)o).color2,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.Gradient>(o).color2 = (global::DigitoyEngine.Color)v,
+#endif
         };
         s_12[1].ShowIf = s_12[0];
         s_12[1].ShowIfScalar = "Linear";
@@ -3023,8 +5475,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
             FieldType = typeof(global::DigitoyEngine.GradientType),
             DeclaringType = typeof(global::DigitoyEngine.Gradient),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Gradient)o).type,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.Gradient>(o).type = (global::DigitoyEngine.GradientType)v,
+#endif
         };
         s_14[1] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -3032,8 +5486,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
             FieldType = typeof(global::DigitoyEngine.GradientDirection),
             DeclaringType = typeof(global::DigitoyEngine.Gradient),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Gradient)o).direction,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.Gradient>(o).direction = (global::DigitoyEngine.GradientDirection)v,
+#endif
         };
         s_14[2] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -3041,8 +5497,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Color,
             FieldType = typeof(global::DigitoyEngine.Color),
             DeclaringType = typeof(global::DigitoyEngine.Gradient),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Gradient)o).color,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.Gradient>(o).color = (global::DigitoyEngine.Color)v,
+#endif
         };
         s_14[3] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -3050,8 +5508,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Color,
             FieldType = typeof(global::DigitoyEngine.Color),
             DeclaringType = typeof(global::DigitoyEngine.Gradient),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Gradient)o).color2,
             Set = (o, v) => global::System.Runtime.CompilerServices.Unsafe.Unbox<global::DigitoyEngine.Gradient>(o).color2 = (global::DigitoyEngine.Color)v,
+#endif
         };
         s_14[1].ShowIf = s_14[0];
         s_14[1].ShowIfScalar = "Linear";
@@ -3064,8 +5524,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Int,
             FieldType = typeof(global::System.Int32),
             DeclaringType = typeof(global::DigitoyEngine.Renderer),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Renderer)o).SortingOrder,
             Set = (o, v) => ((global::DigitoyEngine.Renderer)o).SortingOrder = (global::System.Int32)v,
+#endif
             GetFloat = c => (float)((global::DigitoyEngine.Renderer)c).SortingOrder,
             SetFloat = (c, v) => ((global::DigitoyEngine.Renderer)c).SortingOrder = (int)v,
         };
@@ -3075,8 +5537,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
             FieldType = typeof(global::DigitoyEngine.SortingSpace),
             DeclaringType = typeof(global::DigitoyEngine.Renderer),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Renderer)o).SortingSpace,
             Set = (o, v) => ((global::DigitoyEngine.Renderer)o).SortingSpace = (global::DigitoyEngine.SortingSpace)v,
+#endif
         };
         s[2] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -3084,8 +5548,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
             FieldType = typeof(global::DigitoyEngine.BlendMode),
             DeclaringType = typeof(global::DigitoyEngine.Renderer),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Renderer)o).BlendMode,
             Set = (o, v) => ((global::DigitoyEngine.Renderer)o).BlendMode = (global::DigitoyEngine.BlendMode)v,
+#endif
         };
         s[3] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -3095,8 +5561,10 @@ public static class Registry
             ElementType = typeof(global::DigitoyEngine.PixelEffect),
             FieldType = typeof(global::System.Collections.Generic.List<global::DigitoyEngine.PixelEffect>),
             DeclaringType = typeof(global::DigitoyEngine.Renderer),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Renderer)o).Effects,
             Set = (o, v) => ((global::DigitoyEngine.Renderer)o).Effects = (global::System.Collections.Generic.List<global::DigitoyEngine.PixelEffect>)v,
+#endif
             NewList = () => new global::System.Collections.Generic.List<global::DigitoyEngine.PixelEffect>(),
         };
         s[4] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -3105,8 +5573,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Bool,
             FieldType = typeof(global::System.Boolean),
             DeclaringType = typeof(global::DigitoyEngine.Renderer),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.Renderer)o).BlocksRaycast,
             Set = (o, v) => ((global::DigitoyEngine.Renderer)o).BlocksRaycast = (global::System.Boolean)v,
+#endif
         };
         s[5] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -3114,8 +5584,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Asset,
             FieldType = typeof(global::DigitoyEngine.Font),
             DeclaringType = typeof(global::DigitoyEngine.TextSprite),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.TextSprite)o).Font,
             Set = (o, v) => ((global::DigitoyEngine.TextSprite)o).Font = (global::DigitoyEngine.Font)v,
+#endif
         };
         s[6] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -3123,8 +5595,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.String,
             FieldType = typeof(global::System.String),
             DeclaringType = typeof(global::DigitoyEngine.TextSprite),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.TextSprite)o).Text,
             Set = (o, v) => ((global::DigitoyEngine.TextSprite)o).Text = (global::System.String)v,
+#endif
         };
         s[7] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -3132,8 +5606,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.TextSprite),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.TextSprite)o).Size,
             Set = (o, v) => ((global::DigitoyEngine.TextSprite)o).Size = (global::System.Single)v,
+#endif
             GetFloat = c => ((global::DigitoyEngine.TextSprite)c).Size,
             SetFloat = (c, v) => ((global::DigitoyEngine.TextSprite)c).Size = v,
         };
@@ -3143,8 +5619,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Enum,
             FieldType = typeof(global::DigitoyEngine.TextAlign),
             DeclaringType = typeof(global::DigitoyEngine.TextSprite),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.TextSprite)o).Align,
             Set = (o, v) => ((global::DigitoyEngine.TextSprite)o).Align = (global::DigitoyEngine.TextAlign)v,
+#endif
         };
         s[9] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -3152,8 +5630,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.TextSprite),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.TextSprite)o).Weight,
             Set = (o, v) => ((global::DigitoyEngine.TextSprite)o).Weight = (global::System.Single)v,
+#endif
             GetFloat = c => ((global::DigitoyEngine.TextSprite)c).Weight,
             SetFloat = (c, v) => ((global::DigitoyEngine.TextSprite)c).Weight = v,
         };
@@ -3163,8 +5643,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.TextSprite),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.TextSprite)o).Skew,
             Set = (o, v) => ((global::DigitoyEngine.TextSprite)o).Skew = (global::System.Single)v,
+#endif
             GetFloat = c => ((global::DigitoyEngine.TextSprite)c).Skew,
             SetFloat = (c, v) => ((global::DigitoyEngine.TextSprite)c).Skew = v,
         };
@@ -3174,8 +5656,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.TextSprite),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.TextSprite)o).Spacing,
             Set = (o, v) => ((global::DigitoyEngine.TextSprite)o).Spacing = (global::System.Single)v,
+#endif
             GetFloat = c => ((global::DigitoyEngine.TextSprite)c).Spacing,
             SetFloat = (c, v) => ((global::DigitoyEngine.TextSprite)c).Spacing = v,
         };
@@ -3187,9 +5671,13 @@ public static class Registry
             Nested = s_12,
             FieldType = typeof(global::DigitoyEngine.Gradient),
             DeclaringType = typeof(global::DigitoyEngine.TextSprite),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.TextSprite)o).Fill,
             Set = (o, v) => ((global::DigitoyEngine.TextSprite)o).Fill = (global::DigitoyEngine.Gradient)v,
+#endif
+#if !DE_AOT
             NewElement = () => (object)default(global::DigitoyEngine.Gradient),
+#endif
         };
         s[13] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -3197,8 +5685,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.TextSprite),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.TextSprite)o).OutlineWidth,
             Set = (o, v) => ((global::DigitoyEngine.TextSprite)o).OutlineWidth = (global::System.Single)v,
+#endif
             GetFloat = c => ((global::DigitoyEngine.TextSprite)c).OutlineWidth,
             SetFloat = (c, v) => ((global::DigitoyEngine.TextSprite)c).OutlineWidth = v,
         };
@@ -3210,9 +5700,13 @@ public static class Registry
             Nested = s_14,
             FieldType = typeof(global::DigitoyEngine.Gradient),
             DeclaringType = typeof(global::DigitoyEngine.TextSprite),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.TextSprite)o).Outline,
             Set = (o, v) => ((global::DigitoyEngine.TextSprite)o).Outline = (global::DigitoyEngine.Gradient)v,
+#endif
+#if !DE_AOT
             NewElement = () => (object)default(global::DigitoyEngine.Gradient),
+#endif
         };
         s[15] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -3220,8 +5714,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Color,
             FieldType = typeof(global::DigitoyEngine.Color),
             DeclaringType = typeof(global::DigitoyEngine.TextSprite),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.TextSprite)o).ShadowColor,
             Set = (o, v) => ((global::DigitoyEngine.TextSprite)o).ShadowColor = (global::DigitoyEngine.Color)v,
+#endif
         };
         s[16] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -3229,8 +5725,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Vec2,
             FieldType = typeof(global::DigitoyEngine.Vec2),
             DeclaringType = typeof(global::DigitoyEngine.TextSprite),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.TextSprite)o).ShadowOffset,
             Set = (o, v) => ((global::DigitoyEngine.TextSprite)o).ShadowOffset = (global::DigitoyEngine.Vec2)v,
+#endif
         };
         s[17] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -3238,8 +5736,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.TextSprite),
+#if !DE_AOT
             Get = o => ((global::DigitoyEngine.TextSprite)o).ShadowBlur,
             Set = (o, v) => ((global::DigitoyEngine.TextSprite)o).ShadowBlur = (global::System.Single)v,
+#endif
             GetFloat = c => ((global::DigitoyEngine.TextSprite)c).ShadowBlur,
             SetFloat = (c, v) => ((global::DigitoyEngine.TextSprite)c).ShadowBlur = v,
         };
@@ -3273,7 +5773,181 @@ public static class Registry
             Flags = (global::DigitoyEngine.LifecycleFlags)0,
             Schema = s,
             Previewable = false,
+            ReadBaked = Read_6,
         });
+    }
+
+    static void Read_6(global::DigitoyEngine.Component o, global::DigitoyEngine.SceneBinary.Reader r)
+    {
+        var c = (global::DigitoyEngine.TextSprite)o;
+        int n = r.U16();
+        for (int i = 0; i < n; i++)
+        {
+            switch (r.U16())
+            {
+                case 0:
+                {
+                    c.SortingOrder = r.I32();
+                    break;
+                }
+                case 1:
+                {
+                    c.SortingSpace = (global::DigitoyEngine.SortingSpace)r.I32();
+                    break;
+                }
+                case 2:
+                {
+                    c.BlendMode = (global::DigitoyEngine.BlendMode)r.I32();
+                    break;
+                }
+                case 3:
+                {
+                    int cnt = r.I32();
+                    if (cnt >= 0)
+                    {
+                        var tmp = new global::System.Collections.Generic.List<global::DigitoyEngine.PixelEffect>();
+                        for (int k = 0; k < cnt; k++)
+                        {
+                            tmp.Add((global::DigitoyEngine.PixelEffect)r.Asset(typeof(global::DigitoyEngine.PixelEffect)));
+                        }
+                        c.Effects = tmp;
+                    }
+                    break;
+                }
+                case 4:
+                {
+                    c.BlocksRaycast = r.Bool();
+                    break;
+                }
+                case 5:
+                {
+                    c.Font = (global::DigitoyEngine.Font)r.Asset(typeof(global::DigitoyEngine.Font));
+                    break;
+                }
+                case 6:
+                {
+                    c.Text = r.String();
+                    break;
+                }
+                case 7:
+                {
+                    c.Size = r.F32();
+                    break;
+                }
+                case 8:
+                {
+                    c.Align = (global::DigitoyEngine.TextAlign)r.I32();
+                    break;
+                }
+                case 9:
+                {
+                    c.Weight = r.F32();
+                    break;
+                }
+                case 10:
+                {
+                    c.Skew = r.F32();
+                    break;
+                }
+                case 11:
+                {
+                    c.Spacing = r.F32();
+                    break;
+                }
+                case 12:
+                {
+                    if (r.U8() != 0) Read_6_n0(ref c.Fill, r);
+                    break;
+                }
+                case 13:
+                {
+                    c.OutlineWidth = r.F32();
+                    break;
+                }
+                case 14:
+                {
+                    if (r.U8() != 0) Read_6_n1(ref c.Outline, r);
+                    break;
+                }
+                case 15:
+                {
+                    c.ShadowColor = r.Col();
+                    break;
+                }
+                case 16:
+                {
+                    c.ShadowOffset = r.V2();
+                    break;
+                }
+                case 17:
+                {
+                    c.ShadowBlur = r.F32();
+                    break;
+                }
+            }
+        }
+    }
+
+    static void Read_6_n0(ref global::DigitoyEngine.Gradient o, global::DigitoyEngine.SceneBinary.Reader r)
+    {
+        int n = r.U16();
+        for (int i = 0; i < n; i++)
+        {
+            switch (r.U16())
+            {
+                case 0:
+                {
+                    o.type = (global::DigitoyEngine.GradientType)r.I32();
+                    break;
+                }
+                case 1:
+                {
+                    o.direction = (global::DigitoyEngine.GradientDirection)r.I32();
+                    break;
+                }
+                case 2:
+                {
+                    o.color = r.Col();
+                    break;
+                }
+                case 3:
+                {
+                    o.color2 = r.Col();
+                    break;
+                }
+            }
+        }
+    }
+
+    static void Read_6_n1(ref global::DigitoyEngine.Gradient o, global::DigitoyEngine.SceneBinary.Reader r)
+    {
+        int n = r.U16();
+        for (int i = 0; i < n; i++)
+        {
+            switch (r.U16())
+            {
+                case 0:
+                {
+                    o.type = (global::DigitoyEngine.GradientType)r.I32();
+                    break;
+                }
+                case 1:
+                {
+                    o.direction = (global::DigitoyEngine.GradientDirection)r.I32();
+                    break;
+                }
+                case 2:
+                {
+                    o.color = r.Col();
+                    break;
+                }
+                case 3:
+                {
+                    o.color2 = r.Col();
+                    break;
+                }
+            }
+        }
     }
 
     static void Reg_7(global::DigitoyEngine.TypeCatalog cat)
@@ -3285,8 +5959,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Bool,
             FieldType = typeof(global::System.Boolean),
             DeclaringType = typeof(global::Draggable),
+#if !DE_AOT
             Get = o => ((global::Draggable)o).tintWhileDragging,
             Set = (o, v) => ((global::Draggable)o).tintWhileDragging = (global::System.Boolean)v,
+#endif
         };
         cat.Register(new global::DigitoyEngine.TypeCatalog.Entry
         {
@@ -3301,7 +5977,25 @@ public static class Registry
             Flags = (global::DigitoyEngine.LifecycleFlags)15361,
             Schema = s,
             Previewable = false,
+            ReadBaked = Read_7,
         });
+    }
+
+    static void Read_7(global::DigitoyEngine.Component o, global::DigitoyEngine.SceneBinary.Reader r)
+    {
+        var c = (global::Draggable)o;
+        int n = r.U16();
+        for (int i = 0; i < n; i++)
+        {
+            switch (r.U16())
+            {
+                case 0:
+                {
+                    c.tintWhileDragging = r.Bool();
+                    break;
+                }
+            }
+        }
     }
 
     static void Reg_8(global::DigitoyEngine.TypeCatalog cat)
@@ -3313,8 +6007,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Int,
             FieldType = typeof(global::System.Int32),
             DeclaringType = typeof(global::Spinner),
+#if !DE_AOT
             Get = o => ((global::Spinner)o).Index,
             Set = (o, v) => ((global::Spinner)o).Index = (global::System.Int32)v,
+#endif
             GetFloat = c => (float)((global::Spinner)c).Index,
             SetFloat = (c, v) => ((global::Spinner)c).Index = (int)v,
         };
@@ -3324,8 +6020,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Float,
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::Spinner),
+#if !DE_AOT
             Get = o => ((global::Spinner)o).Speed,
             Set = (o, v) => ((global::Spinner)o).Speed = (global::System.Single)v,
+#endif
             GetFloat = c => ((global::Spinner)c).Speed,
             SetFloat = (c, v) => ((global::Spinner)c).Speed = v,
         };
@@ -3335,8 +6033,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.CompRef,
             FieldType = typeof(global::DigitoyEngine.SpriteRenderer),
             DeclaringType = typeof(global::Spinner),
+#if !DE_AOT
             Get = o => ((global::Spinner)o).Target,
             Set = (o, v) => ((global::Spinner)o).Target = (global::DigitoyEngine.SpriteRenderer)v,
+#endif
         };
         cat.Register(new global::DigitoyEngine.TypeCatalog.Entry
         {
@@ -3353,7 +6053,35 @@ public static class Registry
             Flags = (global::DigitoyEngine.LifecycleFlags)9,
             Schema = s,
             Previewable = true,
+            ReadBaked = Read_8,
         });
+    }
+
+    static void Read_8(global::DigitoyEngine.Component o, global::DigitoyEngine.SceneBinary.Reader r)
+    {
+        var c = (global::Spinner)o;
+        int n = r.U16();
+        for (int i = 0; i < n; i++)
+        {
+            switch (r.U16())
+            {
+                case 0:
+                {
+                    c.Index = r.I32();
+                    break;
+                }
+                case 1:
+                {
+                    c.Speed = r.F32();
+                    break;
+                }
+                case 2:
+                {
+                    r.CompRef(v => c.Target = (global::DigitoyEngine.SpriteRenderer)v);
+                    break;
+                }
+            }
+        }
     }
 
     static void Reg_9(global::DigitoyEngine.TypeCatalog cat)
@@ -3365,8 +6093,10 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Int,
             FieldType = typeof(global::System.Int32),
             DeclaringType = typeof(global::StressOrb),
+#if !DE_AOT
             Get = o => ((global::StressOrb)o).Seed,
             Set = (o, v) => ((global::StressOrb)o).Seed = (global::System.Int32)v,
+#endif
             GetFloat = c => (float)((global::StressOrb)c).Seed,
             SetFloat = (c, v) => ((global::StressOrb)c).Seed = (int)v,
         };
@@ -3383,7 +6113,25 @@ public static class Registry
             Flags = (global::DigitoyEngine.LifecycleFlags)8,
             Schema = s,
             Previewable = false,
+            ReadBaked = Read_9,
         });
+    }
+
+    static void Read_9(global::DigitoyEngine.Component o, global::DigitoyEngine.SceneBinary.Reader r)
+    {
+        var c = (global::StressOrb)o;
+        int n = r.U16();
+        for (int i = 0; i < n; i++)
+        {
+            switch (r.U16())
+            {
+                case 0:
+                {
+                    c.Seed = r.I32();
+                    break;
+                }
+            }
+        }
     }
 
 }

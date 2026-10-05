@@ -1,3 +1,4 @@
+#if DE_EDITOR // YAML/SceneDoc: yalniz editor. Release/AOT sahneler SceneBinary (pismis) ile gelir; metin format yoktur.
 using System;
 using System.Collections.Generic;
 using System.Globalization;
@@ -382,3 +383,4 @@ public sealed partial class SceneDoc
          + v.y.ToString("R", CultureInfo.InvariantCulture) + " "
          + v.z.ToString("R", CultureInfo.InvariantCulture);
 }
+#endif

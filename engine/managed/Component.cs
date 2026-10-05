@@ -93,6 +93,7 @@ public abstract class Component
     public static void Destroy(GameObject go) => GameObject.Destroy(go);
     public static void Destroy(Component c) => GameObject.Destroy(c);
 
+#if !DE_AOT // AOT: bayraklar uretilmis katalogdan (Entry.Flags); reflection yok
     // AddComponent<T> bayraklari statik generic cache'ten okur — dictionary lookup bile yok.
     // (Generic static, T'nin AssemblyLoadContext'iyle birlikte cope gider — reload guvenli.
     // Type-anahtarli dictionary cache BILEREK YOK: o is TypeCatalog instance'inda.)
@@ -138,4 +139,5 @@ public abstract class Component
             null, _ptrArgs, null);
         return (m != null && m.DeclaringType != typeof(Component)) ? flag : LifecycleFlags.None;
     }
+#endif
 }

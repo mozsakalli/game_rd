@@ -2,19 +2,27 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Text;
+using System.Threading.Tasks;
 
 namespace DigitoyEngine;
 
 // Asset BAYTLARININ nereden geldigi soyutlamasi. Editor: loose dosyalar
 // (esnek, .meta/hot-reload). Release: tek pak dosyasi (tarama yok, meta yok,
-// guid tablosu gomulu, native worker decode'u pak icinden offset'le okur).
+// guid tablosu gomulu). Her iki kaynak da NativeFs (handle/yol + offset) uzerinden
+// konusur: IO ve decode native worker'da, managed tek thread, API async-first.
+// Senkron okuma YALNIZ editorde (DE_EDITOR); release'te bloklayan yol yok (web).
 public abstract class AssetSource
 {
     // Async piksel decode isi baslatir (native worker). Donus: job id, dolu: -1.
     public abstract int StartLoad(string key);
 
-    // Kucuk metin asset'leri (prefab/scene) icin senkron okuma. Yoksa null.
+    // Ham baytlar (zlib acilmis) â€” job'u AsyncJobs.Pump tamamlar. Yoksa null.
+    public abstract Task<byte[]> ReadBytesAsync(string key);
+
+#if DE_EDITOR
+    // Editor/arac yolu: bloklayan okuma (import, verify, YAML sahne).
     public abstract byte[] ReadBytes(string key);
+#endif
 
     public abstract bool Exists(string key);
 
@@ -26,19 +34,38 @@ public abstract class AssetSource
     // Kaynaktaki tum anahtarlar (atlas kesfi gibi toplu isler; sicak yolda cagrilmaz).
     public abstract IEnumerable<string> Keys { get; }
 
+    // Asset bagimlilik grafigi (build'de yazilir): anahtarin yuklenmeden once hazir
+    // olmasi gereken diger anahtarlar (sahne -> asset'leri, sprite -> atlasi, atlas -> sayfalari).
+    // Loose kaynakta bos: editor tembel/senkron yukler.
+    public virtual string[] GetDependencies(string key) => Array.Empty<string>();
+
     // Release'te guid->yol eslemesi kaynaktan gelir (ScanMetas kosmaz).
     public virtual void FillGuidTable(
         Dictionary<string, string> guidToPath, Dictionary<string, string> pathToGuid)
     { }
 }
 
+#if DE_EDITOR
+// Editor/dev kaynagi: Assets/ altindaki loose dosyalar. Release'e girmez.
 public sealed class LooseFileSource : AssetSource
 {
     public readonly string Root;
 
     public LooseFileSource(string root) => Root = root;
 
-    public override int StartLoad(string key) => Sokol.AssetLoad(Path.Combine(Root, key));
+    public override int StartLoad(string key) => NativeFs.Decode(-1, Path.Combine(Root, key), 0, 0, 0);
+
+    public override Task<byte[]> ReadBytesAsync(string key)
+    {
+        var p = Path.Combine(Root, key);
+        if (!File.Exists(p))
+        {
+            var tcs = new TaskCompletionSource<byte[]>();
+            tcs.TrySetResult(null);
+            return tcs.Task;
+        }
+        return AsyncJobs.ReadAsync(NativeFs.Read(-1, p, 0, 0, 0));
+    }
 
     public override byte[] ReadBytes(string key)
     {
@@ -70,15 +97,19 @@ public sealed class LooseFileSource : AssetSource
         }
     }
 }
+#endif
 
-// Pak dosyasi: [magic][count][index: key,guid,offset,storedLen,rawLen]*[blob].
+// Pak dosyasi v3: [magic][count][indexLen][index][blob].
+//   index girisi: u16 keyLen + key(utf8), u16 guidLen + guid, i64 offset, i64 storedLen, i64 rawLen,
+//                 u16 nDep + { u16 len + key }[]   (bagimlilik kenarlari)
 // Girisler TEK TEK zlib'lenir (rastgele erisim bozulmaz); sikismayanlar (png gibi)
-// oldugu gibi saklanir (stored: rawLen==storedLen). Index acilista bir kez okunur;
-// texture yuklemesi native'e (path,offset,storedLen,rawLen) gider — decode+inflate
-// worker'da (native cozucu stb_image'in gomulu zlib'i, ek bagimlilik yok).
+// oldugu gibi saklanir (stored: rawLen==storedLen). Index acilista TEK okumayla
+// gelir (indexLen header'da); tum okumalar native handle + offset ile worker'da
+// (inflate dahil, stb zlib). Acma da async: web'de fetch, desktop'ta aninda.
 public sealed class PakSource : AssetSource
 {
-    public const int Magic = 0x324B5044; // "DPK2"
+    public const int Magic = 0x334B5044; // "DPK3"
+    public const int HeaderSize = 12;
 
     struct Entry
     {
@@ -86,47 +117,131 @@ public sealed class PakSource : AssetSource
         public long Offset;
         public long StoredLength;
         public long RawLength; // == StoredLength: sikistirmasiz
+        public string[] Deps;
     }
 
     readonly string _path;
-    readonly FileStream _stream; // senkron ReadBytes icin acik tutulur
+    readonly int _handle; // NativeFs handle (editor senkron modunda -1)
     readonly Dictionary<string, Entry> _entries = new();
 
-    public PakSource(string pakPath)
+    PakSource(string path, int handle)
     {
-        _path = Path.GetFullPath(pakPath);
-        _stream = File.OpenRead(_path);
-        using var r = new BinaryReader(_stream, Encoding.UTF8, leaveOpen: true);
-        if (r.ReadInt32() != Magic)
-            throw new InvalidDataException("pak magic uyusmuyor: " + pakPath);
-        int count = r.ReadInt32();
+        _path = path;
+        _handle = handle;
+    }
+
+    // Release acilis yolu: open job -> header -> index (hepsi worker; bloklamaz).
+    public static async Task<PakSource> OpenAsync(string pakPath)
+    {
+        var open = await AsyncJobs.Await(NativeFs.Open(pakPath));
+        if (!open.Ok)
+            return null;
+        int h = open.W;
+        var header = await AsyncJobs.ReadAsync(NativeFs.Read(h, null, 0, HeaderSize, HeaderSize));
+        if (header == null || header.Length < HeaderSize || ReadI32(header, 0) != Magic)
+        {
+            NativeFs.Close(h);
+            throw new InvalidOperationException("pak magic uyusmuyor (eski pak? yeniden build edin): " + pakPath);
+        }
+        int count = ReadI32(header, 4), indexLen = ReadI32(header, 8);
+        var index = await AsyncJobs.ReadAsync(NativeFs.Read(h, null, HeaderSize, indexLen, indexLen));
+        if (index == null)
+        {
+            NativeFs.Close(h);
+            return null;
+        }
+        var pak = new PakSource(pakPath, h);
+        pak.ParseIndex(index, count);
+        return pak;
+    }
+
+    void ParseIndex(byte[] b, int count)
+    {
+        int p = 0;
         for (int i = 0; i < count; i++)
         {
-            string key = r.ReadString();
-            var e = new Entry
-            {
-                Guid = r.ReadString(),
-                Offset = r.ReadInt64(),
-                StoredLength = r.ReadInt64(),
-                RawLength = r.ReadInt64(),
-            };
+            string key = ReadStr(b, ref p);
+            var e = new Entry { Guid = ReadStr(b, ref p) };
+            e.Offset = ReadI64(b, ref p);
+            e.StoredLength = ReadI64(b, ref p);
+            e.RawLength = ReadI64(b, ref p);
+            int nDep = b[p] | (b[p + 1] << 8);
+            p += 2;
+            e.Deps = nDep == 0 ? Array.Empty<string>() : new string[nDep];
+            for (int d = 0; d < nDep; d++)
+                e.Deps[d] = ReadStr(b, ref p);
             _entries[key] = e;
         }
+    }
+
+    static int ReadI32(byte[] b, int p) => b[p] | (b[p + 1] << 8) | (b[p + 2] << 16) | (b[p + 3] << 24);
+
+    static long ReadI64(byte[] b, ref int p)
+    {
+        long v = (uint)ReadI32(b, p) | ((long)ReadI32(b, p + 4) << 32);
+        p += 8;
+        return v;
+    }
+
+    static string ReadStr(byte[] b, ref int p)
+    {
+        int len = b[p] | (b[p + 1] << 8);
+        p += 2;
+        var s = Encoding.UTF8.GetString(b, p, len);
+        p += len;
+        return s;
     }
 
     public int Count => _entries.Count;
 
     public override int StartLoad(string key)
         => _entries.TryGetValue(key, out var e) && e.StoredLength > 0 // bos stub (atlas uyesi) = yuklenemez
-            ? Sokol.AssetLoadRange(_path, e.Offset, e.StoredLength, e.RawLength) : -1;
+            ? NativeFs.Decode(_handle, _handle < 0 ? _path : null, e.Offset, e.StoredLength, e.RawLength) : -1;
+
+    public override Task<byte[]> ReadBytesAsync(string key)
+    {
+        if (!_entries.TryGetValue(key, out var e))
+        {
+            var tcs = new TaskCompletionSource<byte[]>();
+            tcs.TrySetResult(null);
+            return tcs.Task;
+        }
+        if (e.StoredLength == 0)
+        {
+            var tcs = new TaskCompletionSource<byte[]>();
+            tcs.TrySetResult(Array.Empty<byte>());
+            return tcs.Task;
+        }
+        return AsyncJobs.ReadAsync(NativeFs.Read(_handle, _handle < 0 ? _path : null, e.Offset, e.StoredLength, e.RawLength));
+    }
+
+#if DE_EDITOR
+    // Editor/verify: senkron acma (FileStream) â€” native handle kullanilmaz.
+    public PakSource(string pakPath)
+    {
+        _path = Path.GetFullPath(pakPath);
+        _handle = -1;
+        using var fs = File.OpenRead(_path);
+        var header = new byte[HeaderSize];
+        fs.ReadExactly(header);
+        if (ReadI32(header, 0) != Magic)
+            throw new InvalidDataException("pak magic uyusmuyor: " + pakPath);
+        int count = ReadI32(header, 4), indexLen = ReadI32(header, 8);
+        var index = new byte[indexLen];
+        fs.ReadExactly(index);
+        ParseIndex(index, count);
+    }
 
     public override byte[] ReadBytes(string key)
     {
         if (!_entries.TryGetValue(key, out var e))
             return null;
         var buf = new byte[e.StoredLength];
-        _stream.Position = e.Offset;
-        _stream.ReadExactly(buf);
+        using (var fs = File.OpenRead(_path))
+        {
+            fs.Position = e.Offset;
+            fs.ReadExactly(buf);
+        }
         if (e.RawLength == e.StoredLength)
             return buf;
         var raw = new byte[e.RawLength];
@@ -135,8 +250,12 @@ public sealed class PakSource : AssetSource
         z.ReadExactly(raw);
         return raw;
     }
+#endif
 
     public override bool Exists(string key) => _entries.ContainsKey(key);
+
+    public override string[] GetDependencies(string key)
+        => _entries.TryGetValue(key, out var e) ? e.Deps : Array.Empty<string>();
 
     public override bool TryGetRange(string key, out string path, out long offset, out long length)
     {
@@ -164,16 +283,18 @@ public sealed class PakSource : AssetSource
     }
 }
 
+#if DE_EDITOR
 // Pak yazici (build adimi kullanir; format okuyucuyla ayni dosyada dursun).
 public static class PakWriter
 {
     // items: (key, guid, icerik). Icerik cagiran tarafta hazirlanir (texture'lar
     // build'de DTEX'e cevrilir). Her giris zlib'lenir; kazanc yoksa ham saklanir.
-    // forceStore(key)=true: giris HER ZAMAN ham (akitilacak muzik gibi — native
+    // forceStore(key)=true: giris HER ZAMAN ham (akitilacak muzik gibi â€” native
     // player dosyadan offset'le okur, zlib olamaz). Donus: (rawToplam, pakBoyu).
+    // depsOf(key): girisin bagimlilik kenarlari (null = yok).
     public static (long RawTotal, long PakSize) Write(
         string outPath, IReadOnlyList<(string Key, string Guid, byte[] Data)> items,
-        Func<string, bool> forceStore = null)
+        Func<string, bool> forceStore = null, Func<string, IReadOnlyList<string>> depsOf = null)
     {
         var blobs = new byte[items.Count][];
         long rawTotal = 0;
@@ -189,13 +310,19 @@ public static class PakWriter
             blobs[i] = packed.Length < items[i].Data.Length ? packed : items[i].Data;
         }
 
-        using var ms = new MemoryStream();
-        WriteIndex(ms, items, blobs, dataStart: 0);
-        long dataStart = ms.Length;
+        var index = BuildIndex(items, blobs, dataStart: 0, depsOf); // uzunluk offset'ten bagimsiz
+        long dataStart = PakSource.HeaderSize + index.Length;
+        index = BuildIndex(items, blobs, dataStart, depsOf);
 
         Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(outPath)));
         using var fs = File.Create(outPath);
-        WriteIndex(fs, items, blobs, dataStart);
+        using (var w = new BinaryWriter(fs, Encoding.UTF8, leaveOpen: true))
+        {
+            w.Write(PakSource.Magic);
+            w.Write(items.Count);
+            w.Write(index.Length);
+        }
+        fs.Write(index);
         foreach (var b in blobs)
             fs.Write(b);
         return (rawTotal, fs.Length);
@@ -210,30 +337,46 @@ public static class PakWriter
         return ms.ToArray();
     }
 
-    static void WriteIndex(Stream s, IReadOnlyList<(string Key, string Guid, byte[] Data)> items,
-        byte[][] blobs, long dataStart)
+    // Index girisi: u16 len + utf8 (BinaryWriter'in 7-bit uzunlugu DEGIL — runtime
+    // okuyucu bagimliliksiz, SceneBinary ile ayni string bicimi).
+    static byte[] BuildIndex(IReadOnlyList<(string Key, string Guid, byte[] Data)> items,
+        byte[][] blobs, long dataStart, Func<string, IReadOnlyList<string>> depsOf)
     {
-        using var w = new BinaryWriter(s, Encoding.UTF8, leaveOpen: true);
-        w.Write(PakSource.Magic);
-        w.Write(items.Count);
+        using var ms = new MemoryStream();
+        using var w = new BinaryWriter(ms, Encoding.UTF8, leaveOpen: true);
         long off = dataStart;
         for (int i = 0; i < items.Count; i++)
         {
-            w.Write(items[i].Key);
-            w.Write(items[i].Guid ?? "");
+            WriteStr(w, items[i].Key);
+            WriteStr(w, items[i].Guid ?? "");
             w.Write(off);
             w.Write((long)blobs[i].Length);
             w.Write((long)items[i].Data.Length);
+            var deps = depsOf?.Invoke(items[i].Key);
+            w.Write((ushort)(deps?.Count ?? 0));
+            if (deps != null)
+                foreach (var d in deps)
+                    WriteStr(w, d);
             off += blobs[i].Length;
         }
         w.Flush();
+        return ms.ToArray();
+    }
+
+    static void WriteStr(BinaryWriter w, string s)
+    {
+        var b = Encoding.UTF8.GetBytes(s);
+        if (b.Length > ushort.MaxValue)
+            throw new InvalidOperationException("pak anahtari cok uzun: " + s);
+        w.Write((ushort)b.Length);
+        w.Write(b);
     }
 }
 
-// DTEX: pak'ta decode'suz texture blobu — [magic][format][w][h][veri].
+// DTEX: pak'ta decode'suz texture blobu â€” [magic][format][w][h][veri].
 // Build PNG'yi bir kez cozer, runtime yalniz defilter+upload yapar (stbi yolu atlanir).
-// format 0=RGBA8 duz; 1=RGBA8 PNG-tarzi satir filtreli (satir basi 1 filtre baytı +
-// stride bayt) — zlib'e PNG'ye yakin sikisma kazandirir, defilter lineer/ucuz.
+// format 0=RGBA8 duz; 1=RGBA8 PNG-tarzi satir filtreli (satir basi 1 filtre baytÄ± +
+// stride bayt) â€” zlib'e PNG'ye yakin sikisma kazandirir, defilter lineer/ucuz.
 // Satir 0 altta (GL yonelimi). ASTC/BCn ileride yeni format degeri.
 public static class DtexFormat
 {
@@ -316,3 +459,4 @@ public static class DtexFormat
         BitConverter.GetBytes(height).CopyTo(b, 12);
     }
 }
+#endif

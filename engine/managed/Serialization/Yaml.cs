@@ -1,3 +1,4 @@
+#if DE_EDITOR // YAML/SceneDoc: yalniz editor. Release/AOT sahneler SceneBinary (pismis) ile gelir; metin format yoktur.
 using System.Collections.Generic;
 using System.Text;
 
@@ -285,3 +286,4 @@ public static class Yaml
         return s;
     }
 }
+#endif

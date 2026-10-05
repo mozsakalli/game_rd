@@ -1,3 +1,4 @@
+#if DE_EDITOR // YAML/SceneDoc: yalniz editor. Release/AOT sahneler SceneBinary (pismis) ile gelir; metin format yoktur.
 using System.Collections.Generic;
 
 namespace DigitoyEngine;
@@ -68,3 +69,4 @@ public sealed partial class SceneDoc
         return false;
     }
 }
+#endif

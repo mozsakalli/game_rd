@@ -21,6 +21,8 @@
     <Compile Remove="c_runtime\**\*.cs" />
     <!-- yardimci IL dump araci ayri projedir -->
     <Compile Remove="tools\**\*.cs" />
+    <!-- selftest ayri host projesiyle derlenir (Main cakismasi) -->
+    <Compile Remove="tests\**\*.cs" />
     <Compile Remove="obj\**\*.cs" />
   </ItemGroup>
 

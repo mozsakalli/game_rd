@@ -37,5 +37,6 @@ namespace System
         extern Reflection.FieldInfo[] GetFields();
         extern Reflection.PropertyInfo GetProperty(string name);
         extern bool IsAssignableFrom(Type type);
+        bool IsInstanceOfType(object o) { return o != null && IsAssignableFrom(o.GetType()); }
     }
 }

@@ -26,6 +26,9 @@ public sealed class TypeCatalog
         // Animatable property tablosu (AnimRegistry): uretilmis katalogda dolu gelir,
         // reflection katalogunda ilk istekte expression-compile ile kurulur.
         public AnimProperty[] Anim;
+        // Pismis sahne okuyucusu (CatalogWriter uretir): alan indeksi -> tipli atama,
+        // boxing/Unsafe yok. null = reflection katalogu (editor): SceneBinary object yolu.
+        public SceneBinary.BakedReader ReadBaked;
     }
 
     readonly Dictionary<string, Entry> _byName = new();
@@ -60,6 +63,7 @@ public sealed class TypeCatalog
         _byType[e.Type] = e;
     }
 
+#if !DE_AOT // reflection katalogu: editor + .NET player; AOT'ta yalniz uretilmis Registry
     public static TypeCatalog FromReflection()
         => FromAssemblies(AppDomain.CurrentDomain.GetAssemblies());
 
@@ -114,4 +118,5 @@ public sealed class TypeCatalog
         foreach (MovedFromAttribute moved in tt.GetCustomAttributes(typeof(MovedFromAttribute), false))
             RegisterAlias(moved.OldName, tt.Name);
     }
+#endif
 }

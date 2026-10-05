@@ -9,6 +9,8 @@ namespace System
         public const int MinValue = -2147483647 - 1;
         public const int MaxValue = 2147483647;
         extern string ToString();
+        extern string ToString(string format); // yalniz "X"/"Xn"/"D"/"Dn" (invariant)
+        extern int CompareTo(int value);
         extern static bool TryParse(string s, out int result);
         extern static bool TryParse(string s, Globalization.NumberStyles style, object provider, out int result);
     }

@@ -19,11 +19,20 @@ static int gc_class(size_t sz)
     int c = (int)((sz + GC_ALIGN - 1) / GC_ALIGN) - 1;
     return c < 0 ? 0 : c;
 }
+#ifdef DIGITOYENGINE_GC_POISON
+static void gc_freed_forget(void *p); // yeniden kullanilan adres artik 'serbest' degil (verifier yanlis pozitifi)
+#endif
 static void *block_alloc(size_t sz)
 {
     int c = gc_class(sz);
     if (c >= GC_CLASSES)
-        return malloc(sz);
+    {
+        void *m = malloc(sz);
+#ifdef DIGITOYENGINE_GC_POISON
+        gc_freed_forget(m);
+#endif
+        return m;
+    }
     size_t slot = (size_t)(c + 1) * GC_ALIGN;
     if (!gc_free[c])
     {
@@ -39,10 +48,20 @@ static void *block_alloc(size_t sz)
     }
     FreeSlot *s = gc_free[c];
     gc_free[c] = s->next;
+#ifdef DIGITOYENGINE_GC_POISON
+    gc_freed_forget(s);
+#endif
     return s;
 }
 static void block_free(void *p, unsigned short sz)
 {
+#ifdef DIGITOYENGINE_GC_POISON
+    // Tani modu: KARANTINA. Govde zehirlenir (0xDD), header (tip) korunur, blok free-list'e DONMEZ:
+    // use-after-free ilk dokunusta deterministik [native fault] + managed iz; yeniden kullanimla
+    // sifirlanmis bellek 'null' gibi gorunup teshisi saptiramaz. (Bellek sizar; yalniz tani.)
+    if (sz > sizeof(GCHeader)) memset((char *)p + sizeof(GCHeader), 0xDD, sz - sizeof(GCHeader));
+    return;
+#endif
     int c = gc_class(sz);
     if (c >= GC_CLASSES)
     {
@@ -53,8 +72,15 @@ static void block_free(void *p, unsigned short sz)
     s->next = gc_free[c];
     gc_free[c] = s;
 }
-static GCHeader *gc_young = 0;
-static GCHeader *gc_old = 0;
+// ===========================================================================
+// GC: TEK artimli mark-sweep (gc.c 2020 modeli). Kusak/age/remembered set YOK.
+//   Her frame host gc_maybe_major(budget) cagirir: idle ise esik asildiginda yeni dongu baslar;
+//   dongu MARK (gri yigini butceyle tuket) -> SWEEP (listeyi butceyle gez) fazlarinda frame'lere
+//   yayilir. Kok seti dongu basinda alinir (statikler + acik root'lar); managed frame yokken.
+//   Dogruluk (tri-color): MARK fazinda yazilan her referans grilenir (gc_write_barrier -> uretilen
+//   kodun her ref yaziminda), yeni nesneler siyah dogar (version = gc_version). Baska kural yok.
+// ===========================================================================
+static GCHeader *gc_objects = 0; // tum nesneler (tek liste)
 static GCHeader **gc_gray = 0;
 static int gc_gray_n = 0, gc_gray_cap = 0;
 static GCHeader **gc_roots = 0;
@@ -62,21 +88,19 @@ static int gc_roots_n = 0, gc_roots_cap = 0;
 static void **gc_frames = 0;
 static FrameTrace *gc_ftraces = 0;
 static int gc_frame_n = 0, gc_frame_cap = 0;
-static GCHeader **gc_rem = 0;
-static int gc_rem_n = 0, gc_rem_cap = 0;
 static unsigned char gc_version = 1;
-static int gc_minor_mode = 0;
-static long long gc_heap_bytes = 0;     // canli header baytlari (string/array yan verisi haric)
-static long long gc_major_baseline = 0; // son major bitiminde kalan canli boyut
+static unsigned gc_next_id = 0;         // nesne kimligi (idhash) sayaci
+static long long gc_heap_bytes = 0;      // canli header baytlari (string/array yan verisi haric)
+static long long gc_major_baseline = 0; // son dongu bitiminde kalan canli boyut
 enum
 {
     GCM_IDLE,
     GCM_MARK,
-    GCM_SWEEP_Y,
-    GCM_SWEEP_O
+    GCM_SWEEP
 };
 static int gcm_phase = GCM_IDLE;
 static GCHeader **gcm_pp = 0;
+void gc_shade(GCHeader *o);
 void gc_add_root(GCHeader *o)
 {
     if (!o)
@@ -87,6 +111,8 @@ void gc_add_root(GCHeader *o)
         gc_roots = (GCHeader **)realloc(gc_roots, gc_roots_cap * sizeof(GCHeader *));
     }
     gc_roots[gc_roots_n++] = o;
+    if (gcm_phase == GCM_MARK)
+        gc_shade(o); // dongu ortasinda eklenen kok kacirilmasin
 }
 void gc_remove_root(GCHeader *o)
 {
@@ -119,18 +145,88 @@ void *gc_alloc(const Type *t)
     memset(o, 0, t->size);
     gc_heap_bytes += t->size;
     o->type = t;
-    o->version = gc_version;
+    o->version = gc_version; // siyah dogar: suren dongu bunu supurmez
     o->age = 0;
-    o->next = gc_young;
-    gc_young = o;
+    o->next = gc_objects;
+    gc_objects = o;
     return o;
 }
+#ifdef DIGITOYENGINE_GC_POISON
+// ---- TANI: dangling verifier. Donguda serbest birakilan adresler tutulur; sweep bitince (herkes canli)
+// tum nesnelerin trace'i dogrulama modunda kosulur; serbest nesneye isaret eden alan varsa sahip tipi +
+// kacinci referans yolu oldugu basilir -> GC'nin kacirdigi kenar tek koşuda gorunur.
+static void **gc_freed = 0;
+static int gc_freed_n = 0, gc_freed_cap = 0;
+static int gc_verify_mode = 0, gc_verify_slot = 0;
+static GCHeader *gc_verify_owner = 0;
+static void gc_freed_add(void *p)
+{
+    if (gc_freed_n == gc_freed_cap)
+    {
+        gc_freed_cap = gc_freed_cap ? gc_freed_cap * 2 : 1024;
+        gc_freed = (void **)realloc(gc_freed, gc_freed_cap * sizeof(void *));
+    }
+    gc_freed[gc_freed_n++] = p;
+}
+static void gc_freed_forget(void *p)
+{
+    for (int i = 0; i < gc_freed_n; i++)
+        if (gc_freed[i] == p) { gc_freed[i] = gc_freed[--gc_freed_n]; return; }
+}
+static int gc_is_freed(void *p)
+{
+    for (int i = 0; i < gc_freed_n; i++)
+        if (gc_freed[i] == p)
+            return 1;
+    return 0;
+}
+static void DIGITOYENGINE_put_name(FILE *f, const VmString *s);
+// Tani: fault aninda bu dongude serbest birakilan son nesnelerin tipleri (header karantinada korunur).
+static void gc_dump_recent_freed(FILE *f)
+{
+    fprintf(f, "[gc-poison] bu donguda serbest birakilan: %d nesne; son 24:\n", gc_freed_n);
+    for (int i = gc_freed_n - 1; i >= 0 && i >= gc_freed_n - 24; i--)
+    {
+        GCHeader *o = (GCHeader *)gc_freed[i];
+        fprintf(f, "  %p ", (void *)o);
+        if (o->type && o->type->name) DIGITOYENGINE_put_name(f, o->type->name); else fprintf(f, "?");
+        fprintf(f, "\n");
+    }
+}
+static void gc_verify_check(GCHeader *o)
+{
+    gc_verify_slot++;
+    if (!o || !gc_is_freed(o))
+        return;
+    fprintf(stderr, "[gc-verify] DANGLING: owner ");
+    if (gc_verify_owner)
+    {
+        DIGITOYENGINE_put_name(stderr, gc_verify_owner->type->name);
+        fprintf(stderr, " (%p) ref#%d", (void *)gc_verify_owner, gc_verify_slot);
+    }
+    else
+        fprintf(stderr, "<root/static> ref#%d", gc_verify_slot);
+    fprintf(stderr, " -> freed %p\n", (void *)o);
+}
+static void gc_verify_all(void)
+{
+    gc_verify_mode = 1;
+    gc_verify_owner = 0; gc_verify_slot = 0;
+    for (int i = 0; i < gc_frame_n; i++) gc_ftraces[i](gc_frames[i]);
+    for (int i = 0; i < gc_roots_n; i++) gc_verify_check(gc_roots[i]);
+    for (GCHeader *o = gc_objects; o; o = o->next)
+        if (o->type->trace) { gc_verify_owner = o; gc_verify_slot = 0; o->type->trace(o); }
+    gc_verify_mode = 0;
+    gc_freed_n = 0;
+}
+#endif
 void gc_shade(GCHeader *o)
 {
+#ifdef DIGITOYENGINE_GC_POISON
+    if (gc_verify_mode) { gc_verify_check(o); return; }
+#endif
     if (!o || o->age == GC_IMMORTAL || o->version == gc_version)
         return; // immortal (static const): isaretleme, izleme, sweep YOK
-    if (gc_minor_mode && o->age >= GC_TENURE)
-        return;
     o->version = gc_version;
     if (o->type->atomic || !o->type->trace)
         return;
@@ -141,116 +237,39 @@ void gc_shade(GCHeader *o)
     }
     gc_gray[gc_gray_n++] = o;
 }
-static void gc_remember(GCHeader *o)
-{
-    for (int i = 0; i < gc_rem_n; i++)
-        if (gc_rem[i] == o)
-            return;
-    if (gc_rem_n == gc_rem_cap)
-    {
-        gc_rem_cap = gc_rem_cap ? gc_rem_cap * 2 : 8;
-        gc_rem = (GCHeader **)realloc(gc_rem, gc_rem_cap * sizeof(GCHeader *));
-    }
-    gc_rem[gc_rem_n++] = o;
-}
+// Tri-color insertion barrier: MARK fazinda heap'e yazilan referans grilenir. obj kullanilmaz
+// (API uyumu; sahip bilgisi gerekmez). Uretilen kod her alan/eleman/indirect ref yaziminda cagirir.
 void gc_write_barrier(GCHeader *obj, GCHeader *val)
 {
-    if (obj && val && obj->age >= GC_TENURE && val->age < GC_TENURE)
-        gc_remember(obj);
+    (void)obj;
     if (gcm_phase == GCM_MARK)
         gc_shade(val);
 }
 static void gc_finalize_free(GCHeader *o)
 {
+#ifdef DIGITOYENGINE_GC_POISON
+    gc_freed_add(o);
+#endif
     if (o->type->finalize)
         o->type->finalize(o);
     gc_heap_bytes -= o->type->size;
     block_free(o, o->type->size);
 }
-static void gc_drain(void)
-{
-    while (gc_gray_n > 0)
-    {
-        GCHeader *o = gc_gray[--gc_gray_n];
-        if (o->type->trace)
-            o->type->trace(o);
-    }
-}
 static void gc_mark_roots(void)
 {
     for (int i = 0; i < gc_roots_n; i++)
-    {
-        GCHeader *r = gc_roots[i];
-        if (!r)
-            continue;
-        if (gc_minor_mode && r->age >= GC_TENURE)
-        {
-            if (r->type->trace)
-                r->type->trace(r);
-        }
-        else
-            gc_shade(r);
-    }
+        gc_shade(gc_roots[i]);
     for (int i = 0; i < gc_frame_n; i++)
         gc_ftraces[i](gc_frames[i]);
 }
-static void gc_sweep_list(GCHeader **head, int promote)
-{
-    GCHeader **pp = head;
-    while (*pp)
-    {
-        GCHeader *o = *pp;
-        if (o->version == gc_version)
-        {
-            if (promote && ++o->age >= GC_TENURE)
-            {
-                *pp = o->next;
-                o->next = gc_old;
-                gc_old = o;
-            }
-            else
-                pp = &o->next;
-        }
-        else
-        {
-            *pp = o->next;
-            gc_finalize_free(o);
-        }
-    }
-}
-void gc_minor(void)
-{
-    if (gcm_phase != GCM_IDLE)
-    {
-        // Artimli major ucusta: minor'un version++/gray sifirlamasi onun isaretlerini bozar.
-        // Major genc nesli de supurdugu icin once onu bitirmek hem guvenli hem yeterli.
-        while (gc_major_step(1 << 20))
-            ;
-        return;
-    }
-    gc_minor_mode = 1;
-    gc_version++;
-    gc_gray_n = 0;
-    gc_mark_roots();
-    for (int i = 0; i < gc_rem_n; i++)
-    {
-        GCHeader *o = gc_rem[i];
-        if (o->type->trace)
-            o->type->trace(o);
-    }
-    gc_drain();
-    gc_sweep_list(&gc_young, 1);
-    gc_rem_n = 0;
-    gc_minor_mode = 0;
-}
 static void gc_major_start(void)
 {
-    gc_minor_mode = 0;
     gc_version++;
     gc_gray_n = 0;
     gc_mark_roots();
     gcm_phase = GCM_MARK;
 }
+// Bir dilim is: donus 1 = dongu suruyor, 0 = dongu bitti/idle.
 int gc_major_step(int budget)
 {
     switch (gcm_phase)
@@ -267,38 +286,12 @@ int gc_major_step(int budget)
         }
         if (gc_gray_n == 0)
         {
-            gcm_phase = GCM_SWEEP_Y;
-            gcm_pp = &gc_young;
+            gcm_phase = GCM_SWEEP;
+            gcm_pp = &gc_objects;
         }
         return 1;
-    case GCM_SWEEP_Y:
-        while (budget-- > 0 && *gcm_pp)
-        {
-            GCHeader *o = *gcm_pp;
-            if (o->version == gc_version)
-            {
-                if (++o->age >= GC_TENURE)
-                {
-                    *gcm_pp = o->next;
-                    o->next = gc_old;
-                    gc_old = o;
-                }
-                else
-                    gcm_pp = &o->next;
-            }
-            else
-            {
-                *gcm_pp = o->next;
-                gc_finalize_free(o);
-            }
-        }
-        if (*gcm_pp == 0)
-        {
-            gcm_phase = GCM_SWEEP_O;
-            gcm_pp = &gc_old;
-        }
-        return 1;
-    case GCM_SWEEP_O:
+    case GCM_SWEEP:
+        // Yeni nesneler liste BASINA eklenir (gcm_pp'nin gerisinde): gezilmez, zaten siyah.
         while (budget-- > 0 && *gcm_pp)
         {
             GCHeader *o = *gcm_pp;
@@ -313,16 +306,18 @@ int gc_major_step(int budget)
         if (*gcm_pp == 0)
         {
             gcm_phase = GCM_IDLE;
-            gc_rem_n = 0;
             gc_major_baseline = gc_heap_bytes;
+#ifdef DIGITOYENGINE_GC_POISON
+            gc_verify_all();
+#endif
             return 0;
         }
         return 1;
     }
     return 0;
 }
-// Esik politikasi (HL gc_check_mark dengi): heap, son major'dan kalan canlinin
-// 1.5 kati + tabani asinca major baslar; major aktifse butceyle surdurur.
+// Esik politikasi: heap, son dongudan kalan canlinin 1.5 kati + tabani asinca dongu baslar;
+// dongu aktifse butceyle surdurur. Host her frame cagirir.
 #define GC_MAJOR_MIN (256 << 10)
 int gc_maybe_major(int budget)
 {
@@ -332,26 +327,25 @@ int gc_maybe_major(int budget)
         return gc_major_step(budget);
     return 0;
 }
+// Tam dongu (GC.Collect): yalniz managed frame yokken / canli local olmadigi bilinen yerde guvenli.
 void gc_major(void)
 {
     while (gc_major_step(1000000))
         ;
 }
+// Test kancasi (GC.Collect(0)): kucuk bir dilim — mutator ile ic ice gecisi (bariyer) sinar.
+void gc_minor(void)
+{
+    gc_major_step(1 << 8);
+}
 int gc_count_young(void)
 {
     int n = 0;
-    for (GCHeader *o = gc_young; o; o = o->next)
+    for (GCHeader *o = gc_objects; o; o = o->next)
         n++;
     return n;
 }
-int gc_count_old(void)
-{
-    int n = 0;
-    for (GCHeader *o = gc_old; o; o = o->next)
-        n++;
-    return n;
-}
-static int gc_next_id = 0; // kimlik hash sayaci (pointer daralmasi -> cakisma olmasin diye)
+int gc_count_old(void) { return 0; }
 int gc_hashcode(GCHeader *o)
 {
     if (!o)
@@ -362,7 +356,7 @@ int gc_hashcode(GCHeader *o)
 }
 
 // ---- Array ----
-static void finalize_vmarray(GCHeader *h)
+void finalize_vmarray(GCHeader *h)
 {
     VmArray *a = (VmArray *)h;
     if (a->data)
@@ -896,7 +890,31 @@ GCHeader *DIGITOYENGINE_ex_obj = 0;
 char DIGITOYENGINE_ex_msg[160];
 RtFrame DIGITOYENGINE_ex_trace[DIGITOYENGINE_STACK_MAX];
 int DIGITOYENGINE_ex_trace_n = 0;
-GCHeader *DIGITOYENGINE_ex_singleton[8];
+const Type *DIGITOYENGINE_ex_kind_type[8];
+void (*DIGITOYENGINE_ex_kind_ctor[8])(GCHeader *);
+const Type *DIGITOYENGINE_notimpl_type = 0;
+void (*DIGITOYENGINE_exception_ctor_msg)(GCHeader *, VmString *) = 0;
+GCHeader *DIGITOYENGINE_ex_current(void)
+{
+    if (DIGITOYENGINE_ex_obj)
+        return DIGITOYENGINE_ex_obj;
+    int k = DIGITOYENGINE_ex_kind;
+    if (k <= 0 || k >= 8 || !DIGITOYENGINE_ex_kind_type[k])
+        return 0;
+    GCHeader *o = (GCHeader *)gc_alloc(DIGITOYENGINE_ex_kind_type[k]);
+    DIGITOYENGINE_ex_obj = o; // ctor/bind sirasinda GC calismaz (safepoint yok); ayni handler zincirinde ayni nesne
+    if (DIGITOYENGINE_ex_kind_ctor[k])
+        DIGITOYENGINE_ex_kind_ctor[k](o);
+    return o;
+}
+void DIGITOYENGINE_throw_notimpl(const char *what)
+{
+    if (!DIGITOYENGINE_notimpl_type || !DIGITOYENGINE_exception_ctor_msg)
+        DIGITOYENGINE_throw_io(what); // corelib yuzeyi yok: en azindan mesajli, sessiz olmayan cikis
+    GCHeader *o = (GCHeader *)gc_alloc(DIGITOYENGINE_notimpl_type);
+    DIGITOYENGINE_exception_ctor_msg(o, digitoyengine_from_utf8(what));
+    DIGITOYENGINE_throw(DIGITOYENGINE_EX_USER, o);
+}
 void DIGITOYENGINE_bind_trace(long long *miArr, int *lineArr, int *count, int cap)
 {
     int n = DIGITOYENGINE_ex_trace_n < cap ? DIGITOYENGINE_ex_trace_n : cap;
@@ -958,7 +976,12 @@ static void DIGITOYENGINE_dispatch(void)
     }
     fputs("[exception] ", stderr);
     if (DIGITOYENGINE_ex_kind == DIGITOYENGINE_EX_USER)
+    {
         DIGITOYENGINE_put_name(stderr, DIGITOYENGINE_ex_obj ? DIGITOYENGINE_ex_obj->type->name : 0);
+        // LAYOUT SOZLESMESI (corelib.c DigitoyEngineException): GCHeader'dan hemen sonra VmString *message.
+        const VmString *msg = DIGITOYENGINE_ex_obj ? *(const VmString **)((const char *)DIGITOYENGINE_ex_obj + sizeof(GCHeader)) : 0;
+        if (msg) { fputs(": ", stderr); DIGITOYENGINE_put_name(stderr, msg); }
+    }
     else
         fputs(DIGITOYENGINE_ex_msg, stderr);
     fputc('\n', stderr);
@@ -1058,9 +1081,20 @@ static LONG WINAPI DIGITOYENGINE_veh(EXCEPTION_POINTERS *ep)
         return EXCEPTION_CONTINUE_EXECUTION;
 #endif
     }
-    // bizim null-guard'imiz degil: gercek erisim ihlali -> cikmadan crash'i benzersiz dosyaya yaz
+    // bizim null-guard'imiz degil: gercek erisim ihlali -> cikmadan crash'i benzersiz dosyaya VE stderr'e yaz
     if (ep->ExceptionRecord->ExceptionCode == EXCEPTION_ACCESS_VIOLATION)
+    {
+        fprintf(stderr, "[native fault] access violation at %p (addr %p), managed trace (%d frames):\n",
+                (void *)ep->ExceptionRecord->ExceptionAddress,
+                ep->ExceptionRecord->NumberParameters >= 2 ? (void *)ep->ExceptionRecord->ExceptionInformation[1] : 0, DIGITOYENGINE_sp);
+        for (int i = DIGITOYENGINE_sp - 1; i >= 0 && i >= DIGITOYENGINE_sp - 40; i--)
+            DIGITOYENGINE_put_frame(stderr, DIGITOYENGINE_stack[i].mi, DIGITOYENGINE_stack[i].line);
+#ifdef DIGITOYENGINE_GC_POISON
+        gc_dump_recent_freed(stderr);
+#endif
+        fflush(stderr);
         DIGITOYENGINE_crash_dump("native fault (access violation)", DIGITOYENGINE_stack, DIGITOYENGINE_sp);
+    }
     return EXCEPTION_CONTINUE_SEARCH;
 }
 __attribute__((constructor)) static void DIGITOYENGINE_install_veh(void)
@@ -1126,7 +1160,16 @@ VmArray *vmarray_new_rank(int rank, const int *dims, unsigned short elemsize, in
             DIGITOYENGINE_throw_bounds(dims[i], 0);
         len *= (size_t)dims[i];
     }
-    VmArray *a = (VmArray *)gc_alloc(isref ? &vmarray_ref_type : &vmarray_val_type);
+    return vmarray_new_rank_t(rank, dims, elemsize, isref ? &vmarray_ref_type : &vmarray_val_type);
+}
+// Eleman tipi struct ve icinde referans var: uretilen Type (trace eleman eleman ref yollarini shade eder,
+// atomic=0). Transpiler NewArray'de bu yolu secer; ref/atomic diziler yukaridaki iki runtime tipiyle kalir.
+VmArray *vmarray_new_rank_t(int rank, const int *dims, unsigned short elemsize, const Type *t)
+{
+    size_t len = 1;
+    for (int i = 0; i < rank; i++)
+        len *= (size_t)dims[i];
+    VmArray *a = (VmArray *)gc_alloc(t);
     a->len = (int)len;
     a->elemsize = elemsize;
     a->rank = (unsigned short)rank;
@@ -1149,9 +1192,9 @@ void vmarray_copy(VmArray *src, int srcIndex, VmArray *dst, int dstIndex, int le
         DIGITOYENGINE_cast_fail(src->gc.type, dst->gc.type); // elemsize uyusmazligi (vmarray tip adi yok -> "?")
     memmove((char *)dst->data + (size_t)dstIndex * dst->elemsize,
             (char *)src->data + (size_t)srcIndex * src->elemsize, (size_t)len * src->elemsize);
-    // generational barrier: tenured ref-dizisine young referans tasinabilir -> remembered set
-    if (dst->gc.type == &vmarray_ref_type && dst->gc.age >= GC_TENURE && dst->gc.age != GC_IMMORTAL)
-        gc_remember(&dst->gc);
+    // tri-color barrier: MARK fazinda hedefe tasinan referanslar grilenir (ref ya da ref-tasiyan struct dizisi)
+    if (!dst->gc.type->atomic && gcm_phase == GCM_MARK && dst->gc.type->trace)
+        dst->gc.type->trace(&dst->gc);
 }
 
 // IN-PLACE buyume (C# Resize'dan sapma: takma-adli referanslar da yeni boyutu gorur; hiz icin).
@@ -1209,3 +1252,69 @@ void opinfo(const char *id, ...)
     va_end(ap);
 }
 #endif
+
+// ---- P/Invoke string koprusu (statik linkli native API'ler const char* konusur) ----
+char *digitoyengine_to_utf8(const VmString *s)
+{
+    if (!s) return NULL;
+    int n = 0;
+    for (int i = 0; i < s->length; i++)
+    {
+        unsigned c = s->data[i];
+        if (c >= 0xD800 && c <= 0xDBFF && i + 1 < s->length) { n += 4; i++; }
+        else n += c < 0x80 ? 1 : c < 0x800 ? 2 : 3;
+    }
+    char *out = (char *)malloc((size_t)n + 1);
+    unsigned char *d = (unsigned char *)out;
+    int o = 0;
+    for (int i = 0; i < s->length; i++)
+    {
+        unsigned c = s->data[i];
+        if (c >= 0xD800 && c <= 0xDBFF && i + 1 < s->length)
+        {
+            unsigned cp = 0x10000 + ((c - 0xD800) << 10) + (s->data[i + 1] - 0xDC00);
+            i++;
+            d[o++] = (unsigned char)(0xF0 | (cp >> 18));
+            d[o++] = (unsigned char)(0x80 | ((cp >> 12) & 0x3F));
+            d[o++] = (unsigned char)(0x80 | ((cp >> 6) & 0x3F));
+            d[o++] = (unsigned char)(0x80 | (cp & 0x3F));
+        }
+        else if (c < 0x80) d[o++] = (unsigned char)c;
+        else if (c < 0x800) { d[o++] = (unsigned char)(0xC0 | (c >> 6)); d[o++] = (unsigned char)(0x80 | (c & 0x3F)); }
+        else { d[o++] = (unsigned char)(0xE0 | (c >> 12)); d[o++] = (unsigned char)(0x80 | ((c >> 6) & 0x3F)); d[o++] = (unsigned char)(0x80 | (c & 0x3F)); }
+    }
+    d[o] = 0;
+    return out;
+}
+VmString *digitoyengine_from_utf8(const char *s)
+{
+    if (!s) return NULL;
+    int n = (int)strlen(s);
+    const unsigned char *b = (const unsigned char *)s;
+    int units = 0;
+    for (int i = 0; i < n;)
+    {
+        unsigned char c = b[i];
+        int len = c < 0x80 ? 1 : (c >> 5) == 6 ? 2 : (c >> 4) == 14 ? 3 : (c >> 3) == 30 ? 4 : 1;
+        if (i + len > n) len = 1;
+        units += len == 4 ? 2 : 1;
+        i += len;
+    }
+    VmString *r = vmstring_alloc(units);
+    unsigned short *d = (unsigned short *)r->data;
+    int o = 0;
+    for (int i = 0; i < n;)
+    {
+        unsigned char c = b[i];
+        unsigned cp; int len;
+        if (c < 0x80) { cp = c; len = 1; }
+        else if ((c >> 5) == 6 && i + 1 < n) { cp = ((c & 0x1F) << 6) | (b[i + 1] & 0x3F); len = 2; }
+        else if ((c >> 4) == 14 && i + 2 < n) { cp = ((c & 0x0F) << 12) | ((b[i + 1] & 0x3F) << 6) | (b[i + 2] & 0x3F); len = 3; }
+        else if ((c >> 3) == 30 && i + 3 < n) { cp = ((c & 0x07) << 18) | ((b[i + 1] & 0x3F) << 12) | ((b[i + 2] & 0x3F) << 6) | (b[i + 3] & 0x3F); len = 4; }
+        else { cp = 0xFFFD; len = 1; }
+        if (cp >= 0x10000) { cp -= 0x10000; d[o++] = (unsigned short)(0xD800 + (cp >> 10)); d[o++] = (unsigned short)(0xDC00 + (cp & 0x3FF)); }
+        else d[o++] = (unsigned short)cp;
+        i += len;
+    }
+    return r;
+}

@@ -7,12 +7,18 @@ namespace DigitoyEngine;
 public sealed class Prefab
 {
     public string Key;
+#if DE_EDITOR
     internal SceneDoc Doc;      // YAML kaynak (editor); baked'de null
+#endif
     internal byte[] Baked;      // SceneBinary (release); YAML'da null
     internal AssetDatabase Assets;
 
     public GameObject Instantiate(Transform parent = null)
-        => Baked != null
-            ? SceneBinary.Spawn(Baked, parent, Scene.Active.Catalog, Assets)
-            : Doc.Spawn(parent, Scene.Active.Catalog, Assets);
+    {
+#if DE_EDITOR
+        if (Baked == null)
+            return Doc.Spawn(parent, Scene.Active.Catalog, Assets);
+#endif
+        return SceneBinary.Spawn(Baked, parent, Scene.Active.Catalog, Assets);
+    }
 }

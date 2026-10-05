@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+#if !DE_AOT
 using System.Linq.Expressions;
+#endif
 using System.Reflection;
 
 namespace DigitoyEngine;
@@ -144,7 +146,11 @@ public static class AnimRegistry
         var e = catalog?.Find(type);
         if (e == null)
             return Array.Empty<AnimProperty>();
+#if DE_AOT
+        return e.Anim ?? Array.Empty<AnimProperty>(); // TODO: CatalogWriter Entry.Anim uretimi (su an uretilmiyor)
+#else
         return e.Anim ??= BuildReflective(type, e.Schema);
+#endif
     }
 
     public static AnimProperty Find(TypeCatalog catalog, Type type, string path)
@@ -175,6 +181,7 @@ public static class AnimRegistry
         return false;
     }
 
+#if !DE_AOT
     // --- Editor/reflection yolu: sema + [Animatable] → expression-compile ---
 
     static AnimProperty[] BuildReflective(Type type, SerializedType.FieldSchema[] schema)
@@ -271,4 +278,5 @@ public static class AnimRegistry
             Set = Expression.Lambda<Action<Component, AnimValue>>(Expression.Assign(member, fromValue), c, v).Compile(),
         });
     }
+#endif
 }

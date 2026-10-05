@@ -23,5 +23,6 @@ namespace System
     class GC
     {
         extern static void Collect();
+        extern static void Collect(int generation); // 0 = yalniz genc nesil (gc_minor); diger = tam
     }
 }

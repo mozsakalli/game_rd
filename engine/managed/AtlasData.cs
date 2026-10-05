@@ -30,6 +30,7 @@ public static class PixelBlob
     public const int Magic = 0x58495044; // "DPIX"
     public const int HeaderSize = 16;
 
+#if DE_EDITOR // uretici (importer); runtime yalniz TryParse okur
     public static byte[] Build(int channels, int width, int height, ReadOnlySpan<byte> pixels)
     {
         var b = new byte[HeaderSize + pixels.Length];
@@ -40,6 +41,7 @@ public static class PixelBlob
         pixels.CopyTo(b.AsSpan(HeaderSize));
         return b;
     }
+#endif
 
     public static bool TryParse(byte[] blob, out int channels, out int width, out int height)
     {
@@ -77,6 +79,7 @@ public sealed class AtlasData
     // Glyph bolge adi: "U+0041" (asset anahtarina '#' ile eklenir).
     public static string GlyphName(int codepoint) => "U+" + codepoint.ToString("X4");
 
+#if DE_EDITOR // uretici (AtlasImporter); runtime yalniz Parse okur
     public byte[] Write()
     {
         var ms = new MemoryStream();
@@ -104,44 +107,74 @@ public sealed class AtlasData
         w.Flush();
         return ms.ToArray();
     }
+#endif
 
     public static bool IsAtlas(byte[] blob)
         => blob != null && blob.Length >= 8 && BitConverter.ToInt32(blob, 0) == Magic;
 
+    // Bagimliliksiz imlec (BinaryReader/MemoryStream yok: AOT corelib yuzeyi dar kalsin).
+    // Bicim BinaryWriter ile birebir: int32 LE; string = 7-bit uzunluk + UTF-8.
     public static AtlasData Parse(byte[] blob)
     {
-        try
-        {
-            using var r = new BinaryReader(new MemoryStream(blob), Encoding.UTF8);
-            if (r.ReadInt32() != Magic || r.ReadInt32() != Version)
-                return null;
-            var a = new AtlasData { Channels = r.ReadInt32() };
-            int pages = r.ReadInt32();
-            for (int i = 0; i < pages; i++)
-                a.Pages.Add(new PageInfo
-                {
-                    Width = r.ReadInt32(),
-                    Height = r.ReadInt32(),
-                    PiecesX = r.ReadInt32(),
-                    PiecesY = r.ReadInt32(),
-                });
-            int n = r.ReadInt32();
-            for (int i = 0; i < n; i++)
-            {
-                a.Regions.Add(new AtlasRegion
-                {
-                    Name = r.ReadString(),
-                    Page = r.ReadInt32(),
-                    X = r.ReadInt32(), Y = r.ReadInt32(), W = r.ReadInt32(), H = r.ReadInt32(),
-                    OffX = r.ReadInt32(), OffY = r.ReadInt32(), OrigW = r.ReadInt32(), OrigH = r.ReadInt32(),
-                    Kind = (RegionKind)r.ReadByte(),
-                });
-            }
-            return a;
-        }
-        catch (Exception)
-        {
+        if (blob == null || blob.Length < 16)
             return null;
+        int pos = 0;
+        if (I32(blob, ref pos) != Magic || I32(blob, ref pos) != Version)
+            return null;
+        var a = new AtlasData { Channels = I32(blob, ref pos) };
+        int pages = I32(blob, ref pos);
+        if (pages < 0 || pos + pages * 16 > blob.Length)
+            return null;
+        for (int i = 0; i < pages; i++)
+            a.Pages.Add(new PageInfo
+            {
+                Width = I32(blob, ref pos),
+                Height = I32(blob, ref pos),
+                PiecesX = I32(blob, ref pos),
+                PiecesY = I32(blob, ref pos),
+            });
+        int n = I32(blob, ref pos);
+        if (n < 0)
+            return null;
+        for (int i = 0; i < n; i++)
+        {
+            string name = Str(blob, ref pos);
+            if (name == null || pos + 37 > blob.Length)
+                return null;
+            a.Regions.Add(new AtlasRegion
+            {
+                Name = name,
+                Page = I32(blob, ref pos),
+                X = I32(blob, ref pos), Y = I32(blob, ref pos), W = I32(blob, ref pos), H = I32(blob, ref pos),
+                OffX = I32(blob, ref pos), OffY = I32(blob, ref pos), OrigW = I32(blob, ref pos), OrigH = I32(blob, ref pos),
+                Kind = (RegionKind)blob[pos++],
+            });
         }
+        return a;
+    }
+
+    static int I32(byte[] b, ref int p)
+    {
+        int v = b[p] | (b[p + 1] << 8) | (b[p + 2] << 16) | (b[p + 3] << 24);
+        p += 4;
+        return v;
+    }
+
+    // BinaryWriter.Write(string): 7-bit kodlu bayt uzunlugu + UTF-8. Bozuk/tasan -> null.
+    static string Str(byte[] b, ref int p)
+    {
+        int len = 0, shift = 0;
+        while (true)
+        {
+            if (p >= b.Length || shift > 28) return null;
+            byte c = b[p++];
+            len |= (c & 0x7F) << shift;
+            if ((c & 0x80) == 0) break;
+            shift += 7;
+        }
+        if (len < 0 || p + len > b.Length) return null;
+        string s = Encoding.UTF8.GetString(b, p, len);
+        p += len;
+        return s;
     }
 }

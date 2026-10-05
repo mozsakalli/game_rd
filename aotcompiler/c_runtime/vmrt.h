@@ -7,6 +7,7 @@
 #include <setjmp.h>
 #include <stddef.h>
 #include <limits.h>
+#include <math.h> // uretilen kod: float % -> fmodf/fmod
 typedef struct GCHeader GCHeader;
 typedef struct Type Type;
 typedef struct DigitoyEngineMember DigitoyEngineMember;
@@ -193,10 +194,16 @@ extern RtTry *DIGITOYENGINE_try_top;
 extern int DIGITOYENGINE_ex_kind;
 extern GCHeader *DIGITOYENGINE_ex_obj; // user throw nesnesi (catch bind'e kadar; arada gc_alloc yok -> guvenli)
 extern char DIGITOYENGINE_ex_msg[160];
-// runtime hatalarinin (null/bounds/div/cast/io) SINGLETON exception nesneleri: digitoyengine_init doldurur,
-// GC_IMMORTAL (alanlari tamamen skaler oldugu surece guvenli - GC immortal'i TARAMAZ, ref alan koyma!).
-// catch bind: DIGITOYENGINE_ex_obj yoksa DIGITOYENGINE_ex_singleton[DIGITOYENGINE_ex_kind] kullanilir -> throw/catch 0 alloc.
-extern GCHeader *DIGITOYENGINE_ex_singleton[8];
+// runtime hatalari (null/bounds/div/cast): firlatma alloc'suz (kind + mesaj); exception NESNESI ilk catch'te
+// TAZE uretilir (DIGITOYENGINE_ex_current -> kind tipi + ctor; digitoyengine_init doldurur). Singleton yok:
+// ayni nesnenin yeniden kullanimi izi eziyor, orijinal firlatma noktasini kaybettiriyordu.
+extern const Type *DIGITOYENGINE_ex_kind_type[8];
+extern void (*DIGITOYENGINE_ex_kind_ctor[8])(GCHeader *);
+GCHeader *DIGITOYENGINE_ex_current(void); // aktif exception nesnesi (gerekirse kind'dan uretir ve DIGITOYENGINE_ex_obj'a baglar)
+// AOT stub (cevrilemeyen govde) ilk cagrida: NotImplementedException(mesaj). Tip/ctor init'te baglanir; yoksa mesajli abort.
+extern const Type *DIGITOYENGINE_notimpl_type;
+extern void (*DIGITOYENGINE_exception_ctor_msg)(GCHeader *, struct VmString *);
+DIGITOYENGINE_NORETURN void DIGITOYENGINE_throw_notimpl(const char *what);
 // catch bind: firlatma ani trace'ini exception nesnesinin gomulu (fixed) tamponlarina kopyalar
 void DIGITOYENGINE_bind_trace(long long *miArr, int *lineArr, int *count, int cap);
 // M9c: firlatma ANINDAKI trace kopyasi (mi+line; frame ptr'lar unwind sonrasi bayat, kullanma).
@@ -224,7 +231,7 @@ DIGITOYENGINE_NORETURN void DIGITOYENGINE_throw_io(const char *msg);            
 #define DIGITOYENGINE_DIVCHECK(d) ((void)(DIGITOYENGINE_UNLIKELY((d) == 0) && (DIGITOYENGINE_throw_div(), 0)))
 void *gc_alloc(const Type *t);
 void gc_shade(GCHeader *o);
-void gc_write_barrier(GCHeader *obj, GCHeader *val);
+void gc_write_barrier(GCHeader *obj, GCHeader *val); // tri-color: MARK fazinda val grilenir (obj yok sayilir)
 int gc_hashcode(GCHeader *o); // type->hashcode varsa onu, yoksa header'daki stabil idhash
 void gc_add_root(GCHeader *o);
 void gc_remove_root(GCHeader *o);
@@ -295,6 +302,7 @@ VmObject *digitoyengine_box_u64(unsigned long long v);
 VmObject *digitoyengine_box_f32(float v);
 VmObject *digitoyengine_box_f64(double v);
 VmObject *digitoyengine_box_enum(int v, const Type *t); // enum kutusu (tip kimligi enum descriptor'i; cache'siz)
+VmObject *digitoyengine_box_struct(const Type *t, const void *src, int size); // kullanici struct kutusu: payload kopyasi (t->size = header + struct)
 int digitoyengine_enumbox_hash(VmObject *s);            // ortak enum vtable govdeleri (ToString uretilir)
 int digitoyengine_enumbox_eq(VmObject *s, VmObject *o);
 VmString *digitoyengine_int_str(int v); // uretilen enum ToString'in tanimsiz-deger dali kullanir// kisitsiz T'nin deger-tipi somutlamalari: boxing'siz GetHashCode/Equals (dotnet birebir; corelib.c)
@@ -326,6 +334,8 @@ int digitoyengine_delegate_count(VmDelegate *delegate);
 VmDelegate *digitoyengine_delegate_at(VmDelegate *delegate, int index);
 VmString *vmstring_alloc(int len);                                // kurulum icin data yazilabilir tahsis edilir, sonrasi degismez
 VmString *vmstring_from_cstr(const char *ascii);                  // C-string koprusu (host/dis dunya; sicak yolda KULLANMA)
+char *digitoyengine_to_utf8(const VmString *s);                   // P/Invoke string arg: malloc'lu UTF-8 (NULL -> NULL); cagiran free eder
+VmString *digitoyengine_from_utf8(const char *s);                 // P/Invoke string donus: UTF-8 -> VmString (NULL -> NULL)
 void vm_write_utf8(const unsigned short *d, int len);             // UTF-16 -> UTF-8 stdout (surrogate'li)
 void vm_write_utf8_to(FILE *f, const unsigned short *d, int len); // ayni donusum, verilen stream'e (stderr raporlari)
 // ---- crash dump: host baslangicta yazilabilir dizini verir; her crash BENZERSIZ dosyaya
@@ -369,6 +379,8 @@ extern const Type vmarray_ref_type; // eleman = GC pointer (izlenir)
 extern const Type vmarray_val_type; // eleman = deger tipi (atomic)
 VmArray *vmarray_new(int len, unsigned short elemsize, int isref);
 VmArray *vmarray_new_rank(int rank, const int *dims, unsigned short elemsize, int isref);
+VmArray *vmarray_new_rank_t(int rank, const int *dims, unsigned short elemsize, const Type *t); // uretilen dizi tipi (ref tasiyan struct elemanlar)
+void finalize_vmarray(GCHeader *h); // uretilen dizi Type'lari icin
 // System.Array yardimcilari: eleman tipinden bagimsiz (elemsize'i dizi tasir), memmove tabanli.
 void vmarray_copy(VmArray *src, int srcIndex, VmArray *dst, int dstIndex, int len); // overlap guvenli
 VmArray *vmarray_resize(VmArray *a, int newLen);                                    // yeni dizi dondurur (C# ref emulasyonu: a = Resize(a,n))

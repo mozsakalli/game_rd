@@ -159,13 +159,14 @@ namespace System.Collections.Generic
                 right--;
             }
         }
-        public bool Contains(T item)
+        public bool Contains(T item) { return IndexOf(item) >= 0; }
+        public int IndexOf(T item)
         {
             for (int i = 0; i < size; i++)
             {
-                if (items[i].Equals(item)) { return true; }
+                if (items[i].Equals(item)) { return i; } // T struct olabilir: null karsilastirmasi yok (Contains ile ayni sozlesme)
             }
-            return false;
+            return -1;
         }
         public void ForEach(Action<T> action)
         {
@@ -179,6 +180,12 @@ namespace System.Collections.Generic
             }
             return default(T);
         }
+        public int FindIndex(Predicate<T> match)
+        {
+            for (int i = 0; i < size; i++) { if (match(items[i])) { return i; } }
+            return -1;
+        }
+        public bool Exists(Predicate<T> match) { return FindIndex(match) >= 0; }
         public T[] ToArray()
         {
             T[] result = new T[size];
@@ -212,6 +219,7 @@ namespace System.Collections.Generic
             return false;
         }
         public T Current { get { return set.items[index]; } }
+        public void Dispose() { }
     }
 
     class HashSetInterfaceEnumerator<T> : IEnumerator<T>, System.Collections.IEnumerator, System.IDisposable
@@ -349,6 +357,7 @@ namespace System.Collections.Generic
         int index;
         public bool MoveNext() { index++; return index < dictionary.size; }
         public KeyValuePair<K, V> Current { get { return new KeyValuePair<K, V>(dictionary.keys[index], dictionary.values[index]); } }
+        public void Dispose() { } // foreach lowering struct enumerator'da Dispose cagirir
     }
 
     struct DictionaryKeyEnumerator<K, V>
@@ -357,6 +366,7 @@ namespace System.Collections.Generic
         int index;
         public bool MoveNext() { index++; return index < dictionary.size; }
         public K Current { get { return dictionary.keys[index]; } }
+        public void Dispose() { } // foreach lowering struct enumerator'da Dispose cagirir
     }
 
     struct DictionaryValueEnumerator<K, V>
@@ -365,6 +375,7 @@ namespace System.Collections.Generic
         int index;
         public bool MoveNext() { index++; return index < dictionary.size; }
         public V Current { get { return dictionary.values[index]; } }
+        public void Dispose() { } // foreach lowering struct enumerator'da Dispose cagirir
     }
 
     class DictionaryKeyInterfaceEnumerator<K, V> : IEnumerator<K>, System.Collections.IEnumerator, System.IDisposable
@@ -426,6 +437,7 @@ namespace System.Collections.Generic
         K[] keys;
         V[] values;
         int size;
+        public Dictionary(int capacity) : this() { } // kapasite ipucu: buyume zaten dinamik
         public Dictionary()
         {
             buckets = new int[8];

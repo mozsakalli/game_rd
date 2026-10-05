@@ -96,9 +96,12 @@ namespace DigitoyEngine.Language
         }
 
         static string Simple(Code c) => (c.DisplayName ?? c.Name ?? "").Split('(')[0];
+        // Tip esitligi: Primitive kimligi VEYA ad (array/pointer/Apply node'lari intern edilmez;
+        // Name kimlige dahildir: "[Byte" == "[Byte").
+        static bool SameType(Primitive a, Primitive b) => a == b || (a != null && b != null && a.Name == b.Name);
         static bool SameInterfaceSignature(Code implementation, Code contract)
         {
-            if (implementation.IsStatic || implementation.ReturnType != contract.ReturnType ||
+            if (implementation.IsStatic || !SameType(implementation.ReturnType, contract.ReturnType) ||
                 implementation.Arguments.Count != contract.Arguments.Count)
                 return false;
             var implementationName = implementation.DisplayName?.Split('(')[0];
@@ -106,7 +109,7 @@ namespace DigitoyEngine.Language
             if (implementationName != null && contractName != null && implementationName != contractName)
                 return false;
             for (int i = 1; i < implementation.Arguments.Count; i++)
-                if (implementation.Arguments[i].Type != contract.Arguments[i].Type ||
+                if (!SameType(implementation.Arguments[i].Type, contract.Arguments[i].Type) ||
                     implementation.Arguments[i].IsRef != contract.Arguments[i].IsRef ||
                     implementation.Arguments[i].IsOut != contract.Arguments[i].IsOut)
                     return false;

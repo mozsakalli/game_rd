@@ -40,7 +40,20 @@ static class AssetPackBuilder
 
         // Atlas gruplarina alinan uyeler: pak'ta sayfalarda yasar, tekil kopya gereksiz
         // (png tamamen atlanir; fontun yalniz "sheet" artifact'i atlanir).
-        var claimed = AtlasImporter.ClaimedMembers(AtlasSystem.GroupAssets());
+        var atlasGroups = AtlasSystem.GroupAssets();
+        var claimed = AtlasImporter.ClaimedMembers(atlasGroups);
+        var memberAtlas = AtlasImporter.MemberToAtlas(atlasGroups);
+
+        // Bagimlilik grafigi (pak index'ine yazilir): kim neyi yuklenmeden once ister.
+        // Kenarlari build bilgisi olan yazar: importer artifact'leri, atlas uyeligi,
+        // sahne/prefab asset referanslari. Runtime tek genel yuruyucuyle gezer.
+        var deps = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        void AddDep(string from, string to)
+        {
+            if (string.IsNullOrEmpty(to) || to == from) return;
+            if (!deps.TryGetValue(from, out var l)) deps[from] = l = new List<string>();
+            if (!l.Contains(to)) l.Add(to);
+        }
 
         int dtexCount = 0, skipped = 0, bakedCount = 0;
         var items = new List<(string Key, string Guid, byte[] Data)>();
@@ -55,6 +68,7 @@ static class AssetPackBuilder
                     // Pikseller atlas sayfasinda; guid->yol eslemesi icin bos stub girisi kalir
                     // (sahne guid'le referanslar, LoadSprite bolge tablosundan baglar).
                     items.Add((key, assets.PathToGuid(key), Array.Empty<byte>()));
+                    AddDep(key, memberAtlas[key]);
                     skipped++;
                     continue;
                 }
@@ -83,6 +97,8 @@ static class AssetPackBuilder
                     continue;
                 }
                 bool claimedFont = claimed.Contains(key);
+                if (claimedFont)
+                    AddDep(key, memberAtlas[key]);
                 foreach (var name in ImportPipeline.ArtifactNames(key))
                 {
                     if (name == "main" || name == "members" || name == "regions")
@@ -94,16 +110,22 @@ static class AssetPackBuilder
                     }
                     var extra = ImportPipeline.GetArtifact(key, name);
                     if (extra != null)
+                    {
                         items.Add((key + "#" + name, "", extra));
+                        AddDep(key, key + "#" + name);
+                    }
                 }
             }
             else if (IsSceneLike(key))
             {
                 // Sahne/prefab: YAML -> pismis SceneBinary (prefab'lar ACILIR, override'lar
                 // uygulanir, alanlar sema indeksiyle yazilir). Runtime YAML/DocNode gormez.
-                data = BakeScene(key, file, catalog, assets);
+                var refs = new List<string>();
+                data = BakeScene(key, file, catalog, assets, refs);
                 if (data == null)
                     continue;
+                foreach (var r in refs)
+                    AddDep(key, assets.ResolvePath(r)); // guid -> yol (yol ise aynen)
                 bakedCount++;
             }
             else
@@ -116,7 +138,8 @@ static class AssetPackBuilder
 
         var (rawTotal, pakSize) = PakWriter.Write(outPath, items,
             // Stream tipli ses: native player dosyadan offset'le okur -> zlib OLAMAZ.
-            key => AssetDatabase.ImportTypeOf(key) == typeof(AudioClip) && AudioImporter.IsStream(key));
+            key => AssetDatabase.ImportTypeOf(key) == typeof(AudioClip) && AudioImporter.IsStream(key),
+            key => deps.TryGetValue(key, out var l) ? l : null);
         EditorLog.Info($"[pak] {items.Count} giris ({dtexCount} dtex, {bakedCount} baked sahne/prefab, {skipped} atlas uyesi atlandi) -> {outPath} " +
             $"({pakSize / 1024.0:0.0} KB, acik {rawTotal / 1024.0:0.0} KB, %{100.0 * pakSize / Math.Max(1, rawTotal):0.0})");
 
@@ -127,13 +150,13 @@ static class AssetPackBuilder
         => key.EndsWith(".scene", StringComparison.OrdinalIgnoreCase)
         || key.EndsWith(".prefab", StringComparison.OrdinalIgnoreCase);
 
-    static byte[] BakeScene(string key, string file, TypeCatalog catalog, AssetDatabase assets)
+    static byte[] BakeScene(string key, string file, TypeCatalog catalog, AssetDatabase assets, List<string> assetRefs)
     {
         try
         {
             var doc = SceneDoc.Parse(File.ReadAllText(file));
             doc.ExpandPrefabs(catalog, assets); // delta kayitlari -> tam agac (ic ice dahil)
-            return SceneBinary.Bake(doc, catalog, m => EditorLog.Warning($"{m} ({key})"));
+            return SceneBinary.Bake(doc, catalog, m => EditorLog.Warning($"{m} ({key})"), assetRefs);
         }
         catch (Exception e)
         {

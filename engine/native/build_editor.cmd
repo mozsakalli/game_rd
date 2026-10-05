@@ -32,6 +32,7 @@ if not exist "%OUTDIR%" mkdir "%OUTDIR%"
 
 set "SOURCES="
 set "SOURCES=%SOURCES% %HERE%sokol_shim.c"
+set "SOURCES=%SOURCES% %HERE%de_fs.c"
 set "SOURCES=%SOURCES% %HERE%audio_shim.c"
 set "SOURCES=%SOURCES% %HERE%glfw-master\src\context.c"
 set "SOURCES=%SOURCES% %HERE%glfw-master\src\init.c"

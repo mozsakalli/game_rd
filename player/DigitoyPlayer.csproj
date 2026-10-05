@@ -22,6 +22,12 @@
     <DefineConstants Condition="'$(Renderer)' == 'OpenGL'">$(DefineConstants);DE_RENDERER_OPENGL</DefineConstants>
   </PropertyGroup>
 
+  <!-- Dev (Debug): engine ile ayni DE_EDITOR — loose Assets/ + YAML sahne yolu acik.
+       Release'te yalniz pak + baked + async yol derlenir. -->
+  <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
+    <DefineConstants>$(DefineConstants);DE_EDITOR</DefineConstants>
+  </PropertyGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\engine\managed\DigitoyEngine.csproj" />
   </ItemGroup>

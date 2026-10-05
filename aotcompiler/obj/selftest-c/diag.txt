@@ -1,0 +1,15 @@
+drop iface System.Collections.Generic.IComparer`1<Demo47.Bound47> on Demo47.SortComparer47
+drop iface System.Collections.IList on Demo47.LegacyList47
+drop iface System.Collections.ICollection on Demo47.LegacyList47
+skip finalizer: Demo21.ResA.Finalize
+skip finalizer: Demo21.ResB.Finalize
+stub body Demo47.App47$LockReturn: CIL: corelib yuzeyinde olmayan uye: System.Threading.Monitor.Enter(System.Object,*Bool) (gerekiyorsa corelib'e ekleyelim)   denenen anahtarlar: Enter_System_Object_*Bool, Enter_System_Object_out_Bool, Enter_System_Object_ref_Bool   yakin adaylar: System.Threading.Monitor$Enter_System_Object (arg sayisi 1 != 2)
+stub body Demo47.App47$LockAgain: CIL: corelib yuzeyinde olmayan uye: System.Threading.Monitor.Enter(System.Object,*Bool) (gerekiyorsa corelib'e ekleyelim)   denenen anahtarlar: Enter_System_Object_*Bool, Enter_System_Object_out_Bool, Enter_System_Object_ref_Bool   yakin adaylar: System.Threading.Monitor$Enter_System_Object (arg sayisi 1 != 2)
+stub body Demo47.App47$Run: CIL: corelib yuzeyinde olmayan uye: System.Array.Copy(System.Array,System.Array,Int) (gerekiyorsa corelib'e ekleyelim)   denenen anahtarlar: Copy_System_Array_System_Array_Int   yakin adaylar: System.Array$Copy_[Byte_[Byte_Int (imza tipi uyusmadi); System.Array$Copy_[Byte_Int_[Byte_Int_Int (arg sayisi 5 != 3); System.Array$Copy_[T_[T_Int (generic unify tutmadi); System.Array$Copy_[T_Int_[T_Int_Int (arg sayisi 5 != 3)
+stub body Demo46.App46$TestDelegates: CIL: corelib yuzeyinde olmayan tip: System.Delegate (gerekiyorsa corelib'e ekleyelim)
+stub body Demo46.App46$TestNullableCast: CIL: corelib yuzeyinde olmayan uye: System.Nullable`1.ctor(T) (gerekiyorsa corelib'e ekleyelim)   denenen anahtarlar: ctor_T   yakin aday yok: 'ctor' adinda uye System.Nullable`1 zincirinde tanimli degil
+stub body Demo10.App10$ByteFormat: CIL: bilinmeyen TypeDef: .<>y__InlineArray4`1
+stub body <PrivateImplementationDetails>$InlineArrayAsReadOnlySpan_*TBuffer_Int: CIL: corelib yuzeyinde olmayan tip: System.Runtime.CompilerServices.Unsafe (gerekiyorsa corelib'e ekleyelim)
+stub body <PrivateImplementationDetails>$InlineArrayElementRef_*TBuffer_Int: CIL: corelib yuzeyinde olmayan tip: System.Runtime.CompilerServices.Unsafe (gerekiyorsa corelib'e ekleyelim)
+stub body Demo47.LexicalThis47/<>c__DisplayClass2_0$<Read>b__1: CIL: corelib yuzeyinde olmayan tip: System.Delegate (gerekiyorsa corelib'e ekleyelim)
+stub body Demo47.App47/<>c$<Run>b__21_0_System_Text_RegularExpressions_Match: CIL: corelib yuzeyinde olmayan tip: System.Text.RegularExpressions.Capture (gerekiyorsa corelib'e ekleyelim)

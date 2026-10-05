@@ -113,6 +113,11 @@ float System_MathF_Min_Float_Float(float x, float y)
     return fminf(x, y);
 }
 
+float System_MathF_Max_Float_Float(float x, float y)
+{
+    return fmaxf(x, y);
+}
+
 float System_MathF_Abs_Float(float value) { return fabsf(value); }
 float System_MathF_Asin_Float(float value) { return asinf(value); }
 float System_MathF_Atan2_Float_Float(float y, float x) { return atan2f(y, x); }
@@ -324,6 +329,13 @@ VmObject *digitoyengine_box_enum(int v, const Type *t)
     DIGITOYENGINE_BOXP(int, o) = v;
     return o;
 }
+// kullanici struct kutusu: gc_alloc(t) (t->size header+payload, trace fn struct icindeki referanslari tarar) + kopya
+VmObject *digitoyengine_box_struct(const Type *t, const void *src, int size)
+{
+    VmObject *o = (VmObject *)gc_alloc(t);
+    memcpy((char *)o + sizeof(GCHeader), src, (size_t)size);
+    return o;
+}
 int digitoyengine_enumbox_hash(VmObject *s) { return DIGITOYENGINE_BOXP(int, s); } // dotnet Enum: underlying deger
 int digitoyengine_enumbox_eq(VmObject *s, VmObject *o)                             // dotnet Enum.Equals: AYNI enum tipi + deger
 {
@@ -353,6 +365,12 @@ VmString *digitoyengine_int_str(int v) // uretilen enum ToString'in tanimsiz-deg
 // ---- sayisal TryParse'lar (dotnet semantigi: whitespace kabul, invariant, tam tuketim) ----
 #include <ctype.h>
 #include <errno.h>
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h> /* GetTickCount */
+#else
+#include <time.h>
+#endif
 static int digitoyengine_numbuf(VmString *s, char *buf, int cap) /* ascii kopya; sigmaz/ascii-disi -> 0 */
 {
     if (!s || s->length >= cap)
@@ -1240,8 +1258,7 @@ void System_Console_WriteLine(void)
 // ---- GC ----
 void System_GC_Collect(void)
 {
-    gc_minor();         /* genc nesneler: olu olanlarin finalizer'lari kosulur */
-    gc_maybe_major(64); /* tenured tam toplama */
+    gc_major(); /* tam dongu (finalizer'lar kosulur). Yalniz canli managed local olmayan noktada guvenli. */
 }
 // ---- Type (reflection cekirdegi): handle = Type* (ILK alan, digitoyengine_type_wrapper sozlesmesi) ----
 typedef struct DigitoyEngineTypeObj
@@ -1483,3 +1500,142 @@ void System_Exception_Print(DigitoyEngineException *a0)
             fprintf(stderr, ":%d:%d\n", l >> 10, l & 1023);
     }
 }
+
+// ---- System.Text.Encoding (UTF-8) ----
+// UTF-8 -> UTF-16 (surrogate ciftli); gecersiz dizilerde U+FFFD. Once uzunluk sayilir, tek tahsis.
+static int digitoyengine_utf8_decode_len(const unsigned char *s, int n)
+{
+    int units = 0;
+    for (int i = 0; i < n;)
+    {
+        unsigned char b = s[i];
+        int len = b < 0x80 ? 1 : (b >> 5) == 6 ? 2 : (b >> 4) == 14 ? 3 : (b >> 3) == 30 ? 4 : 1;
+        if (i + len > n) len = 1;
+        units += len == 4 ? 2 : 1;
+        i += len;
+    }
+    return units;
+}
+VmString *System_Text_Encoding_Utf8Decode__Byte_Int_Int(VmArray *bytes, int index, int count)
+{
+    DIGITOYENGINE_NULLCHECK(bytes);
+    if (index < 0 || count < 0 || index + count > bytes->len)
+        DIGITOYENGINE_throw_bounds(index + count, bytes->len);
+    const unsigned char *s = (const unsigned char *)bytes->data + index;
+    VmString *r = vmstring_alloc(digitoyengine_utf8_decode_len(s, count));
+    unsigned short *d = (unsigned short *)r->data;
+    int o = 0;
+    for (int i = 0; i < count;)
+    {
+        unsigned char b = s[i];
+        unsigned cp;
+        int len;
+        if (b < 0x80) { cp = b; len = 1; }
+        else if ((b >> 5) == 6 && i + 1 < count) { cp = ((b & 0x1F) << 6) | (s[i + 1] & 0x3F); len = 2; }
+        else if ((b >> 4) == 14 && i + 2 < count) { cp = ((b & 0x0F) << 12) | ((s[i + 1] & 0x3F) << 6) | (s[i + 2] & 0x3F); len = 3; }
+        else if ((b >> 3) == 30 && i + 3 < count) { cp = ((b & 0x07) << 18) | ((s[i + 1] & 0x3F) << 12) | ((s[i + 2] & 0x3F) << 6) | (s[i + 3] & 0x3F); len = 4; }
+        else { cp = 0xFFFD; len = 1; }
+        if (cp >= 0x10000)
+        {
+            cp -= 0x10000;
+            d[o++] = (unsigned short)(0xD800 + (cp >> 10));
+            d[o++] = (unsigned short)(0xDC00 + (cp & 0x3FF));
+        }
+        else
+            d[o++] = (unsigned short)cp;
+        i += len;
+    }
+    return r;
+}
+VmArray *System_Text_Encoding_Utf8Encode_System_String(VmString *s)
+{
+    DIGITOYENGINE_NULLCHECK(s);
+    int n = 0;
+    for (int i = 0; i < s->length; i++)
+    {
+        unsigned c = s->data[i];
+        if (c >= 0xD800 && c <= 0xDBFF && i + 1 < s->length) { n += 4; i++; }
+        else n += c < 0x80 ? 1 : c < 0x800 ? 2 : 3;
+    }
+    VmArray *a = vmarray_new(n, 1, 0);
+    unsigned char *d = (unsigned char *)a->data;
+    int o = 0;
+    for (int i = 0; i < s->length; i++)
+    {
+        unsigned c = s->data[i];
+        if (c >= 0xD800 && c <= 0xDBFF && i + 1 < s->length)
+        {
+            unsigned cp = 0x10000 + ((c - 0xD800) << 10) + (s->data[i + 1] - 0xDC00);
+            i++;
+            d[o++] = (unsigned char)(0xF0 | (cp >> 18));
+            d[o++] = (unsigned char)(0x80 | ((cp >> 12) & 0x3F));
+            d[o++] = (unsigned char)(0x80 | ((cp >> 6) & 0x3F));
+            d[o++] = (unsigned char)(0x80 | (cp & 0x3F));
+        }
+        else if (c < 0x80) d[o++] = (unsigned char)c;
+        else if (c < 0x800) { d[o++] = (unsigned char)(0xC0 | (c >> 6)); d[o++] = (unsigned char)(0x80 | (c & 0x3F)); }
+        else { d[o++] = (unsigned char)(0xE0 | (c >> 12)); d[o++] = (unsigned char)(0x80 | ((c >> 6) & 0x3F)); d[o++] = (unsigned char)(0x80 | (c & 0x3F)); }
+    }
+    return a;
+}
+
+int System_String_IsNullOrEmpty_System_String(VmString *s) { return !s || s->length == 0; }
+
+// Type.IsAssignableFrom(other): other == this VEYA other'in kalitim zincirinde VEYA this bir arayuz ve other onu implement eder
+int System_Type_IsAssignableFrom_System_Type(DigitoyEngineTypeObj *self, DigitoyEngineTypeObj *other)
+{
+    if (!other) return 0;
+    const Type *t = type_of(self), *o = type_of(other);
+    if (DIGITOYENGINE_is(o, t)) return 1;
+    return DIGITOYENGINE_implements(o, t);
+}
+void System_Runtime_InteropServices_Marshal_Copy_Long__Byte_Int_Int(long long source, VmArray *destination, int startIndex, int length)
+{
+    DIGITOYENGINE_NULLCHECK(destination);
+    if (startIndex < 0 || length < 0 || startIndex + length > destination->len)
+        DIGITOYENGINE_throw_bounds(startIndex + length, destination->len);
+    if (length > 0)
+        memcpy((unsigned char *)destination->data + startIndex, (const void *)(size_t)source, (size_t)length);
+}
+
+void System_GC_Collect_Int(int generation)
+{
+    if (generation == 0) { gc_minor(); return; } /* test kancasi: kucuk artimli dilim (bariyer/ic ice gecis sinavi) */
+    System_GC_Collect();
+}
+
+/* --- AOT player eksikleri: Int.CompareTo/ToString(format), Marshal IntPtr overload'lari, Environment.TickCount, BitConverter --- */
+int Int_CompareTo_Int(int self, int value) { return self < value ? -1 : self > value ? 1 : 0; }
+VmString *Int_ToString_System_String(int self, VmString *format)
+{
+    char fmt[16] = "%d";
+    if (format && format->length > 0)
+    {
+        char f0 = (char)format->data[0];
+        int width = 0;
+        for (int i = 1; i < format->length; i++) width = width * 10 + ((int)format->data[i] - '0');
+        if (f0 == 'X' || f0 == 'x') snprintf(fmt, sizeof fmt, width > 0 ? "%%0%d%c" : "%%%c", width > 0 ? width : (int)f0, f0);
+        else if (f0 == 'D' || f0 == 'd') { if (width > 0) snprintf(fmt, sizeof fmt, "%%0%dd", width); }
+    }
+    char buf[40];
+    snprintf(buf, sizeof buf, fmt, self);
+    return digitoyengine_from_utf8(buf);
+}
+long long System_Runtime_InteropServices_Marshal_AllocHGlobal_Long(long long cb) { return (long long)(size_t)malloc((size_t)(cb > 0 ? cb : 1)); }
+long long System_Runtime_InteropServices_Marshal_ReAllocHGlobal_Long_Long(long long pv, long long cb) { return (long long)(size_t)realloc((void *)(size_t)pv, (size_t)(cb > 0 ? cb : 1)); }
+VmString *System_Runtime_InteropServices_Marshal_PtrToStringAnsi_Long(long long ptr) { return ptr ? digitoyengine_from_utf8((const char *)(size_t)ptr) : 0; }
+int System_Environment_get_TickCount(void)
+{
+#ifdef _WIN32
+    return (int)GetTickCount();
+#else
+    struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (int)(ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
+#endif
+}
+int System_BitConverter_SingleToInt32Bits_Float(float value) { int r; memcpy(&r, &value, 4); return r; }
+float System_BitConverter_Int32BitsToSingle_Int(int value) { float r; memcpy(&r, &value, 4); return r; }
+int System_Math_Min_Int_Int(int x, int y) { return x < y ? x : y; }
+int System_Math_Max_Int_Int(int x, int y) { return x > y ? x : y; }
+void System_SpanOps_Copy_Long_Long_Int(long long dst, long long src, int bytes) { if (bytes > 0) memmove((void *)(size_t)dst, (const void *)(size_t)src, (size_t)bytes); }
+void System_SpanOps_Fill_Long_Int_Byte(long long dst, int bytes, unsigned char value) { if (bytes > 0) memset((void *)(size_t)dst, value, (size_t)bytes); }

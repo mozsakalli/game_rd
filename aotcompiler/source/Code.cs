@@ -55,6 +55,8 @@ namespace DigitoyEngine.Language
         SetStatic, // pop deger -> static depoya yaz
         NewArray,    // pop uzunluk; op.PrimitiveRef = ELEMAN tipi; yeni dizi push (C: vmarray_new, VM: object[])
         ArrayLength, // pop dizi; uzunlugu push (C: ->len)
+        StackAlloc,  // CIL localloc: pop bayt sayisi; push byte* (C alloca, sifirlanmis)
+        SizeOf,      // CIL sizeof: PrimitiveRef tipinin C bayt boyutunu push (int; struct -> sizeof(struct X), referans -> pointer)
         Conv,      // pop deger; op.PrimitiveRef = hedef SKALER tip; donusturup push (CIL conv.*, C cast truncation semantigi)
         IsType,    // pop instance; op.PrimitiveRef = model; tip zincirinde mi -> 1/0 (null -> 0)
         IsValueType, // pop deger; PrimitiveRef = kaynak tip; monomorphization sonrasi value type mi -> 1/0

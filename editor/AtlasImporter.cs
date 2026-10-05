@@ -229,6 +229,15 @@ public sealed class AtlasImporter : AssetImporter
     public static HashSet<string> ClaimedMembers(IEnumerable<string> atlasAssets)
     {
         var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var kv in MemberToAtlas(atlasAssets))
+            set.Add(kv.Key);
+        return set;
+    }
+
+    // Pak builder bagimlilik kenari: uye -> onu tasiyan atlas asset'i.
+    public static Dictionary<string, string> MemberToAtlas(IEnumerable<string> atlasAssets)
+    {
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         foreach (var rel in atlasAssets)
         {
             var mb = ImportPipeline.GetArtifact(rel, "members");
@@ -236,9 +245,9 @@ public sealed class AtlasImporter : AssetImporter
                 continue;
             foreach (var line in Encoding.UTF8.GetString(mb).Split('\n'))
                 if (line.Length > 0)
-                    set.Add(line.Trim());
+                    map[line.Trim()] = rel;
         }
-        return set;
+        return map;
     }
 }
 

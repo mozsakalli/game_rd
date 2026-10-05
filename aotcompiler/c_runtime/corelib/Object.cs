@@ -13,6 +13,7 @@ namespace System
     static class Environment
     {
         public static int CurrentManagedThreadId { get { return 1; } }
+        extern public static int TickCount { get; } // ms, monoton
     }
 
     class Object

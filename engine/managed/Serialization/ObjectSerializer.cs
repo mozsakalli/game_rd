@@ -1,17 +1,7 @@
+#if DE_EDITOR // YAML/SceneDoc: yalniz editor. Release/AOT sahneler SceneBinary (pismis) ile gelir; metin format yoktur.
 using System;
 
 namespace DigitoyEngine;
-
-// Unity [CreateAssetMenu] karsiligi: [Serializable] tipin Project panelindeki
-// Create menusunde gorunmesi ACIK OPT-IN'dir — her serializable menuye dusmez.
-// MenuName '/' ile alt menu kurar ("Config/Game Settings").
-[AttributeUsage(AttributeTargets.Class)]
-public sealed class CreateAssetMenuAttribute : Attribute
-{
-    public string MenuName;   // bos: tip adi
-    public string FileName;   // bos: tip adi
-    public int Order;
-}
 
 // Kok nesne serilestirme (Unity ScriptableObject'in veri yarisi): [Serializable]
 // isaretli, parametresiz ctor'lu SAF VERI siniflari yaml asset'ine yazilir/okunur.
@@ -89,3 +79,4 @@ public static class ObjectSerializer
     static readonly SerializedType.CompEncoder _noComp = _ => "";
     static void IgnoreRef(SerializedType.Kind k, string v, Action<object> set) { }
 }
+#endif

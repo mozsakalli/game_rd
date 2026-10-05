@@ -79,36 +79,65 @@ public static class Program
         var diag = new List<string>();
         allCodes.AddRange(CilFrontend.Compile(ctx, engineDll, out _));
         diag.AddRange(CilFrontend.LastDiagnostics.Select(d => "[engine] " + d));
-        allCodes.AddRange(CilFrontend.Compile(ctx, playerDll, out var entry));
+        allCodes.AddRange(CilFrontend.Compile(ctx, playerDll, out _));
         diag.AddRange(CilFrontend.LastDiagnostics.Select(d => "[player] " + d));
-        if (entry == null) throw new Exception("DigitoyPlayer giris noktasi (Main) bulunamadi");
+        // Host sozlesmesi: Main KULLANILMAZ; C dongusu Init/Frame/Shutdown cagirir (GC safepoint = Frame sonrasi).
+        Code HostCode(string name) => ctx.TryGetCode("DigitoyPlayer.PlayerApp$" + name, out var c) ? c
+            : throw new Exception($"DigitoyPlayer.PlayerApp.{name} bulunamadi");
+        var initCode = HostCode("Init_System_String");
+        var frameCode = HostCode("Frame");
+        var shutdownCode = HostCode("Shutdown");
         Directory.CreateDirectory(workDir);
         File.WriteAllLines(Path.Combine(workDir, "diag.txt"), diag);
         Console.WriteLine($"CIL tani: {diag.Count} oge atlandi/stub'landi -> {Path.Combine(workDir, "diag.txt")}");
         Resolver.ResolveAll(ctx, allCodes);
 
-        // 3) C transpile + main
+        // 3) C transpile + host main: crash dump dizini (exe yaninda "crash/"), cikista rapor
+        //    (sessiz cikis YOK: managed frame icindeyken exit = crash dump), runtime init, Main.
+        //    Unhandled exception yolu runtime'da (DIGITOYENGINE_dispatch -> rapor + dump + exit 134).
         var cSource = CTranspiler.TranspileProgram(ctx);
-        var entrySym = CTranspiler.CName(entry.EncodeName());
-        cSource += $"\nint main(void) {{\n    digitoyengine_init();\n    {entrySym}();\n    return 0;\n}}\n";
+        string Sym(Code c) => CTranspiler.CName(c.EncodeName());
+        var entrySym = Sym(frameCode);
+        // Host dongusu (langtest modeli): her frame managed Frame(), ardindan managed frame YOKKEN
+        // GC safepoint: gc_minor (genc nesil, ucuz) + gc_maybe_major(butce) (artimli, fps'i oldurmez).
+        cSource += "\n#include <direct.h>\nstatic void digitoyengine_host_atexit(void) {\n" +
+            "    fprintf(stderr, \"[host] exit (shadow stack depth %d)\\n\", DIGITOYENGINE_sp);\n" +
+            "    if (DIGITOYENGINE_sp > 0) DIGITOYENGINE_crash_dump(\"exit inside managed frames\", DIGITOYENGINE_stack, DIGITOYENGINE_sp);\n" +
+            "}\n" +
+            "int main(void) {\n" +
+            "    _mkdir(\"crash\");\n    digitoyengine_crash_init(\"crash\");\n" +
+            "    atexit(digitoyengine_host_atexit);\n" +
+            "    fprintf(stderr, \"[host] start\\n\");\n" +
+            "    digitoyengine_init();\n" +
+            $"    {Sym(initCode)}(0);\n" +
+            $"    while ({Sym(frameCode)}()) {{\n" +
+            "        if (!getenv(\"AOT_NOGC\")) gc_maybe_major(1 << 14); // artimli GC dilimi: managed frame YOKKEN (safepoint)\n" +
+            "    }\n" +
+            $"    {Sym(shutdownCode)}();\n" +
+            "    gc_major();\n" +
+            "    fprintf(stderr, \"[host] main returned\\n\");\n" +
+            "    return 0;\n}\n";
         File.WriteAllText(generated, cSource);
         Console.WriteLine($"transpile -> {generated} ({cSource.Length} karakter, giris {entrySym})");
 
-        // 4) clang: uretilen C + runtime + native (build_editor.cmd ile ayni kaynak listesi, statik)
+        // 4) clang: uretilen C + runtime (vmrt/corelib) + STATIK native kutuphane
+        //    (engine/native/build_native_static.cmd -> digitoyengine_native_static.lib: sokol+glfw+ses+de_fs).
+        //    DLL yok, P/Invoke yok: [DllImport] sembolleri linker'da statik cozulur.
         var native = Path.Combine(RepoRoot, "engine", "native");
-        var glfw = Path.Combine(native, "glfw-master", "src");
-        var cFiles = new List<string> { generated, "c_runtime/vmrt.c", "c_runtime/corelib.c",
-            Path.Combine(native, "sokol_shim.c"), Path.Combine(native, "audio_shim.c") };
-        foreach (var g in new[] { "context", "init", "input", "monitor", "platform", "vulkan", "window",
-            "win32_init", "win32_joystick", "win32_module", "win32_monitor", "win32_time", "win32_thread",
-            "win32_window", "wgl_context", "egl_context", "osmesa_context",
-            "null_init", "null_joystick", "null_monitor", "null_window" })
-            cFiles.Add(Path.Combine(glfw, g + ".c"));
-        var defines = "-DSOKOL_GLCORE -D_GLFW_WIN32 -DSOKOL_IMPL";
+        var staticLib = Path.Combine(native, "build", "digitoyengine_native_static.lib");
+        if (!File.Exists(staticLib) || Directory.GetFiles(native, "*.c").Any(f => File.GetLastWriteTimeUtc(f) > File.GetLastWriteTimeUtc(staticLib)))
+        {
+            Console.WriteLine("native statik lib eski/yok -> build_native_static.cmd");
+            var (nexit, nout) = RunProcess("cmd.exe", $"/c \"{Path.Combine(native, "build_native_static.cmd")}\"");
+            if (nexit != 0) throw new Exception($"native statik lib derlemesi basarisiz:\n{nout}");
+        }
+        var cFiles = new List<string> { generated, "c_runtime/vmrt.c", "c_runtime/corelib.c" };
+        var defines = "-DSOKOL_GLCORE" + (Environment.GetEnvironmentVariable("AOT_GCPOISON") == "1" ? " -DDIGITOYENGINE_GC_POISON" : "");
         var libs = "-lopengl32 -lgdi32 -luser32 -lkernel32 -lshell32 -lole32 -loleaut32 -lmfplat -lmfuuid";
         Directory.CreateDirectory(Path.GetDirectoryName(outExe));
-        var compileArgs = $"-O1 -w {defines} -Ic_runtime -I{Quote(native)} " +
-            $"{string.Join(" ", cFiles.Select(Quote))} {libs} -o {Quote(outExe)}";
+        var dbg = Environment.GetEnvironmentVariable("AOT_DEBUG") == "1" ? "-O0 -g -gcodeview" : "-O1"; // AOT_DEBUG: native debugger (lldb) icin sembol
+        var compileArgs = $"{dbg} -w {defines} -Ic_runtime -I{Quote(native)} " +
+            $"{string.Join(" ", cFiles.Select(Quote))} {Quote(staticLib)} {libs} -o {Quote(outExe)}";
         var (ccExit, ccOut) = RunProcess(ClangPath(), compileArgs);
         if (ccExit != 0) throw new Exception($"clang derleme/link hatasi (exit {ccExit}):\n{ccOut}");
         Console.WriteLine($"clang ok -> {outExe} ({new FileInfo(outExe).Length / 1024} KB)");
@@ -215,7 +244,8 @@ public static class Program
 
             // 4) clang derle
             var cFiles = new[] { GeneratedC, "c_runtime/vmrt.c", "c_runtime/corelib.c" };
-            var compileArgs = $"-O1 -w -Ic_runtime {string.Join(" ", cFiles.Select(Quote))} -o {Quote(OutBin)}";
+            var poison = Environment.GetEnvironmentVariable("AOT_GCPOISON") == "1" ? " -DDIGITOYENGINE_GC_POISON" : "";
+            var compileArgs = $"-O1 -w{poison} -Ic_runtime {string.Join(" ", cFiles.Select(Quote))} -o {Quote(OutBin)}";
             var (ccExit, ccOut) = RunProcess(ClangPath(), compileArgs);
             if (ccExit != 0) throw new Exception($"clang derleme hatasi (exit {ccExit}):\n{ccOut}");
             Console.WriteLine("clang derleme ok");

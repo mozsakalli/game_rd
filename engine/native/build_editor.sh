@@ -83,6 +83,7 @@ echo "[build_editor] cikti: $OUT"
 # retain/release yapar; ARC altinda derlenmez). Sonra tek dylib'e linklenir.
 SHIM_OBJ="$OUTDIR/sokol_shim.o"
 AUDIO_OBJ="$OUTDIR/audio_shim.o"
+FS_OBJ="$OUTDIR/de_fs.o"
 
 "$CLANG" -O1 -w -c \
     -fobjc-arc \
@@ -97,11 +98,14 @@ AUDIO_OBJ="$OUTDIR/audio_shim.o"
     "${DEFINES[@]}" "${INCLUDES[@]}" \
     -o "$AUDIO_OBJ"
 
+# Depolama + async job tablosu (pthread backend)
+"$CLANG" -O1 -w -c "$HERE/de_fs.c" "${DEFINES[@]}" "${INCLUDES[@]}" -o "$FS_OBJ"
+
 "$CLANG" -O1 -w -dynamiclib \
     -fvisibility=default \
     -Wno-deprecated-declarations \
     "${DEFINES[@]}" "${INCLUDES[@]}" \
-    "$SHIM_OBJ" "$AUDIO_OBJ" \
+    "$SHIM_OBJ" "$AUDIO_OBJ" "$FS_OBJ" \
     "${SOURCES[@]}" \
     "${FRAMEWORKS[@]}" \
     -install_name "@rpath/libdigitoyengine_native.dylib" \

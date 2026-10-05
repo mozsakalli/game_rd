@@ -13,6 +13,7 @@ namespace System
         extern public static float Exp(float value);
         extern public static float Floor(float value);
         extern public static float Min(float x, float y);
+        extern public static float Max(float x, float y);
         extern public static float Pow(float x, float y);
         extern public static float Round(float value);
         extern public static float Sin(float value);

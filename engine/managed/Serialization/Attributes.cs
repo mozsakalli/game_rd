@@ -56,3 +56,15 @@ public sealed class ShowIfAttribute : Attribute
         Value = value;
     }
 }
+
+// Unity [CreateAssetMenu] karsiligi: [Serializable] tipin Project panelindeki
+// Create menusunde gorunmesi ACIK OPT-IN'dir — her serializable menuye dusmez.
+// MenuName '/' ile alt menu kurar ("Config/Game Settings"). Tanim her yapida (oyun kodu kullanir);
+// tuketicisi (ObjectSerializer.IsCreatable) yalniz editor.
+[AttributeUsage(AttributeTargets.Class)]
+public sealed class CreateAssetMenuAttribute : Attribute
+{
+    public string MenuName;   // bos: tip adi
+    public string FileName;   // bos: tip adi
+    public int Order;
+}

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Threading.Tasks;
 
 namespace DigitoyEngine;
 
@@ -12,6 +13,17 @@ public sealed class LoadOp
     public bool IsDone { get; internal set; }
     public bool Failed { get; internal set; }
     internal LoadOp Next; // ayni asset'i bekleyen op zinciri
+}
+
+// Bagimlilik grafigi yuklemesinin ilerlemesi (dugum sayisi; preload ekrani okur).
+public sealed class LoadProgress
+{
+    public int Total { get; private set; }
+    public int Done { get; private set; }
+    internal int Pending; // baska yukleme tarafindan baslatilmis, bizim de bekledigimiz
+    public float Value => Total == 0 ? 1f : (float)Done / Total;
+    internal void Begin() => Total++;
+    internal void End() => Done++;
 }
 
 // Asset anahtari = kok klasore GORELI yol ("orb.png"). GUID/.meta sonra.
@@ -41,18 +53,28 @@ public sealed class AssetDatabase
     // (ImportPipeline baglar); release'te null -> pak zaten artifact'i tasir.
     public Func<string, byte[]> ArtifactResolver;
 
+    // Preload tamponu: PreloadAsync ile indirilen ham baytlar (font/clip/prefab/atlas/fx).
+    // Senkron Load* API'leri release'te YALNIZ buradan beslenir (bloklayan okuma yok);
+    // sahne yukleyici bagimlilik listesini Spawn'dan once buraya doldurur.
+    readonly Dictionary<string, byte[]> _blobs = new();
+    readonly Dictionary<string, Task<byte[]>> _blobLoads = new();
+
+#if DE_EDITOR
     // Editor/dev: loose dosyalar (ScanMetas ile guid tablosu kurulur).
     public AssetDatabase(string root)
     {
         _root = root;
         _source = new LooseFileSource(root);
     }
+#endif
 
     // Release: pak gibi kaynaklar guid tablosunu kendileri getirir; tarama yok.
     public AssetDatabase(AssetSource source)
     {
         _source = source;
+#if DE_EDITOR
         _root = (source as LooseFileSource)?.Root;
+#endif
         source.FillGuidTable(_guidToPath, _pathToGuid);
     }
 
@@ -62,6 +84,7 @@ public sealed class AssetDatabase
     // GUID kimligi: her asset dosyasinin yaninda <ad>.meta (guid: hex32). Sahneler
     // GUID referanslar — dosya tasinsa/adi degisse referans kirilmaz (Unity modeli).
     // createMissing=true yalniz editorde: eksik meta uretilir, sahipsiz meta silinir.
+#if DE_EDITOR
     public void ScanMetas(bool createMissing)
     {
         if (_root == null)
@@ -95,14 +118,16 @@ public sealed class AssetDatabase
         }
     }
 
-    public string PathToGuid(string relPath) => _pathToGuid.GetValueOrDefault(relPath);
+    public string PathToGuid(string relPath) => relPath != null && _pathToGuid.TryGetValue(relPath, out var g) ? g : null;
 
     // Editor asset taramasi (Proje paneli): gorelipath -> guid.
     public IReadOnlyDictionary<string, string> AllAssets => _pathToGuid;
+#endif
 
     // Uzanti -> yuklenebilir runtime tipi (importer kaydi tohumu). Yeni asset
     // turleri buraya kayitla gelir — panel/inspector kodu tip bilmez.
-    static readonly Dictionary<string, Type> _importers = new(StringComparer.OrdinalIgnoreCase)
+    // Anahtarlar kucuk harf (ToLowerInvariant ile aranir): StringComparer AOT corelib'de yok.
+    static readonly Dictionary<string, Type> _importers = new()
     {
         [".png"] = typeof(Sprite),
         [".jpg"] = typeof(Sprite),
@@ -116,7 +141,7 @@ public sealed class AssetDatabase
         [".wav"] = typeof(AudioClip),
     };
 
-    public static void RegisterImporter(string extension, Type type) => _importers[extension] = type;
+    public static void RegisterImporter(string extension, Type type) => _importers[extension.ToLowerInvariant()] = type;
 
     // Serilesebilir asset-referans tipi mi: bir uzantidan yuklenebilen IAsset.
     // (Kayit defteri = tek kaynak; yeni asset turu RegisterImporter'la buraya da girer.)
@@ -137,7 +162,10 @@ public sealed class AssetDatabase
     {
         if (path == null)
             return null;
-        string name = Path.GetFileName(path);
+        // Dosya adi: son '/' veya '\\' sonrasi (System.IO.Path release yolunda yok).
+        int slash = path.LastIndexOf('/');
+        int bslash = path.LastIndexOf('\\');
+        string name = path.Substring((slash > bslash ? slash : bslash) + 1).ToLowerInvariant();
         int i = name.IndexOf('.');
         while (i >= 0)
         {
@@ -250,11 +278,134 @@ public sealed class AssetDatabase
 
     // Importer ciktisi: "main" (name=null) veya adli artifact ("sheet", "page0").
     // Anahtar bicimi "<asset>#<ad>": editorde ArtifactResolver Library'den cozer,
-    // release'te pak ayni anahtarla tasir.
+    // release'te pak ayni anahtarla tasir. Release'te kaynak = preload tamponu;
+    // tamponda yoksa null + uyari (bloklayan okuma yok).
     public byte[] ReadArtifact(string key, string name)
     {
         string k = name == null ? key : key + "#" + name;
-        return ArtifactResolver?.Invoke(k) ?? _source.ReadBytes(k);
+        return ReadBlob(k);
+    }
+
+    byte[] ReadBlob(string k)
+    {
+        if (_blobs.TryGetValue(k, out var cached))
+            return cached;
+        var b = ArtifactResolver?.Invoke(k);
+        if (b != null)
+            return b;
+#if DE_EDITOR
+        return _source.ReadBytes(k);
+#else
+        LogWarning?.Invoke("[assets] preload edilmemis senkron erisim: " + k);
+        return null;
+#endif
+    }
+
+    // Anahtarin ham baytlarini tampona indirir (ayni anahtar icin tek job).
+    // Artifact adli anahtarlar ("a.ttf#sheet") da gecerlidir.
+    public Task<byte[]> PreloadAsync(string keyOrGuid)
+    {
+        string k = ResolvePath(keyOrGuid);
+        if (string.IsNullOrEmpty(k))
+            return Completed<byte[]>(null);
+        if (_blobs.TryGetValue(k, out var b))
+            return Completed(b);
+        if (_blobLoads.TryGetValue(k, out var inflight))
+            return inflight;
+        var art = ArtifactResolver?.Invoke(k);
+        if (art != null)
+        {
+            _blobs[k] = art;
+            return Completed(art);
+        }
+        var task = LoadBlobAsync(k);
+        _blobLoads[k] = task;
+        return task;
+    }
+
+    async Task<byte[]> LoadBlobAsync(string k)
+    {
+        var bytes = await _source.ReadBytesAsync(k);
+        _blobLoads.Remove(k);
+        if (bytes != null)
+            _blobs[k] = bytes;
+        return bytes;
+    }
+
+    // Tampondan duser (hot reload / bellek geri alma); yuklu nesneler etkilenmez.
+    public void Evict(string key) => _blobs.Remove(ResolvePath(key));
+
+    // --- Bagimlilik grafigi yukleyicisi (genel; tur ozel kod yok) ---
+    // Anahtar ve TUM gecisli bagimliliklari hazir olana kadar bekler: once dep'ler
+    // (paralel baslar), sonra dugumun kendisi. Ayni anahtar icin tek yukleme (memo).
+    // Dugum yukleme = bayt asset'ler tampona, texture'lar decode job'ina; aktivasyonu
+    // olan turler (atlas -> bolge tablosu) ic tabloda. progress: dugum sayisi uzerinden.
+    readonly Dictionary<string, Task<bool>> _ensured = new();
+
+    public Task<bool> EnsureLoadedAsync(string keyOrGuid, LoadProgress progress = null)
+    {
+        string k = ResolvePath(keyOrGuid);
+        if (string.IsNullOrEmpty(k))
+            return Completed(false);
+        if (_ensured.TryGetValue(k, out var t))
+        {
+            if (progress != null && !t.IsCompleted)
+                progress.Pending++;
+            return t;
+        }
+        var task = EnsureCore(k, progress);
+        _ensured[k] = task;
+        return task;
+    }
+
+    async Task<bool> EnsureCore(string k, LoadProgress progress)
+    {
+        progress?.Begin();
+        var deps = _source.GetDependencies(k);
+        var depTasks = new List<Task<bool>>(deps.Length);
+        foreach (var d in deps)
+            depTasks.Add(EnsureLoadedAsync(d, progress));
+        bool ok = true;
+        foreach (var t in depTasks)
+            ok &= await t;
+        ok &= await LoadNodeAsync(k);
+        if (!ok)
+            LogWarning?.Invoke("[assets] yuklenemedi: " + k);
+        progress?.End();
+        return ok;
+    }
+
+    async Task<bool> LoadNodeAsync(string k)
+    {
+        var type = ImportTypeOf(k);
+        if (type == typeof(Sprite) || type == typeof(Texture))
+        {
+            if (_regions.ContainsKey(k))
+                return true; // atlas uyesi: pikseller sayfada (atlas dep olarak once yuklendi)
+            if (!_source.Exists(k))
+                return false;
+            var op = new LoadOp();
+            LoadTexture(k, op);
+            while (!op.IsDone)
+                await Frame.Next();
+            return !op.Failed;
+        }
+        var bytes = await PreloadAsync(k);
+        if (bytes == null)
+            return false;
+        if (AtlasData.IsAtlas(bytes))
+            return LoadAtlas(k); // aktivasyon: bolge tablosu + sayfa dokulari (sayfalar dep'ti)
+        return true;
+    }
+
+    // Yuklu/yuklenmekte sayilan anahtari unutur (sahne boşaltma / hot reload).
+    public void Forget(string key) => _ensured.Remove(ResolvePath(key));
+
+    static Task<T> Completed<T>(T value)
+    {
+        var tcs = new TaskCompletionSource<T>();
+        tcs.TrySetResult(value);
+        return tcs.Task;
     }
 
     // --- Atlas: bolge tablosu + sayfa dokulari ---
@@ -369,18 +520,54 @@ public sealed class AssetDatabase
     public int LoadAtlases()
     {
         int n = 0;
+        foreach (var k in AtlasCandidates())
+        {
+            var bytes = ReadBlob(k);
+            if (AtlasData.IsAtlas(bytes) && LoadAtlas(k))
+                n++;
+        }
+        return n;
+    }
+
+    // Release acilisi: aday .asset'ler + sayfa artifact'leri tampona indirilir, sonra
+    // LoadAtlas (senkron, tampondan) kosar. Bloklamaz; donus yuklenen atlas sayisi.
+    public async Task<int> LoadAtlasesAsync()
+    {
+        var cands = AtlasCandidates();
+        var mains = new List<Task<byte[]>>(cands.Count);
+        foreach (var k in cands)
+            mains.Add(PreloadAsync(k));
+        var pageLoads = new List<Task<byte[]>>();
+        var atlasKeys = new List<string>();
+        for (int i = 0; i < cands.Count; i++)
+        {
+            var bytes = await mains[i];
+            if (!AtlasData.IsAtlas(bytes))
+                continue;
+            var data = AtlasData.Parse(bytes);
+            if (data == null)
+                continue;
+            atlasKeys.Add(cands[i]);
+            for (int p = 0; p < data.Pages.Count; p++)
+                pageLoads.Add(PreloadAsync(cands[i] + "#" + AtlasData.PageArtifact(p)));
+        }
+        foreach (var t in pageLoads)
+            await t;
+        int n = 0;
+        foreach (var k in atlasKeys)
+            if (LoadAtlas(k))
+                n++;
+        return n;
+    }
+
+    List<string> AtlasCandidates()
+    {
         var keys = new List<string>();
         foreach (var k in _source.Keys)
             if (k.EndsWith(".asset", StringComparison.OrdinalIgnoreCase))
                 keys.Add(k);
         keys.Sort(StringComparer.Ordinal);
-        foreach (var k in keys)
-        {
-            var bytes = ReadArtifact(k, null);
-            if (AtlasData.IsAtlas(bytes) && LoadAtlas(k))
-                n++;
-        }
-        return n;
+        return keys;
     }
 
     // Uyari kanali (editor Console'a baglar; runtime'da null = sessiz).
@@ -463,7 +650,7 @@ public sealed class AssetDatabase
         }
         if (_fx.TryGetValue(relPath, out var fx))
         {
-            var bytes = ArtifactResolver?.Invoke(relPath) ?? _source.ReadBytes(relPath);
+            var bytes = ReadBlob(relPath);
             fx.SetBody(bytes != null ? System.Text.Encoding.UTF8.GetString(bytes) : null);
             return true;
         }
@@ -491,7 +678,7 @@ public sealed class AssetDatabase
             return null;
         if (_fx.TryGetValue(key, out var fx))
             return fx;
-        var bytes = ArtifactResolver?.Invoke(key) ?? _source.ReadBytes(key);
+        var bytes = ReadBlob(key);
         if (bytes == null)
             return null;
         fx = new PixelEffect { Name = key };
@@ -527,7 +714,7 @@ public sealed class AssetDatabase
     }
 
     // Prefab = alt agac. Pak'ta pismis bayt (SceneBinary), loose'ta YAML SceneDoc;
-    // magic'e bakilir. Kucuk oldugu icin senkron okunur.
+    // magic'e bakilir. Release'te baytlar preload tamponundan (sahne bagimliligi).
     public Prefab LoadPrefab(string key)
     {
         key = ResolvePath(key);
@@ -535,14 +722,41 @@ public sealed class AssetDatabase
             return null;
         if (_prefabs.TryGetValue(key, out var p))
             return p;
-        var bytes = _source.ReadBytes(key);
+        var bytes = ReadBlob(key);
         if (bytes == null)
             return null;
-        p = SceneBinary.IsBaked(bytes)
-            ? new Prefab { Key = key, Baked = bytes, Assets = this }
-            : new Prefab { Key = key, Doc = SceneDoc.Parse(System.Text.Encoding.UTF8.GetString(bytes)), Assets = this };
+        p = MakePrefab(key, bytes);
         _prefabs[key] = p;
         return p;
+    }
+
+    public async Task<Prefab> LoadPrefabAsync(string key)
+    {
+        key = ResolvePath(key);
+        if (string.IsNullOrEmpty(key))
+            return null;
+        if (_prefabs.TryGetValue(key, out var p))
+            return p;
+        var bytes = await PreloadAsync(key);
+        if (bytes == null)
+            return null;
+        if (_prefabs.TryGetValue(key, out p)) // bekleme sirasinda baska yol kurmus olabilir
+            return p;
+        p = MakePrefab(key, bytes);
+        _prefabs[key] = p;
+        return p;
+    }
+
+    Prefab MakePrefab(string key, byte[] bytes)
+    {
+        if (SceneBinary.IsBaked(bytes))
+            return new Prefab { Key = key, Baked = bytes, Assets = this };
+#if DE_EDITOR
+        return new Prefab { Key = key, Doc = SceneDoc.Parse(System.Text.Encoding.UTF8.GetString(bytes)), Assets = this };
+#else
+        LogWarning?.Invoke("[prefab] baked degil (YAML release'te desteklenmez): " + key);
+        return null;
+#endif
     }
 
     // Dis degisiklik: YUKLU texture'in pikselleri yerinde tazelenir — sahnedeki
@@ -566,20 +780,21 @@ public sealed class AssetDatabase
     public int PendingCount => _pending.Count;
 
     // Frame basi cagrilir; frame basina en fazla `budget` sonuc baglanir
-    // (yavas cihazda spike yerine birkac frame'e yayilir).
+    // (yavas cihazda spike yerine birkac frame'e yayilir). Job->Task koprusunu de pompalar.
     public void Tick(int budget = 2)
     {
+        AsyncJobs.Pump();
         for (int i = _pending.Count - 1; i >= 0 && budget > 0; i--)
         {
             var p = _pending[i];
-            int r = Sokol.AssetPoll(p.Job, out var pixels, out int w, out int h);
+            int r = NativeFs.Poll(p.Job, out var pixels, out _, out int w, out int h);
             if (r == 0)
                 continue;
             if (r == 1)
                 p.Target._AttachPixels(pixels, w, h);
             else
                 p.Target.Loading = false; // hata: placeholder'da kalir
-            Sokol.AssetFreeJob(p.Job);
+            NativeFs.Free(p.Job);
             Complete(p.Op, r < 0);
             _pending.RemoveAt(i);
             budget--;

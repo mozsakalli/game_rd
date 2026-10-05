@@ -85,8 +85,170 @@ public static class CatalogWriter
         sb.Append("            Flags = (global::DigitoyEngine.LifecycleFlags)").Append((ushort)e.Flags).Append(",\n");
         sb.Append("            Schema = s,\n");
         sb.Append("            Previewable = ").Append(e.Previewable ? "true" : "false").Append(",\n");
+        sb.Append("            ReadBaked = Read_").Append(idx).Append(",\n");
         sb.Append("        });\n    }\n\n");
+        EmitBakedReader(sb, e, idx, thunks, ref thunkN);
         sb.Append(thunks);
+    }
+
+    // --- pismis sahne okuyucusu: alan indeksi -> dogrudan tipli atama ---
+    // SceneBinary.Reader bayt duzeniyle birebir (WriteValue ile ayna). Boxing, Unsafe,
+    // FieldSchema.Get/Set YOK: release/AOT yukleme yolu yalniz bu kodu kosar.
+    static void EmitBakedReader(StringBuilder sb, TypeCatalog.Entry e, int idx, StringBuilder thunks, ref int thunkN)
+    {
+        var nested = new StringBuilder();
+        int nestedN = 0;
+        sb.Append("    static void Read_").Append(idx).Append("(global::DigitoyEngine.Component o, global::DigitoyEngine.SceneBinary.Reader r)\n    {\n");
+        sb.Append("        var c = (").Append(CsName(e.Type)).Append(")o;\n");
+        EmitReadSwitch(sb, e.Schema, "c", false, idx, nested, ref nestedN, thunks, ref thunkN, 2);
+        sb.Append("    }\n\n");
+        sb.Append(nested);
+    }
+
+    // owner: sahip ifadesi (class: degisken; struct: ref parametre adi).
+    static void EmitReadSwitch(StringBuilder sb, SerializedType.FieldSchema[] schema, string owner, bool ownerIsStruct,
+        int idx, StringBuilder nested, ref int nestedN, StringBuilder thunks, ref int thunkN, int indent)
+    {
+        string pad = new string(' ', indent * 4);
+        sb.Append(pad).Append("int n = r.U16();\n");
+        sb.Append(pad).Append("for (int i = 0; i < n; i++)\n");
+        sb.Append(pad).Append("{\n");
+        sb.Append(pad).Append("    switch (r.U16())\n");
+        sb.Append(pad).Append("    {\n");
+        for (int k = 0; k < schema.Length; k++)
+        {
+            var f = schema[k];
+            string lv = FieldLValue(f.Info, owner, ownerIsStruct, idx, thunks, ref thunkN);
+            sb.Append(pad).Append("        case ").Append(k).Append(":\n");
+            sb.Append(pad).Append("        {\n");
+            EmitReadField(sb, f, lv, idx, nested, ref nestedN, thunks, ref thunkN, indent + 3);
+            sb.Append(pad).Append("            break;\n");
+            sb.Append(pad).Append("        }\n");
+        }
+        sb.Append(pad).Append("    }\n");
+        sb.Append(pad).Append("}\n");
+    }
+
+    static void EmitReadField(StringBuilder sb, SerializedType.FieldSchema f, string lv,
+        int idx, StringBuilder nested, ref int nestedN, StringBuilder thunks, ref int thunkN, int indent)
+    {
+        string pad = new string(' ', indent * 4);
+        string ft = CsName(f.Info.FieldType);
+        switch (f.Kind)
+        {
+            case SerializedType.Kind.GoRef:
+                sb.Append(pad).Append("r.GoRef(v => ").Append(lv).Append(" = (").Append(ft).Append(")v);\n");
+                break;
+            case SerializedType.Kind.CompRef:
+                sb.Append(pad).Append("r.CompRef(v => ").Append(lv).Append(" = (").Append(ft).Append(")v);\n");
+                break;
+            case SerializedType.Kind.Object:
+                {
+                    string rd = EmitNestedReader(f, idx, nested, ref nestedN, thunks, ref thunkN);
+                    if (f.ElementType.IsValueType)
+                        sb.Append(pad).Append("if (r.U8() != 0) ").Append(rd).Append("(ref ").Append(lv).Append(", r);\n");
+                    else
+                    {
+                        sb.Append(pad).Append("if (r.U8() != 0)\n");
+                        sb.Append(pad).Append("{\n");
+                        sb.Append(pad).Append("    var o2 = ").Append(lv).Append(" ?? new ").Append(CsName(f.ElementType)).Append("();\n");
+                        sb.Append(pad).Append("    ").Append(rd).Append("(o2, r);\n");
+                        sb.Append(pad).Append("    ").Append(lv).Append(" = o2;\n");
+                        sb.Append(pad).Append("}\n");
+                    }
+                    break;
+                }
+            case SerializedType.Kind.List:
+                {
+                    string et = CsName(f.ElementType);
+                    bool isArray = f.Info.FieldType.IsArray;
+                    sb.Append(pad).Append("int cnt = r.I32();\n");
+                    sb.Append(pad).Append("if (cnt >= 0)\n");
+                    sb.Append(pad).Append("{\n");
+                    sb.Append(pad).Append("    var tmp = ").Append(isArray ? "new " + et + "[cnt]" : "new global::System.Collections.Generic.List<" + et + ">()").Append(";\n");
+                    sb.Append(pad).Append("    for (int k = 0; k < cnt; k++)\n");
+                    sb.Append(pad).Append("    {\n");
+                    string store = isArray ? "tmp[k] = {0};" : "tmp.Add({0});";
+                    switch (f.ElementKind)
+                    {
+                        case SerializedType.Kind.GoRef:
+                        case SerializedType.Kind.CompRef:
+                            {
+                                string fn = f.ElementKind == SerializedType.Kind.GoRef ? "GoRef" : "CompRef";
+                                if (!isArray)
+                                    sb.Append(pad).Append("        tmp.Add(null);\n");
+                                sb.Append(pad).Append("        int kk = k;\n");
+                                sb.Append(pad).Append("        r.").Append(fn).Append("(v => tmp[kk] = (").Append(et).Append(")v);\n");
+                                break;
+                            }
+                        case SerializedType.Kind.Object:
+                            {
+                                string rd = EmitNestedReader(f, idx, nested, ref nestedN, thunks, ref thunkN);
+                                if (f.ElementType.IsValueType)
+                                {
+                                    sb.Append(pad).Append("        var el = default(").Append(et).Append(");\n");
+                                    sb.Append(pad).Append("        if (r.U8() != 0) ").Append(rd).Append("(ref el, r);\n");
+                                }
+                                else
+                                {
+                                    sb.Append(pad).Append("        var el = new ").Append(et).Append("();\n");
+                                    sb.Append(pad).Append("        if (r.U8() != 0) ").Append(rd).Append("(el, r);\n");
+                                }
+                                sb.Append(pad).Append("        ").Append(string.Format(store, "el")).Append('\n');
+                                break;
+                            }
+                        default:
+                            sb.Append(pad).Append("        ").Append(string.Format(store, ScalarExpr(f.ElementKind, et))).Append('\n');
+                            break;
+                    }
+                    sb.Append(pad).Append("    }\n");
+                    sb.Append(pad).Append("    ").Append(lv).Append(" = tmp;\n");
+                    sb.Append(pad).Append("}\n");
+                    break;
+                }
+            default:
+                sb.Append(pad).Append(lv).Append(" = ").Append(ScalarExpr(f.Kind, ft)).Append(";\n");
+                break;
+        }
+    }
+
+    static string ScalarExpr(SerializedType.Kind k, string type) => k switch
+    {
+        SerializedType.Kind.Float => "r.F32()",
+        SerializedType.Kind.Int => "r.I32()",
+        SerializedType.Kind.Bool => "r.Bool()",
+        SerializedType.Kind.String => "r.String()",
+        SerializedType.Kind.Enum => "(" + type + ")r.I32()",
+        SerializedType.Kind.Vec2 => "r.V2()",
+        SerializedType.Kind.Vec3 => "r.V3()",
+        SerializedType.Kind.Vec4 => "r.V4()",
+        SerializedType.Kind.Color => "r.Col()",
+        SerializedType.Kind.Asset => "(" + type + ")r.Asset(typeof(" + type + "))",
+        _ => throw new InvalidOperationException("baked okuyucu: beklenmeyen kind " + k),
+    };
+
+    // Ic ice [Serializable] nesne okuyucusu: struct -> ref parametre, class -> referans.
+    static string EmitNestedReader(SerializedType.FieldSchema f, int idx, StringBuilder nested, ref int nestedN,
+        StringBuilder thunks, ref int thunkN)
+    {
+        string name = "Read_" + idx + "_n" + nestedN++;
+        bool isStruct = f.ElementType.IsValueType;
+        var sb = new StringBuilder();
+        sb.Append("    static void ").Append(name).Append('(').Append(isStruct ? "ref " : "")
+          .Append(CsName(f.ElementType)).Append(" o, global::DigitoyEngine.SceneBinary.Reader r)\n    {\n");
+        EmitReadSwitch(sb, f.Nested, "o", isStruct, idx, nested, ref nestedN, thunks, ref thunkN, 2);
+        sb.Append("    }\n\n");
+        nested.Append(sb);
+        return name;
+    }
+
+    // Alan lvalue'su: public -> dogrudan; private/readonly -> UnsafeAccessor ref-thunk.
+    static string FieldLValue(FieldInfo fi, string owner, bool ownerIsStruct, int idx, StringBuilder thunks, ref int thunkN)
+    {
+        if (fi.IsPublic && !fi.IsInitOnly)
+            return owner + "." + fi.Name;
+        string th = EmitFieldThunk(thunks, fi, idx, ref thunkN);
+        return th + "(" + (ownerIsStruct ? "ref " : "") + owner + ")";
     }
 
     static string CreateExpr(Type t, string tn)
@@ -208,8 +370,13 @@ public static class CatalogWriter
             string th = EmitFieldThunk(thunks, fi, idx, ref thunkN);
             getAccess = setAccess = th + "(" + (structOwner ? "ref " + unbox : "(" + decl + ")o") + ")";
         }
+        // Boxing yalniz deger tipinde (alan ya da sahibi struct): o yol AOT disi. Referans alanlar
+        // (GoRef/CompRef/Asset/nesne/liste) boxing'siz -> AOT'ta da kalir (GameObject.RemapRefs klonlamada kullanir).
+        bool boxes = fi.FieldType.IsValueType || structOwner;
+        if (boxes) sb.Append("#if !DE_AOT\n");
         sb.Append("            Get = o => ").Append(getAccess).Append(",\n");
         sb.Append("            Set = (o, v) => ").Append(setAccess).Append(" = (").Append(ft).Append(")v,\n");
+        if (boxes) sb.Append("#endif\n");
     }
 
     static void EmitContainerCtors(StringBuilder sb, SerializedType.FieldSchema f)
@@ -226,9 +393,13 @@ public static class CatalogWriter
             || f.ElementKind == SerializedType.Kind.Object || f.ElementType.IsValueType))
         {
             string et = CsName(f.ElementType);
+            if (f.ElementType.IsValueType)
+                sb.Append("#if !DE_AOT\n"); // struct boxing: yalniz object-tabanli editor yolu
             sb.Append("            NewElement = () => ")
               .Append(f.ElementType.IsValueType ? "(object)default(" + et + ")" : "new " + et + "()")
               .Append(",\n");
+            if (f.ElementType.IsValueType)
+                sb.Append("#endif\n");
         }
     }
 

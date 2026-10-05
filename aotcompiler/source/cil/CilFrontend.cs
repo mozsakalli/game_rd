@@ -145,6 +145,21 @@ namespace DigitoyEngine.Cil
             };
             static bool IsModeledInterface(Primitive tmpl) => tmpl != null && tmpl.IsInterface && ModeledIfaces.Contains(tmpl.Name);
 
+            // Class'a terfi ettirilen struct'lar (async SM): govde cevirisinde ldloca/initobj ozel islenir.
+            public readonly HashSet<string> promotedStructs = new HashSet<string>();
+
+            bool IsAsyncStateMachineStruct(TypeDefinition td)
+            {
+                bool implements = false;
+                foreach (var ih in td.GetInterfaceImplementations())
+                {
+                    var i = md.GetInterfaceImplementation(ih).Interface;
+                    if (i.Kind != HandleKind.TypeSpecification && RefName(i) == "System.Runtime.CompilerServices.IAsyncStateMachine")
+                        implements = true;
+                }
+                return implements && md.GetString(td.Name).Contains("d__"); // Roslyn adlandirmasi: <Method>d__N
+            }
+
             // ad -> Primitive: once assembly'nin kendi tipleri, sonra corelib yuzeyi (remap)
             public Primitive ResolveName(string full)
             {
@@ -194,7 +209,12 @@ namespace DigitoyEngine.Cil
                         }
                         else if (baseName == "System.ValueType")
                         {
-                            p = new Primitive { Name = full, Type = PrimitiveType.Model, IsStruct = true };
+                            // Roslyn Release async state machine'i STRUCT uretir (ilk await'te builder kutular,
+                            // omru heap'te gecer). Biz basindan class'a terfi ettiririz: Debug IL sekliyle ayni,
+                            // corelib Async.cs (Start -> sm.MoveNext, Schedule(sm)) tek model gorur.
+                            bool asyncSm = IsAsyncStateMachineStruct(td);
+                            p = new Primitive { Name = full, Type = PrimitiveType.Model, IsStruct = !asyncSm };
+                            if (asyncSm) promotedStructs.Add(full);
                         }
                         else if (baseName == "System.MulticastDelegate")
                         {
@@ -399,7 +419,14 @@ namespace DigitoyEngine.Cil
                     var m = methodDefs[kv.Key];
                     var code = kv.Value;
                     result.Add(code);
-                    if (m.RelativeVirtualAddress == 0) continue; // abstract/iface: govdesiz
+                    if (m.RelativeVirtualAddress == 0)
+                    {
+                        // [UnsafeAccessor(Field)] extern ref-thunk (CatalogWriter): govde yok, biz
+                        // sentezleriz: ldarg.0; ldflda <ad>; ret. Erisim denetimi AOT'de yoktur.
+                        try { SynthesizeUnsafeAccessor(m, code); }
+                        catch (Exception ex) { StubBody(code, "UnsafeAccessor: " + ex.Message); }
+                        continue; // abstract/iface: govdesiz
+                    }
                     try
                     {
                         var body = PE.GetMethodBody(m.RelativeVirtualAddress);
@@ -422,6 +449,61 @@ namespace DigitoyEngine.Cil
                 code.Operations.Clear();
                 code.NativeBody = null;
                 code.UntranslatableReason = msg;
+            }
+
+            // [UnsafeAccessor(UnsafeAccessorKind.Field, Name="x")] static extern ref T F(Owner o)
+            // -> { return ref o.x; }. Sahip struct ise parametre zaten ref (Pointer) gelir.
+            void SynthesizeUnsafeAccessor(MethodDefinition m, Code code)
+            {
+                string fieldName = null;
+                bool isAccessor = false;
+                foreach (var ah in m.GetCustomAttributes())
+                {
+                    var a = md.GetCustomAttribute(ah);
+                    string attrType = AttributeTypeName(a);
+                    if (attrType != "System.Runtime.CompilerServices.UnsafeAccessorAttribute")
+                        continue;
+                    isAccessor = true;
+                    // blob: prolog(2) + i32 kind + named args: u16 count, (u8 kind, u8 type, SerString name, SerString value)
+                    var br = md.GetBlobReader(a.Value);
+                    br.ReadUInt16();
+                    int kind = br.ReadInt32();
+                    if (kind != 3) throw new Exception($"yalniz Field accessor desteklenir (kind {kind})");
+                    int named = br.ReadUInt16();
+                    for (int i = 0; i < named; i++)
+                    {
+                        br.ReadByte(); // 0x54 property
+                        br.ReadByte(); // 0x0E string
+                        var pname = br.ReadSerializedString();
+                        var pval = br.ReadSerializedString();
+                        if (pname == "Name") fieldName = pval;
+                    }
+                }
+                if (!isAccessor) return;
+                if (fieldName == null || code.Arguments.Count != 1)
+                    throw new Exception("beklenen bicim: Name=... ve tek sahip parametresi");
+                var owner = code.Arguments[0].Type;
+                if (owner.Type == PrimitiveType.Pointer) owner = owner.ElementType; // ref struct sahibi
+                PrimitiveField field = null;
+                for (var t = owner; t != null && field == null; t = t.Parent)
+                    foreach (var f in t.Fields)
+                        if (f.Name == fieldName) { field = f; break; }
+                if (field == null) throw new Exception($"alan yok: {owner.Name}.{fieldName}");
+                code.Operations.Clear();
+                code.Operations.Add(new Op { Type = OpType.GetArg, Slot = 0 });
+                code.Operations.Add(new Op { Type = OpType.AddrField, Field = field, TypeArguments = new List<Primitive>() });
+                code.Operations.Add(new Op { Type = OpType.Return });
+            }
+
+            string AttributeTypeName(CustomAttribute a)
+            {
+                EntityHandle ctorOwner;
+                if (a.Constructor.Kind == HandleKind.MemberReference)
+                    ctorOwner = md.GetMemberReference((MemberReferenceHandle)a.Constructor).Parent;
+                else
+                    ctorOwner = md.GetMethodDefinition((MethodDefinitionHandle)a.Constructor).GetDeclaringType();
+                return ctorOwner.Kind == HandleKind.TypeReference || ctorOwner.Kind == HandleKind.TypeDefinition
+                    ? RefName(ctorOwner) : null;
             }
 
             public PEReader PE;
@@ -640,6 +722,10 @@ namespace DigitoyEngine.Cil
                 }
                 if (template.Type == PrimitiveType.Array && concrete.Type == PrimitiveType.Array)
                     return UnifyType(template.ElementType, concrete.ElementType, generics, map);
+                if (template.Type == PrimitiveType.Pointer && concrete.Type == PrimitiveType.Pointer) // ref/out T[] vs *Component[]
+                    return UnifyType(template.ElementType, concrete.ElementType, generics, map);
+                if (concrete.Type == PrimitiveType.Pointer && template.Type != PrimitiveType.Pointer) // corelib `ref T[]` = IsRef arg (tip Array), IL tarafi byref Pointer
+                    return UnifyType(template, concrete.ElementType, generics, map);
                 return template == concrete;
             }
 
@@ -777,7 +863,9 @@ namespace DigitoyEngine.Cil
             public Primitive GetGenericMethodParameter(GenCtx ctx2, int index) => ctx2.MethodParams != null && index < ctx2.MethodParams.Count ? ctx2.MethodParams[index] : throw new Exception("CIL: generic method parametresi baglam disi");
             public Primitive GetGenericTypeParameter(GenCtx ctx2, int index) => ctx2.TypeParams != null && index < ctx2.TypeParams.Count ? ctx2.TypeParams[index] : throw new Exception("CIL: generic tip parametresi baglam disi");
             public Primitive GetModifiedType(Primitive modifier, Primitive unmodifiedType, bool isRequired) => unmodifiedType;
-            public Primitive GetPinnedType(Primitive elementType) => throw new Exception("CIL: pinned yok");
+            // pinned local = duz local: GC nesne TASIMAZ ve yalniz managed frame yokken kosar -> pin gereksiz.
+            // (byref pinned -> Pointer, array/string pinned -> ayni tip; `fixed` sonundaki null atamasi oldugu gibi gecer)
+            public Primitive GetPinnedType(Primitive elementType) => elementType;
         }
 
         // ---- govde cevirisi: IL -> bizim op'lar; dal hedeflerinde tip-simulasyonlu spill ----
@@ -839,6 +927,9 @@ namespace DigitoyEngine.Cil
             Primitive Top => stack[stack.Count - 1];
 
             void Emit(OpType t) => EmitOp(new Op { Type = t });
+            // Terfi etmis struct (async SM): Apply node ise sablon adina bakilir.
+            bool IsPromoted(Primitive t) => t != null && t.Type == PrimitiveType.Model && !t.IsStruct
+                && loader.promotedStructs.Contains((t.GenericTemplate ?? t).Name);
             void EmitOp(Op o)
             {
                 o.Line = curLine;
@@ -883,6 +974,18 @@ namespace DigitoyEngine.Cil
             {
                 for (int i = slots.Count - 1; i >= 0; i--) // ustten alta
                 {
+                    // Slot tipi hedefe ILK gelenden alinir; ilk gelen `null` literal (Object) ise sonraki
+                    // gelenin somut referans tipi slot'u inceltir (byte[] ?? null gibi `?.`/`??` lowering'leri).
+                    var incoming = stack[stack.Count - 1];
+                    var slotType = code.Locals[slots[i]];
+                    if (slotType == Primitive.Object && incoming != null && incoming != Primitive.Object
+                        && (incoming.Type == PrimitiveType.Array || (incoming.Type == PrimitiveType.Model && !incoming.IsStruct)))
+                        code.Locals[slots[i]] = incoming;
+                    // `ldc.i4.0; conv.u` null-pointer deyimi ilk gelirse slot tam sayi kalir; sonraki gelen
+                    // gercek pointer slot'u pointer yapar (src?._pixels == null lowering'i). 0 atamasi C'de gecerli.
+                    else if (incoming != null && incoming.Type == PrimitiveType.Pointer && slotType != null
+                        && slotType.Type != PrimitiveType.Pointer && (slotType == Primitive.Int || slotType == Primitive.UInt || slotType == Primitive.Long || slotType == Primitive.ULong))
+                        code.Locals[slots[i]] = incoming;
                     EmitOp(new Op { Type = OpType.SetLocal, Slot = slots[i] });
                     Pop();
                 }
@@ -1083,6 +1186,15 @@ namespace DigitoyEngine.Cil
                 loader.DecodeStandaloneLocals(body.LocalSignature, code.Locals, gc);
                 for (int i = 0; i < code.Locals.Count; i++) code.LocalNames.Add(null);
                 LoadSeqPoints();
+
+                // Class'a terfi etmis struct (async SM) local'leri: IL `ldloca sm; ... Start(ref sm)` ile
+                // stack'teki struct'i doldurur; biz referans tasidigimizdan nesne method girisinde ayrilir.
+                for (int i = 0; i < code.Locals.Count; i++)
+                    if (IsPromoted(code.Locals[i]))
+                    {
+                        EmitOp(new Op { Type = OpType.New, PrimitiveRef = code.Locals[i], TypeArguments = new List<Primitive>(code.Locals[i].TypeArguments) });
+                        EmitOp(new Op { Type = OpType.SetLocal, Slot = i });
+                    }
 
                 var il = body.GetILBytes();
                 ilBytes = il;
@@ -1364,6 +1476,9 @@ namespace DigitoyEngine.Cil
             void Bin()
             {
                 var b = Pop(); var a = Pop();
+                // unsafe isaretci aritmetigi (p + n, p - n): sonuc isaretci tipi (spill slot'u int'e dusmesin)
+                if (a?.Type == PrimitiveType.Pointer) { Push(a); return; }
+                if (b?.Type == PrimitiveType.Pointer) { Push(b); return; }
                 Push(Primitive.PromoteNumeric(a, b));
             }
 
@@ -1409,8 +1524,22 @@ namespace DigitoyEngine.Cil
                     case ILOpCode.Stloc: EmitOp(new Op { Type = OpType.SetLocal, Slot = BitConverter.ToUInt16(il, p) }); Pop(); return p + 2;
 
                     // adres yukleme (struct alici / ref-out / initobj): AddrLocal/AddrArg pointer push eder
-                    case ILOpCode.Ldloca_s: EmitOp(new Op { Type = OpType.AddrLocal, Slot = il[p] }); Push(Primitive.PointerOf(code.Locals[il[p]])); return p + 1;
-                    case ILOpCode.Ldloca: { int i = BitConverter.ToUInt16(il, p); EmitOp(new Op { Type = OpType.AddrLocal, Slot = i }); Push(Primitive.PointerOf(code.Locals[i])); return p + 2; }
+                    case ILOpCode.Ldloca_s:
+                    case ILOpCode.Ldloca:
+                        {
+                            int i = op == ILOpCode.Ldloca_s ? il[p] : BitConverter.ToUInt16(il, p);
+                            int sz = op == ILOpCode.Ldloca_s ? 1 : 2;
+                            if (IsPromoted(code.Locals[i]))
+                            {
+                                // terfi etmis SM: "adres" = nesnenin kendisi (ldflda/call this olarak kullanilir)
+                                EmitOp(new Op { Type = OpType.GetLocal, Slot = i });
+                                Push(code.Locals[i]);
+                                return p + sz;
+                            }
+                            EmitOp(new Op { Type = OpType.AddrLocal, Slot = i });
+                            Push(Primitive.PointerOf(code.Locals[i]));
+                            return p + sz;
+                        }
                     case ILOpCode.Ldarga_s: EmitOp(new Op { Type = OpType.AddrArg, Slot = il[p] }); Push(Primitive.PointerOf(code.Arguments[il[p]].Type)); return p + 1;
                     case ILOpCode.Ldarga: { int i = BitConverter.ToUInt16(il, p); EmitOp(new Op { Type = OpType.AddrArg, Slot = i }); Push(Primitive.PointerOf(code.Arguments[i].Type)); return p + 2; }
                     case ILOpCode.Ldflda:
@@ -1433,6 +1562,11 @@ namespace DigitoyEngine.Cil
                     case ILOpCode.Initobj:
                         {
                             var t = DecodeTypeTok(il, p);
+                            if (IsPromoted(t))
+                            {
+                                Emit(OpType.Pop); Pop(); // nesne girişte ayrildi, alanlar zaten sifir
+                                return p + 4;
+                            }
                             EmitOp(new Op { Type = OpType.Default, PrimitiveRef = t }); // adres zaten stack'te: *adr = default(T)
                             Push(t);
                             EmitOp(new Op { Type = OpType.StoreInd });
@@ -1467,8 +1601,12 @@ namespace DigitoyEngine.Cil
                     case ILOpCode.Ldind_ref:
                         {
                             var addr = Pop();
-                            EmitOp(new Op { Type = OpType.LoadInd });
-                            Push(addr.ElementType ?? Primitive.Int);
+                            // IL ldind.X HER ZAMAN X tipiyle okur: C# pointer cast'i ((float*)p) IL'de iz birakmaz, stack'teki
+                            // isaretci tipi (byte*) yaniltici. Yalniz ldind.ref/ldind.i (tipsiz) isaretcinin kendi tipine guvenir.
+                            var it = IndType(op);
+                            bool useIl = op != ILOpCode.Ldind_ref && op != ILOpCode.Ldind_i || addr.ElementType == null || addr.ElementType == Primitive.Void;
+                            EmitOp(new Op { Type = OpType.LoadInd, PrimitiveRef = useIl ? it : null });
+                            Push(useIl ? it : addr.ElementType);
                             return p;
                         }
                     case ILOpCode.Stind_i1:
@@ -1479,9 +1617,12 @@ namespace DigitoyEngine.Cil
                     case ILOpCode.Stind_r8:
                     case ILOpCode.Stind_ref:
                     case ILOpCode.Stind_i:
-                        Pop(); Pop();
-                        EmitOp(new Op { Type = OpType.StoreInd });
-                        return p;
+                        {
+                            Pop(); var addr2 = Pop();
+                            bool useIl = op != ILOpCode.Stind_ref && op != ILOpCode.Stind_i || addr2.ElementType == null || addr2.ElementType == Primitive.Void;
+                            EmitOp(new Op { Type = OpType.StoreInd, PrimitiveRef = useIl ? IndType(op) : null });
+                            return p;
+                        }
 
                     case ILOpCode.Ldc_i4_m1:
                     case ILOpCode.Ldc_i4_0:
@@ -1657,8 +1798,9 @@ namespace DigitoyEngine.Cil
                                         var smType = gargs[gargs.Length - 1];
                                         var asmIface = loader.ResolveName("System.Runtime.CompilerServices.IAsyncStateMachine");
                                         var moveNext = loader.FindCode(asmIface, "MoveNext", ImmutableArray<Primitive>.Empty);
-                                        // stack tepesi: ref TSM -> deref edip temp'e al
-                                        EmitOp(new Op { Type = OpType.LoadInd });
+                                        // stack tepesi: ref TSM -> deref edip temp'e al (terfi etmis SM: zaten referans)
+                                        if (!IsPromoted(smType))
+                                            EmitOp(new Op { Type = OpType.LoadInd });
                                         Pop(); Push(smType);
                                         int tmpSm = NewLocal(smType);
                                         EmitOp(new Op { Type = OpType.SetLocal, Slot = tmpSm }); Pop();
@@ -1686,6 +1828,7 @@ namespace DigitoyEngine.Cil
                                 }
                             }
                             var ownerOfCall = loader.OwnerPrimOf(h, gc);
+                            if (TrySpanCall(h, ownerOfCall)) return p + 4; // Span/ReadOnlySpan/MemoryExtensions intrinsic'leri
                             if (Loader.IsDelegateType(ownerOfCall) && (h.Kind != HandleKind.MemberReference ? "Invoke" : md.GetString(md.GetMemberReference((MemberReferenceHandle)h).Name)) == "Invoke")
                             {
                                 var delTmpl = ownerOfCall.GenericTemplate ?? ownerOfCall; // imza sablondan (Apply node bos)
@@ -1708,6 +1851,7 @@ namespace DigitoyEngine.Cil
                         {
                             var h = Tok(il, p);
                             var ownerPrim = loader.OwnerPrimOf(h, gc);
+                            if (TrySpanNewobj(h, ownerPrim)) return p + 4; // new Span<T>(void*,int) / (T[]) / (T[],int,int)
                             if (ownerPrim == Primitive.Object) // new object() -> ctor'suz New (Object..ctor no-op)
                             {
                                 EmitOp(new Op { Type = OpType.New, PrimitiveRef = Primitive.Object });
@@ -1804,7 +1948,20 @@ namespace DigitoyEngine.Cil
                         }
                     case ILOpCode.Ldsfld:
                         {
-                            var f = loader.ResolveField(Tok(il, p), gc, out var fta);
+                            var h = Tok(il, p);
+                            // IntPtr.Zero / UIntPtr.Zero: corelib IntPtr = native int (Long); sabit 0.
+                            if (h.Kind == HandleKind.MemberReference)
+                            {
+                                var mr0 = md.GetMemberReference((MemberReferenceHandle)h);
+                                var on = mr0.Parent.Kind == HandleKind.TypeReference ? loader.RefName(mr0.Parent) : null;
+                                if ((on == "System.IntPtr" || on == "System.UIntPtr") && md.GetString(mr0.Name) == "Zero")
+                                {
+                                    EmitOp(new Op { Type = OpType.Push, Value = 0L });
+                                    Push(Primitive.Long);
+                                    return p + 4;
+                                }
+                            }
+                            var f = loader.ResolveField(h, gc, out var fta);
                             EmitOp(new Op { Type = OpType.GetStatic, Field = f, TypeArguments = fta });
                             Push(loader.FieldTypeConcrete(f, fta));
                             return p + 4;
@@ -1828,6 +1985,7 @@ namespace DigitoyEngine.Cil
                             return p + 4;
                         }
                     case ILOpCode.Ldlen: Pop(); Emit(OpType.ArrayLength); Push(Primitive.Int); return p;
+                    case ILOpCode.Localloc: Pop(); Emit(OpType.StackAlloc); Push(Primitive.PointerOf(Primitive.Void)); return p; // stackalloc: C alloca (sifirlanir)
                     case ILOpCode.Ldelem_i1:
                     case ILOpCode.Ldelem_u1:
                     case ILOpCode.Ldelem_i2:
@@ -1918,6 +2076,14 @@ namespace DigitoyEngine.Cil
                             return p + 4;
                         }
 
+                    case ILOpCode.Sizeof:
+                        {
+                            var st = DecodeTypeTok(il, p);
+                            EmitOp(new Op { Type = OpType.SizeOf, PrimitiveRef = st });
+                            Push(Primitive.Int); // C#'ta uint; stack'te int32 — kullanim hep aritmetik
+                            return p + 4;
+                        }
+
                     case ILOpCode.Throw:
                         Pop();
                         Emit(OpType.Throw);
@@ -1936,6 +2102,262 @@ namespace DigitoyEngine.Cil
                 CondBranch(target);
                 return next;
             }
+
+            // ---- Span/ReadOnlySpan intrinsic'leri (corelib Span.cs: {long _ptr; int _len}) ----
+            // MiniCs'te pointer/ref-donus yok; eleman adresi, dilimleme, kopyalama ve dizi/dizgi->span
+            // donusumleri burada op dizisine acilir. GC tasimaz -> ham adres guvenli (fixed ile ayni gerekce).
+            static bool IsSpanTemplate(Primitive t)
+            {
+                var n = (t?.GenericTemplate ?? t)?.Name;
+                return n == "System.Span`1" || n == "System.ReadOnlySpan`1";
+            }
+            Primitive SpanOf(bool readOnly, Primitive elem)
+                => Primitive.Apply(loader.ResolveName(readOnly ? "System.ReadOnlySpan`1" : "System.Span`1"), new[] { elem });
+            void EmitSizeOf(Primitive t) { EmitOp(new Op { Type = OpType.SizeOf, PrimitiveRef = t }); Push(Primitive.Int); }
+            // stack: Pointer(span) -> alan degeri (_ptr: Long, _len: Int)
+            void EmitSpanField(Primitive span, string name)
+            {
+                var tmpl = span.GenericTemplate ?? span;
+                PrimitiveField f = null;
+                foreach (var x in tmpl.Fields) if (x.Name == name) f = x;
+                if (f == null) throw new Exception("CIL: Span alani yok: " + name);
+                Pop();
+                EmitOp(new Op { Type = OpType.AddrField, Field = f, TypeArguments = new List<Primitive>(span.TypeArguments) });
+                EmitOp(new Op { Type = OpType.LoadInd });
+                Push(name == "_ptr" ? Primitive.Long : Primitive.Int);
+            }
+            void EmitConv(Primitive t) { EmitOp(new Op { Type = OpType.Conv, PrimitiveRef = t }); Pop(); Push(t); }
+            // stack: Pointer(elem) -> Pointer(elem) + idx*sizeof(elem)
+            void EmitOffset(int idxLocal, Primitive elem)
+            {
+                EmitOp(new Op { Type = OpType.GetLocal, Slot = idxLocal }); Push(Primitive.Int);
+                EmitSizeOf(elem);
+                Emit(OpType.Mul); Pop(); Pop(); Push(Primitive.Int);
+                Emit(OpType.Add); Pop(); Pop(); Push(Primitive.PointerOf(elem));
+            }
+            int SpillLocal(Primitive t) { int l = NewLocal(t); EmitOp(new Op { Type = OpType.SetLocal, Slot = l }); Pop(); return l; }
+            // yeni span degeri: ctor(long ptr, int len); pushPtr Long, pushLen Int birakmali
+            void EmitMakeSpan(Primitive span, Action pushPtr, Action pushLen)
+            {
+                var tmpl = span.GenericTemplate ?? span;
+                var targs = new List<Primitive>(span.TypeArguments);
+                int sv = NewLocal(span);
+                EmitOp(new Op { Type = OpType.Default, PrimitiveRef = tmpl, TypeArguments = targs });
+                EmitOp(new Op { Type = OpType.SetLocal, Slot = sv });
+                EmitOp(new Op { Type = OpType.AddrLocal, Slot = sv }); Push(Primitive.PointerOf(span));
+                pushPtr(); pushLen();
+                var ctor = loader.FindCode(tmpl, "ctor", ImmutableArray.Create(Primitive.Long, Primitive.Int));
+                EmitOp(new Op { Type = OpType.Call, Code = ctor, TypeArguments = targs });
+                Pop(); Pop(); Pop();
+                EmitOp(new Op { Type = OpType.GetLocal, Slot = sv }); Push(span);
+            }
+            void PushArrayDataLong(int arrLocal, Primitive elem, int startLocal)
+            {
+                EmitOp(new Op { Type = OpType.GetLocal, Slot = arrLocal }); Push(Primitive.ArrayOf(elem));
+                Emit(OpType.ArrayDataAddr); Pop(); Push(Primitive.PointerOf(elem));
+                if (startLocal >= 0) EmitOffset(startLocal, elem);
+                EmitConv(Primitive.Long);
+            }
+            void PushStringDataLong(int strLocal, int startLocal)
+            {
+                EmitOp(new Op { Type = OpType.GetLocal, Slot = strLocal }); Push(Primitive.String);
+                Emit(OpType.ArrayDataAddr); Pop(); Push(Primitive.PointerOf(Primitive.Char));
+                if (startLocal >= 0) EmitOffset(startLocal, Primitive.Char);
+                EmitConv(Primitive.Long);
+            }
+            void PushArrayLen(int arrLocal, Primitive elem) { EmitOp(new Op { Type = OpType.GetLocal, Slot = arrLocal }); Push(Primitive.ArrayOf(elem)); Emit(OpType.ArrayLength); Pop(); Push(Primitive.Int); }
+            void PushStringLen(int strLocal)
+            {
+                EmitOp(new Op { Type = OpType.GetLocal, Slot = strLocal }); Push(Primitive.String);
+                var len = loader.FindCode(Primitive.String, "get_Length", ImmutableArray<Primitive>.Empty);
+                EmitOp(new Op { Type = OpType.Call, Code = len }); Pop(); Push(Primitive.Int);
+            }
+            void PushLocal(int l, Primitive t) { EmitOp(new Op { Type = OpType.GetLocal, Slot = l }); Push(t); }
+            void PushSub(int aLocal, int bLocal)
+            {
+                PushLocal(aLocal, Primitive.Int); PushLocal(bLocal, Primitive.Int);
+                Emit(OpType.Sub); Pop(); Pop(); Push(Primitive.Int);
+            }
+            // uye adi + parametre tipleri (TypeSpec sahipli uye: sablon generic'leriyle cozulur) + method type args
+            (string name, ImmutableArray<Primitive> ps, List<Primitive> margs) CallSigOf(EntityHandle h)
+            {
+                var margs = new List<Primitive>();
+                if (h.Kind == HandleKind.MethodSpecification)
+                {
+                    var msp = md.GetMethodSpecification((MethodSpecificationHandle)h);
+                    margs.AddRange(msp.DecodeSignature(loader.Sig, gc));
+                    h = msp.Method;
+                }
+                if (h.Kind != HandleKind.MemberReference) return (null, default, margs);
+                var mr = md.GetMemberReference((MemberReferenceHandle)h);
+                var name = md.GetString(mr.Name);
+                MethodSignature<Primitive> s;
+                if (mr.Parent.Kind == HandleKind.TypeSpecification)
+                {
+                    var applied = loader.DecodeTypeSpecHandle((TypeSpecificationHandle)mr.Parent, gc);
+                    var template = applied.GenericTemplate ?? applied;
+                    s = mr.DecodeMethodSignature(loader.Sig, new GenCtx { TypeParams = template.GenericParameters });
+                }
+                else s = mr.DecodeMethodSignature(loader.Sig, margs.Count > 0 ? new GenCtx { TypeParams = gc.TypeParams, MethodParams = margs } : gc); // generic method: !!T -> somut arg
+                return (name, s.ParameterTypes, margs);
+            }
+            bool TrySpanCall(EntityHandle h, Primitive owner)
+            {
+                var ownerName = (owner?.GenericTemplate ?? owner)?.Name;
+                bool isSpanOwner = IsSpanTemplate(owner);
+                if (!isSpanOwner && ownerName != "System.MemoryExtensions" && ownerName != "System.Buffer") return false;
+                var (name, ps, margs) = CallSigOf(h);
+                if (name == null) return false;
+                if (ownerName == "System.Buffer")
+                {
+                    if (name != "MemoryCopy" || ps.Length != 4) return false; // (src, dst, dstSize, srcSize) -> SpanOps.Copy(dst, src, (int)srcSize)
+                    int tn = SpillLocal(Primitive.Long); // srcSize (stack tepesi)
+                    SpillLocal(Primitive.Long);          // dstSize: kullanilmaz (C#'ta yalniz tasma kontrolu)
+                    var dstT = Top; int tdst = SpillLocal(dstT);
+                    var srcT = Top; int tsrcp = SpillLocal(srcT);
+                    PushLocal(tdst, dstT); EmitConv(Primitive.Long);
+                    PushLocal(tsrcp, srcT); EmitConv(Primitive.Long);
+                    PushLocal(tn, Primitive.Long); EmitConv(Primitive.Int);
+                    var copy = loader.FindCode(loader.ResolveName("System.SpanOps"), "Copy", ImmutableArray.Create(Primitive.Long, Primitive.Long, Primitive.Int));
+                    EmitOp(new Op { Type = OpType.Call, Code = copy }); Pop(); Pop(); Pop();
+                    return true;
+                }
+                if (isSpanOwner)
+                {
+                    bool ro = ownerName == "System.ReadOnlySpan`1";
+                    var T = owner.TypeArguments[0];
+                    switch (name)
+                    {
+                        case "get_Item": // [this*, idx] -> &elem
+                            {
+                                int ti = SpillLocal(Primitive.Int);
+                                EmitSpanField(owner, "_ptr"); EmitConv(Primitive.PointerOf(T)); EmitOffset(ti, T);
+                                return true;
+                            }
+                        case "GetPinnableReference": // [this*] -> T*
+                            EmitSpanField(owner, "_ptr"); EmitConv(Primitive.PointerOf(T));
+                            return true;
+                        case "Slice": // [this*, start(, len)]
+                            {
+                                int tl = ps.Length == 2 ? SpillLocal(Primitive.Int) : -1;
+                                int ts = SpillLocal(Primitive.Int);
+                                int tt = SpillLocal(Primitive.PointerOf(owner));
+                                EmitMakeSpan(owner,
+                                    () => { PushLocal(tt, Primitive.PointerOf(owner)); EmitSpanField(owner, "_ptr"); EmitConv(Primitive.PointerOf(T)); EmitOffset(ts, T); EmitConv(Primitive.Long); },
+                                    () => { if (tl >= 0) PushLocal(tl, Primitive.Int); else { PushLocal(tt, Primitive.PointerOf(owner)); EmitSpanField(owner, "_len"); PushLocal(ts, Primitive.Int); Emit(OpType.Sub); Pop(); Pop(); Push(Primitive.Int); } });
+                                return true;
+                            }
+                        case "CopyTo": // [this*, dstSpan(value)] -> SpanOps.Copy(dst._ptr, this._ptr, this._len*sizeof)
+                            {
+                                var dstT = Top; int td = SpillLocal(dstT);
+                                int tt = SpillLocal(Primitive.PointerOf(owner));
+                                EmitOp(new Op { Type = OpType.AddrLocal, Slot = td }); Push(Primitive.PointerOf(dstT)); EmitSpanField(dstT, "_ptr");
+                                PushLocal(tt, Primitive.PointerOf(owner)); EmitSpanField(owner, "_ptr");
+                                PushLocal(tt, Primitive.PointerOf(owner)); EmitSpanField(owner, "_len"); EmitSizeOf(T); Emit(OpType.Mul); Pop(); Pop(); Push(Primitive.Int);
+                                var copy = loader.FindCode(loader.ResolveName("System.SpanOps"), "Copy", ImmutableArray.Create(Primitive.Long, Primitive.Long, Primitive.Int));
+                                EmitOp(new Op { Type = OpType.Call, Code = copy }); Pop(); Pop(); Pop();
+                                return true;
+                            }
+                        case "ToArray": // [this*] -> T[]
+                            {
+                                int tt = SpillLocal(Primitive.PointerOf(owner));
+                                PushLocal(tt, Primitive.PointerOf(owner)); EmitSpanField(owner, "_len");
+                                Pop(); EmitOp(new Op { Type = OpType.NewArray, PrimitiveRef = T }); Push(Primitive.ArrayOf(T));
+                                int ta = SpillLocal(Primitive.ArrayOf(T));
+                                PushArrayDataLong(ta, T, -1);
+                                PushLocal(tt, Primitive.PointerOf(owner)); EmitSpanField(owner, "_ptr");
+                                PushLocal(tt, Primitive.PointerOf(owner)); EmitSpanField(owner, "_len"); EmitSizeOf(T); Emit(OpType.Mul); Pop(); Pop(); Push(Primitive.Int);
+                                var copy = loader.FindCode(loader.ResolveName("System.SpanOps"), "Copy", ImmutableArray.Create(Primitive.Long, Primitive.Long, Primitive.Int));
+                                EmitOp(new Op { Type = OpType.Call, Code = copy }); Pop(); Pop(); Pop();
+                                PushLocal(ta, Primitive.ArrayOf(T));
+                                return true;
+                            }
+                        case "op_Implicit": // T[] -> span | Span<T> -> ReadOnlySpan<T>
+                            {
+                                var arg = Top;
+                                if (arg.Type == PrimitiveType.Array)
+                                {
+                                    int ta = SpillLocal(arg);
+                                    EmitMakeSpan(owner, () => PushArrayDataLong(ta, T, -1), () => PushArrayLen(ta, T));
+                                    return true;
+                                }
+                                if (IsSpanTemplate(arg)) // Span<T> -> ReadOnlySpan<T> (operator Span<T> uzerinde tanimli): ayni yerlesim, yeniden yorumla
+                                {
+                                    var target = SpanOf(true, T);
+                                    int tv = SpillLocal(arg);
+                                    EmitOp(new Op { Type = OpType.AddrLocal, Slot = tv }); Push(Primitive.PointerOf(arg));
+                                    EmitConv(Primitive.PointerOf(target));
+                                    EmitOp(new Op { Type = OpType.LoadInd }); Pop(); Push(target);
+                                    return true;
+                                }
+                                return false;
+                            }
+                        default: return false; // Length/IsEmpty/Empty: corelib govdesi (normal cagri yolu)
+                    }
+                }
+                // MemoryExtensions.AsSpan(T[]) / (T[],int) / (T[],int,int) / (string) / (string,int) / (string,int,int)
+                if (name != "AsSpan" || ps.Length < 1) return false;
+                bool str = ps[0] == Primitive.String;
+                if (!str && ps[0].Type != PrimitiveType.Array) return false;
+                var elem = str ? Primitive.Char : (margs.Count > 0 ? margs[0] : ps[0].ElementType);
+                var span = SpanOf(str, elem);
+                int tlen = ps.Length == 3 ? SpillLocal(Primitive.Int) : -1;
+                int tst = ps.Length >= 2 ? SpillLocal(Primitive.Int) : -1;
+                int tsrc = SpillLocal(str ? Primitive.String : Primitive.ArrayOf(elem));
+                EmitMakeSpan(span,
+                    () => { if (str) PushStringDataLong(tsrc, tst); else PushArrayDataLong(tsrc, elem, tst); },
+                    () =>
+                    {
+                        if (tlen >= 0) { PushLocal(tlen, Primitive.Int); return; }
+                        if (str) PushStringLen(tsrc); else PushArrayLen(tsrc, elem);
+                        if (tst >= 0) { PushLocal(tst, Primitive.Int); Emit(OpType.Sub); Pop(); Pop(); Push(Primitive.Int); }
+                    });
+                return true;
+            }
+            bool TrySpanNewobj(EntityHandle h, Primitive owner)
+            {
+                if (!IsSpanTemplate(owner)) return false;
+                var (name, ps, _) = CallSigOf(h);
+                if (name != ".ctor") return false;
+                var T = owner.TypeArguments[0];
+                if (ps.Length == 2 && ps[0].Type == PrimitiveType.Pointer) // (void*, int)
+                {
+                    int tl = SpillLocal(Primitive.Int);
+                    var pt = Top; int tp = SpillLocal(pt);
+                    EmitMakeSpan(owner, () => { PushLocal(tp, pt); EmitConv(Primitive.Long); }, () => PushLocal(tl, Primitive.Int));
+                    return true;
+                }
+                if (ps.Length == 1 && ps[0].Type == PrimitiveType.Array) // (T[])
+                {
+                    int ta = SpillLocal(Primitive.ArrayOf(T));
+                    EmitMakeSpan(owner, () => PushArrayDataLong(ta, T, -1), () => PushArrayLen(ta, T));
+                    return true;
+                }
+                if (ps.Length == 3 && ps[0].Type == PrimitiveType.Array) // (T[], start, len)
+                {
+                    int tl = SpillLocal(Primitive.Int);
+                    int ts = SpillLocal(Primitive.Int);
+                    int ta = SpillLocal(Primitive.ArrayOf(T));
+                    EmitMakeSpan(owner, () => PushArrayDataLong(ta, T, ts), () => PushLocal(tl, Primitive.Int));
+                    return true;
+                }
+                return false;
+            }
+
+            static Primitive IndType(ILOpCode op) => op switch
+            {
+                ILOpCode.Ldind_i1 or ILOpCode.Stind_i1 => Primitive.SByte,
+                ILOpCode.Ldind_u1 => Primitive.Byte,
+                ILOpCode.Ldind_i2 or ILOpCode.Stind_i2 => Primitive.Short,
+                ILOpCode.Ldind_u2 => Primitive.UShort,
+                ILOpCode.Ldind_i4 or ILOpCode.Stind_i4 => Primitive.Int,
+                ILOpCode.Ldind_u4 => Primitive.UInt,
+                ILOpCode.Ldind_i8 or ILOpCode.Stind_i8 => Primitive.Long,
+                ILOpCode.Ldind_r4 or ILOpCode.Stind_r4 => Primitive.Float,
+                ILOpCode.Ldind_r8 or ILOpCode.Stind_r8 => Primitive.Double,
+                ILOpCode.Ldind_ref or ILOpCode.Stind_ref => Primitive.Object,
+                _ => Primitive.Long, // ldind.i/stind.i: native int
+            };
 
             int Conv(Primitive t, int p)
             {

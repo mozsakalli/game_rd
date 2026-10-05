@@ -50,6 +50,7 @@ public static class SerializedType
         public Action<Component, float> SetFloat;
     }
 
+#if !DE_AOT // reflection/expression yolu: editor + .NET player. AOT: uretilmis Registry doldurur.
     // Float/Int alan icin erisimcileri kurar (alan basina BIR KEZ; cagri ~2-3ns).
     public static void EnsureFloatAccessors(FieldSchema f)
     {
@@ -109,10 +110,13 @@ public static class SerializedType
             }
         }
         var schema = list.ToArray();
-        ResolveShowIf(schema);
+#if DE_EDITOR
+        ResolveShowIf(schema); // [ShowIf] inspector kosulu: yalniz editor
+#endif
         return schema;
     }
 
+#if DE_EDITOR
     // [ShowIf] kardes referanslari sema kurulduktan sonra cozulur (ileri referans serbest).
     static void ResolveShowIf(FieldSchema[] schema)
     {
@@ -156,6 +160,7 @@ public static class SerializedType
         };
     }
 
+#endif
     static FieldSchema BuildField(FieldInfo fi, int depth, bool insideStruct)
     {
         var ft = fi.FieldType;
@@ -226,6 +231,7 @@ public static class SerializedType
            && t != typeof(GameObject) && !typeof(IAsset).IsAssignableFrom(t)
            && (t.IsValueType || t.GetConstructor(Type.EmptyTypes) != null);
 
+#endif
     public static FieldSchema Find(FieldSchema[] schema, string name)
     {
         for (int i = 0; i < schema.Length; i++)
@@ -237,6 +243,7 @@ public static class SerializedType
         return null;
     }
 
+#if DE_EDITOR // metin format (DocNode/YAML skalar) yalniz editor; release/AOT'ta SceneBinary + uretilen tipli okuyucular
     // --- Deger <-> DocNode (agac: liste ve ic ice nesne dahil) ---
 
     // Referans kodlama baglami SceneDoc'tan gelir (localId haritalari).
@@ -372,6 +379,7 @@ public static class SerializedType
         }
     }
 
+#endif
     static bool TryKind(Type ft, out Kind k)
     {
         if (ft == typeof(float)) { k = Kind.Float; return true; }
@@ -390,6 +398,7 @@ public static class SerializedType
         return false;
     }
 
+#if DE_EDITOR
     // --- Kanonik string bicimleri (YAML skalarlariyla birebir) ---
 
     public static string Format(object v, Kind k) => k switch
@@ -463,4 +472,5 @@ public static class SerializedType
 
     static int HexNib(char c)
         => c <= '9' ? c - '0' : (char.ToLowerInvariant(c) - 'a' + 10);
+#endif
 }
