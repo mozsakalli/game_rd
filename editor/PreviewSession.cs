@@ -67,4 +67,18 @@ public static class PreviewSession
         if (Active && !Pinned && selectedDocId != _ownerDocId && !InOwnerSubtree(selectedDocId))
             End();
     }
+
+    // Sahip component IEditorPreview ise edit modunda kendi saatiyle adimlanir
+    // (parcacik gibi Update'e bagli sistemler preview'da akar).
+    public static void Step(float dt)
+    {
+        if (!Active)
+            return;
+        var es = App.EditScene;
+        var g = es?.Doc.Objects.Find(static o => o.Id == _ownerDocId);
+        if (g == null || _ownerCompIndex < 0 || _ownerCompIndex >= g.Components.Count)
+            return;
+        if (es.FindLiveComponent(g, g.Components[_ownerCompIndex]) is DigitoyEngine.IEditorPreview p)
+            p.PreviewStep(dt);
+    }
 }

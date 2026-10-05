@@ -72,6 +72,7 @@ FRAMEWORKS=(
     -framework QuartzCore
     -framework Metal
     -framework MetalKit
+    -framework AudioToolbox
 )
 
 echo "[build_editor] clang: $CLANG"
@@ -81,6 +82,7 @@ echo "[build_editor] cikti: $OUT"
 # CAMetalLayer host kodu ARC ister). GLFW kaynaklari ARC'SIZ derlenir (GLFW elle
 # retain/release yapar; ARC altinda derlenmez). Sonra tek dylib'e linklenir.
 SHIM_OBJ="$OUTDIR/sokol_shim.o"
+AUDIO_OBJ="$OUTDIR/audio_shim.o"
 
 "$CLANG" -O1 -w -c \
     -fobjc-arc \
@@ -88,11 +90,18 @@ SHIM_OBJ="$OUTDIR/sokol_shim.o"
     "${DEFINES[@]}" "${INCLUDES[@]}" \
     -o "$SHIM_OBJ"
 
+# Ses: sokol_audio CoreAudio impl'i macOS'ta duz C (iOS'ta ObjC gerekir) + SFX mixer
+# + editor decoder'lari. Muzik player (AVPlayer) macOS'ta sonraki dilim (stub).
+"$CLANG" -O1 -w -c \
+    "$HERE/audio_shim.c" \
+    "${DEFINES[@]}" "${INCLUDES[@]}" \
+    -o "$AUDIO_OBJ"
+
 "$CLANG" -O1 -w -dynamiclib \
     -fvisibility=default \
     -Wno-deprecated-declarations \
     "${DEFINES[@]}" "${INCLUDES[@]}" \
-    "$SHIM_OBJ" \
+    "$SHIM_OBJ" "$AUDIO_OBJ" \
     "${SOURCES[@]}" \
     "${FRAMEWORKS[@]}" \
     -install_name "@rpath/libdigitoyengine_native.dylib" \

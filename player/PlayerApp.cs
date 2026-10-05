@@ -70,6 +70,7 @@ public unsafe class PlayerApp
 
         // --- katalog: uretilmis kayit (reflection taramasi YOK) ---
         var catalog = LoadCatalog(root);
+        Audio.Source = _source; // muzik: pak araligi / loose dosya; URL'ler dogrudan
 
         // --- pencere + sokol ---
         GLFW.Init();
@@ -159,6 +160,7 @@ public unsafe class PlayerApp
 #endif
         }
 
+        Audio.Shutdown();
         Sokol.Shutdown();
         GLFW.Terminate();
     }

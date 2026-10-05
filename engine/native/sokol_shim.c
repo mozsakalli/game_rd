@@ -305,9 +305,12 @@ SOKOL_API void de_sokol_begin_pass_offscreen(
     sg_begin_pass(&pass);
 }
 
+void de_audio_tick(void); // audio_shim.c: idle gating + ertelenmis free (frame'de bir)
+
 SOKOL_API void de_sokol_commit(void)
 {
     sg_commit();
+    de_audio_tick();
 #if defined(SOKOL_METAL)
     de_metal_frame_end(); // present sonrasi drawable ref'ini birak
 #endif

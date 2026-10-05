@@ -117,6 +117,7 @@ public unsafe class App
         _assets.ScanMetas(createMissing: true); // GUID kimligi: eksik .meta uretilir
         ImportPipeline.Init(_project);
         _assets.ArtifactResolver = ImportPipeline.ResolveArtifact; // import'lu asset'ler Library'den
+        Audio.Source = _assets.Source; // muzik anahtarlari loose dosyadan
         AssetDatabase.LogWarning = EditorLog.Warning;
         PixelEffect.LogError = EditorLog.Error; // fx derleme hatalari Console paneline
         _gameCode = new GameCode();
@@ -125,6 +126,7 @@ public unsafe class App
 #if DE_EDITOR
         LifecycleTests.Run(_catalog); // izole sahnede kenar durum smoke testleri
         MovieClipTests.Run(_catalog);
+        ParticleTests.Run(_catalog);
         SerializationTests.Run(_catalog);
         InspectorTests.Run();
         LayoutTests.Run(_catalog);
@@ -206,6 +208,7 @@ public unsafe class App
                 editLive.ScreenWidth = GameOutput.ViewW;
                 editLive.ScreenHeight = GameOutput.ViewH;
                 editLive.Update(dt, simulate: false);
+                PreviewSession.Step(dt);
             }
             Scene.UpdateAll(dt, GameOutput.ViewW, GameOutput.ViewH, PlayMode.Simulate);
 
@@ -294,6 +297,7 @@ public unsafe class App
         RpcHost.Stop();
         GuiDock.SaveLayout(_layoutPath); // kullanici yerlesimi kalici
         SaveSettings();
+        Audio.Shutdown();
         Sokol.Shutdown();
         GLFW.DestroyWindow(window);
         GLFW.Terminate();

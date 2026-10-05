@@ -101,7 +101,9 @@ static class AssetPackBuilder
             items.Add((key, assets.PathToGuid(key), data));
         }
 
-        var (rawTotal, pakSize) = PakWriter.Write(outPath, items);
+        var (rawTotal, pakSize) = PakWriter.Write(outPath, items,
+            // Stream tipli ses: native player dosyadan offset'le okur -> zlib OLAMAZ.
+            key => AssetDatabase.ImportTypeOf(key) == typeof(AudioClip) && AudioImporter.IsStream(key));
         EditorLog.Info($"[pak] {items.Count} giris ({dtexCount} dtex, {skipped} atlas uyesi atlandi) -> {outPath} " +
             $"({pakSize / 1024.0:0.0} KB, acik {rawTotal / 1024.0:0.0} KB, %{100.0 * pakSize / Math.Max(1, rawTotal):0.0})");
 

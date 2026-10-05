@@ -4,7 +4,8 @@ REM build_editor.cmd - Windows editor native DLL derleyici
 REM ---------------------------------------------------------------------------
 REM Editor C# tarafi (JIT/.NET) bu DLL'i [DllImport("digitoyengine_native")] ile
 REM yukler. Icerik: sokol_gfx (sokol_impl.c) + sokol shim (sokol_shim.c) + Win32
-REM host (host_win32.c). clang ile paylasimli kutuphane (-shared) olarak derlenir,
+REM host (host_win32.c) + ses (audio_shim.c: sokol_audio WASAPI mixer + Media
+REM Foundation muzik player + editor decoder'lari). clang ile paylasimli kutuphane (-shared) olarak derlenir,
 REM tum semboller export edilir; cikti build\digitoyengine_native.dll.
 REM ===========================================================================
 setlocal enabledelayedexpansion
@@ -31,6 +32,7 @@ if not exist "%OUTDIR%" mkdir "%OUTDIR%"
 
 set "SOURCES="
 set "SOURCES=%SOURCES% %HERE%sokol_shim.c"
+set "SOURCES=%SOURCES% %HERE%audio_shim.c"
 set "SOURCES=%SOURCES% %HERE%glfw-master\src\context.c"
 set "SOURCES=%SOURCES% %HERE%glfw-master\src\init.c"
 set "SOURCES=%SOURCES% %HERE%glfw-master\src\input.c"
@@ -55,7 +57,7 @@ set "SOURCES=%SOURCES% %HERE%glfw-master\src\null_window.c"
 
 set "DEFINES=-DSOKOL_GLCORE -D_GLFW_WIN32 -D_GLFW_BUILD_DLL -DDE_BUILD_DLL -DSOKOL_IMPL -DSOKOL_GLCORE"
 set "INCLUDES=-I%HERE%"
-set "LIBS=-lopengl32 -lgdi32 -luser32 -lkernel32 -lshell32"
+set "LIBS=-lopengl32 -lgdi32 -luser32 -lkernel32 -lshell32 -lole32 -loleaut32 -lmfplat -lmfuuid"
 
 echo [build_editor] clang: %CLANG%
 echo [build_editor] cikti: %OUT%

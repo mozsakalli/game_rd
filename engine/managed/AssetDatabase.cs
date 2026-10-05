@@ -111,6 +111,9 @@ public sealed class AssetDatabase
         [".ttf"] = typeof(Font),
         [".otf"] = typeof(Font),
         [".fx"] = typeof(PixelEffect),
+        [".mp3"] = typeof(AudioClip),
+        [".ogg"] = typeof(AudioClip),
+        [".wav"] = typeof(AudioClip),
     };
 
     public static void RegisterImporter(string extension, Type type) => _importers[extension] = type;
@@ -174,7 +177,33 @@ public sealed class AssetDatabase
             return LoadFont(keyOrGuid);
         if (type == typeof(PixelEffect))
             return LoadPixelEffect(keyOrGuid);
+        if (type == typeof(AudioClip))
+            return LoadAudioClip(keyOrGuid);
         return null;
+    }
+
+    readonly Dictionary<string, AudioClip> _clips = new();
+
+    // SFX klibi: DPCM artifact (import'ta PCM'e cozulmus) SENKRON okunur ve native
+    // mixer'a kopyalanir — klipler kucuk, sahne kurulumunda bir kez. "Stream" tipli
+    // (muzik) kaynaklar DPCM degildir -> null (Audio.PlayMusic ile calinir).
+    public AudioClip LoadAudioClip(string key)
+    {
+        key = ResolvePath(key);
+        if (string.IsNullOrEmpty(key))
+            return null;
+        if (_clips.TryGetValue(key, out var c))
+            return c;
+        var bytes = ReadArtifact(key, null);
+        c = bytes != null ? AudioClip.FromArtifact(bytes, key) : null;
+        if (c == null)
+        {
+            if (bytes != null)
+                LogWarning?.Invoke($"[audio] DPCM degil (Stream tipli muzik mi?): {key}");
+            return null;
+        }
+        _clips[key] = c;
+        return c;
     }
 
     // Cizilebilir bolge: varsayilan tum-sayfa (kaynak png). Atlas builder/loader
@@ -416,6 +445,22 @@ public sealed class AssetDatabase
     // de yerinde tazelenir (Version++ compose cache'leri bayatlatir).
     public bool InvalidateImported(string relPath)
     {
+        if (_clips.TryGetValue(relPath, out var clip))
+        {
+            // Klip yerinde tazelenir (referanslar bozulmaz): eski native klip serbest,
+            // yeni DPCM yuklenir; calan voice'lar fade ile duser.
+            var bytes = ReadArtifact(relPath, null);
+            var fresh = bytes != null ? AudioClip.FromArtifact(bytes, relPath) : null;
+            clip.Destroy();
+            if (fresh != null)
+            {
+                clip.Handle = fresh.Handle;
+                fresh.Handle = -1;
+            }
+            else
+                _clips.Remove(relPath);
+            return true;
+        }
         if (_fx.TryGetValue(relPath, out var fx))
         {
             var bytes = ArtifactResolver?.Invoke(relPath) ?? _source.ReadBytes(relPath);

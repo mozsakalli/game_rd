@@ -18,6 +18,11 @@ public abstract class AssetSource
 
     public abstract bool Exists(string key);
 
+    // Akis kaynagi (muzik/radyo native player'i icin): anahtarin ham baytlarinin
+    // yasadigi dosya + aralik. length 0 = dosyanin tamami. Pak'ta yalniz STORED
+    // (sikistirilmamis) girisler akitilabilir; zlib'li giris = false.
+    public abstract bool TryGetRange(string key, out string path, out long offset, out long length);
+
     // Kaynaktaki tum anahtarlar (atlas kesfi gibi toplu isler; sicak yolda cagrilmaz).
     public abstract IEnumerable<string> Keys { get; }
 
@@ -42,6 +47,13 @@ public sealed class LooseFileSource : AssetSource
     }
 
     public override bool Exists(string key) => File.Exists(Path.Combine(Root, key));
+
+    public override bool TryGetRange(string key, out string path, out long offset, out long length)
+    {
+        path = Path.Combine(Root, key);
+        offset = length = 0;
+        return File.Exists(path);
+    }
 
     public override IEnumerable<string> Keys
     {
@@ -126,6 +138,17 @@ public sealed class PakSource : AssetSource
 
     public override bool Exists(string key) => _entries.ContainsKey(key);
 
+    public override bool TryGetRange(string key, out string path, out long offset, out long length)
+    {
+        path = _path;
+        offset = length = 0;
+        if (!_entries.TryGetValue(key, out var e) || e.StoredLength <= 0 || e.RawLength != e.StoredLength)
+            return false; // yok / bos stub / zlib'li (akitilamaz)
+        offset = e.Offset;
+        length = e.StoredLength;
+        return true;
+    }
+
     public override IEnumerable<string> Keys => _entries.Keys;
 
     public override void FillGuidTable(
@@ -146,15 +169,22 @@ public static class PakWriter
 {
     // items: (key, guid, icerik). Icerik cagiran tarafta hazirlanir (texture'lar
     // build'de DTEX'e cevrilir). Her giris zlib'lenir; kazanc yoksa ham saklanir.
-    // Donus: (rawToplam, pakBoyu).
+    // forceStore(key)=true: giris HER ZAMAN ham (akitilacak muzik gibi — native
+    // player dosyadan offset'le okur, zlib olamaz). Donus: (rawToplam, pakBoyu).
     public static (long RawTotal, long PakSize) Write(
-        string outPath, IReadOnlyList<(string Key, string Guid, byte[] Data)> items)
+        string outPath, IReadOnlyList<(string Key, string Guid, byte[] Data)> items,
+        Func<string, bool> forceStore = null)
     {
         var blobs = new byte[items.Count][];
         long rawTotal = 0;
         for (int i = 0; i < items.Count; i++)
         {
             rawTotal += items[i].Data.Length;
+            if (forceStore != null && forceStore(items[i].Key))
+            {
+                blobs[i] = items[i].Data;
+                continue;
+            }
             var packed = Compress(items[i].Data);
             blobs[i] = packed.Length < items[i].Data.Length ? packed : items[i].Data;
         }

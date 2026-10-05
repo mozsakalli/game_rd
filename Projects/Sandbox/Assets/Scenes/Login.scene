@@ -241,8 +241,8 @@ objects:
                 Ease: Linear
                 Value: 0 0 -2 0
                 Ref: ''
-        Labels:
-        Actions:
+        Labels: ''
+        Actions: ''
   - id: 10
     parent: 0
     name: GameObject
@@ -368,3 +368,119 @@ objects:
         comp: 'LayoutBox:0'
         prop: SortingOrder
         value: 0
+  - id: 20
+    parent: 0
+    name: GameObject (3)
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: ParticleSystem
+        SortingOrder: 100
+        BlendMode: Normal
+        startSpeed:
+          min: 50
+          max: 200
+        startSize:
+          min: 24
+          max: 50
+        sprite: 075be890f3654858ba989f833e31109a
+        startRotation:
+          min: 0 0 0
+          max: 0 0 360
+        renderMode: Billboard
+        emission:
+          rateOverTime: 0
+          rateOverDistance: 0
+          bursts:
+            - time: 0
+              count: 50
+              countMax: 150
+              cycles: 1
+              interval: 0.1
+              probability: 1
+        shape:
+          type: Circle
+          radius: 4
+          radiusThickness: 4
+          arc: 360
+          boxSize: 0 0 0
+          coneAngle: 0
+          coneLength: 0
+          offset: 0 0 0
+          rotation: 0 0 0
+          randomDirection: 0
+          emit3D: false
+          alignToDirection: false
+        velocity:
+          gravity: 0 0 0
+          force: 0 0 0
+          drag: 0
+          orbitalSpeed: 0
+          radialSpeed: 0
+          linear:
+            min: 0 0 0
+            max: 0 0 0
+          speed:
+            mode: Ease
+            from: 2
+            to: 2
+            ease: InBack
+            curve:
+              Keys: ''
+            randomize: 0
+        sizeOverLifetime:
+          mode: Constant
+          from: 1
+          to: 1
+          ease: Linear
+          curve:
+            Keys: ''
+          randomize: 0
+        rotation:
+          angularVelocity:
+            min: 0 0 0
+            max: 0 0 360
+          speed:
+            mode: Constant
+            from: 1
+            to: 1
+            ease: Linear
+            curve:
+              Keys: ''
+            randomize: 0
+          alignToVelocity: false
+          alignOffset: 0
+        colorOverLifetime:
+          keys:
+            - time: 0
+              color: '#ffffffff'
+            - time: 0.7
+              color: '#ffffffff'
+            - time: 1
+              color: '#ffffff00'
+        simulationSpace: World
+        startLifetime:
+          min: 1
+          max: 3
+        sprites:
+          - 14a90a6160f94ada8a43554d942d1136
+          - a2aa37002b2946358bbc8ad9f404f3a6
+          - 55a40809a0204d04926120e1c34b0689
+          - da20c4f6ff6e47a7b40a82a76294ac2c
+          - 39480e31dd904bdb994d3ea49e357093
+          - cc809d00b6d84dadb3f747b43c971b79
+          - d8252a1134da468ba54f0137d312f8b9
+          - 9328504188ca479b8bcd290cc2c2809a
+        frames:
+          mode: Fps
+          cycles: 50
+          fps: 30
+          startFrame:
+            min: 0
+            max: 5
+        Effects:
+        looping: false
+        duration: 2
+        stopAction: Disable
+        simulationSpeed: 1

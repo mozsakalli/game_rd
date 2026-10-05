@@ -434,6 +434,15 @@ public static partial class Gui
     public static float DragFloat(in Rect rect, float value, float speed = 0.01f, float min = float.MinValue, float max = float.MaxValue)
         => (float)DragCore(rect, value, speed, min, max, "G9", integer: false);
 
+    // "G9" formati System.Single (float) icin round-trip hassasiyetidir; deger
+    // double olarak tasindigi icin dogrudan double.TryFormat cagirmak float'ta
+    // bulunmayan ekstra basamaklari gosterir (orn. 0.1 -> 0.100000001). Float
+    // modunda once (float) cast yapip oyle formatlamak bu sapmayi onler.
+    static bool FormatNum(double value, bool integer, string format, Span<char> buf, out int len)
+        => integer
+            ? value.TryFormat(buf, out len, format, System.Globalization.CultureInfo.InvariantCulture)
+            : ((float)value).TryFormat(buf, out len, format, System.Globalization.CultureInfo.InvariantCulture);
+
     static double DragCore(in Rect rect, double value, double speed, double min, double max,
         string format, bool integer)
     {
@@ -445,7 +454,7 @@ public static partial class Gui
         if (!editing && GuiUtility.ConsumeTabFocus(id))
         {
             _numEditId = id;
-            value.TryFormat(_numBuf, out _numLen, format, System.Globalization.CultureInfo.InvariantCulture);
+            FormatNum(value, integer, format, _numBuf, out _numLen);
             ref TextEditState ts = ref GuiUtility.GetState<TextEditState>(id);
             ts.Anchor = 0;
             ts.Caret = _numLen;
@@ -495,7 +504,7 @@ public static partial class Gui
                         // Suruklenmemis tik: yazma moduna gir (mevcut deger tumu secili).
                         _numEditId = id;
                         GuiUtility.KeyboardControl = id;
-                        value.TryFormat(_numBuf, out _numLen, format, System.Globalization.CultureInfo.InvariantCulture);
+                        FormatNum(value, integer, format, _numBuf, out _numLen);
                         ref TextEditState ts = ref GuiUtility.GetState<TextEditState>(id);
                         ts.Anchor = 0;
                         ts.Caret = _numLen;
@@ -509,7 +518,7 @@ public static partial class Gui
                         GuiCursorManager.Request(GuiCursor.ResizeH);
                     Skin.TextField.Draw(rect, id);
                     Span<char> tmp = stackalloc char[24];
-                    value.TryFormat(tmp, out int n, format, System.Globalization.CultureInfo.InvariantCulture);
+                    FormatNum(value, integer, format, tmp, out int n);
                     GuiRenderer.DrawTextIn(rect, tmp.Slice(0, n), FontSize, _textColor);
                     break;
                 }
