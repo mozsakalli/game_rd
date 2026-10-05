@@ -1,0 +1,39 @@
+{
+  "runtimeTarget": {
+    "name": ".NETCoreApp,Version=v9.0",
+    "signature": ""
+  },
+  "compilationOptions": {},
+  "targets": {
+    ".NETCoreApp,Version=v9.0": {
+      "DigitoyPlayer/1.0.0": {
+        "dependencies": {
+          "DigitoyEngine": "1.0.0"
+        },
+        "runtime": {
+          "DigitoyPlayer.dll": {}
+        }
+      },
+      "DigitoyEngine/1.0.0": {
+        "runtime": {
+          "DigitoyEngine.dll": {
+            "assemblyVersion": "1.0.0.0",
+            "fileVersion": "1.0.0.0"
+          }
+        }
+      }
+    }
+  },
+  "libraries": {
+    "DigitoyPlayer/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    },
+    "DigitoyEngine/1.0.0": {
+      "type": "project",
+      "serviceable": false,
+      "sha512": ""
+    }
+  }
+}

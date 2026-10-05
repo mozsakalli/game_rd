@@ -1,0 +1,15 @@
+C:\Work\digitoygames\digiplay-haxe\langtest\tools\ildump\bin\Debug\net9.0\ildump.exe
+C:\Work\digitoygames\digiplay-haxe\langtest\tools\ildump\bin\Debug\net9.0\ildump.deps.json
+C:\Work\digitoygames\digiplay-haxe\langtest\tools\ildump\bin\Debug\net9.0\ildump.runtimeconfig.json
+C:\Work\digitoygames\digiplay-haxe\langtest\tools\ildump\bin\Debug\net9.0\ildump.dll
+C:\Work\digitoygames\digiplay-haxe\langtest\tools\ildump\bin\Debug\net9.0\ildump.pdb
+C:\Work\digitoygames\digiplay-haxe\langtest\tools\ildump\obj\Debug\net9.0\ildump.GeneratedMSBuildEditorConfig.editorconfig
+C:\Work\digitoygames\digiplay-haxe\langtest\tools\ildump\obj\Debug\net9.0\ildump.AssemblyInfoInputs.cache
+C:\Work\digitoygames\digiplay-haxe\langtest\tools\ildump\obj\Debug\net9.0\ildump.AssemblyInfo.cs
+C:\Work\digitoygames\digiplay-haxe\langtest\tools\ildump\obj\Debug\net9.0\ildump.csproj.CoreCompileInputs.cache
+C:\Work\digitoygames\digiplay-haxe\langtest\tools\ildump\obj\Debug\net9.0\ildump.sourcelink.json
+C:\Work\digitoygames\digiplay-haxe\langtest\tools\ildump\obj\Debug\net9.0\ildump.dll
+C:\Work\digitoygames\digiplay-haxe\langtest\tools\ildump\obj\Debug\net9.0\refint\ildump.dll
+C:\Work\digitoygames\digiplay-haxe\langtest\tools\ildump\obj\Debug\net9.0\ildump.pdb
+C:\Work\digitoygames\digiplay-haxe\langtest\tools\ildump\obj\Debug\net9.0\ildump.genruntimeconfig.cache
+C:\Work\digitoygames\digiplay-haxe\langtest\tools\ildump\obj\Debug\net9.0\ref\ildump.dll

@@ -1,0 +1,202 @@
+using System;
+using System.Collections.Generic;
+using System.Diagnostics;
+using System.IO;
+using System.Linq;
+using Gamos.Language;
+
+// REPL/watcher: test-project/ dizinini surekli tarar. .acode/.primitive/.code/.c/.h dosyalarindan
+// biri degisince: hepsini okur -> resolve eder -> C transpile eder -> test-project altindaki C
+// dosyalariyla birlikte clang ile derler -> calistirir -> ciktiyi console'a yazar.
+// Hata olursa yazar ama CIKMAZ, bir sonraki degisiklikte tekrar dener. (Eski demo: Program.cs.bak)
+public class Program
+{
+    const string WatchDir = "test-project";
+    static readonly string GeneratedC = Path.Combine(WatchDir, "generated.c");
+    static readonly string OutBin = Path.Combine(WatchDir, "testbin");
+    static readonly string[] WatchedExtensions = { ".acode", ".aprimitive", ".primitive", ".code", ".c", ".h" };
+
+    public static void Main(string[] args)
+    {
+        Directory.CreateDirectory(WatchDir);
+        Console.WriteLine($"REPL basladi: '{WatchDir}/' izleniyor ({string.Join(" ", WatchedExtensions)}). Cikis: Ctrl+C");
+
+        Dictionary<string, DateTime> last = null;
+        while (true)
+        {
+            Dictionary<string, DateTime> snap;
+            try { snap = Snapshot(); }
+            catch (Exception e) { Console.WriteLine($"[tarama hatasi] {e.Message} {e.StackTrace}"); System.Threading.Thread.Sleep(500); continue; }
+
+            if (last == null || Changed(last, snap))
+            {
+                last = snap;
+                Console.WriteLine($"\n--- degisiklik algilandi ({DateTime.Now:HH:mm:ss}) ---");
+                try
+                {
+                    BuildAndRun(snap.Keys);
+                }
+                catch (Exception e)
+                {
+                    Console.WriteLine($"[HATA] {e.Message}");
+                    Console.WriteLine("duzeltme bekleniyor, izlemeye devam...");
+                }
+            }
+            System.Threading.Thread.Sleep(300);
+        }
+    }
+
+    // Izlenen dosyalarin yol -> son yazma zamani haritasi. Kendi urettigimiz generated.c ve
+    // binary haric (yoksa her build kendini tekrar tetiklerdi).
+    static Dictionary<string, DateTime> Snapshot()
+    {
+        var snap = new Dictionary<string, DateTime>();
+        foreach (var f in Directory.GetFiles(WatchDir, "*", SearchOption.AllDirectories))
+        {
+            if (Path.GetFullPath(f) == Path.GetFullPath(GeneratedC)) continue;
+            if (Path.GetFullPath(f) == Path.GetFullPath(OutBin)) continue;
+            if (WatchedExtensions.Contains(Path.GetExtension(f)))
+                snap[f] = File.GetLastWriteTimeUtc(f);
+        }
+        return snap;
+    }
+
+    static bool Changed(Dictionary<string, DateTime> a, Dictionary<string, DateTime> b)
+    {
+        if (a.Count != b.Count) return true;
+        foreach (var kv in b)
+            if (!a.TryGetValue(kv.Key, out var t) || t != kv.Value) return true;
+        return false;
+    }
+
+    static void BuildAndRun(IEnumerable<string> files)
+    {
+        var fileList = files.ToList();
+        var ctx = new Context();
+
+        // 1) primitive'ler: binary .primitive + insan dostu .aprimitive
+        var primitives = new List<Primitive>();
+        foreach (var f in fileList.Where(f => f.EndsWith(".primitive") && !f.EndsWith(".aprimitive")))
+        {
+            var p = Primitive.Decode(File.ReadAllText(f));
+            primitives.Add(p);
+            ctx.RegisterPrimitive(p);
+            Console.WriteLine($"  primitive: {p.Name}  ({Path.GetFileName(f)})");
+        }
+        foreach (var f in fileList.Where(f => f.EndsWith(".aprimitive")))
+        {
+            var p = APrimitive.Decode(File.ReadAllText(f));
+            primitives.Add(p);
+            ctx.RegisterPrimitive(p);
+            Console.WriteLine($"  aprimitive: {p.Name}  ({Path.GetFileName(f)})");
+        }
+
+        // 2) code'lar: binary .code + insan dostu .acode
+        var codes = new List<Code>();
+        foreach (var f in fileList.Where(f => f.EndsWith(".code")))
+        {
+            var c = Code.Decode(File.ReadAllText(f));
+            codes.Add(c);
+            Console.WriteLine($"  code: {c.EncodeName()}  ({Path.GetFileName(f)})");
+        }
+        foreach (var f in fileList.Where(f => f.EndsWith(".acode")))
+        {
+            var c = ACode.Decode(File.ReadAllText(f));
+            codes.Add(c);
+            Console.WriteLine($"  acode: {c.EncodeName()}  ({Path.GetFileName(f)})");
+        }
+
+        // 3) isimden gecen array tiplerini (]Float:16, [Int) sentezle + kaydet, sonra resolve
+        foreach (var p in primitives)
+            foreach (var field in p.Fields)
+                EnsureArrayType(ctx, field.Type);
+        foreach (var c in codes)
+        {
+            EnsureArrayType(ctx, c.ReturnType);
+            foreach (var a in c.Arguments) EnsureArrayType(ctx, a.Type);
+            foreach (var l in c.Locals) EnsureArrayType(ctx, l);
+        }
+        foreach (var p in primitives)
+            Resolver.ResolvePrimitiveTypes(ctx, p);
+        foreach (var c in codes)
+            ctx.RegisterCode(c);
+        Resolver.ResolveAll(ctx, codes);
+
+        // 4) C transpile
+        var cSource = CTranspiler.TranspileProgram(ctx);
+        File.WriteAllText(GeneratedC, cSource);
+        Console.WriteLine($"  transpile -> {GeneratedC} ({cSource.Length} karakter)");
+
+        // 5) test-project altindaki .c dosyalari (generated.c dahil) + runtime ile derle
+        // (test-project kendi vmrt.c kopyasini iceriyorsa c_runtime'dakini ekleme -> duplicate symbol)
+        var cFiles = Directory.GetFiles(WatchDir, "*.c", SearchOption.AllDirectories).ToList();
+        if (!cFiles.Any(f => Path.GetFileName(f) == "vmrt.c"))
+            cFiles.Add(Path.Combine("c_runtime", "vmrt.c"));
+        // platforma gore clang argumanlari (sokol: Windows -> D3D11/GL, macOS -> Metal)
+        string platformArgs = OperatingSystem.IsMacOS()
+            ? "-x objective-c -fobjc-arc -framework Cocoa -framework QuartzCore -framework Metal -framework MetalKit -framework AudioToolbox"
+            : "-lopengl32 -lgdi32 -luser32 -Xlinker /SUBSYSTEM:CONSOLE";
+        var compileArgs = $"{platformArgs} -O1 -w -Ic_runtime {string.Join(" ", cFiles.Select(Quote))} -o {Quote(OutBin)}";
+        var clangPath = OperatingSystem.IsMacOS() ? "clang" : @"C:\Program Files\LLVM\bin\clang.exe";
+        var (ccExit, ccOut) = RunProcess(clangPath, compileArgs);
+        if (ccExit != 0)
+            throw new Exception($"clang derleme hatasi (exit {ccExit}):\n{ccOut}");
+        Console.WriteLine("  derleme ok");
+
+        // 6) calistir, ciktiyi bas
+        var (exit, output) = RunProcess(Path.GetFullPath(OutBin), "");
+        Console.WriteLine("--- cikti ---");
+        Console.Write(output);
+        if (output.Length > 0 && !output.EndsWith("\n")) Console.WriteLine();
+        Console.WriteLine($"--- exit {exit} ---");
+    }
+
+    // "]Float:16" (fixed array) / "[Int" (array) / "*Float" (ham pointer) gibi isimle gelen
+    // tipleri Context'te yoksa uretir.
+    static void EnsureArrayType(Context ctx, Primitive p)
+    {
+        if (p == null || !p.Unresolved) return;
+        var name = p.Name;
+        if (ctx.TryGetPrimitive(name, out _)) return;
+
+        if (name.StartsWith("]"))
+        {
+            var colon = name.LastIndexOf(':');
+            if (colon < 0) return;
+            var elemName = name.Substring(1, colon - 1);
+            if (!int.TryParse(name.Substring(colon + 1), out var size)) return;
+            if (ctx.TryGetPrimitive(elemName, out var elem))
+                ctx.RegisterPrimitive(Primitive.FixedArrayOf(elem, size));
+        }
+        else if (name.StartsWith("["))
+        {
+            if (ctx.TryGetPrimitive(name.Substring(1), out var elem))
+                ctx.RegisterPrimitive(Primitive.ArrayOf(elem));
+        }
+        else if (name.StartsWith("*"))
+        {
+            var elemName = name.Substring(1);
+            EnsureArrayType(ctx, new Primitive { Name = elemName, Unresolved = true }); // *]Float:16 gibi ic ice
+            if (ctx.TryGetPrimitive(elemName, out var elem))
+                ctx.RegisterPrimitive(Primitive.PointerOf(elem));
+        }
+    }
+
+    static string Quote(string s) => "\"" + s + "\"";
+
+    static (int exitCode, string output) RunProcess(string file, string args)
+    {
+        var psi = new ProcessStartInfo(file, args)
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false
+        };
+        using var p = Process.Start(psi);
+        var stderrTask = p.StandardError.ReadToEndAsync();
+        var stdout = p.StandardOutput.ReadToEnd();
+        p.WaitForExit();
+        var stderr = stderrTask.Result;
+        return (p.ExitCode, stdout + stderr);
+    }
+}

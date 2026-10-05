@@ -25,6 +25,7 @@ static class AssetPackBuilder
     internal static void Build()
     {
         var assets = App.Assets;
+        var catalog = App.Catalog;
         string root = assets.Root;
         string outPath = Path.Combine(App.Project.Root, "Build", "game.pak");
 
@@ -41,7 +42,7 @@ static class AssetPackBuilder
         // (png tamamen atlanir; fontun yalniz "sheet" artifact'i atlanir).
         var claimed = AtlasImporter.ClaimedMembers(AtlasSystem.GroupAssets());
 
-        int dtexCount = 0, skipped = 0;
+        int dtexCount = 0, skipped = 0, bakedCount = 0;
         var items = new List<(string Key, string Guid, byte[] Data)>();
         string texKey = null, texFile = null;
         foreach (var (key, file) in files)
@@ -96,18 +97,49 @@ static class AssetPackBuilder
                         items.Add((key + "#" + name, "", extra));
                 }
             }
+            else if (IsSceneLike(key))
+            {
+                // Sahne/prefab: YAML -> pismis SceneBinary (prefab'lar ACILIR, override'lar
+                // uygulanir, alanlar sema indeksiyle yazilir). Runtime YAML/DocNode gormez.
+                data = BakeScene(key, file, catalog, assets);
+                if (data == null)
+                    continue;
+                bakedCount++;
+            }
             else
                 data = File.ReadAllBytes(file);
             items.Add((key, assets.PathToGuid(key), data));
         }
 
+        // Proje ayarlari: runtime project.yaml okumaz; pismis kayit pak'ta.
+        items.Add((ProjectBinary.PakKey, "", ProjectBinary.Write(App.Project.Name, App.Project.StartScene)));
+
         var (rawTotal, pakSize) = PakWriter.Write(outPath, items,
             // Stream tipli ses: native player dosyadan offset'le okur -> zlib OLAMAZ.
             key => AssetDatabase.ImportTypeOf(key) == typeof(AudioClip) && AudioImporter.IsStream(key));
-        EditorLog.Info($"[pak] {items.Count} giris ({dtexCount} dtex, {skipped} atlas uyesi atlandi) -> {outPath} " +
+        EditorLog.Info($"[pak] {items.Count} giris ({dtexCount} dtex, {bakedCount} baked sahne/prefab, {skipped} atlas uyesi atlandi) -> {outPath} " +
             $"({pakSize / 1024.0:0.0} KB, acik {rawTotal / 1024.0:0.0} KB, %{100.0 * pakSize / Math.Max(1, rawTotal):0.0})");
 
         Verify(outPath, items, texKey, texFile);
+    }
+
+    static bool IsSceneLike(string key)
+        => key.EndsWith(".scene", StringComparison.OrdinalIgnoreCase)
+        || key.EndsWith(".prefab", StringComparison.OrdinalIgnoreCase);
+
+    static byte[] BakeScene(string key, string file, TypeCatalog catalog, AssetDatabase assets)
+    {
+        try
+        {
+            var doc = SceneDoc.Parse(File.ReadAllText(file));
+            doc.ExpandPrefabs(catalog, assets); // delta kayitlari -> tam agac (ic ice dahil)
+            return SceneBinary.Bake(doc, catalog, m => EditorLog.Warning($"{m} ({key})"));
+        }
+        catch (Exception e)
+        {
+            EditorLog.Error($"[pak] bake basarisiz, atlandi: {key}: {e.Message}");
+            return null;
+        }
     }
 
     // Kaynak texture'i native worker'la cozup DTEX blobu uretir (build-time,

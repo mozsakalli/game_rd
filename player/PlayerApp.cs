@@ -15,8 +15,16 @@ public unsafe class PlayerApp
 {
     static AssetSource _source;
 
-    public static void Main(string[] args)
+#if DE_AOT
+    // AOT giris: arguman yok; proje koku exe'nin yanindaki Build/ klasorunun ustu.
+    public static void Main() => Run(Array.Empty<string>());
+#else
+    public static void Main(string[] args) => Run(args);
+#endif
+
+    static void Run(string[] args)
     {
+#if !DE_AOT
         AppDomain.CurrentDomain.UnhandledException += (_, e) =>
         {
             string text = $"[crash] {DateTime.Now:yyyy-MM-dd HH:mm:ss}\n{e.ExceptionObject}\n";
@@ -24,17 +32,11 @@ public unsafe class PlayerApp
             try { File.AppendAllText("player_crash.log", text); }
             catch { }
         };
+#endif
 
         string root = Path.GetFullPath(args.Length > 0 ? args[0] : DefaultProjectPath);
         AssetDatabase.LogWarning = m => Console.WriteLine("[warn] " + m);
         string name = "Game", startScene = "Scenes/Main.scene";
-        string settings = Path.Combine(root, "ProjectSettings", "project.yaml");
-        if (File.Exists(settings))
-        {
-            var pdoc = Yaml.Parse(File.ReadAllText(settings));
-            name = pdoc.GetScalar("name", name);
-            startScene = pdoc.GetScalar("startScene", startScene);
-        }
 
         // --- asset kaynagi ---
         string pak = Path.Combine(root, "Build", "game.pak");
@@ -44,9 +46,19 @@ public unsafe class PlayerApp
             _source = new PakSource(pak);
             assets = new AssetDatabase(_source); // guid tablosu pak'tan, ScanMetas yok
             Console.WriteLine("[player] pak: " + pak);
+            // Proje ayarlari pak icinde pismis (YAML release'e girmez).
+            if (!ProjectBinary.TryRead(_source.ReadBytes(ProjectBinary.PakKey), out name, out startScene))
+                throw new Exception("pak'ta proje kaydi yok (" + ProjectBinary.PakKey + ") — pak'i yeniden build edin");
         }
         else
         {
+            string settings = Path.Combine(root, "ProjectSettings", "project.yaml");
+            if (File.Exists(settings))
+            {
+                var pdoc = Yaml.Parse(File.ReadAllText(settings));
+                name = pdoc.GetScalar("name", name);
+                startScene = pdoc.GetScalar("startScene", startScene);
+            }
             string assetsPath = Path.Combine(root, "Assets");
             _source = new LooseFileSource(assetsPath);
             assets = new AssetDatabase(assetsPath);
@@ -104,9 +116,19 @@ public unsafe class PlayerApp
         var sceneBytes = _source.ReadBytes(startScene);
         if (sceneBytes == null)
             throw new Exception("startScene bulunamadi: " + startScene);
-        var doc = SceneDoc.Parse(System.Text.Encoding.UTF8.GetString(sceneBytes));
-        doc.ExpandPrefabs(catalog, assets); // prefab delta kayitlari tam agaca acilir
-        doc.Spawn(null, catalog, assets);
+        if (SceneBinary.IsBaked(sceneBytes))
+        {
+            // Release: pismis sahne (prefab'lar build'de acilmis) -> dogrudan spawn.
+            SceneBinary.Spawn(sceneBytes, null, catalog, assets);
+            Console.WriteLine("[player] sahne: baked " + startScene);
+        }
+        else
+        {
+            // Dev (loose): YAML yolu.
+            var doc = SceneDoc.Parse(System.Text.Encoding.UTF8.GetString(sceneBytes));
+            doc.ExpandPrefabs(catalog, assets); // prefab delta kayitlari tam agaca acilir
+            doc.Spawn(null, catalog, assets);
+        }
 
         var cb = new CommandBuffer();
         var gameCams = new System.Collections.Generic.List<Camera>
@@ -165,6 +187,19 @@ public unsafe class PlayerApp
         GLFW.Terminate();
     }
 
+#if DE_AOT
+    // Registry + oyun kodu bu assembly'de derlenmis: reflection/yukleme yok.
+    static TypeCatalog LoadCatalog(string root)
+    {
+        var cat = new TypeCatalog();
+        DigitoyEngine.Generated.Registry.RegisterAll(cat);
+        Console.WriteLine("[player] katalog: gomulu registry (AOT)");
+        return cat;
+    }
+
+    // Exe Build/ icinde game.pak'in yaninda durur; proje koku bir ust klasor.
+    static string DefaultProjectPath => "..";
+#else
     // Game.dll (varsa) + Digitoy.Registry.dll Library/Build'den yuklenir; katalog
     // uretilmis RegisterAll'dan kurulur. Registry yoksa acik hata: once editorle ac.
     static TypeCatalog LoadCatalog(string root)
@@ -191,4 +226,5 @@ public unsafe class PlayerApp
     // bin/Debug/netX.Y -> repo koku (editorle ayni gelistirme konforu).
     static string DefaultProjectPath => Path.GetFullPath(
         Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "Projects", "Sandbox"));
+#endif
 }

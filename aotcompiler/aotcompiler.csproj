@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- DigitoyEngine AOT derleyicisi (host araci): derlenmis .NET assembly'lerini CIL
+       frontend ile IR'a yukler, corelib ile C'ye transpile eder, clang ile native exe
+       uretir. Calisma dizini = bu klasor (c_runtime/ goreli yollari). -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>aotcompiler</AssemblyName>
+    <RootNamespace>DigitoyEngine</RootNamespace>
+    <StartupObject>Program</StartupObject>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RunWorkingDirectory>$(MSBuildProjectDirectory)</RunWorkingDirectory>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- corelib MiniCs kaynagidir (bizim derleyici derler), dotnet'e girmez -->
+    <Compile Remove="c_runtime\**\*.cs" />
+    <!-- yardimci IL dump araci ayri projedir -->
+    <Compile Remove="tools\**\*.cs" />
+    <Compile Remove="obj\**\*.cs" />
+  </ItemGroup>
+
+</Project>

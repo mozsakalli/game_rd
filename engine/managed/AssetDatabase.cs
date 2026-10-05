@@ -526,7 +526,8 @@ public sealed class AssetDatabase
         return t;
     }
 
-    // Prefab = alt agac SceneDoc'u. Metin kucuk oldugu icin simdilik senkron okunur.
+    // Prefab = alt agac. Pak'ta pismis bayt (SceneBinary), loose'ta YAML SceneDoc;
+    // magic'e bakilir. Kucuk oldugu icin senkron okunur.
     public Prefab LoadPrefab(string key)
     {
         key = ResolvePath(key);
@@ -537,7 +538,9 @@ public sealed class AssetDatabase
         var bytes = _source.ReadBytes(key);
         if (bytes == null)
             return null;
-        p = new Prefab { Key = key, Doc = SceneDoc.Parse(System.Text.Encoding.UTF8.GetString(bytes)), Assets = this };
+        p = SceneBinary.IsBaked(bytes)
+            ? new Prefab { Key = key, Baked = bytes, Assets = this }
+            : new Prefab { Key = key, Doc = SceneDoc.Parse(System.Text.Encoding.UTF8.GetString(bytes)), Assets = this };
         _prefabs[key] = p;
         return p;
     }

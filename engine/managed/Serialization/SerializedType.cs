@@ -430,7 +430,7 @@ public static class SerializedType
     static string FormatVec4(Vec4 v) => F(v.x) + " " + F(v.y) + " " + F(v.z) + " " + F(v.w);
     static string FormatColor(Color c) => $"#{c.r:x2}{c.g:x2}{c.b:x2}{c.a:x2}";
 
-    static Vec2 ParseVec2(string s)
+    internal static Vec2 ParseVec2(string s)
     {
         var p = s.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         return new Vec2(PF(p, 0), PF(p, 1));
@@ -451,7 +451,7 @@ public static class SerializedType
     static float PF(string[] p, int i)
         => i < p.Length ? float.Parse(p[i], CultureInfo.InvariantCulture) : 0f;
 
-    static Color ParseColor(string s)
+    internal static Color ParseColor(string s)
     {
         if (s.Length < 9 || s[0] != '#')
             return Color.White;

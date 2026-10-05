@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("DigitoyPlayer")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+00b671d50b671c9b987b2880546aef2959399864")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+604698ced2196573d8f212f7d747e6ce8c184f63")]
 [assembly: System.Reflection.AssemblyProductAttribute("DigitoyPlayer")]
 [assembly: System.Reflection.AssemblyTitleAttribute("DigitoyPlayer")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

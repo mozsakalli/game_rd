@@ -1,0 +1,456 @@
+using System.Collections.Generic;
+using System.IO;
+using Gamos.Language;
+
+public class Program
+{
+    public static void Main(string[] args)
+    {
+        var vec3 = new Primitive { Name = "Vec3", Type = PrimitiveType.Model, IsStruct = true };
+        vec3.AddField(new PrimitiveField { Name = "x", Type = Primitive.Float });
+        vec3.AddField(new PrimitiveField { Name = "y", Type = Primitive.Float });
+        vec3.AddField(new PrimitiveField { Name = "z", Type = Primitive.Float });
+
+        var mat4 = new Primitive { Name = "Mat4", Type = PrimitiveType.Model, IsStruct = true };
+        mat4.AddField(new PrimitiveField { Name = "m", Type = Primitive.FixedArrayOf(Primitive.Float, 16) });
+        File.WriteAllText("vec3.primitive", vec3.Encode());
+        File.WriteAllText("mat4.primitive", mat4.Encode());
+
+        // 1. pass: bilinen tipleri Context'e kaydet (Resolver bunlara isimle bakacak)
+        var ctx = new Context();
+        ctx.RegisterPrimitive(vec3);
+        ctx.RegisterPrimitive(mat4);
+        ctx.RegisterPrimitive(mat4.Fields[0].Type); // ]Float:16
+
+        // decode edilmis bir Mat4 tanimi (disktekiyle ayni ama alan tipi Unresolved gelir),
+        // 2. pass Resolver ile gercek nesnelere baglaniyor -> pipeline'in ispati
+        var decodedMat4 = Primitive.Decode(File.ReadAllText("mat4.primitive"));
+        Resolver.ResolvePrimitiveTypes(ctx, decodedMat4);
+        System.Console.WriteLine($"decode+resolve ok: {decodedMat4.Fields[0].Type.Name} (FixedSize={decodedMat4.Fields[0].Type.FixedSize})");
+
+        var mat4mul = BuildMultiply(mat4);
+        ctx.RegisterCode(mat4mul);
+        Resolver.ResolveAll(ctx, new List<Code> { mat4mul });
+
+        var a = Instance.Create(mat4);
+        var b = Instance.Create(mat4);
+        var r = Instance.Create(mat4);
+        for (int i = 0; i < 16; i++)
+        {
+            ((object[])a.Fields[0])[i] = i % 4 == i / 4 ? 1f : 0f; // identity
+            ((object[])b.Fields[0])[i] = (float)(i + 1);
+        }
+
+        var vm = new VM();
+        vm.Run(mat4mul, new object[] { Box(a), Box(b), Box(r) });
+
+        var rm = (object[])r.Fields[0];
+        for (int row = 0; row < 4; row++)
+            System.Console.WriteLine(string.Join(", ", rm[row * 4 + 0], rm[row * 4 + 1], rm[row * 4 + 2], rm[row * 4 + 3]));
+
+        DemoGenerics();
+        DemoNestedLoops();
+        DemoEncodeDecodeRoundTrip(ctx, mat4mul, mat4);
+        DemoCTranspile(ctx);
+        DemoRefParam(ctx);
+        DemoExternalCode(ctx);
+        DemoNativeBody(ctx);
+        DemoOpAssembly();
+        DemoACode();
+    }
+
+    // .acode: insan dostu tam Code formati (imza + OpAsm govde). Iki yonlu test:
+    // 1) elle yazilmis .acode metni -> Code -> VM'de calistir
+    // 2) binary nestedloop.code -> Code -> .acode olarak diske yaz -> geri oku -> ayni sonuc
+    static void DemoACode()
+    {
+        var src = @"
+# insan dostu .acode ornegi - arg/local'lar isimle kullanilabilir
+code SumTo
+returns Int
+arg n: Int
+local sum: Int
+local i: Int
+ops:
+    Push int:0
+    SetLocal sum
+    Push int:1
+    SetLocal i
+    Label loop
+    GetLocal i
+    GetArg n
+    Cgt
+    Brtrue done
+    GetLocal sum
+    GetLocal i
+    Add
+    SetLocal sum
+    GetLocal i
+    Push int:1
+    Add
+    SetLocal i
+    Br loop
+    Label done
+    GetLocal sum
+    Return
+";
+        var sumTo = ACode.Decode(src);
+        Resolver.ResolveAll(new Context(), new List<Code> { sumTo });
+        var result = new VM().Run(sumTo, new object[] { 10 });
+        System.Console.WriteLine($"SumTo(10) .acode'dan -> {result}"); // beklenen: 55
+        System.Console.WriteLine("SumTo geri encode (isimler korunur):\n" + ACode.Encode(sumTo));
+
+        // binary .code -> .acode -> geri: format donusumu ispati
+        var loopBin = Code.Decode(File.ReadAllText("nestedloop.code"));
+        File.WriteAllText("nestedloop.acode", ACode.Encode(loopBin));
+        var loopA = ACode.Decode(File.ReadAllText("nestedloop.acode"));
+        Resolver.ResolveAll(new Context(), new List<Code> { loopA });
+        var sum = new VM().Run(loopA, new object[0]);
+        System.Console.WriteLine($"NestedLoop .code -> .acode -> geri, calisti: sum = {sum}"); // beklenen: 9
+    }
+
+    // Elle yazilabilir tek-satirlik Op assembly'si: burada string olarak yazilmis "kaynak kod" gibi.
+    // Encode/Decode'a (tam format) hic dokunmuyor, tamamen ek/paralel bir yol.
+    static void DemoOpAssembly()
+    {
+        var doubleIt = new Code { Name = "DoubleIt", ReturnType = Primitive.Int };
+        doubleIt.Arguments.Add(new Argument { Name = "x", Type = Primitive.Int });
+        doubleIt.Operations = Code.ParseAssembly(@"
+            GetArg 0
+            GetArg 0
+            Add
+            Return
+        ");
+
+        Resolver.ResolveAll(new Context(), new List<Code> { doubleIt });
+        var result = new VM().Run(doubleIt, new object[] { 21 });
+        System.Console.WriteLine($"DoubleIt(21) el yazimi assembly'den -> {result}"); // beklenen: 42
+        System.Console.WriteLine("Geri encode edilmis hali:\n" + doubleIt.ToAssembly());
+    }
+
+    // NativeBody varsa Op'lardan kod uretmek yerine bu string oldugu gibi govde olarak yazilir;
+    // NativeHeader varsa dosyanin basina eklenir (ekstra #include/typedef vb. icin).
+    static void DemoNativeBody(Context ctx)
+    {
+        var clampf = new Code { Name = "Clampf", ReturnType = Primitive.Float };
+        clampf.Arguments.Add(new Argument { Name = "v", Type = Primitive.Float });
+        clampf.Arguments.Add(new Argument { Name = "lo", Type = Primitive.Float });
+        clampf.Arguments.Add(new Argument { Name = "hi", Type = Primitive.Float });
+        clampf.NativeHeader = "#include <math.h>"; // NativeBody'nin ihtiyac duydugu ekstra include
+        clampf.NativeBody = "    if (a0 < a1) return a1;\n    if (a0 > a2) return a2;\n    return a0;";
+
+        ctx.RegisterCode(clampf);
+        var c = CTranspiler.TranspileProgram(ctx);
+        File.WriteAllText("generated.c", c);
+        System.Console.WriteLine("NativeBody (Clampf) transpile edildi -> govde el yazimi, Op'lardan uretilmedi");
+
+        // encode/decode round-trip: NativeBody icindeki gomulu \n'ler bozulmadan geri gelmeli
+        var decoded = Code.Decode(clampf.Encode());
+        System.Console.WriteLine($"NativeBody round-trip esit mi: {decoded.NativeBody == clampf.NativeBody}");
+        System.Console.WriteLine($"NativeHeader round-trip esit mi: {decoded.NativeHeader == clampf.NativeHeader}");
+    }
+
+    // IsExternal=true: govdesi baska yerde (C runtime/el yazimi) demek - CTranspiler sadece "extern ...;"
+    // bildirimi uretir, govde emit ETMEZ. VM bunu calistiramaz (Operations bos), sadece transpile+link icin.
+    static void DemoExternalCode(Context ctx)
+    {
+        var sqrtf = new Code { Name = "sqrtf", IsExternal = true, ReturnType = Primitive.Float };
+        sqrtf.Arguments.Add(new Argument { Name = "x", Type = Primitive.Float });
+
+        var callSqrt = new Code { Name = "CallSqrt", ReturnType = Primitive.Float };
+        callSqrt.Operations.Add(new Op { Type = OpType.Push, Value = 16f });
+        callSqrt.Operations.Add(new Op { Type = OpType.Call, Code = sqrtf });
+        callSqrt.Operations.Add(new Op { Type = OpType.Return });
+
+        Resolver.ResolveAll(ctx, new List<Code> { callSqrt });
+        ctx.RegisterCode(sqrtf);
+        ctx.RegisterCode(callSqrt);
+
+        var c = CTranspiler.TranspileProgram(ctx);
+        File.WriteAllText("generated.c", c);
+        System.Console.WriteLine("IsExternal (sqrtf) transpile edildi -> generated.c'de sadece 'extern ...;' var, govde yok");
+    }
+
+    // ref parametre: Increment(ref int x) - CIL ldarga/ldind/stind karsiligi AddrLocal/LoadInd/StoreInd.
+    static void DemoRefParam(Context ctx)
+    {
+        var increment = new Code { Name = "Increment" };
+        increment.Arguments.Add(new Argument { Name = "x", Type = Primitive.Int, IsRef = true });
+        increment.Operations.Add(new Op { Type = OpType.GetArg, Slot = 0 }); // adres (store icin saklaniyor)
+        increment.Operations.Add(new Op { Type = OpType.GetArg, Slot = 0 }); // adres (load icin)
+        increment.Operations.Add(new Op { Type = OpType.LoadInd });
+        increment.Operations.Add(new Op { Type = OpType.Push, Value = 1 });
+        increment.Operations.Add(new Op { Type = OpType.Add });
+        increment.Operations.Add(new Op { Type = OpType.StoreInd }); // pop deger, pop adres (CIL stind sirasi)
+        increment.Operations.Add(new Op { Type = OpType.Return });
+
+        var callIncrement = new Code { Name = "CallIncrement", ReturnType = Primitive.Int };
+        callIncrement.Locals.Add(Primitive.Int);
+        callIncrement.Operations.Add(new Op { Type = OpType.Push, Value = 5 });
+        callIncrement.Operations.Add(new Op { Type = OpType.SetLocal, Slot = 0 });
+        callIncrement.Operations.Add(new Op { Type = OpType.AddrLocal, Slot = 0 });
+        callIncrement.Operations.Add(new Op { Type = OpType.Call, Code = increment });
+        callIncrement.Operations.Add(new Op { Type = OpType.GetLocal, Slot = 0 });
+        callIncrement.Operations.Add(new Op { Type = OpType.Return });
+
+        Resolver.ResolveAll(ctx, new List<Code> { increment, callIncrement });
+        var result = new VM().Run(callIncrement, new object[0]);
+        System.Console.WriteLine($"CallIncrement (ref int) -> {result}"); // beklenen: 6
+
+        ctx.RegisterCode(increment);
+        ctx.RegisterCode(callIncrement);
+        var c = CTranspiler.TranspileProgram(ctx);
+        File.WriteAllText("generated.c", c);
+    }
+
+    // Context'teki somut (generic olmayan, resolved) Primitive/Code'lari gercek C koduna dokup diske yazar.
+    static void DemoCTranspile(Context ctx)
+    {
+        var loopCode = BuildNestedLoopCode();
+        Resolver.ResolveAll(ctx, new List<Code> { loopCode });
+        ctx.RegisterCode(loopCode);
+
+        var c = CTranspiler.TranspileProgram(ctx);
+        File.WriteAllText("generated.c", c);
+        System.Console.WriteLine("C transpile edildi -> generated.c (" + c.Length + " karakter)");
+    }
+
+    // ref/out parametrelerini C# tarafindan cagirirken tek elemanli bir hucreye sarar (Ref, o hucreyi adresler).
+    static Ref Box(object value) => new Ref(new object[] { value }, 0);
+
+    // Encode->diske yaz->diskten oku->Decode->Resolve->Run round-trip'i, alan/dizi erisimi (Mat4Mul)
+    // ve goto (nested loop) icin ayri ayri dogrular; sonuc orijinal calistirmayla birebir ayni olmali.
+    static void DemoEncodeDecodeRoundTrip(Context ctx, Code mat4mul, Primitive mat4)
+    {
+        File.WriteAllText("mat4mul.code", mat4mul.Encode());
+        var decoded = Code.Decode(File.ReadAllText("mat4mul.code"));
+        Resolver.ResolveAll(ctx, new List<Code> { decoded });
+
+        var a = Instance.Create(mat4);
+        var b = Instance.Create(mat4);
+        var r = Instance.Create(mat4);
+        for (int i = 0; i < 16; i++)
+        {
+            ((object[])a.Fields[0])[i] = i % 4 == i / 4 ? 1f : 0f;
+            ((object[])b.Fields[0])[i] = (float)(i + 1);
+        }
+        new VM().Run(decoded, new object[] { Box(a), Box(b), Box(r) });
+        var rm = (object[])r.Fields[0];
+        System.Console.WriteLine($"Mat4Mul diskten yuklendi, calisti: {string.Join(", ", rm)}");
+
+        var loopCode = BuildNestedLoopCode();
+        Resolver.ResolveAll(new Context(), new List<Code> { loopCode }); // Slot'lari (goto hedeflerini) linkler
+        File.WriteAllText("nestedloop.code", loopCode.Encode()); // Label objeleri hic yazilmiyor, sadece linklenmis Slot int'i
+        var loopDecoded = Code.Decode(File.ReadAllText("nestedloop.code"));
+        var sum = new VM().Run(loopDecoded, new object[0]);
+        System.Console.WriteLine($"NestedLoop diskten yuklendi, calisti: sum = {sum}"); // beklenen: 9
+    }
+
+    // "if/while" ayri Op degil: karsilastirma (Ceq/Cgt/Clt) + Label/Br/Brtrue/Brfalse'e lowering.
+    // EmitWhile her cagrida taze Label uretir (referans kimligi), bu yuzden ic ice cagirilinca
+    // (outer body icinde inner while) hicbir zaman ayni etikete cikip sapitmaz.
+    static void EmitWhile(List<Op> ops, System.Action<List<Op>> emitCondition, System.Action<List<Op>> emitBody)
+    {
+        var start = new Label();
+        var end = new Label();
+        ops.Add(new Op { Type = OpType.Label, Label = start });
+        emitCondition(ops);
+        ops.Add(new Op { Type = OpType.Brfalse, Label = end });
+        emitBody(ops);
+        ops.Add(new Op { Type = OpType.Br, Label = start });
+        ops.Add(new Op { Type = OpType.Label, Label = end });
+    }
+
+    static void DemoNestedLoops()
+    {
+        var code = BuildNestedLoopCode();
+        var ctx = new Context();
+        Resolver.ResolveAll(ctx, new List<Code> { code });
+        var sum = new VM().Run(code, new object[0]);
+        System.Console.WriteLine($"NestedLoopDemo (3x3 goto ile) sum = {sum}"); // beklenen: 9
+    }
+
+    static Code BuildNestedLoopCode()
+    {
+        var code = new Code { Name = "NestedLoopDemo", ReturnType = Primitive.Int };
+        code.Locals.Add(Primitive.Int); // 0: row
+        code.Locals.Add(Primitive.Int); // 1: col
+        code.Locals.Add(Primitive.Int); // 2: sum
+        var ops = code.Operations;
+
+        ops.Add(new Op { Type = OpType.Push, Value = 0 });
+        ops.Add(new Op { Type = OpType.SetLocal, Slot = 0 });
+        ops.Add(new Op { Type = OpType.Push, Value = 0 });
+        ops.Add(new Op { Type = OpType.SetLocal, Slot = 2 });
+
+        EmitWhile(ops,
+            cond => { cond.Add(new Op { Type = OpType.GetLocal, Slot = 0 }); cond.Add(new Op { Type = OpType.Push, Value = 3 }); cond.Add(new Op { Type = OpType.Clt }); },
+            body =>
+            {
+                body.Add(new Op { Type = OpType.Push, Value = 0 });
+                body.Add(new Op { Type = OpType.SetLocal, Slot = 1 });
+
+                EmitWhile(body, // ayni yapiyi ikinci kez cagiriyoruz -> kendi start/end Label'ini uretir
+                    cond2 => { cond2.Add(new Op { Type = OpType.GetLocal, Slot = 1 }); cond2.Add(new Op { Type = OpType.Push, Value = 3 }); cond2.Add(new Op { Type = OpType.Clt }); },
+                    body2 =>
+                    {
+                        body2.Add(new Op { Type = OpType.GetLocal, Slot = 2 });
+                        body2.Add(new Op { Type = OpType.Push, Value = 1 });
+                        body2.Add(new Op { Type = OpType.Add });
+                        body2.Add(new Op { Type = OpType.SetLocal, Slot = 2 }); // sum += 1
+                        body2.Add(new Op { Type = OpType.GetLocal, Slot = 1 });
+                        body2.Add(new Op { Type = OpType.Push, Value = 1 });
+                        body2.Add(new Op { Type = OpType.Add });
+                        body2.Add(new Op { Type = OpType.SetLocal, Slot = 1 }); // col += 1
+                    });
+
+                body.Add(new Op { Type = OpType.GetLocal, Slot = 0 });
+                body.Add(new Op { Type = OpType.Push, Value = 1 });
+                body.Add(new Op { Type = OpType.Add });
+                body.Add(new Op { Type = OpType.SetLocal, Slot = 0 }); // row += 1
+            });
+
+        ops.Add(new Op { Type = OpType.GetLocal, Slot = 2 });
+        ops.Add(new Op { Type = OpType.Return });
+        return code;
+    }
+
+
+    // generic Primitive (Box<T>) ve generic Code (Identity<T>) tanimlanip, cagri noktasindaki
+    // TypeArguments'a gore Resolver icinde somutlastiriliyor (monomorphization) -> VM generic gormuyor.
+    static void DemoGenerics()
+    {
+        var ctx = new Context();
+
+        var t = new Primitive { Name = "T", IsGenericParameter = true };
+
+        var boxTemplate = new Primitive { Name = "Box", Type = PrimitiveType.Model, IsStruct = true };
+        boxTemplate.GenericParameters.Add(t);
+        boxTemplate.AddField(new PrimitiveField { Name = "value", Type = t });
+
+        var identityTemplate = new Code { Name = "Identity", ReturnType = t };
+        identityTemplate.GenericParameters.Add(t);
+        identityTemplate.Arguments.Add(new Argument { Name = "a", Type = t });
+        identityTemplate.Operations.Add(new Op { Type = OpType.GetArg, Slot = 0 });
+        identityTemplate.Operations.Add(new Op { Type = OpType.Return });
+
+        var makeFloatBox = new Code { Name = "MakeFloatBox" };
+        makeFloatBox.Locals.Add(boxTemplate);
+        makeFloatBox.Operations.Add(new Op { Type = OpType.New, PrimitiveRef = boxTemplate, TypeArguments = { Primitive.Float } });
+        makeFloatBox.Operations.Add(new Op { Type = OpType.SetLocal, Slot = 0 });
+        makeFloatBox.Operations.Add(new Op { Type = OpType.GetLocal, Slot = 0 });
+        makeFloatBox.Operations.Add(new Op { Type = OpType.Push, Value = 42f });
+        makeFloatBox.Operations.Add(new Op { Type = OpType.SetField, Field = boxTemplate.Fields[0] });
+        makeFloatBox.Operations.Add(new Op { Type = OpType.GetLocal, Slot = 0 });
+        makeFloatBox.Operations.Add(new Op { Type = OpType.Return });
+
+        var callIdentityFloat = new Code { Name = "CallIdentityFloat" };
+        callIdentityFloat.Operations.Add(new Op { Type = OpType.Push, Value = 3.5f });
+        callIdentityFloat.Operations.Add(new Op { Type = OpType.Call, Code = identityTemplate, TypeArguments = { Primitive.Float } });
+        callIdentityFloat.Operations.Add(new Op { Type = OpType.Return });
+
+        var callIdentityInt = new Code { Name = "CallIdentityInt" };
+        callIdentityInt.Operations.Add(new Op { Type = OpType.Push, Value = 7 });
+        callIdentityInt.Operations.Add(new Op { Type = OpType.Call, Code = identityTemplate, TypeArguments = { Primitive.Int } });
+        callIdentityInt.Operations.Add(new Op { Type = OpType.Return });
+
+        // ic ice generic kompozisyon: Pair<T>.boxed alani "Box<T>" ifadesiyle (Primitive.Apply) tanimlaniyor
+        var pairTemplate = new Primitive { Name = "Pair", Type = PrimitiveType.Model, IsStruct = true };
+        pairTemplate.GenericParameters.Add(t);
+        pairTemplate.AddField(new PrimitiveField { Name = "boxed", Type = Primitive.Apply(boxTemplate, t) });
+        var pairOfInt = GenericInstantiator.InstantiatePrimitive(ctx, pairTemplate, new List<Primitive> { Primitive.Int });
+        System.Console.WriteLine($"Pair<Int>.boxed alan tipi = {pairOfInt.Fields[0].Type.Name}");
+
+        // ic ice generic kompozisyon: MakeBox<T>(v:T):Box<T> - ReturnType da Primitive.Apply ile ifade ediliyor
+        var makeBoxTemplate = new Code { Name = "MakeBox", ReturnType = Primitive.Apply(boxTemplate, t) };
+        makeBoxTemplate.GenericParameters.Add(t);
+        makeBoxTemplate.Arguments.Add(new Argument { Name = "v", Type = t });
+        makeBoxTemplate.Locals.Add(boxTemplate);
+        makeBoxTemplate.Operations.Add(new Op { Type = OpType.New, PrimitiveRef = boxTemplate, TypeArguments = { t } });
+        makeBoxTemplate.Operations.Add(new Op { Type = OpType.SetLocal, Slot = 0 });
+        makeBoxTemplate.Operations.Add(new Op { Type = OpType.GetLocal, Slot = 0 });
+        makeBoxTemplate.Operations.Add(new Op { Type = OpType.GetArg, Slot = 0 });
+        makeBoxTemplate.Operations.Add(new Op { Type = OpType.SetField, Field = boxTemplate.Fields[0] });
+        makeBoxTemplate.Operations.Add(new Op { Type = OpType.GetLocal, Slot = 0 });
+        makeBoxTemplate.Operations.Add(new Op { Type = OpType.Return });
+
+        var callMakeBoxInt = new Code { Name = "CallMakeBoxInt" };
+        callMakeBoxInt.Operations.Add(new Op { Type = OpType.Push, Value = 99 });
+        callMakeBoxInt.Operations.Add(new Op { Type = OpType.Call, Code = makeBoxTemplate, TypeArguments = { Primitive.Int } });
+        callMakeBoxInt.Operations.Add(new Op { Type = OpType.Return });
+
+        Resolver.ResolveAll(ctx, new List<Code> { makeFloatBox, callIdentityFloat, callIdentityInt, callMakeBoxInt });
+
+        var vm = new VM();
+        var boxFloat = (Instance)vm.Run(makeFloatBox, new object[0]);
+        System.Console.WriteLine($"Box<Float> = {boxFloat.Type.Name}, value={boxFloat.Fields[0]}");
+        System.Console.WriteLine($"Identity<Float>(3.5) = {vm.Run(callIdentityFloat, new object[0])}");
+        System.Console.WriteLine($"Identity<Int>(7) = {vm.Run(callIdentityInt, new object[0])}");
+        var boxInt = (Instance)vm.Run(callMakeBoxInt, new object[0]);
+        System.Console.WriteLine($"MakeBox<Int>(99) -> {boxInt.Type.Name}, value={boxInt.Fields[0]}");
+    }
+
+    // void Multiply(ref Mat4 a, ref Mat4 b, ref Mat4 r) - r = a*b (once b uygulanir).
+    // locals: 0=arrA 1=arrB 2=arrR (float* karsiligi), 3..18=a0..a15, 19..34=b0..b15
+    static Code BuildMultiply(Primitive mat4)
+    {
+        var code = new Code { Owner = null, Name = "Multiply", ReturnType = Primitive.Void };
+        code.Arguments.Add(new Argument { Name = "a", Type = mat4, IsRef = true });
+        code.Arguments.Add(new Argument { Name = "b", Type = mat4, IsRef = true });
+        code.Arguments.Add(new Argument { Name = "r", Type = mat4, IsRef = true });
+
+        code.Locals.Add(mat4.Fields[0].Type);
+        code.Locals.Add(mat4.Fields[0].Type);
+        code.Locals.Add(mat4.Fields[0].Type);
+        for (int i = 0; i < 16; i++) code.Locals.Add(Primitive.Float); // a0..a15
+        for (int i = 0; i < 16; i++) code.Locals.Add(Primitive.Float); // b0..b15
+        var ops = code.Operations;
+
+        void LoadArrayField(int argSlot, int localSlot)
+        {
+            ops.Add(new Op { Type = OpType.GetArg, Slot = argSlot });
+            ops.Add(new Op { Type = OpType.LoadInd }); // ref parametre: once deref (CIL ldind)
+            ops.Add(new Op { Type = OpType.GetField, Field = mat4.Fields[0] });
+            ops.Add(new Op { Type = OpType.SetLocal, Slot = localSlot });
+        }
+        LoadArrayField(0, 0); // arrA
+        LoadArrayField(1, 1); // arrB
+        LoadArrayField(2, 2); // arrR
+
+        for (int k = 0; k < 16; k++)
+        {
+            ops.Add(new Op { Type = OpType.GetLocal, Slot = 0 });
+            ops.Add(new Op { Type = OpType.Push, Value = k });
+            ops.Add(new Op { Type = OpType.GetIndex });
+            ops.Add(new Op { Type = OpType.SetLocal, Slot = 3 + k });
+        }
+        for (int k = 0; k < 16; k++)
+        {
+            ops.Add(new Op { Type = OpType.GetLocal, Slot = 1 });
+            ops.Add(new Op { Type = OpType.Push, Value = k });
+            ops.Add(new Op { Type = OpType.GetIndex });
+            ops.Add(new Op { Type = OpType.SetLocal, Slot = 19 + k });
+        }
+
+        // r.m[col*4+row] = sum_j a[row+4j] * b[col*4+j]  (verilen C# formulunun birebir karsiligi)
+        for (int col = 0; col < 4; col++)
+        {
+            for (int row = 0; row < 4; row++)
+            {
+                ops.Add(new Op { Type = OpType.GetLocal, Slot = 2 });
+                ops.Add(new Op { Type = OpType.Push, Value = col * 4 + row });
+                for (int j = 0; j < 4; j++)
+                {
+                    ops.Add(new Op { Type = OpType.GetLocal, Slot = 3 + (row + 4 * j) });
+                    ops.Add(new Op { Type = OpType.GetLocal, Slot = 19 + (col * 4 + j) });
+                    ops.Add(new Op { Type = OpType.Mul });
+                    if (j > 0) ops.Add(new Op { Type = OpType.Add });
+                }
+                ops.Add(new Op { Type = OpType.SetIndex });
+            }
+        }
+
+        ops.Add(new Op { Type = OpType.Return });
+        return code;
+    }
+}

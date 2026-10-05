@@ -26,6 +26,18 @@
     <ProjectReference Include="..\engine\managed\DigitoyEngine.csproj" />
   </ItemGroup>
 
+  <!-- AOT/release: -p:GameProject=<proje koku> verilince uretilmis registry
+       (Library/Build/Registry.g.cs) + oyun scriptleri (Assets/Scripts) bu assembly'ye
+       GOMULUR ve DE_AOT tanimlanir: Assembly.LoadFrom yok, katalog dogrudan
+       Registry.RegisterAll ile kurulur. aotcompiler 'player' modu bu DLL'i C'ye cevirir. -->
+  <PropertyGroup Condition="'$(GameProject)' != ''">
+    <DefineConstants>$(DefineConstants);DE_AOT</DefineConstants>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(GameProject)' != ''">
+    <Compile Include="$(GameProject)\Library\Build\Registry.g.cs" Link="Game\Registry.g.cs" />
+    <Compile Include="$(GameProject)\Assets\Scripts\**\*.cs" Link="Game\%(RecursiveDir)%(Filename)%(Extension)" />
+  </ItemGroup>
+
   <ItemGroup Condition="'$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Windows)))' == 'true'">
     <None Include="..\engine\native\build\digitoyengine_native.dll"
           Condition="Exists('..\engine\native\build\digitoyengine_native.dll')">
