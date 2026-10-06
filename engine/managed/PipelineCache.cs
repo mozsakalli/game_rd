@@ -11,13 +11,16 @@ namespace DigitoyEngine;
 //   attr0 position FLOAT3  @0 ; attr1 uv FLOAT2 @12 ; attr2 color UBYTE4N @20
 // Instance layout (buffer 1, per-instance, Instance struct):
 //   attr3..6 model rows FLOAT4 @0/16/32/48 ; attr7 uvRect FLOAT4 @64 ;
-//   attr8..11 tint0..3 UBYTE4N @80/84/88/92 ; attr12 user FLOAT4 @96
+//   attr8..11 tint0..3 UBYTE4N @80/84/88/92 ; attr12 user FLOAT4 @96 ;
+//   fxp FLOAT4 @112 (yalniz FXP okuyan shader'larda; slot 13, USER yoksa 12) ;
+//   fxRect FLOAT4 @128 (yalniz .fx compose; slot = 12 + USER + FXP)
 public static unsafe class PipelineCache
 {
     struct Entry
     {
         public uint StateKey;
         public uint Pipeline;
+        public bool UsesTime; // fragment TIME uniform blogu (slot 1) uygulanmali mi
     }
 
     static readonly List<Entry> _entries = new();
@@ -30,12 +33,16 @@ public static unsafe class PipelineCache
             if (_entries[i].StateKey == key)
                 return i;
 
-        _entries.Add(new Entry { StateKey = key, Pipeline = Build(material, index32) });
+        var shader = material.Shader ?? Shader.Default;
+        _entries.Add(new Entry { StateKey = key, Pipeline = Build(material, index32), UsesTime = shader.UsesTime });
         return _entries.Count - 1;
     }
 
     // Slot -> gercek sokol pipeline id.
     public static uint PipelineId(int slot) => _entries[slot].Pipeline;
+
+    // Slot -> shader fragment'ta TIME okuyor mu (uniform blok 1 yalniz o zaman var).
+    public static bool UsesTime(int slot) => _entries[slot].UsesTime;
 
     public static void Clear() => _entries.Clear();
 
@@ -66,6 +73,10 @@ public static unsafe class PipelineCache
         var shader = material.Shader ?? Shader.Default;
         if (shader.UsesUser)
             Sokol.PipelineAttr(12, 1, 96, SG.VertexFormatFloat4); // user (yalniz USER'li shader)
+        if (shader.UsesFxp)
+            Sokol.PipelineAttr(shader.FxpAttr, 1, 112, SG.VertexFormatFloat4); // fxp (slot 12 ya da 13; sokol slotlar ardisik ister)
+        if (shader.UsesLocal)
+            Sokol.PipelineAttr(shader.LocalAttr, 1, 128, SG.VertexFormatFloat4); // fxRect (yalniz .fx compose shader'lari)
 
         if (!material.IsOpaque)
         {

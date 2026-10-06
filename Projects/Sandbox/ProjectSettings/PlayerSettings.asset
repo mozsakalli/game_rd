@@ -1,0 +1,12 @@
+type: PlayerSettings
+fields:
+  companyName: DefaultCompany
+  productName: Sandbox
+  version: 0.1.0
+  bundleIdentifier: com.defaultcompany.game
+  startScene: Scenes/Main.scene
+  defaultWidth: 1280
+  defaultHeight: 720
+  fullscreen: false
+  resizableWindow: true
+  targetFrameRate: 0

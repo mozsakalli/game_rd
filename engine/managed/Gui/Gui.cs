@@ -432,12 +432,12 @@ public static partial class Gui
     // Yatay surukle = deger degistir; suruklenmeden tik = yazarak gir (Enter/odak
     // kaybi commit, Escape iptal).
     public static float DragFloat(in Rect rect, float value, float speed = 0.01f, float min = float.MinValue, float max = float.MaxValue)
-        => (float)DragCore(rect, value, speed, min, max, "G9", integer: false);
+        => (float)DragCore(rect, value, speed, min, max, "R", integer: false);
 
-    // "G9" formati System.Single (float) icin round-trip hassasiyetidir; deger
-    // double olarak tasindigi icin dogrudan double.TryFormat cagirmak float'ta
-    // bulunmayan ekstra basamaklari gosterir (orn. 0.1 -> 0.100000001). Float
-    // modunda once (float) cast yapip oyle formatlamak bu sapmayi onler.
+    // "R" (.NET Core 3.0+) float icin EN KISA round-trip gosterimdir: 0.1f -> "0.1".
+    // "G9" sabit 9 anlamli basamak urettigi icin 0.1f -> "0.100000001" olurdu.
+    // Deger double tasindigindan once (float) cast edilir; aksi halde float'ta
+    // bulunmayan fazladan basamaklar gorunur.
     static bool FormatNum(double value, bool integer, string format, Span<char> buf, out int len)
         => integer
             ? value.TryFormat(buf, out len, format, System.Globalization.CultureInfo.InvariantCulture)
@@ -519,7 +519,12 @@ public static partial class Gui
                     Skin.TextField.Draw(rect, id);
                     Span<char> tmp = stackalloc char[24];
                     FormatNum(value, integer, format, tmp, out int n);
-                    GuiRenderer.DrawTextIn(rect, tmp.Slice(0, n), FontSize, _textColor);
+                    // Uzun sayilar dar alanda komsu hucreye tasmasin: alana kirp.
+                    float pad = Skin.TextField.Padding.Left;
+                    GuiClip.Push(new Rect(rect.x + pad, rect.y, rect.width - pad * 2, rect.height));
+                    GuiRenderer.DrawTextIn(new Rect(-4f, 0, rect.width - pad * 2 + 4f, rect.height),
+                        tmp.Slice(0, n), FontSize, _textColor);
+                    GuiClip.Pop();
                     break;
                 }
         }

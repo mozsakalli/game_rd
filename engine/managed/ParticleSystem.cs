@@ -14,16 +14,18 @@ public enum ParticleSpace : byte { Local, World }
 public enum ParticleShapeType : byte { Point, Circle, Sphere, Box, Cone, Edge }
 public enum ParticleRenderMode : byte { Billboard, Stretched }
 public enum ParticleStopAction : byte { None, Disable, Destroy }
-public enum LifeCurveMode : byte { Constant, Ease, Curve }
 public enum ParticleFrameMode : byte { Lifetime, Fps, RandomFrame }
+public enum ValueMode : byte { Constant, Random, Curve }
+public enum ColorMode : byte { Solid, Random, Gradient, Palette }
 
-// min..max arasi rastgele baslangic degeri (Unity MinMax sabit ikilisi).
+// min..max arasi rastgele baslangic degeri.
 [Serializable]
 public struct FloatRange
 {
     public float min, max;
     public FloatRange(float v) { min = max = v; }
     public FloatRange(float min, float max) { this.min = min; this.max = max; }
+    public readonly bool IsZero => min == 0f && max == 0f;
     internal readonly float Sample(ref uint rng)
         => min == max ? min : min + (max - min) * ParticleSystem.Rand01(ref rng);
 }
@@ -34,6 +36,8 @@ public struct Vec3Range
     public Vec3 min, max;
     public Vec3Range(Vec3 v) { min = max = v; }
     public Vec3Range(Vec3 min, Vec3 max) { this.min = min; this.max = max; }
+    public readonly bool IsZero
+        => min.x == 0f && max.x == 0f && min.y == 0f && max.y == 0f && min.z == 0f && max.z == 0f;
     internal readonly Vec3 Sample(ref uint rng)
     {
         float x = min.x + (max.x - min.x) * ParticleSystem.Rand01(ref rng);
@@ -43,49 +47,90 @@ public struct Vec3Range
     }
 }
 
-// Omur boyunca carpan: Constant=1, Ease=from->to (LUT), Curve=authored egri.
-// randomize: parcacik tohumuyla 0..randomize orani kadar asagi ceker (iki egri
-// arasi rastgele muadili, tek carpim).
-[Serializable]
-public struct LifeCurve
+// Parcacik basina cozulmus zarf: value(t) = lo + (hi - lo) * shape(t).
+public struct ValueEnv
 {
-    public LifeCurveMode mode;
-    public float from;
-    public float to;
-    public Ease ease;
-    public Curve curve;
-    public float randomize;
+    public float lo, hi;
+}
 
-    [NonSerialized] int _curveSig;
+// Tek tip parcacik degeri (her kanal icin ayni yapi):
+//   Constant : min
+//   Random   : min..max arasi parcacik basina sabit
+//   Curve    : omur boyunca MUTLAK deger; shape(0..1) 0 -> min, 1 -> max'a esler
+//              (shape 0..1 disina cikabilir: "4x patla, -1'e dus"). spread (0..1)
+//              her parcacikta taban/tavani birbirine dogru rastgele ceker = iki
+//              egri arasi rastgele; iki uc bagimsiz, tek LUT, parcacik basina 2 float.
+// Baslangic + omur boyu davranis tek alanda: tasarimci "hiz sudur" der, bitti.
+[Serializable]
+public struct MinMaxValue
+{
+    public ValueMode mode;
+    public float min;
+    public float max;
+    [ShowIf(nameof(mode), ValueMode.Curve)] public Curve shape;
+    [ShowIf(nameof(mode), ValueMode.Curve)] public float spread;
 
-    public static LifeCurve One => new() { from = 1f, to = 1f };
-    public static LifeCurve EaseTo(float from, float to, Ease e = Ease.Linear)
-        => new() { mode = LifeCurveMode.Ease, from = from, to = to, ease = e };
+    [NonSerialized] int _sig;
 
-    public readonly bool Active => mode != LifeCurveMode.Constant || randomize != 0f;
+    public static MinMaxValue Constant(float v)
+        => new() { mode = ValueMode.Constant, min = v, max = v };
+    public static MinMaxValue Random(float min, float max)
+        => new() { mode = ValueMode.Random, min = min, max = max };
+    public static MinMaxValue Curved(float min, float max, Curve shape, float spread = 0f)
+        => new() { mode = ValueMode.Curve, min = min, max = max, shape = shape, spread = spread };
+    // min -> max dogrusal (eskinin Keys="0,0 1,1"i).
+    public static MinMaxValue Linear(float from, float to, float spread = 0f)
+        => Curved(from, to, Curve.Linear(0f, 0f, 1f, 1f), spread);
 
-    public readonly float Evaluate(float t, float seed)
+    public static implicit operator MinMaxValue(float v) => Constant(v);
+
+    // Omur boyunca degisir mi (hot path'te dal secimi frame'de bir kez).
+    public readonly bool Animated => mode == ValueMode.Curve && shape != null;
+
+    internal readonly void Sample(ref uint rng, out ValueEnv e)
     {
-        float v = mode switch
+        switch (mode)
         {
-            LifeCurveMode.Ease => from + (to - from) * Easing.Evaluate(ease, t),
-            LifeCurveMode.Curve => curve != null ? curve.Evaluate(t) : 1f,
-            _ => 1f,
-        };
-        return randomize != 0f ? v * (1f - randomize * seed) : v;
+            default:
+                e.lo = e.hi = min;
+                break;
+            case ValueMode.Random:
+                e.lo = e.hi = min == max ? min : min + (max - min) * ParticleSystem.Rand01(ref rng);
+                break;
+            case ValueMode.Curve:
+                e.lo = min; e.hi = max;
+                if (spread > 0f)
+                {
+                    float d = (max - min) * (spread > 1f ? 1f : spread);
+                    e.lo += d * ParticleSystem.Rand01(ref rng);
+                    e.hi -= d * ParticleSystem.Rand01(ref rng);
+                }
+                if (shape == null) e.hi = e.lo;
+                break;
+        }
     }
 
+    // Doguma sabitlenen degerler (omur, fps vb.) icin: egri anlamsiz, tabani verir.
+    internal readonly float SampleScalar(ref uint rng)
+    {
+        Sample(ref rng, out var e);
+        return e.lo;
+    }
+
+    internal readonly float Evaluate(float t, in ValueEnv e)
+        => mode == ValueMode.Curve && shape != null ? e.lo + (e.hi - e.lo) * shape.Evaluate(t) : e.lo;
+
     // Inspector alanlara dogrudan yazar (Version artmaz): key imzasi degistiyse
-    // Curve LUT'unu tazele. Frame'de bir kez, parcacik basina degil.
+    // LUT'u tazele. Frame'de bir kez, parcacik basina degil.
     internal void Refresh()
     {
-        if (mode != LifeCurveMode.Curve || curve == null)
+        if (mode != ValueMode.Curve || shape == null)
             return;
-        int sig = ParticleSystem.CurveSignature(curve);
-        if (sig == _curveSig)
+        int sig = ParticleSystem.CurveSignature(shape);
+        if (sig == _sig)
             return;
-        _curveSig = sig;
-        curve.Version++;
+        _sig = sig;
+        shape.Version++;
     }
 }
 
@@ -175,6 +220,55 @@ public sealed class ColorGradient
     }
 }
 
+// Tek tip parcacik rengi:
+//   Solid    : color
+//   Random   : color..color2 arasi parcacik basina sabit
+//   Gradient : omur boyunca gradient (color = tint carpani)
+//   Palette  : listeden rastgele; cycleSpeed>0 ise saniyede o kadar renk ilerler
+//              (color = tint carpani). Alfa ayrica ParticleSystem.alpha ile carpilir.
+[Serializable]
+public struct MinMaxColor
+{
+    public ColorMode mode;
+    public Color color;
+    [ShowIf(nameof(mode), ColorMode.Random)] public Color color2;
+    [ShowIf(nameof(mode), ColorMode.Gradient)] public ColorGradient gradient;
+    [ShowIf(nameof(mode), ColorMode.Palette)] public List<Color> palette;
+    [ShowIf(nameof(mode), ColorMode.Palette)] public FloatRange cycleSpeed;
+
+    public static MinMaxColor Solid(Color c)
+        => new() { mode = ColorMode.Solid, color = c, color2 = c };
+    public static MinMaxColor Random(Color a, Color b)
+        => new() { mode = ColorMode.Random, color = a, color2 = b };
+    public static MinMaxColor Gradient(ColorGradient g)
+        => new() { mode = ColorMode.Gradient, color = Color.White, color2 = Color.White, gradient = g };
+    public static MinMaxColor Palette(List<Color> colors, float cycleMin = 0f, float cycleMax = 0f)
+        => new() { mode = ColorMode.Palette, color = Color.White, color2 = Color.White, palette = colors, cycleSpeed = new FloatRange(cycleMin, cycleMax) };
+
+    public static implicit operator MinMaxColor(Color c) => Solid(c);
+
+    // Omur boyunca degisir mi.
+    public readonly bool Animated
+        => (mode == ColorMode.Gradient && gradient != null && gradient.Active)
+        || (mode == ColorMode.Palette && palette != null && palette.Count > 0);
+
+    internal readonly Color SampleBirth(ref uint rng)
+    {
+        if (mode != ColorMode.Random)
+            return color;
+        float t = ParticleSystem.Rand01(ref rng);
+        return new(
+            (byte)(color.r + (color2.r - color.r) * t), (byte)(color.g + (color2.g - color.g) * t),
+            (byte)(color.b + (color2.b - color.b) * t), (byte)(color.a + (color2.a - color.a) * t));
+    }
+
+    internal void Refresh()
+    {
+        if (mode == ColorMode.Gradient && gradient != null)
+            gradient.Refresh();
+    }
+}
+
 [Serializable]
 public sealed class ParticleBurst
 {
@@ -198,6 +292,8 @@ public struct EmissionModule
 
 // Emisyon sekli. "Ileri" yon -Y'dir (y-asagi dunyada ekran yukarisi): Point/Box/
 // Edge bu yone, Cone bu eksen etrafinda aciyla, Circle/Sphere merkezden disa firlatir.
+// directionSpread: secilen yonu z etrafinda +-derece rastgele dondurur (Box + spread
+// = eskinin "Rectangle W,H aMin,aMax"i; tam aralik icin shape.rotation.z ile cevir).
 // randomDirection 0..1 sekil yonunu rastgele yonle harmanlar (1 = tamamen rastgele).
 [Serializable]
 public struct ShapeModule
@@ -211,6 +307,7 @@ public struct ShapeModule
     public float coneLength;        // >0: taban diskinden bu kadar ileriye kadar hacimden
     public Vec3 offset;
     public Vec3 rotation;           // sekil euler (derece)
+    public float directionSpread;   // yarim aci, derece (z etrafinda)
     public float randomDirection;
     public bool emit3D;             // yonler/konumlar z eksenini de kullanir
     public bool alignToDirection;   // dogum rotasyonu z = firlatma yonu
@@ -226,18 +323,17 @@ public struct ShapeModule
     };
 }
 
+// Fizik katmani: ParticleSystem.speed egrisi (tasarimcinin niyeti, sekil yonu boyunca)
+// ile TOPLANIR; drag yalniz bu katmana uygulanir, egriyi bozmaz.
 [Serializable]
 public struct VelocityModule
 {
     public Vec3 gravity;            // birim/s^2 (y-asagi dunyada +y asagi duser)
     public Vec3 force;              // sabit ivme (ruzgar)
-    public float drag;              // 1/s: hiz *= (1 - drag*dt)
-    public float orbitalSpeed;      // derece/s, emitter merkezi etrafinda (z ekseni)
+    public float drag;              // 1/s: fizik hizi *= (1 - drag*dt)
+    public float orbitalSpeed;      // derece/s, emitter merkezi etrafinda
     public float radialSpeed;       // birim/s, merkezden disa (+) / ice (-)
-    public Vec3Range linear;        // doguma eklenen rastgele hiz
-    public LifeCurve speed;         // omur boyunca hiz carpani
-
-    public static VelocityModule Default => new() { speed = LifeCurve.One };
+    public Vec3Range linear;        // doguma eklenen rastgele fizik hizi
 }
 
 // Ucuz prosedurel turbulans: konum+zaman tabanli sin/cos alanı (gercek curl
@@ -251,15 +347,35 @@ public struct NoiseModule
     public static NoiseModule Default => new() { frequency = 0.01f, scrollSpeed = 1f };
 }
 
+// Rotasyon MUTLAK aci egrisidir (derece): "0'dan 720'ye don" = Linear(0, 720);
+// rastgele acidan rastgele aciya = Curve(min,max,shape,spread). Ayri x/y 3D flip icin.
 [Serializable]
 public struct RotationModule
 {
-    public Vec3Range angularVelocity;   // derece/s, xyz
-    public LifeCurve speed;             // acisal hiz carpani
-    public bool alignToVelocity;        // z rotasyonu her frame hiz yonune
+    public MinMaxValue z;
+    public MinMaxValue x;
+    public MinMaxValue y;
+    public bool alignToVelocity;        // z rotasyonu her frame efektif hiz yonune
     public float alignOffset;           // derece (sprite yukari ciziliyse 90)
+}
 
-    public static RotationModule Default => new() { speed = LifeCurve.One };
+// Yanal salinim: pos += amplitude * sin(2*pi*frequency*age + phase) * dir(direction).
+// Delta tabanli uygulanir (frame-rate bagimsiz). amplitude 0 = kapali.
+[Serializable]
+public struct WaveModule
+{
+    public FloatRange amplitude;        // birim
+    public FloatRange frequency;        // dalga/s
+    public FloatRange direction;        // derece (0 = +X)
+    public FloatRange phase;            // derece, baslangic fazi
+
+    public readonly bool Active => !amplitude.IsZero;
+
+    public static WaveModule Default => new()
+    {
+        frequency = new FloatRange(1f),
+        phase = new FloatRange(0f, 360f),
+    };
 }
 
 // Kare animasyonu: ParticleSystem.sprites listesi uzerinde (her kare ayri Sprite —
@@ -269,17 +385,17 @@ public struct FrameModule
 {
     public ParticleFrameMode mode;
     public float cycles;            // Lifetime: omur boyunca tur sayisi
-    public float fps;               // Fps modu
+    public FloatRange fps;          // Fps modu: parcacik basina rastgele hiz
     public FloatRange startFrame;
 
-    public static FrameModule Default => new() { cycles = 1f, fps = 12f };
+    public static FrameModule Default => new() { cycles = 1f, fps = new FloatRange(12f) };
 }
 
 // Yuksek performansli 2D/3D parcacik sistemi: tek component, modul struct'lari.
+// Her kanal tek tip MinMaxValue (sabit / rastgele / mutlak egri + rastgele zarf).
 // Parcaciklar onceden ayrilmis duz dizide (AoS, swap-remove), simulasyon ve
 // emisyon frame'de SIFIR alloc; cizim = parcacik basina Mesh.Quad instanced
 // DrawMesh (ayni materyal/doku = RenderQueue merge ile TEK draw call).
-// Rotasyon xyz (3D), blend/efekt Renderer alanlarindan, ozel Material serbest.
 [Previewable]
 public sealed unsafe class ParticleSystem : Renderer, IEditorPreview
 {
@@ -294,12 +410,16 @@ public sealed unsafe class ParticleSystem : Renderer, IEditorPreview
     public int maxParticles = 1000;
     public int randomSeed;                  // 0 = her Play'de farkli
     public ParticleStopAction stopAction;
-    public FloatRange startLifetime = new(1f, 1.5f);
-    public FloatRange startSpeed = new(80f, 120f);
-    public FloatRange startSize = new(16f, 24f);
-    public float aspect = 1f;               // yukseklik = boyut * aspect; 0 = sprite'in dogal orani
-    public Vec3Range startRotation;         // derece
-    public Gradient startColor = Color.White; // Linear: color..color2 arasi rastgele
+
+    // --- Kanallar (dogum + omur tek alanda) ---
+    public MinMaxValue lifetime = MinMaxValue.Random(1f, 1.5f);   // s (egri anlamsiz)
+    public MinMaxValue speed = MinMaxValue.Random(80f, 120f);     // birim/s, sekil yonu boyunca
+    public MinMaxValue size = MinMaxValue.Random(16f, 24f);       // genislik (birim)
+    public bool separateAxes;
+    [ShowIf(nameof(separateAxes))] public MinMaxValue sizeY = MinMaxValue.Constant(16f);
+    public float aspect = 1f;               // separateAxes kapali: yukseklik = size * aspect; 0 = sprite'in dogal orani
+    public MinMaxValue alpha = MinMaxValue.Constant(1f);          // 0..1, renk alfasiyla carpilir
+    public MinMaxColor color = MinMaxColor.Solid(Color.White);
 
     // --- Cizim ---
     // Kare listesi: bos = beyaz kare, 1 = sabit sprite, >1 = frames modulune gore animasyon.
@@ -312,11 +432,10 @@ public sealed unsafe class ParticleSystem : Renderer, IEditorPreview
     // --- Moduller ---
     public EmissionModule emission = EmissionModule.Default;
     public ShapeModule shape = ShapeModule.Default;
-    public VelocityModule velocity = VelocityModule.Default;
+    public VelocityModule velocity;
     public NoiseModule noise = NoiseModule.Default;
-    public ColorGradient colorOverLifetime = new();
-    public LifeCurve sizeOverLifetime = LifeCurve.One;
-    public RotationModule rotation = RotationModule.Default;
+    public RotationModule rotation;
+    public WaveModule wave = WaveModule.Default;
     public FrameModule frames = FrameModule.Default;
     public ParticleSystem subEmitterOnDeath;
     public int subEmitterCount = 5;
@@ -334,9 +453,14 @@ public sealed unsafe class ParticleSystem : Renderer, IEditorPreview
 
     struct Particle
     {
-        public Vec3 pos, vel, rot, angVel;
-        public float age, life, invLife;
-        public float size, seed, frame0;
+        public Vec3 pos;
+        public Vec3 dir;        // birim yon (speed egrisi bu yonde)
+        public Vec3 pvel;       // fizik hizi (gravity/force/noise/linear, drag'li)
+        public float age, life, invLife, seed;
+        public float spd;       // son adimda cozulmus speed(t) (align/stretch icin)
+        public ValueEnv speed, sizeX, sizeY, alpha, rotX, rotY, rotZ;
+        public float wAmp, wFreq, wPhase, wCos, wSin, wPrev;
+        public float frame0, fps, cSpd;
         public Color color;
     }
 
@@ -364,6 +488,7 @@ public sealed unsafe class ParticleSystem : Renderer, IEditorPreview
 
     const float Deg2Rad = MathF.PI / 180f;
     const float Rad2Deg = 180f / MathF.PI;
+    const float TwoPi = 6.2831853f;
 
     // --- Durum ---
     public bool IsPlaying => _playing && !_paused;
@@ -541,15 +666,26 @@ public sealed unsafe class ParticleSystem : Renderer, IEditorPreview
         }
     }
 
+    // Egri LUT'lari frame'de bir kez tazelenir (Inspector dogrudan yazar).
+    void RefreshCurves()
+    {
+        speed.Refresh();
+        size.Refresh();
+        sizeY.Refresh();
+        alpha.Refresh();
+        rotation.z.Refresh();
+        rotation.x.Refresh();
+        rotation.y.Refresh();
+        color.Refresh();
+    }
+
     void Step(float dt)
     {
         if (dt <= 0f)
             return;
         if (_p.Length == 0)
             EnsureCapacity();
-        // Omur carpanlari + gradyan frame'de bir kez tazelenir (Inspector dogrudan yazar).
-        velocity.speed.Refresh();
-        rotation.speed.Refresh();
+        speed.Refresh();
 
         // ONCE mevcut parcaciklar ilerler, SONRA yeni dogumlar: Spawn dogum yasini
         // (frame ici ofset) kendisi uygular, ayni frame'de ikinci kez ilerlemez.
@@ -648,8 +784,8 @@ public sealed unsafe class ParticleSystem : Renderer, IEditorPreview
         float dragK = 1f - vel.drag * dt;
         if (dragK < 0f) dragK = 0f;
         bool hasDrag = dragK != 1f;
-        bool useSpd = vel.speed.Active;
-        bool useRotSpd = rotation.speed.Active;
+        var spdV = speed;
+        bool spdAnim = spdV.Animated;
 
         bool orbital = vel.orbitalSpeed != 0f;
         bool radial = vel.radialSpeed != 0f;
@@ -670,6 +806,7 @@ public sealed unsafe class ParticleSystem : Renderer, IEditorPreview
         bool useNoise = noise.strength != 0f;
         float nf = noise.frequency, nt = _time * noise.scrollSpeed, ns = noise.strength * dt;
         bool noise3D = shape.emit3D;
+        bool useWave = wave.Active;
 
         bool hasSub = subEmitterOnDeath != null && !ReferenceEquals(subEmitterOnDeath, this) && subEmitterCount > 0;
 
@@ -688,24 +825,35 @@ public sealed unsafe class ParticleSystem : Renderer, IEditorPreview
             }
             float t = q.age * q.invLife;
 
-            if (hasAcc) { q.vel.x += ax; q.vel.y += ay; q.vel.z += az; }
+            if (hasAcc) { q.pvel.x += ax; q.pvel.y += ay; q.pvel.z += az; }
             if (useNoise)
             {
-                float ph = q.seed * 6.2831853f;
+                float ph = q.seed * TwoPi;
                 float px = q.pos.x * nf, py = q.pos.y * nf;
                 float nx = MathF.Sin(py + nt + ph) * MathF.Cos(px * 0.5f + nt * 0.7f);
                 float ny = MathF.Cos(px + nt * 1.1f + ph) * MathF.Sin(py * 0.5f - nt * 0.8f);
-                q.vel.x += nx * ns;
-                q.vel.y += ny * ns;
+                q.pvel.x += nx * ns;
+                q.pvel.y += ny * ns;
                 if (noise3D)
-                    q.vel.z += MathF.Sin(px * 0.7f + py * 0.3f + nt * 0.9f + ph) * ns;
+                    q.pvel.z += MathF.Sin(px * 0.7f + py * 0.3f + nt * 0.9f + ph) * ns;
             }
-            if (hasDrag) { q.vel.x *= dragK; q.vel.y *= dragK; q.vel.z *= dragK; }
+            if (hasDrag) { q.pvel.x *= dragK; q.pvel.y *= dragK; q.pvel.z *= dragK; }
 
-            float s = useSpd ? vel.speed.Evaluate(t, q.seed) * dt : dt;
-            q.pos.x += q.vel.x * s;
-            q.pos.y += q.vel.y * s;
-            q.pos.z += q.vel.z * s;
+            float s = spdAnim ? spdV.Evaluate(t, in q.speed) : q.speed.lo;
+            q.spd = s;
+            float sd = s * dt;
+            q.pos.x += q.dir.x * sd + q.pvel.x * dt;
+            q.pos.y += q.dir.y * sd + q.pvel.y * dt;
+            q.pos.z += q.dir.z * sd + q.pvel.z * dt;
+
+            if (useWave && q.wAmp != 0f)
+            {
+                float w = q.wAmp * MathF.Sin(q.age * q.wFreq * TwoPi + q.wPhase);
+                float d = w - q.wPrev;
+                q.wPrev = w;
+                q.pos.x += d * q.wCos;
+                q.pos.y += d * q.wSin;
+            }
 
             if (orbital || radial)
             {
@@ -726,11 +874,6 @@ public sealed unsafe class ParticleSystem : Renderer, IEditorPreview
                 }
                 q.pos.x = cx + dx; q.pos.y = cy + dy;
             }
-
-            float rs = useRotSpd ? rotation.speed.Evaluate(t, q.seed) * dt : dt;
-            q.rot.x += q.angVel.x * rs;
-            q.rot.y += q.angVel.y * rs;
-            q.rot.z += q.angVel.z * rs;
             i++;
         }
         _count = count;
@@ -749,15 +892,35 @@ public sealed unsafe class ParticleSystem : Renderer, IEditorPreview
     {
         ref uint rng = ref _rng;
         q.seed = Rand01(ref rng);
-        q.life = startLifetime.Sample(ref rng);
+        q.life = lifetime.SampleScalar(ref rng);
         if (q.life < 1e-4f) q.life = 1e-4f;
         q.invLife = 1f / q.life;
         q.age = ageOffset >= q.life ? q.life - 1e-5f : ageOffset;
-        q.size = startSize.Sample(ref rng);
-        q.color = startColor.type == GradientType.Solid ? startColor.color : startColor.At(Rand01(ref rng));
-        q.rot = startRotation.Sample(ref rng);
-        q.angVel = rotation.angularVelocity.Sample(ref rng);
+
+        speed.Sample(ref rng, out q.speed);
+        size.Sample(ref rng, out q.sizeX);
+        if (separateAxes) sizeY.Sample(ref rng, out q.sizeY);
+        else q.sizeY = q.sizeX;
+        alpha.Sample(ref rng, out q.alpha);
+        rotation.z.Sample(ref rng, out q.rotZ);
+        rotation.x.Sample(ref rng, out q.rotX);
+        rotation.y.Sample(ref rng, out q.rotY);
+        q.color = color.SampleBirth(ref rng);
+        q.cSpd = color.mode == ColorMode.Palette ? color.cycleSpeed.Sample(ref rng) : 0f;
         q.frame0 = frames.startFrame.Sample(ref rng);
+        q.fps = frames.fps.Sample(ref rng);
+
+        float wCos = 1f, wSin = 0f;
+        if (wave.Active)
+        {
+            q.wAmp = wave.amplitude.Sample(ref rng);
+            q.wFreq = wave.frequency.Sample(ref rng);
+            q.wPhase = wave.phase.Sample(ref rng) * Deg2Rad;
+            float wa = wave.direction.Sample(ref rng) * Deg2Rad;
+            wCos = MathF.Cos(wa); wSin = MathF.Sin(wa);
+            q.wPrev = q.wAmp * MathF.Sin(q.wPhase);
+        }
+        else q.wAmp = 0f;
 
         SampleShape(ref rng, out Vec3 pos, out Vec3 dir);
         if (shape.rotation.x != 0f || shape.rotation.y != 0f || shape.rotation.z != 0f)
@@ -767,22 +930,22 @@ public sealed unsafe class ParticleSystem : Renderer, IEditorPreview
             dir = Mat4.TransformVector(ref _shapeM, dir);
         }
         pos += shape.offset;
-        float speed = startSpeed.Sample(ref rng);
-        Vec3 v = dir * speed;
-        var lin = velocity.linear;
-        if (lin.min.x != 0f || lin.max.x != 0f || lin.min.y != 0f || lin.max.y != 0f || lin.min.z != 0f || lin.max.z != 0f)
-            v += lin.Sample(ref rng);
+        Vec3 pv = velocity.linear.IsZero ? default : velocity.linear.Sample(ref rng);
 
         if (simulationSpace == ParticleSpace.World)
         {
             ref var w = ref transform._getWorldMatrix();
             if (atWorld)
-            {
                 pos = Mat4.TransformVector(ref w, pos) + worldPos;
-            }
             else
                 pos = Mat4.TransformPoint(ref w, pos);
-            v = Mat4.TransformVector(ref w, v);
+            dir = Mat4.TransformVector(ref w, dir);
+            pv = Mat4.TransformVector(ref w, pv);
+            if (q.wAmp != 0f)
+            {
+                var wd = Mat4.TransformVector(ref w, new Vec3(wCos, wSin, 0f));
+                wCos = wd.x; wSin = wd.y;
+            }
         }
         else if (atWorld)
         {
@@ -790,12 +953,19 @@ public sealed unsafe class ParticleSystem : Renderer, IEditorPreview
             if (Mat4.Inverse(ref w, out var inv))
                 pos += Mat4.TransformPoint(ref inv, worldPos);
         }
+        q.wCos = wCos; q.wSin = wSin;
 
-        if (shape.alignToDirection && (v.x != 0f || v.y != 0f))
-            q.rot.z += MathF.Atan2(-v.y, v.x) * Rad2Deg;
+        if (shape.alignToDirection && (dir.x != 0f || dir.y != 0f))
+        {
+            float a = MathF.Atan2(-dir.y, dir.x) * Rad2Deg;
+            q.rotZ.lo += a; q.rotZ.hi += a;
+        }
 
-        q.pos = pos + v * q.age;
-        q.vel = v;
+        float s0 = speed.Evaluate(q.age * q.invLife, in q.speed);
+        q.spd = s0;
+        q.dir = dir;
+        q.pvel = pv;
+        q.pos = pos + (dir * s0 + pv) * q.age;
     }
 
     void EnsureShapeMatrix()
@@ -853,10 +1023,10 @@ public sealed unsafe class ParticleSystem : Renderer, IEditorPreview
                     if (d3)
                     {
                         float th = half * MathF.Sqrt(Rand01(ref rng));
-                        float ph = Rand01(ref rng) * 6.2831853f;
+                        float ph = Rand01(ref rng) * TwoPi;
                         float st = MathF.Sin(th);
                         dir = new Vec3(st * MathF.Cos(ph), -MathF.Cos(th), st * MathF.Sin(ph));
-                        float ba = Rand01(ref rng) * 6.2831853f;
+                        float ba = Rand01(ref rng) * TwoPi;
                         float br = sh.radius * MathF.Sqrt(Rand01(ref rng));
                         pos = new Vec3(MathF.Cos(ba) * br, 0f, MathF.Sin(ba) * br);
                     }
@@ -870,6 +1040,12 @@ public sealed unsafe class ParticleSystem : Renderer, IEditorPreview
                         pos += dir * (Rand01(ref rng) * sh.coneLength);
                     break;
                 }
+        }
+        if (sh.directionSpread != 0f)
+        {
+            float a = (Rand01(ref rng) * 2f - 1f) * sh.directionSpread * Deg2Rad;
+            float ca = MathF.Cos(a), sa = MathF.Sin(a);
+            dir = new Vec3(dir.x * ca - dir.y * sa, dir.x * sa + dir.y * ca, dir.z);
         }
         if (sh.randomDirection > 0f)
         {
@@ -896,14 +1072,14 @@ public sealed unsafe class ParticleSystem : Renderer, IEditorPreview
 
     static Vec3 RandomUnit2(ref uint rng)
     {
-        float a = Rand01(ref rng) * 6.2831853f;
+        float a = Rand01(ref rng) * TwoPi;
         return new Vec3(MathF.Cos(a), MathF.Sin(a), 0f);
     }
 
     static Vec3 RandomUnit3(ref uint rng)
     {
         float z = Rand01(ref rng) * 2f - 1f;
-        float a = Rand01(ref rng) * 6.2831853f;
+        float a = Rand01(ref rng) * TwoPi;
         float r = MathF.Sqrt(1f - z * z);
         return new Vec3(r * MathF.Cos(a), r * MathF.Sin(a), z);
     }
@@ -949,16 +1125,25 @@ public sealed unsafe class ParticleSystem : Renderer, IEditorPreview
             mat.MainTexture = nFrames > 0 ? fr[0].Page : White;
         var frm = frames;
         bool animate = nFrames > 1;
-        float fps = frm.fps, cyclesN = frm.cycles * nFrames;
+        float cyclesN = frm.cycles * nFrames;
         var fmode = frm.mode;
         bool multiPage = false;
         for (int i = 1; i < nFrames && !multiPage; i++)
             multiPage = !ReferenceEquals(fr[i].Page, fr[0].Page);
 
-        colorOverLifetime.Refresh();
-        sizeOverLifetime.Refresh();
-        bool useColor = colorOverLifetime.Active;
-        bool useSize = sizeOverLifetime.Active;
+        RefreshCurves();
+        var sizeV = size; bool sizeAnim = sizeV.Animated;
+        var sizeYV = sizeY; bool sizeYAnim = sizeYV.Animated;
+        var alphaV = alpha; bool alphaAnim = alphaV.Animated;
+        var rotZV = rotation.z; bool rotZAnim = rotZV.Animated;
+        var rotXV = rotation.x; bool rotXAnim = rotXV.Animated;
+        var rotYV = rotation.y; bool rotYAnim = rotYV.Animated;
+        var colV = color;
+        var cmode = colV.Animated ? colV.mode : ColorMode.Solid;
+        var grad = colV.gradient;
+        var pal = colV.palette;
+        int palN = pal?.Count ?? 0;
+        bool sepAxes = separateAxes;
         bool stretched = renderMode == ParticleRenderMode.Stretched;
         bool alignVel = stretched || rotation.alignToVelocity;
         float alignC = 1f, alignS = 0f;
@@ -989,7 +1174,7 @@ public sealed unsafe class ParticleSystem : Renderer, IEditorPreview
             {
                 float f = fmode switch
                 {
-                    ParticleFrameMode.Fps => q.frame0 + q.age * fps,
+                    ParticleFrameMode.Fps => q.frame0 + q.age * q.fps,
                     ParticleFrameMode.RandomFrame => q.frame0,
                     _ => q.frame0 + t * cyclesN,
                 };
@@ -1007,20 +1192,44 @@ public sealed unsafe class ParticleSystem : Renderer, IEditorPreview
                     mat.MainTexture = F.Page; // DrawMesh aninda yakalanir; ayni sayfa = merge
             }
 
-            float size = useSize ? q.size * sizeOverLifetime.Evaluate(t, q.seed) : q.size;
-            float sx = size, sy = size * (asp != 0f ? asp : fasp);
-            Color c = q.color;
-            if (useColor)
-                c = Mul(c, colorOverLifetime.Evaluate(t));
+            float sx = sizeAnim ? sizeV.Evaluate(t, in q.sizeX) : q.sizeX.lo;
+            float sy = sepAxes
+                ? (sizeYAnim ? sizeYV.Evaluate(t, in q.sizeY) : q.sizeY.lo)
+                : sx * (asp != 0f ? asp : fasp);
+            float size0 = sx;
 
-            float cz, sz;
-            bool only2D = q.rot.x == 0f && q.rot.y == 0f;
-            if (alignVel && (q.vel.x != 0f || q.vel.y != 0f))
+            Color c = q.color;
+            switch (cmode)
             {
-                float vl = MathF.Sqrt(q.vel.x * q.vel.x + q.vel.y * q.vel.y);
+                case ColorMode.Gradient:
+                    c = Mul(c, grad.Evaluate(t));
+                    break;
+                case ColorMode.Palette:
+                    {
+                        int ci = (int)(q.seed * palN + q.age * q.cSpd) % palN;
+                        if (ci < 0) ci += palN;
+                        c = Mul(c, pal[ci]);
+                        break;
+                    }
+            }
+            float al = alphaAnim ? alphaV.Evaluate(t, in q.alpha) : q.alpha.lo;
+            if (al != 1f)
+            {
+                float a = c.a * al;
+                c.a = (byte)(a <= 0f ? 0 : a >= 255f ? 255 : a);
+            }
+
+            float rx = rotXAnim ? rotXV.Evaluate(t, in q.rotX) : q.rotX.lo;
+            float ry = rotYAnim ? rotYV.Evaluate(t, in q.rotY) : q.rotY.lo;
+            float cz, sz;
+            bool only2D = rx == 0f && ry == 0f;
+            float vx = q.dir.x * q.spd + q.pvel.x, vy = q.dir.y * q.spd + q.pvel.y;
+            if (alignVel && (vx != 0f || vy != 0f))
+            {
+                float vl = MathF.Sqrt(vx * vx + vy * vy);
                 float inv = 1f / vl;
                 // Kolon-0 = (cz, -sz): x ekseni hiz yonune.
-                cz = q.vel.x * inv; sz = -q.vel.y * inv;
+                cz = vx * inv; sz = -vy * inv;
                 if (alignS != 0f)
                 {
                     float c2 = cz * alignC - sz * alignS;
@@ -1028,12 +1237,12 @@ public sealed unsafe class ParticleSystem : Renderer, IEditorPreview
                     cz = c2;
                 }
                 if (stretched)
-                    sx = size * lengthScale + vl * speedScale;
+                    sx = size0 * lengthScale + vl * speedScale;
                 only2D = true;
             }
             else
             {
-                float rz = q.rot.z * Deg2Rad;
+                float rz = (rotZAnim ? rotZV.Evaluate(t, in q.rotZ) : q.rotZ.lo) * Deg2Rad;
                 cz = MathF.Cos(rz); sz = MathF.Sin(rz);
             }
 
@@ -1045,7 +1254,7 @@ public sealed unsafe class ParticleSystem : Renderer, IEditorPreview
             }
             else
             {
-                RotScaleCS(q.rot.x * Deg2Rad, q.rot.y * Deg2Rad, cz, sz, sx, sy, ref model);
+                RotScaleCS(rx * Deg2Rad, ry * Deg2Rad, cz, sz, sx, sy, ref model);
             }
             // Trim: mantiksal kutu icinde kirpilmis parcayi otele + olcekle (SpriteRenderer paritesi).
             if (fox != 0f || foy != 0f)
@@ -1064,7 +1273,7 @@ public sealed unsafe class ParticleSystem : Renderer, IEditorPreview
             if (local)
                 MulAffine(ref world, ref model, out model);
 
-            queue.DrawMesh(quad, mat, in model, c, c, c, c, default, u0, v0, u1, v1, layer);
+            queue.DrawMesh(quad, mat, in model, c, c, c, c, default, in FxParams, u0, v0, u1, v1, layer);
         }
     }
 

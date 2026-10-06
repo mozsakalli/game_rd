@@ -132,6 +132,7 @@ public unsafe class App
         LayoutTests.Run(_catalog);
         PointerTests.Run(_catalog);
         PixelEffectTests.Run();
+        ProgressTests.Run(_catalog);
         RegistryTests.Run(_catalog);
 #endif
         // Kullanici ayarlari (standart: [Serializable] + ObjectSerializer).

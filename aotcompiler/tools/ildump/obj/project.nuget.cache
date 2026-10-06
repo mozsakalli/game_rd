@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "XPfEn803LEw=",
+  "dgSpecHash": "/PfANvMNN/M=",
   "success": true,
-  "projectFilePath": "c:\\Work\\digitoygames\\game_rd\\aotcompiler\\tools\\ildump\\ildump.csproj",
+  "projectFilePath": "C:\\Work\\digitoygames\\game_rd\\aotcompiler\\tools\\ildump\\ildump.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\ozsak\\.nuget\\packages\\microsoft.netcore.app.ref\\9.0.15\\microsoft.netcore.app.ref.9.0.15.nupkg.sha512",
     "C:\\Users\\ozsak\\.nuget\\packages\\microsoft.windowsdesktop.app.ref\\9.0.15\\microsoft.windowsdesktop.app.ref.9.0.15.nupkg.sha512",

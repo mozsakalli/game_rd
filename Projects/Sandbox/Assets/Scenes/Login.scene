@@ -188,7 +188,7 @@ objects:
   - id: 9
     parent: 0
     name: LOGOSPRITE
-    pos: 0 0 0
+    pos: -244.00003 65.33333 0
     rot: 0 0 0
     scale: 1 1 1
     components:
@@ -196,7 +196,7 @@ objects:
         Sprite: 075be890f3654858ba989f833e31109a
         Width: 200
         Height: 200
-        SortingOrder: 13
+        SortingOrder: 0
         Effects: ''
         BlendMode: Normal
       - type: Draggable
@@ -253,7 +253,7 @@ objects:
       - type: TextSprite
         Font: 713ad506a3014c21aa1043ccd65aa552
         Text: 1.250.000$
-        SortingOrder: 12
+        SortingOrder: 0
         Weight: 0
         Fill:
           type: Linear
@@ -270,6 +270,190 @@ objects:
         ShadowOffset: 0 2.6999998
         ShadowBlur: 7.719998
         BlendMode: Normal
+  - id: 20
+    parent: 0
+    name: COIN-PARTICLE
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: ParticleSystem
+        SortingOrder: 0
+        BlendMode: Normal
+        lifetime:
+          mode: Random
+          min: 1
+          max: 3
+        speed:
+          mode: Random
+          min: 100
+          max: 400
+        size:
+          mode: Random
+          min: 24
+          max: 50
+        color:
+          mode: Gradient
+          color: '#ffffffff'
+          gradient:
+            keys:
+              - time: 0
+                color: '#ffffffff'
+              - time: 0.7
+                color: '#ffffffff'
+              - time: 1
+                color: '#ffffff00'
+        renderMode: Billboard
+        emission:
+          rateOverTime: 0
+          rateOverDistance: 0
+          bursts:
+            - time: 0
+              count: 100
+              countMax: 150
+              cycles: 1
+              interval: 0.1
+              probability: 1
+        shape:
+          type: Circle
+          radius: 1
+          radiusThickness: 1
+          arc: 360
+          boxSize: 0 0 0
+          coneAngle: 0
+          coneLength: 0
+          offset: 0 0 0
+          rotation: 0 0 0
+          randomDirection: 0
+          emit3D: false
+          alignToDirection: false
+        rotation:
+          z:
+            mode: Curve
+            min: 0
+            max: 720
+            shape:
+              Keys:
+                - Time: 0
+                  Value: 0
+                  InTangent: 1
+                  OutTangent: 1
+                - Time: 1
+                  Value: 1
+                  InTangent: 1
+                  OutTangent: 1
+            spread: 1
+          alignToVelocity: false
+          alignOffset: 0
+        simulationSpace: World
+        sprites:
+          - 14a90a6160f94ada8a43554d942d1136
+          - a2aa37002b2946358bbc8ad9f404f3a6
+          - 55a40809a0204d04926120e1c34b0689
+          - da20c4f6ff6e47a7b40a82a76294ac2c
+          - 39480e31dd904bdb994d3ea49e357093
+          - cc809d00b6d84dadb3f747b43c971b79
+          - d8252a1134da468ba54f0137d312f8b9
+          - 9328504188ca479b8bcd290cc2c2809a
+        frames:
+          mode: Lifetime
+          cycles: 5
+          fps:
+            min: 30
+            max: 30
+          startFrame:
+            min: 0
+            max: 5
+        Effects: ''
+        looping: true
+        duration: 2
+        stopAction: Disable
+        simulationSpeed: 1
+        velocity:
+          gravity: 0 0 0
+          force: 0 0 0
+          drag: 0
+          orbitalSpeed: 0
+          radialSpeed: 0
+          linear:
+            min: 0 0 0
+            max: 0 0 0
+  - id: 21
+    parent: 0
+    name: GameObject (5)
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 400
+        height: 250
+        fill:
+          type: Linear
+          direction: Vertical
+          color: '#1f5956ff'
+          color2: '#0a1b1acf'
+        radius: 20 20 20 20
+        border: 2 2 2 2
+        borderFill:
+          type: Solid
+          direction: Vertical
+          color: '#c39a3fff'
+          color2: '#00000000'
+        shadowColor: '#000000bc'
+        shadowBlur: 16.306667
+        shadowOffset: 0 4
+        shadowGrow: 5
+        Effects:
+          - 024d1c3d0b9d4dcc8dbde2792d7664ab
+      - type: MovieClip
+        Fps: 30
+        FrameCount: 15
+        Loop: false
+        PlayOnStart: true
+        Interpolate: true
+        Speed: 1
+        Tracks:
+          - Target: '21:Transform:0'
+            Path: Scale
+            Mask: 15
+            Keys:
+              - Frame: 0
+                Mode: Tween
+                Ease: OutSine
+                Value: 0.5 0.5 1 0
+                Ref: ''
+              - Frame: 5
+                Mode: Tween
+                Ease: Linear
+                Value: 1 1 1 0
+                Ref: ''
+          - Target: '21:Transform:0'
+            Path: Rotation
+            Mask: 15
+            Keys:
+              - Frame: 0
+                Mode: Tween
+                Ease: Linear
+                Value: 0 0 0 0
+                Ref: ''
+              - Frame: 4
+                Mode: Tween
+                Ease: Linear
+                Value: 0 0 0 0
+                Ref: ''
+              - Frame: 7
+                Mode: Tween
+                Ease: Linear
+                Value: 0 -7 0 0
+                Ref: ''
+              - Frame: 13
+                Mode: Tween
+                Ease: Linear
+                Value: 0 0 0 0
+                Ref: ''
+        Labels: ''
+        Actions: ''
   - id: 11
     parent: 4
     name: GameObject (1)
@@ -351,6 +535,10 @@ objects:
         comp: 'LayoutBox:0'
         prop: SortingOrder
         value: 0
+      - node: 2
+        comp: 'LayoutBox:0'
+        prop: SortingOrder
+        value: 0
   - id: 18
     parent: 15
     name: prebutton (2)
@@ -368,119 +556,119 @@ objects:
         comp: 'LayoutBox:0'
         prop: SortingOrder
         value: 0
-  - id: 20
-    parent: 0
-    name: GameObject (3)
+      - node: 2
+        comp: 'LayoutBox:0'
+        prop: SortingOrder
+        value: 0
+  - id: 22
+    parent: 21
+    name: GameObject (6)
     pos: 0 0 0
     rot: 0 0 0
     scale: 1 1 1
     components:
-      - type: ParticleSystem
-        SortingOrder: 100
-        BlendMode: Normal
-        startSpeed:
-          min: 50
-          max: 200
-        startSize:
-          min: 24
-          max: 50
-        sprite: 075be890f3654858ba989f833e31109a
-        startRotation:
-          min: 0 0 0
-          max: 0 0 360
-        renderMode: Billboard
-        emission:
-          rateOverTime: 0
-          rateOverDistance: 0
-          bursts:
-            - time: 0
-              count: 50
-              countMax: 150
-              cycles: 1
-              interval: 0.1
-              probability: 1
-        shape:
-          type: Circle
-          radius: 4
-          radiusThickness: 4
-          arc: 360
-          boxSize: 0 0 0
-          coneAngle: 0
-          coneLength: 0
-          offset: 0 0 0
-          rotation: 0 0 0
-          randomDirection: 0
-          emit3D: false
-          alignToDirection: false
-        velocity:
-          gravity: 0 0 0
-          force: 0 0 0
-          drag: 0
-          orbitalSpeed: 0
-          radialSpeed: 0
-          linear:
-            min: 0 0 0
-            max: 0 0 0
-          speed:
-            mode: Ease
-            from: 2
-            to: 2
-            ease: InBack
-            curve:
-              Keys: ''
-            randomize: 0
-        sizeOverLifetime:
-          mode: Constant
-          from: 1
-          to: 1
-          ease: Linear
-          curve:
-            Keys: ''
-          randomize: 0
-        rotation:
-          angularVelocity:
-            min: 0 0 0
-            max: 0 0 360
-          speed:
-            mode: Constant
-            from: 1
-            to: 1
-            ease: Linear
-            curve:
-              Keys: ''
-            randomize: 0
-          alignToVelocity: false
-          alignOffset: 0
-        colorOverLifetime:
-          keys:
-            - time: 0
-              color: '#ffffffff'
-            - time: 0.7
-              color: '#ffffffff'
-            - time: 1
-              color: '#ffffff00'
-        simulationSpace: World
-        startLifetime:
-          min: 1
-          max: 3
-        sprites:
-          - 14a90a6160f94ada8a43554d942d1136
-          - a2aa37002b2946358bbc8ad9f404f3a6
-          - 55a40809a0204d04926120e1c34b0689
-          - da20c4f6ff6e47a7b40a82a76294ac2c
-          - 39480e31dd904bdb994d3ea49e357093
-          - cc809d00b6d84dadb3f747b43c971b79
-          - d8252a1134da468ba54f0137d312f8b9
-          - 9328504188ca479b8bcd290cc2c2809a
-        frames:
-          mode: Fps
-          cycles: 50
-          fps: 30
-          startFrame:
-            min: 0
-            max: 5
+      - type: LayoutBox
+        font: 713ad506a3014c21aa1043ccd65aa552
+        text: Facebook hesabın başka bir hesaba bağlı
+        textWeight: 1.1066674
+        textSize: 16.480001
+        anchoredPos: 0 -102.39999
+        textShadowColor: '#00000046'
+        textShadowOffset: 0 1
+        anchorMin: 0.005 0.5
+        anchorMax: 0.995 0.5
+        fill:
+          type: Solid
+          direction: Vertical
+          color: '#19605cff'
+          color2: '#00000000'
+        height: 40
+        textAlign: Center
+        textAlignV: Center
+        radius: 20 20 0 0
+        padding: 0 10 0 0
+        borderFill:
+          type: Linear
+          direction: Horizontal
+          color: '#417c79ff'
+          color2: '#000000ff'
+        border: 0 0 0 1
+  - id: 23
+    parent: 21
+    name: GameObject (7)
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 300
+        height: 40
+        fill:
+          type: Linear
+          direction: Vertical
+          color: '#f5d07fff'
+          color2: '#856a2eff'
+        radius: 10 10 10 10
+        border: 1 1 1 1
+        borderFill:
+          type: Solid
+          direction: Vertical
+          color: '#ffce63ff'
+          color2: '#00000000'
+        shadowColor: '#000000e7'
+        shadowOffset: 0 2
+        font: 713ad506a3014c21aa1043ccd65aa552
+        text: Seçili hesapla devam et
+        textFill:
+          type: Solid
+          direction: Vertical
+          color: '#232323ff'
+          color2: '#ffffffff'
+        textSize: 21.666666
+        textAlign: Center
+        textAlignV: Center
+        textWeight: 0.42666748
+        anchoredPos: -15.708206 51.341724
         Effects:
-        looping: false
-        duration: 2
-        stopAction: Disable
-        simulationSpeed: 1
+          - 024d1c3d0b9d4dcc8dbde2792d7664ab
+        FxParams: 0.56666255 0.10000001 0.39999998 -0.066668704
+      - type: MovieClip
+        Fps: 10
+        FrameCount: 50
+        Loop: true
+        PlayOnStart: true
+        Interpolate: true
+        Speed: 1
+        Tracks:
+          - Target: '23:LayoutBox:0'
+            Path: FxParams
+            Mask: 15
+            Keys:
+              - Frame: 0
+                Mode: Tween
+                Ease: InQuad
+                Value: 0 0.10000001 0.39999998 -0.1
+                Ref: ''
+              - Frame: 10
+                Mode: Tween
+                Ease: Linear
+                Value: 1 0.10000001 0.39999998 -0.1
+                Ref: ''
+        Labels:
+        Actions:
+  - id: 24
+    parent: 21
+    name: GameObject (8)
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        font: 713ad506a3014c21aa1043ccd65aa552
+        text: Bu cihazda zaten ilerlemesi olan bir hesap var. Facebook hesabın farklı bir hesaba bağlı. Devam etmek için hangi hesabı kullanacağını seçmelisin.
+        textSize: 12
+        width: 340
+        textAlign: Center
+        anchoredPos: 0 -36.00001
+        textShadowColor: '#0000008b'
+        textShadowOffset: 0 1

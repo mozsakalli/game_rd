@@ -170,6 +170,33 @@ public sealed class Curve
 
     const int Table = 129;
 
+    // Parcali dogrusal egri: (t0,v0, t1,v1, ...) ciftleri, zaman sirali. Tanjantlar
+    // komsu segment egimine esitlenir -> Hermite segmentleri tam dogru olur.
+    public static Curve Linear(params float[] timeValuePairs)
+    {
+        var c = new Curve();
+        int n = timeValuePairs.Length / 2;
+        for (int i = 0; i < n; i++)
+            c.Keys.Add(new CurveKey { Time = timeValuePairs[i * 2], Value = timeValuePairs[i * 2 + 1] });
+        for (int i = 0; i < n; i++)
+        {
+            var k = c.Keys[i];
+            if (i > 0)
+            {
+                var a = c.Keys[i - 1];
+                float dt = k.Time - a.Time;
+                k.InTangent = dt > 1e-6f ? (k.Value - a.Value) / dt : 0f;
+            }
+            if (i < n - 1)
+            {
+                var b = c.Keys[i + 1];
+                float dt = b.Time - k.Time;
+                k.OutTangent = dt > 1e-6f ? (b.Value - k.Value) / dt : 0f;
+            }
+        }
+        return c;
+    }
+
     public float Evaluate(float t)
     {
         if (_lut == null || _bakedVersion != Version)

@@ -16,6 +16,10 @@ public abstract class Renderer : Component
     public BlendMode BlendMode;
     // Pixel-effect zinciri (.fx asset'leri, sira = uygulama sirasi). null = sifir maliyet.
     public System.Collections.Generic.List<PixelEffect> Effects;
+    // .fx zincirine giden per-instance parametre (shader'da FXP). Core shader'in
+    // USER kanalindan AYRI: UI/metin/progress USER'i dolu olsa da cakismaz. Instance
+    // verisi oldugundan degistirmek pipeline/batch'i bozmaz (shine fazi, parlaklik vb).
+    public Vec4 FxParams;
     // true: pointer handler'i olmasa da isini bloklar (tam ekran panel arkasini kapatir).
     public bool BlocksRaycast;
 
@@ -74,7 +78,8 @@ public sealed unsafe class SpriteRenderer : Renderer
 
     static Texture _white;
     // Texture atanmadiysa beyaz quad (deserialize sonrasi asset yokken de gorunur).
-    static Texture White => _white ??= MakeWhite();
+    // Prosedurel renderer'lar (ProgressRenderer) da doku baglama zorunlulugu icin kullanir.
+    internal static Texture White => _white ??= MakeWhite();
 
     static Texture MakeWhite()
     {
@@ -125,7 +130,7 @@ public sealed unsafe class SpriteRenderer : Renderer
             model.m[0] *= sx; model.m[1] *= sx; model.m[2] *= sx;
             model.m[4] *= sy; model.m[5] *= sy; model.m[6] *= sy;
             float aw = spr.Page.Width, ah = spr.Page.Height;
-            queue.DrawMesh(Mesh.Quad(), mat, in model, Color,
+            queue.DrawMesh(Mesh.Quad(), mat, in model, Color, Color, Color, Color, default, in FxParams,
                 spr.X / aw, spr.Y / ah,
                 (spr.X + spr.W) / aw, (spr.Y + spr.H) / ah, _effectiveOrder);
             return;
@@ -138,6 +143,7 @@ public sealed unsafe class SpriteRenderer : Renderer
         {
             model.m[4] *= Height; model.m[5] *= Height; model.m[6] *= Height;
         }
-        queue.DrawMesh(Mesh.Quad(), mat, in model, Color, U0, V0, U1, V1, _effectiveOrder);
+        queue.DrawMesh(Mesh.Quad(), mat, in model, Color, Color, Color, Color, default, in FxParams,
+            U0, V0, U1, V1, _effectiveOrder);
     }
 }

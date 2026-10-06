@@ -5,6 +5,8 @@ namespace DigitoyEngine;
 
 // .fx asset'i: core shader'in urettigi rengi isleyen kucuk DSL govdesi.
 // Imza: 'VEC4 fx(VEC4 c, VEC2 uv)' — c DUZ (straight) renk, uv LOKAL 0..1.
+// Govde FXP (Renderer.FxParams, per-instance vec4) ve TIME (global vec4: x=sn,
+// y=dt, z=fract(sn), w=frame) okuyabilir; core'un USER kanalina erisemez.
 // Renderer.Effects listesindeki sirayla tek shader'a compose edilir (ek pass yok).
 public sealed class PixelEffect : IAsset
 {

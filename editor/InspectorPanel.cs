@@ -17,7 +17,7 @@ public sealed partial class InspectorPanel : EditorWindow
     Vec2 _assetScroll;
     string _inspectedTarget;
 
-    const float RowH = 22f;
+    internal const float RowH = 22f;
     // Etiket sutunu genisligi: her frame panel genisliginden turetilir (LabelWidthFor).
     float LabelW = 110f;
 
@@ -251,12 +251,10 @@ public sealed partial class InspectorPanel : EditorWindow
     // dosyaya yazilir (v1 undo'suz). Editor tip BILMEZ: tip adi dosyadan, sinif
     // [Serializable] taramasindan (App.AssetTypes) gelir. ---
     string _aPath;
-    object _aObj;
     bool _aIsMeta; // importer ayarlari (.meta "importer:" blogu) duzenleniyor
     int _aSeenChange = -1;
-    SerializedType.FieldSchema[] _aSchema;
-    readonly Dictionary<string, char[]> _aStrBufs = new();
-    readonly Dictionary<string, int> _aStrLens = new();
+    readonly ObjectDrawer _aDrawer = new() { KeyPrefix = "a:" };
+    object _aObj => _aDrawer.Target;
 
     bool DrawAssetInspector(in Rect vis)
     {
@@ -284,33 +282,30 @@ public sealed partial class InspectorPanel : EditorWindow
         if (_aPath != path)
         {
             _aPath = path;
-            _aObj = null;
-            _aSchema = null;
             _aIsMeta = !isAsset;
-            _aStrBufs.Clear();
-            _aStrLens.Clear();
+            _aDrawer.Unbind();
             if (isAsset)
             {
                 string tn = ObjectSerializer.TypeNameOf(path);
                 var t = App.AssetTypes.Find(x => x.Name == tn);
                 if (t != null)
                 {
-                    _aObj = Activator.CreateInstance(t);
-                    ObjectSerializer.LoadInto(_aObj, path, App.Assets);
-                    _aSchema = SerializedType.Build(t);
+                    object obj = Activator.CreateInstance(t);
+                    ObjectSerializer.LoadInto(obj, path, App.Assets);
+                    _aDrawer.Bind(obj);
                 }
             }
             else
             {
-                _aObj = ImportPipeline.LoadSettings(rel, importer);
-                _aSchema = SerializedType.Build(importer.SettingsType);
+                _aDrawer.Bind(ImportPipeline.LoadSettings(rel, importer));
             }
         }
-        float contentHeight = MeasureAssetContentHeight();
+        float contentHeight = 4 + HeaderH + 6 + _aDrawer.Measure() + 8;
         _assetScroll = Gui.BeginScrollView(new Rect(0, 0, vis.width, vis.height), _assetScroll,
             new Rect(0, 0, vis.width - 20, contentHeight));
         float w = vis.width - 24;
         LabelW = LabelWidthFor(w);
+        _aDrawer.LabelW = LabelW;
         float y = 4;
         DrawHeaderBar(y, 0, w + 12);
         if (Event.Current.Type == EventType.Repaint)
@@ -324,10 +319,7 @@ public sealed partial class InspectorPanel : EditorWindow
             Gui.EndScrollView();
             return true;
         }
-        bool changed = false;
-        foreach (var f in _aSchema)
-            DrawAssetField(f, ref y, w, ref changed);
-        if (changed)
+        if (_aDrawer.Draw(ref y, w, SaveAssetNow))
             SaveAssetNow();
         Gui.EndScrollView();
         return true;
@@ -345,9 +337,6 @@ public sealed partial class InspectorPanel : EditorWindow
             return null;
         return System.IO.Path.GetRelativePath(root, full).Replace('\\', '/');
     }
-
-    void DrawAssetField(SerializedType.FieldSchema f, ref float y, float w, ref bool changed)
-        => DrawAssetSchemaField(_aObj, f, "a:" + f.Name, 0, ref y, w, ref changed, SaveAssetNow);
 
     DocNode _ovCache;
     int _ovFrame = -1;
@@ -568,15 +557,15 @@ public sealed partial class InspectorPanel : EditorWindow
     static float SafeFloat(string s)
         => float.TryParse(s, NumberStyles.Float, CultureInfo.InvariantCulture, out float v) ? v : 0f;
 
-    static bool Same(Vec3 a, Vec3 b) => a.x == b.x && a.y == b.y && a.z == b.z;
-    static bool Same(Vec4 a, Vec4 b) => a.x == b.x && a.y == b.y && a.z == b.z && a.w == b.w;
+    internal static bool Same(Vec3 a, Vec3 b) => a.x == b.x && a.y == b.y && a.z == b.z;
+    internal static bool Same(Vec4 a, Vec4 b) => a.x == b.x && a.y == b.y && a.z == b.z && a.w == b.w;
 
     static string V3(Vec3 v, bool three)
         => three
             ? v.x.ToString("R", CultureInfo.InvariantCulture) + " " + v.y.ToString("R", CultureInfo.InvariantCulture) + " " + v.z.ToString("R", CultureInfo.InvariantCulture)
             : v.x.ToString("R", CultureInfo.InvariantCulture) + " " + v.y.ToString("R", CultureInfo.InvariantCulture);
 
-    static Vec3 Vec3Drags(in Rect rect, Vec3 v, bool three)
+    internal static Vec3 Vec3Drags(in Rect rect, Vec3 v, bool three)
     {
         int parts = three ? 3 : 2;
         float pw = rect.width / parts - 3;
@@ -586,7 +575,7 @@ public sealed partial class InspectorPanel : EditorWindow
         return new Vec3(x, yv, z);
     }
 
-    static Vec4 Vec4Drags(in Rect rect, Vec4 v)
+    internal static Vec4 Vec4Drags(in Rect rect, Vec4 v)
     {
         float pw = (rect.width - 12) / 4;
         return new Vec4(

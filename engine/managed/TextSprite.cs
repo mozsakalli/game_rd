@@ -116,7 +116,7 @@ public sealed unsafe class TextSprite : Renderer
             var user = new Vec4(s, cOut > 0f ? cOut : cFill, 0f, 0f); // kontur varsa golge silueti de kontur kenarindan
             for (int i = 0; i < _quadCount; i++)
                 Emit(queue, mat, in wm, in _quads[i], ShadowOffset.x, ShadowOffset.y,
-                    ShadowColor, ShadowColor, false, in user, layer);
+                    ShadowColor, ShadowColor, false, in user, in FxParams, layer);
         }
         if (cOut > 0f)
         {
@@ -127,7 +127,7 @@ public sealed unsafe class TextSprite : Renderer
                 ref readonly var g = ref _quads[i];
                 Color c0 = GradAt(in Outline, oh ? g.X0 : g.Y0, oh ? halfW : halfH);
                 Color c1 = GradAt(in Outline, oh ? g.X1 : g.Y1, oh ? halfW : halfH);
-                Emit(queue, mat, in wm, in g, 0f, 0f, c0, c1, oh, in user, layer);
+                Emit(queue, mat, in wm, in g, 0f, 0f, c0, c1, oh, in user, in FxParams, layer);
             }
         }
         bool fh = Fill.IsHorizontal;
@@ -137,15 +137,16 @@ public sealed unsafe class TextSprite : Renderer
             ref readonly var g = ref _quads[i];
             Color c0 = GradAt(in Fill, fh ? g.X0 : g.Y0, fh ? halfW : halfH);
             Color c1 = GradAt(in Fill, fh ? g.X1 : g.Y1, fh ? halfW : halfH);
-            Emit(queue, mat, in wm, in g, 0f, 0f, c0, c1, fh, in fillUser, layer);
+            Emit(queue, mat, in wm, in g, 0f, 0f, c0, c1, fh, in fillUser, in FxParams, layer);
         }
     }
 
     // Lokal glyph dikdortgeni world matrisiyle tek instanced quad'a cevrilir
     // (LayoutBox.EmitQuad deseni). Tint koseleri uv uzayinda: 0=BL 1=BR 2=TR 3=TL
     // (ust kenar = uv.y=1). c0/c1 gradient ekseni boyunca (dikey: ust/alt, yatay: sol/sag).
-    static void Emit(RenderQueue q, Material mat, in Mat4 world, in GlyphQuad g,
-        float ox, float oy, Color c0, Color c1, bool horiz, in Vec4 user, int layer)
+    // LOCALUV penceresi blok sinirlarina gore: .fx tum metni tek yuzey gorur.
+    void Emit(RenderQueue q, Material mat, in Mat4 world, in GlyphQuad g,
+        float ox, float oy, Color c0, Color c1, bool horiz, in Vec4 user, in Vec4 fxp, int layer)
     {
         Mat4 m = world;
         float cx = (g.X0 + g.X1) * 0.5f + ox, cy = (g.Y0 + g.Y1) * 0.5f + oy;
@@ -155,11 +156,13 @@ public sealed unsafe class TextSprite : Renderer
         m.m[14] += m.m[2] * cx + m.m[6] * cy;
         m.m[0] *= sx; m.m[1] *= sx; m.m[2] *= sx;
         m.m[4] *= sy; m.m[5] *= sy; m.m[6] *= sy;
+        float bw = _bounds.x > 0f ? _bounds.x : 1f, bh = _bounds.y > 0f ? _bounds.y : 1f;
+        var fxRect = new Vec4((g.X0 + ox + bw * 0.5f) / bw, (bh * 0.5f - (g.Y1 + oy)) / bh, sx / bw, sy / bh);
         if (horiz)
-            q.DrawMesh(Mesh.Quad(), mat, in m, c0, c1, c1, c0, in user,
+            q.DrawMesh(Mesh.Quad(), mat, in m, c0, c1, c1, c0, in user, in fxp, in fxRect,
                 g.U0, g.V0, g.U1, g.V1, layer);
         else
-            q.DrawMesh(Mesh.Quad(), mat, in m, c1, c1, c0, c0, in user,
+            q.DrawMesh(Mesh.Quad(), mat, in m, c1, c1, c0, c0, in user, in fxp, in fxRect,
                 g.U0, g.V0, g.U1, g.V1, layer);
     }
 

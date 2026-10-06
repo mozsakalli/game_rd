@@ -207,3 +207,147 @@ objects:
       - node: 2
         prop: scale
         value: 4.666669 0.5 1
+  - id: 12
+    parent: 0
+    name: hp bar
+    pos: 540 820 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: ProgressRenderer
+        Shape: Bar
+        Value: 0.7
+        Width: 420
+        Height: 34
+        Direction: LeftToRight
+        CornerRadius: 17
+        Fill:
+          type: Linear
+          direction: Horizontal
+          color: '#ff6a3dff'
+          color2: '#ffd23fff'
+        Track:
+          type: Linear
+          direction: Vertical
+          color: '#141a2aff'
+          color2: '#2a3350ff'
+        Padding: 3
+        BorderWidth: 2
+        BorderColor: '#ffffffb0'
+        Segments: 0
+        GhostSpeed: 0.6
+        GhostColor: '#ff3b3bcc'
+        EdgeSize: 0.04
+        EdgeColor: '#ffffffdd'
+      - type: ProgressDemo
+        Animation: StepDown
+        Speed: 0.15
+  - id: 13
+    parent: 0
+    name: mana segments
+    pos: 540 880 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: ProgressRenderer
+        Shape: Bar
+        Value: 0.5
+        Width: 420
+        Height: 16
+        Direction: CenterOutHorizontal
+        CornerRadius: 4
+        Fill:
+          type: Solid
+          color: '#4cc9f0ff'
+        Track:
+          type: Solid
+          color: '#00000080'
+        Segments: 10
+        SegmentGap: 0.25
+      - type: ProgressDemo
+        Animation: Sine
+        Speed: 0.2
+  - id: 14
+    parent: 0
+    name: ring timer
+    pos: 160 820 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: ProgressRenderer
+        Shape: Radial
+        Value: 0.65
+        Width: 140
+        Height: 140
+        Thickness: 18
+        StartAngle: 0
+        Clockwise: true
+        Fill:
+          type: Linear
+          direction: Vertical
+          color: '#7cff6bff'
+          color2: '#1fa34aff'
+        Track:
+          type: Solid
+          color: '#00000070'
+        Padding: 2
+        BorderWidth: 2
+        BorderColor: '#ffffff80'
+        EdgeSize: 0.02
+        EdgeColor: '#ffffffff'
+      - type: ProgressDemo
+        Animation: Sine
+        Speed: 0.1
+  - id: 15
+    parent: 0
+    name: pie ccw
+    pos: 950 820 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: ProgressRenderer
+        Shape: Radial
+        Value: 0.4
+        Width: 120
+        Height: 120
+        Thickness: 0
+        StartAngle: 90
+        Clockwise: false
+        Fill:
+          type: Solid
+          color: '#ffb703e0'
+        Track:
+          type: Solid
+          color: '#ffffff30'
+        BorderWidth: 3
+        BorderColor: '#ffffffff'
+      - type: ProgressDemo
+        Animation: Sine
+        Speed: 0.13
+        Phase: 0.3
+  - id: 16
+    parent: 0
+    name: ellipse ticks
+    pos: 1180 840 0
+    rot: 0 0 20
+    scale: 1 1 1
+    components:
+      - type: ProgressRenderer
+        Shape: Radial
+        Value: 0.75
+        Width: 220
+        Height: 110
+        Thickness: 14
+        StartAngle: 180
+        Clockwise: true
+        Fill:
+          type: Solid
+          color: '#c77dffff'
+        Track:
+          type: Solid
+          color: '#00000060'
+        Segments: 12
+        SegmentGap: 0.3
+      - type: ProgressDemo
+        Animation: Sine
+        Speed: 0.08

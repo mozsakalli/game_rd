@@ -60,12 +60,32 @@ public sealed unsafe class RenderQueue
     public void DrawMesh(
         Mesh mesh, Material material, in Mat4 model, Color tint,
         float u0, float v0, float u1, float v1, int layer)
-        => DrawMesh(mesh, material, in model, tint, tint, tint, tint, default, u0, v0, u1, v1, layer);
+        => DrawMesh(mesh, material, in model, tint, tint, tint, tint, default, default, u0, v0, u1, v1, layer);
 
-    // Kose renkleri (uv uzayinda 0=(0,0) 1=(1,0) 2=(1,1) 3=(0,1)) + USER parametresi.
+    // Kose renkleri + USER (core shader parametresi); FXP = 0.
     public void DrawMesh(
         Mesh mesh, Material material, in Mat4 model,
         Color tint0, Color tint1, Color tint2, Color tint3, in Vec4 user,
+        float u0, float v0, float u1, float v1, int layer)
+        => DrawMesh(mesh, material, in model, tint0, tint1, tint2, tint3, in user, default, u0, v0, u1, v1, layer);
+
+    // Kose renkleri (uv uzayinda 0=(0,0) 1=(1,0) 2=(1,1) 3=(0,1)) + USER (core
+    // shader'in kanali) + FXP (.fx zincirinin kanali, Renderer.FxParams). Tek quad:
+    // LOCALUV = quad uv'si.
+    public void DrawMesh(
+        Mesh mesh, Material material, in Mat4 model,
+        Color tint0, Color tint1, Color tint2, Color tint3, in Vec4 user, in Vec4 fxp,
+        float u0, float v0, float u1, float v1, int layer)
+        => DrawMesh(mesh, material, in model, tint0, tint1, tint2, tint3, in user, in fxp, in FxRectFull, u0, v0, u1, v1, layer);
+
+    // Tek quad'in LOCALUV penceresi (ofset 0, olcek 1).
+    public static readonly Vec4 FxRectFull = new(0f, 0f, 1f, 1f);
+
+    // + fxRect: bu quad'in renderer-lokal 0..1 uzayindaki penceresi (offset.xy,
+    // scale.zw) — parcali renderer'lar (.fx'in tum kutuyu tek yuzey gormesi icin).
+    public void DrawMesh(
+        Mesh mesh, Material material, in Mat4 model,
+        Color tint0, Color tint1, Color tint2, Color tint3, in Vec4 user, in Vec4 fxp, in Vec4 fxRect,
         float u0, float v0, float u1, float v1, int layer)
     {
         if (mesh == null || material == null)
@@ -93,6 +113,14 @@ public sealed unsafe class RenderQueue
         inst->user[1] = user.y;
         inst->user[2] = user.z;
         inst->user[3] = user.w;
+        inst->fxp[0] = fxp.x;
+        inst->fxp[1] = fxp.y;
+        inst->fxp[2] = fxp.z;
+        inst->fxp[3] = fxp.w;
+        inst->fxRect[0] = fxRect.x;
+        inst->fxRect[1] = fxRect.y;
+        inst->fxRect[2] = fxRect.z;
+        inst->fxRect[3] = fxRect.w;
 
         int pip = PipelineCache.GetPipeline(material, mesh.Index32);
         uint texView = material.MainTexture != null ? material.MainTexture.TextureView : 0u;
@@ -132,6 +160,10 @@ public sealed unsafe class RenderQueue
 
         cb.UploadInstances(_upload, count * sizeof(Instance));
 
+        // Global zaman (fragment uniform blok 1; yalniz TIME okuyan pipeline'lara
+        // uygulanir — sokol, shader'da olmayan blok slotuna apply'i reddeder).
+        var time = new Vec4(Time.time, Time.deltaTime, Time.time - MathF.Floor(Time.time), Time.frameCount);
+
         int curPip = -1;
         int p = 0;
         while (p < count)
@@ -154,6 +186,8 @@ public sealed unsafe class RenderQueue
                 {
                     cb.SetPipeline(PipelineCache.PipelineId(head.Pip));
                     cb.SetUniforms(0, ref viewProj);
+                    if (PipelineCache.UsesTime(head.Pip))
+                        cb.SetUniforms(1, ref time);
                     curPip = head.Pip;
                 }
                 uint sampler = head.Sampler == SamplerType.Nearest ? NearestSampler : LinearSampler;

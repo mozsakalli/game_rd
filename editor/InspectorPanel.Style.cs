@@ -8,30 +8,31 @@ namespace DigitoyEditor;
 
 // Inspector gorsel dili: tek yerden font/renk/olcu. Unity Inspector'a yakin:
 // belirgin baslik bari, okunur etiketler, panel genisligine gore etiket sutunu.
+// ObjectDrawer ve ayar pencereleri de bu dili paylasir (internal).
 public sealed partial class InspectorPanel
 {
-    const float HeaderH = 24f;
+    internal const float HeaderH = 24f;
 
-    static float LabelFont => Gui.FontSize - 1f;
-    static float HeaderFont => Gui.FontSize;
-    static float SmallFont => Gui.FontSize - 2f;
+    internal static float LabelFont => Gui.FontSize - 1f;
+    internal static float HeaderFont => Gui.FontSize;
+    internal static float SmallFont => Gui.FontSize - 2f;
 
-    static readonly Color LabelColor = new(206, 210, 220, 255);
-    static readonly Color LabelDimColor = new(130, 134, 144, 255);
-    static readonly Color HeaderTextColor = new(238, 241, 248, 255);
+    internal static readonly Color LabelColor = new(206, 210, 220, 255);
+    internal static readonly Color LabelDimColor = new(130, 134, 144, 255);
+    internal static readonly Color HeaderTextColor = new(238, 241, 248, 255);
     static readonly Color HeaderBg = new(58, 62, 74, 255);
     static readonly Color HeaderLine = new(24, 26, 32, 255);
     static readonly Color HeaderHighlight = new(76, 81, 95, 255);
     static readonly Color ArrowColor = new(196, 200, 210, 255);
-    static readonly Color RefTextColor = new(196, 200, 210, 255);
+    internal static readonly Color RefTextColor = new(196, 200, 210, 255);
 
     // Etiket sutunu: Unity gibi genisligin ~%40'i, mantikli sinirlarla.
-    static float LabelWidthFor(float contentWidth)
+    internal static float LabelWidthFor(float contentWidth)
         => MathF.Round(Math.Clamp(contentWidth * 0.40f, 110f, 220f));
 
     // Baslik bari: arka plan + ust vurgu + alt ayirici cizgi. Metin cizilmez
     // (cagiran toggle/ok/baslik yerlesimini kendi yapar).
-    static void DrawHeaderBar(float y, float x, float width)
+    internal static void DrawHeaderBar(float y, float x, float width)
     {
         if (Event.Current.Type != EventType.Repaint)
             return;
@@ -44,7 +45,7 @@ public sealed partial class InspectorPanel
 
     // Unity ObjectNames.NicifyVariableName paritesi: "m_"/"_" on eki dusur,
     // camelCase -> "Camel Case", kisaltma korunur ("UIButton" -> "UI Button").
-    static string Nicify(string name)
+    internal static string Nicify(string name)
     {
         if (string.IsNullOrEmpty(name))
             return name;

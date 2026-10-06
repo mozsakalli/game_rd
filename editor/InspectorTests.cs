@@ -18,11 +18,13 @@ public static class InspectorTests
         }
 
         var inspector = new InspectorPanel();
+        var drawer = new ObjectDrawer();
         var flags = BindingFlags.Instance | BindingFlags.NonPublic;
         var drawDoc = typeof(InspectorPanel).GetMethod("DrawDocValue", flags);
-        var drawAsset = typeof(InspectorPanel).GetMethod("DrawAssetValue", flags);
+        var drawAsset = typeof(ObjectDrawer).GetMethod("DrawValue", flags);
         var measure = typeof(InspectorPanel).GetMethod("MeasureDocValue", flags);
         float labelW = (float)typeof(InspectorPanel).GetField("LabelW", flags).GetValue(inspector);
+        drawer.LabelW = labelW;
         // Vec4Drags yerlesimi: valueX = 12 + LabelW, hucre = (genislik - 12) / 4, adim = hucre + 4.
         float valueX = 12 + labelW;
         float axisStride = (400f - valueX - 12) / 4 + 4;
@@ -75,7 +77,7 @@ public static class InspectorTests
                             args = new object[] { "quad", SerializedType.Kind.Vec4, typeof(Vec4),
                                 null, null, null, assetValue, (Action<object>)(v => assetValue = (Vec4)v),
                                 "vec4-asset", 0, 0f, 400f, 0f, false, (Action)(() => { }) };
-                            drawAsset.Invoke(inspector, args);
+                            drawAsset.Invoke(drawer, args);
                             Check((float)args[10] == 22f, "asset Vec4 input pass tek satir");
                         }
                     }

@@ -787,6 +787,8 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
     // varsayimi bozar — o halkada klip sessizce devre disi kalir.
     bool _hasClip;
     float _clX0, _clY0, _clX1, _clY1;
+    // .fx LOCALUV penceresi icin kutunun lokal dikdortgeni (Encode basinda yazilir).
+    float _fxX0, _fxY1, _fxInvW, _fxInvH;
 
     void ComputeClip(in Mat4 wm)
     {
@@ -898,6 +900,7 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
         int layer = _effectiveOrder;  // ayni layer'da parent < cocuk (Scene DFS submit sirasi)
         float x0 = -pivot.x * _rw, y0 = -pivot.y * _rh;
         float x1 = x0 + _rw, y1 = y0 + _rh;
+        _fxX0 = x0; _fxY1 = y1; _fxInvW = 1f / _rw; _fxInvH = 1f / _rh;
 
         if (HasShadow)
             EmitShadow(queue, wm, x0, y0, x1, y1, layer); // ayni layer'da ilk = altta
@@ -1311,11 +1314,14 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
         m.m[14] += m.m[2] * cx + m.m[6] * cy;
         m.m[0] *= sx; m.m[1] *= sx; m.m[2] *= sx;
         m.m[4] *= sy; m.m[5] *= sy; m.m[6] *= sy;
+        // LOCALUV penceresi: parca kutu icinde nerede (uv.y=1 ust kenar; golge
+        // parcalari kutu disina tasabilir -> 0..1 disi degerler normal).
+        var fxRect = new Vec4((qx0 - _fxX0) * _fxInvW, (_fxY1 - qy1) * _fxInvH, sx * _fxInvW, sy * _fxInvH);
         // tint koseleri uv uzayinda: 0=BL 1=BR 2=TR 3=TL (ust kenar = uv.y=1)
         if (gradH)
-            q.DrawMesh(Mesh.Quad(), mat, in m, c0, c1, c1, c0, in user, u0, v0, u1, v1, layer);
+            q.DrawMesh(Mesh.Quad(), mat, in m, c0, c1, c1, c0, in user, in FxParams, in fxRect, u0, v0, u1, v1, layer);
         else
-            q.DrawMesh(Mesh.Quad(), mat, in m, c1, c1, c0, c0, in user, u0, v0, u1, v1, layer);
+            q.DrawMesh(Mesh.Quad(), mat, in m, c1, c1, c0, c0, in user, in FxParams, in fxRect, u0, v0, u1, v1, layer);
     }
 
     static Color LerpC(Color a, Color b, float t) => new(

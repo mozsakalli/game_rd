@@ -16,6 +16,7 @@
     <Compile Include="C:\Work\digitoygames\game_rd\Projects\Sandbox\Assets\Scripts\ApplePlatformOnly.cs" />
     <Compile Include="C:\Work\digitoygames\game_rd\Projects\Sandbox\Assets\Scripts\Draggable.cs" />
     <Compile Include="C:\Work\digitoygames\game_rd\Projects\Sandbox\Assets\Scripts\GameSettings.cs" />
+    <Compile Include="C:\Work\digitoygames\game_rd\Projects\Sandbox\Assets\Scripts\ProgressDemo.cs" />
     <Compile Include="C:\Work\digitoygames\game_rd\Projects\Sandbox\Assets\Scripts\Spinner.cs" />
     <Compile Include="C:\Work\digitoygames\game_rd\Projects\Sandbox\Assets\Scripts\StressOrb.cs" />
   </ItemGroup>

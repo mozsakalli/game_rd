@@ -177,8 +177,16 @@ public class PlayerApp
             {
 #if DE_EDITOR
                 // Dev konforu: pak yoksa loose Assets/ + Library/Artifacts (YAML sahne, senkron).
+                // Proje kimligi standart PlayerSettings.asset'ten; eski project.yaml fallback.
+                string playerSettings = Path.Combine(root, "ProjectSettings", "PlayerSettings.asset");
                 string settings = Path.Combine(root, "ProjectSettings", "project.yaml");
-                if (File.Exists(settings))
+                if (File.Exists(playerSettings))
+                {
+                    var ps = ObjectSerializer.Load<PlayerSettings>(playerSettings);
+                    name = ps.productName;
+                    startScene = ps.startScene;
+                }
+                else if (File.Exists(settings))
                 {
                     var pdoc = Yaml.Parse(File.ReadAllText(settings));
                     name = pdoc.GetScalar("name", name);

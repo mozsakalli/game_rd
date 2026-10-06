@@ -44,7 +44,7 @@ public static class ParticleTests
         ps.randomSeed = 1234;
         ps.emission.rateOverTime = 0f;
         ps.shape.type = ParticleShapeType.Point;
-        ps.startSpeed = new FloatRange(0f);
+        ps.speed = MinMaxValue.Constant(0f);
         return ps;
     }
 
@@ -52,7 +52,7 @@ public static class ParticleTests
     {
         var ps = Make(s, "rate");
         ps.emission.rateOverTime = 100f;
-        ps.startLifetime = new FloatRange(0.5f);
+        ps.lifetime = MinMaxValue.Constant(0.5f);
         ps.Play();
         for (int i = 0; i < 10; i++) ps.Simulate(0.01f); // 0.1s -> 10 parcacik
         Check(ps.ParticleCount == 10, $"rate 10 ({ps.ParticleCount})");
@@ -72,7 +72,7 @@ public static class ParticleTests
     static void Bursts(Scene s)
     {
         var ps = Make(s, "burst");
-        ps.startLifetime = new FloatRange(10f);
+        ps.lifetime = MinMaxValue.Constant(10f);
         ps.emission.bursts = new()
         {
             new ParticleBurst { time = 0f, count = 7 },
@@ -96,7 +96,7 @@ public static class ParticleTests
         var ps = Make(s, "loop");
         ps.duration = 1f;
         ps.looping = true;
-        ps.startLifetime = new FloatRange(0.2f);
+        ps.lifetime = MinMaxValue.Constant(0.2f);
         ps.emission.bursts = new() { new ParticleBurst { time = 0f, count = 4 } };
         ps.Play();
         ps.Simulate(0.3f);
@@ -120,7 +120,7 @@ public static class ParticleTests
     {
         var ps = Make(s, "world");
         ps.transform.localPosition = new Vec3(100f, 50f, 0f);
-        ps.startLifetime = new FloatRange(10f);
+        ps.lifetime = MinMaxValue.Constant(10f);
         ps.simulationSpace = ParticleSpace.World;
         ps.Play();
         ps.Emit(1);
@@ -142,15 +142,20 @@ public static class ParticleTests
         s.Update(0f); // onceki testlerin Destroy'lari flush olsun (draw sayimi temiz)
         var ps = Make(s, "draw");
         ps.maxParticles = 2000;
-        ps.startLifetime = new FloatRange(5f);
+        ps.lifetime = MinMaxValue.Constant(5f);
         ps.emission.rateOverTime = 500f;
+        ps.speed = MinMaxValue.Curved(10f, 60f, Curve.Linear(0f, 1f, 0.1f, 0f, 1f, 0f), 0.3f); // patla-dur
         ps.velocity.gravity = new Vec3(0f, 100f, 0f);
         ps.velocity.drag = 0.5f;
         ps.velocity.orbitalSpeed = 30f;
         ps.noise.strength = 50f;
-        ps.sizeOverLifetime = LifeCurve.EaseTo(1f, 0f, Ease.OutQuad);
-        ps.colorOverLifetime.Add(0f, Color.White).Add(1f, new Color(255, 255, 255, 0));
-        ps.rotation.angularVelocity = new Vec3Range(new Vec3(0, 0, -90), new Vec3(10, 20, 90));
+        ps.size = MinMaxValue.Curved(0f, 20f, Curve.Linear(0f, 1f, 1f, 0f), 0.5f);
+        ps.alpha = MinMaxValue.Linear(1f, 0f);
+        ps.color = MinMaxColor.Gradient(new ColorGradient().Add(0f, Color.White).Add(1f, Color.Red));
+        ps.rotation.z = MinMaxValue.Curved(-90f, 90f, Curve.Linear(0f, 0f, 1f, 1f), 0.5f);
+        ps.rotation.x = MinMaxValue.Random(0f, 10f);
+        ps.rotation.y = MinMaxValue.Linear(0f, 720f);
+        ps.wave.amplitude = new FloatRange(5f, 10f);
         // Iki kare, iki ayri sayfa: kare animasyonu + sayfa degisimi yolu da alloc'suz olmali.
         ps.sprites.Add(Sprite.FromTexture(Texture.FromColor(2, 2, Color.White)));
         ps.sprites.Add(Sprite.FromTexture(Texture.FromColor(2, 4, Color.Red)));
@@ -177,8 +182,8 @@ public static class ParticleTests
     {
         var parent = Make(s, "sub-parent");
         var child = Make(s, "sub-child");
-        child.startLifetime = new FloatRange(10f);
-        parent.startLifetime = new FloatRange(0.1f);
+        child.lifetime = MinMaxValue.Constant(10f);
+        parent.lifetime = MinMaxValue.Constant(0.1f);
         parent.subEmitterOnDeath = child;
         parent.subEmitterCount = 3;
         parent.Play();

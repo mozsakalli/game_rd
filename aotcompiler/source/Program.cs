@@ -61,6 +61,8 @@ public static class Program
         string generated = Path.Combine(workDir, "generated.c");
         string outExe = Path.Combine(projectRoot, "Build", projName + ".exe");
 
+        var sw = System.Diagnostics.Stopwatch.StartNew();
+        void Lap(string what) { Console.WriteLine($"  [sure] {what}: {sw.Elapsed.TotalSeconds:F1} s"); sw.Restart(); }
         // 1) managed derleme (Release: DE_EDITOR yok; GameProject: registry + scriptler gomulu)
         var playerProj = Path.Combine(RepoRoot, "player", "DigitoyPlayer.csproj");
         var (bexit, bout) = RunProcess("dotnet", $"build {Quote(playerProj)} -c Release -v q --nologo -p:GameProject={Quote(projectRoot)}");
@@ -71,16 +73,19 @@ public static class Program
         foreach (var d in new[] { engineDll, playerDll })
             if (!File.Exists(d)) throw new Exception("dll bulunamadi: " + d);
         Console.WriteLine($"managed: {engineDll}\n         {playerDll}");
+        Lap("dotnet build (engine+player Release)");
 
         // 2) CIL -> IR: corelib + engine + player (player engine tiplerini ctx'ten cozer)
         var ctx = new Context();
         var allCodes = new List<Code>();
         allCodes.AddRange(Prelude.Compile(ctx));
+        Lap("corelib (MiniCs)");
         var diag = new List<string>();
         allCodes.AddRange(CilFrontend.Compile(ctx, engineDll, out _));
         diag.AddRange(CilFrontend.LastDiagnostics.Select(d => "[engine] " + d));
         allCodes.AddRange(CilFrontend.Compile(ctx, playerDll, out _));
         diag.AddRange(CilFrontend.LastDiagnostics.Select(d => "[player] " + d));
+        Lap("CIL frontend (engine+player)");
         // Host sozlesmesi: Main KULLANILMAZ; C dongusu Init/Frame/Shutdown cagirir (GC safepoint = Frame sonrasi).
         Code HostCode(string name) => ctx.TryGetCode("DigitoyPlayer.PlayerApp$" + name, out var c) ? c
             : throw new Exception($"DigitoyPlayer.PlayerApp.{name} bulunamadi");
@@ -91,6 +96,7 @@ public static class Program
         File.WriteAllLines(Path.Combine(workDir, "diag.txt"), diag);
         Console.WriteLine($"CIL tani: {diag.Count} oge atlandi/stub'landi -> {Path.Combine(workDir, "diag.txt")}");
         Resolver.ResolveAll(ctx, allCodes);
+        Lap("resolve/monomorph");
 
         // 3) C transpile + host main: crash dump dizini (exe yaninda "crash/"), cikista rapor
         //    (sessiz cikis YOK: managed frame icindeyken exit = crash dump), runtime init, Main.
@@ -119,6 +125,7 @@ public static class Program
             "    return 0;\n}\n";
         File.WriteAllText(generated, cSource);
         Console.WriteLine($"transpile -> {generated} ({cSource.Length} karakter, giris {entrySym})");
+        Lap("C transpile + yaz");
 
         // 4) clang: uretilen C + runtime (vmrt/corelib) + STATIK native kutuphane
         //    (engine/native/build_native_static.cmd -> digitoyengine_native_static.lib: sokol+glfw+ses+de_fs).
@@ -141,6 +148,7 @@ public static class Program
         var (ccExit, ccOut) = RunProcess(ClangPath(), compileArgs);
         if (ccExit != 0) throw new Exception($"clang derleme/link hatasi (exit {ccExit}):\n{ccOut}");
         Console.WriteLine($"clang ok -> {outExe} ({new FileInfo(outExe).Length / 1024} KB)");
+        Lap("clang + link");
         return 0;
     }
 
