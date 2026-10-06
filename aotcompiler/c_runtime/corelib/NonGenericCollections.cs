@@ -113,6 +113,26 @@ namespace System
             for (int i = 0; i < array.Length; i++) array[i] = default(T);
         }
 
+        // Non-generic System.Array yuzeyi (Roslyn bu asiri yuklemeleri secer): eleman tipinden
+        // bagimsiz, VmArray elemsize uzerinden memmove/memset (C: vmarray_copy/vmarray_clear).
+        public static extern void Copy(Array sourceArray, Array destinationArray, int length);
+        public static extern void Copy(Array sourceArray, int sourceIndex, Array destinationArray, int destinationIndex, int length);
+        public static extern void Clear(Array array);
+        public static extern void Clear(Array array, int index, int length);
+
+        public static void Fill<T>(T[] array, T value)
+        {
+            if (array == null) throw new NullReferenceException();
+            for (int i = 0; i < array.Length; i++) array[i] = value;
+        }
+
+        public static void Fill<T>(T[] array, T value, int startIndex, int count)
+        {
+            if (array == null) throw new NullReferenceException();
+            if (startIndex < 0 || count < 0 || startIndex + count > array.Length) throw new IndexOutOfRangeException();
+            for (int i = 0; i < count; i++) array[startIndex + i] = value;
+        }
+
         public static void Sort<T>(T[] array, int index, int length, Collections.Generic.IComparer<T> comparer)
         {
             if (array == null) throw new NullReferenceException();

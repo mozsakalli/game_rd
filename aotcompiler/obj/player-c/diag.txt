@@ -1,4 +1,3 @@
-[engine] skip base of DigitoyEngine.AnimatableAttribute: CIL: corelib yuzeyinde olmayan tip: System.Attribute (gerekiyorsa corelib'e ekleyelim)
 [engine] skip field DigitoyEngine.GLExt.GenRenderbuffers: CIL: fnptr tipi yok
 [engine] skip field DigitoyEngine.GLExt.BindRenderbuffer: CIL: fnptr tipi yok
 [engine] skip field DigitoyEngine.GLExt.RenderbufferStorage: CIL: fnptr tipi yok
@@ -9,44 +8,7 @@
 [engine] skip field DigitoyEngine.GLExt.CheckFramebufferStatus: CIL: fnptr tipi yok
 [engine] skip field DigitoyEngine.GLExt.DeleteFramebuffers: CIL: fnptr tipi yok
 [engine] skip field DigitoyEngine.GLExt.BlitFramebuffer: CIL: fnptr tipi yok
-[engine] skip base of DigitoyEngine.SerializeFieldAttribute: CIL: corelib yuzeyinde olmayan tip: System.Attribute (gerekiyorsa corelib'e ekleyelim)
-[engine] skip base of DigitoyEngine.FormerlySerializedAsAttribute: CIL: corelib yuzeyinde olmayan tip: System.Attribute (gerekiyorsa corelib'e ekleyelim)
-[engine] skip base of DigitoyEngine.MovedFromAttribute: CIL: corelib yuzeyinde olmayan tip: System.Attribute (gerekiyorsa corelib'e ekleyelim)
-[engine] skip base of DigitoyEngine.PreviewableAttribute: CIL: corelib yuzeyinde olmayan tip: System.Attribute (gerekiyorsa corelib'e ekleyelim)
-[engine] skip base of DigitoyEngine.ShowIfAttribute: CIL: corelib yuzeyinde olmayan tip: System.Attribute (gerekiyorsa corelib'e ekleyelim)
-[engine] skip base of DigitoyEngine.CreateAssetMenuAttribute: CIL: corelib yuzeyinde olmayan tip: System.Attribute (gerekiyorsa corelib'e ekleyelim)
-[engine] skip method DigitoyEngine.Font.GlyphAt: imza: CIL: corelib yuzeyinde olmayan tip: System.Runtime.InteropServices.InAttribute (gerekiyorsa corelib'e ekleyelim)
-[engine] skip method DigitoyEngine.Scene.get_Loaded: imza: CIL: corelib yuzeyinde olmayan tip: System.Collections.Generic.IReadOnlyList`1 (gerekiyorsa corelib'e ekleyelim)
-[engine] skip method DigitoyEngine.TypeCatalog.get_Aliases: imza: CIL: corelib yuzeyinde olmayan tip: System.Collections.Generic.IReadOnlyDictionary`2 (gerekiyorsa corelib'e ekleyelim)
-[engine] skip method DigitoyEngine.TypeCatalog.get_Entries: imza: CIL: corelib yuzeyinde olmayan tip: System.Collections.Generic.Dictionary`2/ValueCollection (gerekiyorsa corelib'e ekleyelim)
-[engine] skip method DigitoyEngine.Renderer.HitTest: imza: CIL: corelib yuzeyinde olmayan tip: System.Runtime.InteropServices.InAttribute (gerekiyorsa corelib'e ekleyelim)
-[engine] stub body DigitoyEngine.AnimatableAttribute$ctor: CIL: corelib yuzeyinde olmayan tip: System.Attribute (gerekiyorsa corelib'e ekleyelim)
-[engine] stub body DigitoyEngine.AssetDatabase$IsAssetType_System_Type: CIL: corelib yuzeyinde olmayan tip: System.Collections.Generic.Dictionary`2/ValueCollection/Enumerator (gerekiyorsa corelib'e ekleyelim)
-[engine] stub body DigitoyEngine.AssetDatabase$get_LoadedAtlases: CIL: corelib yuzeyinde olmayan tip: System.Collections.Generic.Dictionary`2/KeyCollection (gerekiyorsa corelib'e ekleyelim)
-[engine] stub body DigitoyEngine.AssetDatabase$AtlasCandidates: CIL: corelib yuzeyinde olmayan tip: System.StringComparer (gerekiyorsa corelib'e ekleyelim)
-[engine] stub body DigitoyEngine.AssetDatabase$BindFont_DigitoyEngine_Font: CIL: govdesi yuklenmemis MethodDef
-[engine] stub body DigitoyEngine.PakSource$get_Keys: CIL: corelib yuzeyinde olmayan tip: System.Collections.Generic.Dictionary`2/KeyCollection (gerekiyorsa corelib'e ekleyelim)
-[engine] stub body DigitoyEngine.Audio$DecodeToDpcm_[Byte_Int_Bool_*Int_*Int_*Int: CIL: corelib yuzeyinde olmayan uye: System.BitConverter.TryWriteBytes(System.Span`1<Byte>,Int) (gerekiyorsa corelib'e ekleyelim)   denenen anahtarlar: TryWriteBytes_System_Span`1<Byte>_Int   yakin aday yok: 'TryWriteBytes' adinda uye System.BitConverter zincirinde tanimli degil
-[engine] stub body DigitoyEngine.Font$MeasureLine_System_ReadOnlySpan`1<Char>: CIL: corelib yuzeyinde olmayan tip: System.Runtime.InteropServices.InAttribute (gerekiyorsa corelib'e ekleyelim)
-[engine] stub body DigitoyEngine.Font$Parse_[Byte_System_String: CIL: corelib yuzeyinde olmayan tip: System.IO.BinaryReader (gerekiyorsa corelib'e ekleyelim)
-[engine] stub body DigitoyEngine.Font$WriteArtifact_Float_Float_Float_Float_Float_Int_Int_Int_Int_System_ReadOnlySpan`1<DigitoyEngine_Font/Glyph>_System_ReadOnlySpan`1<Short>: CIL: corelib yuzeyinde olmayan tip: System.IO.MemoryStream (gerekiyorsa corelib'e ekleyelim)
-[engine] stub body DigitoyEngine.LayoutBox$NextLine_*Int_Float_*Int_*Int_*Float: CIL: govdesi yuklenmemis MethodDef
-[engine] stub body DigitoyEngine.LayoutBox$FitCount_Int_Int_Float_*Float: CIL: govdesi yuklenmemis MethodDef
-[engine] stub body DigitoyEngine.LayoutBox$EmitRun_System_ReadOnlySpan`1<Char>_Float_Float_Float_*Float_*Int: CIL: corelib yuzeyinde olmayan tip: System.Runtime.InteropServices.InAttribute (gerekiyorsa corelib'e ekleyelim)
 [engine] stub body DigitoyEngine.GLExt$Load: The given key 'System.Reflection.Metadata.FieldDefinitionHandle' was not present in the dictionary.
 [engine] stub body DigitoyEngine.NativeWindow$Present: CIL: fnptr tipi yok
 [engine] stub body DigitoyEngine.NativeWindow$CreateBuffers_Int_Int: CIL: fnptr tipi yok
 [engine] stub body DigitoyEngine.NativeWindow$DestroyBuffers: CIL: fnptr tipi yok
-[engine] stub body DigitoyEngine.ParticleSystem$EnsureCapacity: CIL: corelib yuzeyinde olmayan uye: System.Array.Copy(System.Array,System.Array,Int) (gerekiyorsa corelib'e ekleyelim)   denenen anahtarlar: Copy_System_Array_System_Array_Int   yakin adaylar: System.Array$Copy_[Byte_[Byte_Int (imza tipi uyusmadi); System.Array$Copy_[Byte_Int_[Byte_Int_Int (arg sayisi 5 != 3); System.Array$Copy_[T_[T_Int (generic unify tutmadi); System.Array$Copy_[T_Int_[T_Int_Int (arg sayisi 5 != 3)
-[engine] stub body DigitoyEngine.ParticleSystem$ResetBursts: CIL: corelib yuzeyinde olmayan uye: System.Array.Clear(System.Array) (gerekiyorsa corelib'e ekleyelim)   denenen anahtarlar: Clear_System_Array   yakin adaylar: System.Array$Clear_[T (generic unify tutmadi)
-[engine] stub body DigitoyEngine.PointerInput$Pick_Float_Float_*DigitoyEngine_RayHit_*DigitoyEngine_CameraComponent: CIL: govdesi yuklenmemis MethodDef
-[engine] stub body DigitoyEngine.SerializeFieldAttribute$ctor: CIL: corelib yuzeyinde olmayan tip: System.Attribute (gerekiyorsa corelib'e ekleyelim)
-[engine] stub body DigitoyEngine.FormerlySerializedAsAttribute$ctor_System_String: CIL: corelib yuzeyinde olmayan tip: System.Attribute (gerekiyorsa corelib'e ekleyelim)
-[engine] stub body DigitoyEngine.MovedFromAttribute$ctor_System_String: CIL: corelib yuzeyinde olmayan tip: System.Attribute (gerekiyorsa corelib'e ekleyelim)
-[engine] stub body DigitoyEngine.PreviewableAttribute$ctor: CIL: corelib yuzeyinde olmayan tip: System.Attribute (gerekiyorsa corelib'e ekleyelim)
-[engine] stub body DigitoyEngine.ShowIfAttribute$ctor_System_String_System_Object: CIL: corelib yuzeyinde olmayan tip: System.Attribute (gerekiyorsa corelib'e ekleyelim)
-[engine] stub body DigitoyEngine.CreateAssetMenuAttribute$ctor: CIL: corelib yuzeyinde olmayan tip: System.Attribute (gerekiyorsa corelib'e ekleyelim)
-[engine] stub body DigitoyEngine.TypeCatalog$Find_System_Type: CIL: corelib yuzeyinde olmayan tip: System.Collections.Generic.CollectionExtensions (gerekiyorsa corelib'e ekleyelim)
-[engine] stub body DigitoyEngine.TextSprite$BuildQuads: CIL: desteklenmeyen opcode: Mul_ovf_un (DigitoyEngine.TextSprite$BuildQuads, IL_0063)
-[player] stub body ApplePlatformOnly$Awake: CIL: corelib yuzeyinde olmayan tip: System.OperatingSystem (gerekiyorsa corelib'e ekleyelim)
-[player] stub body Draggable$OnDrag_DigitoyEngine_PointerEvent: CIL: corelib yuzeyinde olmayan uye: DigitoyEngine.Vec3.op_add(DigitoyEngine.Vec3,DigitoyEngine.Vec3) (gerekiyorsa corelib'e ekleyelim)   denenen anahtarlar: op_add_DigitoyEngine_Vec3_DigitoyEngine_Vec3   yakin aday yok: 'op_add' adinda uye DigitoyEngine.Vec3 zincirinde tanimli degil

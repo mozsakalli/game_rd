@@ -51,6 +51,41 @@ namespace System.Collections.Generic
         T this[int index] { get; set; }
     }
 
+    // Salt-okunur gorunumler (.NET: IReadOnlyCollection<T> : IEnumerable<T>). List/Dictionary bunlari
+    // ayni public uyelerle saglar; CollectionExtensions.GetValueOrDefault bu arayuz uzerinden gelir.
+    interface IReadOnlyCollection<T> : IEnumerable<T>
+    {
+        int Count { get; }
+    }
+
+    interface IReadOnlyList<T> : IReadOnlyCollection<T>
+    {
+        T this[int index] { get; }
+    }
+
+    interface IReadOnlyDictionary<K, V> : IReadOnlyCollection<KeyValuePair<K, V>>
+    {
+        bool TryGetValue(K key, out V value);
+        bool ContainsKey(K key);
+        DictionaryKeyCollection<K, V> Keys { get; }
+        DictionaryValueCollection<K, V> Values { get; }
+        V this[K key] { get; }
+    }
+
+    static class CollectionExtensions
+    {
+        public static V GetValueOrDefault<K, V>(this IReadOnlyDictionary<K, V> dictionary, K key)
+        {
+            V value;
+            return dictionary.TryGetValue(key, out value) ? value : default(V);
+        }
+        public static V GetValueOrDefault<K, V>(this IReadOnlyDictionary<K, V> dictionary, K key, V defaultValue)
+        {
+            V value;
+            return dictionary.TryGetValue(key, out value) ? value : defaultValue;
+        }
+    }
+
     struct ListEnumerator<T>
     {
         List<T> list;
@@ -77,7 +112,7 @@ namespace System.Collections.Generic
         public void Dispose() { }
     }
 
-    class List<T> : IList<T>
+    class List<T> : IList<T>, IReadOnlyList<T>
     {
         T[] items;
         int size;
@@ -191,6 +226,20 @@ namespace System.Collections.Generic
             T[] result = new T[size];
             for (int i = 0; i < size; i++) { result[i] = items[i]; }
             return result;
+        }
+        public void Sort(IComparer<T> comparer)
+        {
+            for (int i = 1; i < size; i++)
+            {
+                T item = items[i];
+                int index = i;
+                while (index > 0 && comparer.Compare(items[index - 1], item) > 0)
+                {
+                    items[index] = items[index - 1];
+                    index--;
+                }
+                items[index] = item;
+            }
         }
         public void Sort(Comparison<T> comparison)
         {
@@ -429,7 +478,7 @@ namespace System.Collections.Generic
         IEnumerator<V> IEnumerable<V>.GetEnumerator() { return new DictionaryValueInterfaceEnumerator<K, V>(GetEnumerator()); }
     }
 
-    class Dictionary<K, V> : IDictionary<K, V>
+    class Dictionary<K, V> : IDictionary<K, V>, IReadOnlyDictionary<K, V>
     {
         int[] buckets; // 1-tabanli slot indeksi; 0 = bos
         int[] hashes;  // cache'li hash: buyumede rehash Equals'siz

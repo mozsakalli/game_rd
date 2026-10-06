@@ -1580,6 +1580,13 @@ VmArray *System_Text_Encoding_Utf8Encode_System_String(VmString *s)
 }
 
 int System_String_IsNullOrEmpty_System_String(VmString *s) { return !s || s->length == 0; }
+int System_String_IsNullOrWhiteSpace_System_String(VmString *s)
+{
+    if (!s) return 1;
+    for (int i = 0; i < s->length; i++)
+        if (!digitoyengine_char_is_whitespace(s->data[i])) return 0;
+    return 1;
+}
 
 // Type.IsAssignableFrom(other): other == this VEYA other'in kalitim zincirinde VEYA this bir arayuz ve other onu implement eder
 int System_Type_IsAssignableFrom_System_Type(DigitoyEngineTypeObj *self, DigitoyEngineTypeObj *other)
@@ -1635,7 +1642,88 @@ int System_Environment_get_TickCount(void)
 }
 int System_BitConverter_SingleToInt32Bits_Float(float value) { int r; memcpy(&r, &value, 4); return r; }
 float System_BitConverter_Int32BitsToSingle_Int(int value) { float r; memcpy(&r, &value, 4); return r; }
+long long System_BitConverter_DoubleToInt64Bits_Double(double value) { long long r; memcpy(&r, &value, 8); return r; }
+double System_BitConverter_Int64BitsToDouble_Long(long long value) { double r; memcpy(&r, &value, 8); return r; }
 int System_Math_Min_Int_Int(int x, int y) { return x < y ? x : y; }
 int System_Math_Max_Int_Int(int x, int y) { return x > y ? x : y; }
 void System_SpanOps_Copy_Long_Long_Int(long long dst, long long src, int bytes) { if (bytes > 0) memmove((void *)(size_t)dst, (const void *)(size_t)src, (size_t)bytes); }
 void System_SpanOps_Fill_Long_Int_Byte(long long dst, int bytes, unsigned char value) { if (bytes > 0) memset((void *)(size_t)dst, value, (size_t)bytes); }
+void System_SpanOps_StoreInt16_Long_Short(long long dst, short value) { memcpy((void *)(size_t)dst, &value, 2); }
+void System_SpanOps_StoreInt32_Long_Int(long long dst, int value) { memcpy((void *)(size_t)dst, &value, 4); }
+
+// System.Array non-generic yuzeyi: eleman tipinden bagimsiz (VmArray elemsize). Parametre tipi
+// uretilen kodda `struct System_Array*` gorunur; ayni GC nesnesi (VmArray) — ayri TU, isim baglar.
+void System_Array_Copy_System_Array_Int_System_Array_Int_Int(VmArray *src, int srcIndex, VmArray *dst, int dstIndex, int length)
+{
+    DIGITOYENGINE_NULLCHECK(src);
+    DIGITOYENGINE_NULLCHECK(dst);
+    if (srcIndex < 0 || dstIndex < 0 || length < 0 || srcIndex + length > src->len || dstIndex + length > dst->len || src->elemsize != dst->elemsize)
+        DIGITOYENGINE_throw_bounds(srcIndex + length, src->len);
+    vmarray_copy(src, srcIndex, dst, dstIndex, length);
+}
+void System_Array_Copy_System_Array_System_Array_Int(VmArray *src, VmArray *dst, int length)
+{
+    System_Array_Copy_System_Array_Int_System_Array_Int_Int(src, 0, dst, 0, length);
+}
+void System_Array_Copy__Byte__Byte_Int(VmArray *src, VmArray *dst, int length)
+{
+    System_Array_Copy_System_Array_Int_System_Array_Int_Int(src, 0, dst, 0, length);
+}
+void System_Array_Copy__Byte_Int__Byte_Int_Int(VmArray *src, int srcIndex, VmArray *dst, int dstIndex, int length)
+{
+    System_Array_Copy_System_Array_Int_System_Array_Int_Int(src, srcIndex, dst, dstIndex, length);
+}
+void System_Array_Clear_System_Array_Int_Int(VmArray *a, int index, int length)
+{
+    DIGITOYENGINE_NULLCHECK(a);
+    if (index < 0 || length < 0 || index + length > a->len)
+        DIGITOYENGINE_throw_bounds(index + length, a->len);
+    vmarray_clear(a, index, length);
+}
+void System_Array_Clear_System_Array(VmArray *a)
+{
+    DIGITOYENGINE_NULLCHECK(a);
+    vmarray_clear(a, 0, a->len);
+}
+
+// System.OperatingSystem: derleme hedefi sabitleri.
+#if defined(_WIN32)
+#define DIGITOYENGINE_OS_WINDOWS 1
+#elif defined(__EMSCRIPTEN__)
+#define DIGITOYENGINE_OS_BROWSER 1
+#elif defined(__ANDROID__)
+#define DIGITOYENGINE_OS_ANDROID 1
+#elif defined(__APPLE__)
+#include <TargetConditionals.h>
+#if TARGET_OS_IPHONE
+#define DIGITOYENGINE_OS_IOS 1
+#else
+#define DIGITOYENGINE_OS_MACOS 1
+#endif
+#elif defined(__linux__)
+#define DIGITOYENGINE_OS_LINUX 1
+#endif
+#ifndef DIGITOYENGINE_OS_WINDOWS
+#define DIGITOYENGINE_OS_WINDOWS 0
+#endif
+#ifndef DIGITOYENGINE_OS_BROWSER
+#define DIGITOYENGINE_OS_BROWSER 0
+#endif
+#ifndef DIGITOYENGINE_OS_ANDROID
+#define DIGITOYENGINE_OS_ANDROID 0
+#endif
+#ifndef DIGITOYENGINE_OS_IOS
+#define DIGITOYENGINE_OS_IOS 0
+#endif
+#ifndef DIGITOYENGINE_OS_MACOS
+#define DIGITOYENGINE_OS_MACOS 0
+#endif
+#ifndef DIGITOYENGINE_OS_LINUX
+#define DIGITOYENGINE_OS_LINUX 0
+#endif
+int System_OperatingSystem_IsWindows(void) { return DIGITOYENGINE_OS_WINDOWS; }
+int System_OperatingSystem_IsMacOS(void) { return DIGITOYENGINE_OS_MACOS; }
+int System_OperatingSystem_IsIOS(void) { return DIGITOYENGINE_OS_IOS; }
+int System_OperatingSystem_IsAndroid(void) { return DIGITOYENGINE_OS_ANDROID; }
+int System_OperatingSystem_IsLinux(void) { return DIGITOYENGINE_OS_LINUX; }
+int System_OperatingSystem_IsBrowser(void) { return DIGITOYENGINE_OS_BROWSER; }

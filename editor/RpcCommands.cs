@@ -465,10 +465,39 @@ static class RpcCommands
     [RpcCommand("asset.buildPak", "Release asset paketini (Build/game.pak) uretir; sonuc log.tail'de")]
     static DocNode AssetBuildPak()
     {
-        AssetPackBuilder.Build();
+        bool ok = AssetPackBuilder.Build();
         var r = DocNode.Map();
-        r.Add("ok", DocNode.Scal("true"));
+        r.Add("ok", DocNode.Scal(ok ? "true" : "false"));
         return r;
+    }
+
+    [RpcCommand("player.build", "game.pak + aotcompiler ile release player exe'si uretir; sonuc build bitince doner (dakikalar)")]
+    static DocNode PlayerBuild()
+    {
+        int v0 = PlayerBuilder.Version;
+        if (!PlayerBuilder.Start())
+        {
+            var r = DocNode.Map();
+            r.Add("ok", DocNode.Scal("false"));
+            r.Add("error", DocNode.Scal("baslatilamadi; log.tail'e bakin"));
+            return r;
+        }
+        RpcHost.Defer(() =>
+        {
+            if (PlayerBuilder.Version == v0)
+                return null; // aotcompiler suruyor
+            var r = DocNode.Map();
+            r.Add("ok", DocNode.Scal(PlayerBuilder.LastOk ? "true" : "false"));
+            r.Add("exe", DocNode.Scal(PlayerBuilder.LastExe));
+            var tail = DocNode.Seq();
+            var lines = PlayerBuilder.LastOutput.Split('\n');
+            for (int i = Math.Max(0, lines.Length - 40); i < lines.Length; i++)
+                if (lines[i].Length > 0)
+                    tail.Items.Add(DocNode.Scal(lines[i]));
+            r.Add("output", tail);
+            return r;
+        });
+        return null;
     }
 
     [RpcCommand("code.build", "Oyun kodunu derler; sonuc (ok + hatalar) derleme bitince doner")]

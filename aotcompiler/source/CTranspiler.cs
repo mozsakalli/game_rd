@@ -1786,7 +1786,14 @@ namespace DigitoyEngine.Language
                             // vtable/itable dispatch: alici temp'e alinir (hem slot lookup hem arg0 olarak iki kez gecer)
                             var args = new string[op.Code.Arguments.Count];
                             var vvals = new CVal[args.Length];
-                            for (int a = args.Length - 1; a >= 0; a--) { vvals[a] = Pop(); args[a] = Coerce(vvals[a], op.Code.Arguments[a].Type); }
+                            for (int a = args.Length - 1; a >= 0; a--)
+                            {
+                                vvals[a] = Pop();
+                                // ref/out parametre: deger zaten pointer -> aynen gecer (Coerce pointee tipine cast ederdi)
+                                var decl = op.Code.Arguments[a];
+                                args[a] = (decl.IsRef || decl.IsOut) && vvals[a].Type?.Type == PrimitiveType.Pointer
+                                    ? vvals[a].Expr : Coerce(vvals[a], decl.Type);
+                            }
                             SpillStack();
                             var recvType = op.Code.Arguments[0].Type;
                             var recv = $"__t{tempCounter++}";

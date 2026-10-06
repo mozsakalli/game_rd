@@ -34,6 +34,8 @@ namespace System
     {
         extern public static void Copy(long dst, long src, int bytes);   // memmove (CopyTo)
         extern public static void Fill(long dst, int bytes, byte value); // memset (Clear)
+        extern public static void StoreInt16(long dst, short value);     // BitConverter.TryWriteBytes (LE, hizasiz)
+        extern public static void StoreInt32(long dst, int value);
     }
 
     static class MemoryExtensions { } // AsSpan uyeleri frontend intrinsic'i (imza eslesmesi icin tip var olmali)

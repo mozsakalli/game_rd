@@ -359,10 +359,15 @@ public unsafe class App
             PlayMode.HotReload = newHr;
             SaveSettings();
         }
-        // Arka plan is durumu (derleme vs.): non-modal, toolbar'da yasar.
-        if (e.Type == EventType.Repaint && AssetWatcher.Status.Length > 0)
-            GuiRenderer.DrawTextIn(new Rect(118, 3, 220, 20), AssetWatcher.Status, Gui.FontSize - 3f,
-                AssetWatcher.Failed ? new Color(235, 120, 120, 255) : new Color(150, 200, 150, 255), false, 2);
+        // Arka plan is durumu (derleme, player build vs.): non-modal, toolbar'da yasar.
+        if (e.Type == EventType.Repaint)
+        {
+            string status = AssetWatcher.Status.Length > 0 ? AssetWatcher.Status : PlayerBuilder.Status;
+            bool failed = AssetWatcher.Status.Length > 0 ? AssetWatcher.Failed : PlayerBuilder.Failed;
+            if (status.Length > 0)
+                GuiRenderer.DrawTextIn(new Rect(118, 3, 220, 20), status, Gui.FontSize - 3f,
+                    failed ? new Color(235, 120, 120, 255) : new Color(150, 200, 150, 255), false, 2);
+        }
 
         // Toolbar altinda TAM pencere dockspace.
         GuiDock.DockSpace(new Rect(0, ToolbarH, _screenW, _screenH - ToolbarH));
@@ -572,9 +577,12 @@ public unsafe class App
 
     internal static readonly System.Collections.Generic.List<Type> AssetTypes = new();
 
-    // bin/Debug/netX.Y -> repo koku. CLI arg ile baska proje acilabilir.
-    static string DefaultProjectPath => System.IO.Path.GetFullPath(
-        System.IO.Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "Projects", "Sandbox"));
+    // bin/Debug/netX.Y -> repo koku (editor/, player/, aotcompiler/ kardes klasorler).
+    internal static string RepoRoot => System.IO.Path.GetFullPath(
+        System.IO.Path.Combine(AppContext.BaseDirectory, "..", "..", "..", ".."));
+
+    // CLI arg ile baska proje acilabilir.
+    static string DefaultProjectPath => System.IO.Path.Combine(RepoRoot, "Projects", "Sandbox");
 
     static string AssetsPath => _project.AssetsPath;
     static string _settingsPath;

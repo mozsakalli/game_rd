@@ -53,6 +53,19 @@ namespace System
             return r;
         }
         extern bool Equals(string other);
+        // Ordinal karsilastirma (UTF-16 kod birimi sirasi; .NET CompareOrdinal ile ayni isaret).
+        static int CompareOrdinal(string a, string b)
+        {
+            if ((object)a == null) return (object)b == null ? 0 : -1;
+            if ((object)b == null) return 1;
+            int n = a.Length < b.Length ? a.Length : b.Length;
+            for (int i = 0; i < n; i++)
+            {
+                int d = a[i] - b[i];
+                if (d != 0) return d;
+            }
+            return a.Length - b.Length;
+        }
         static bool Equals(string a, string b, StringComparison comparisonType)
         {
             if ((object)a == null || (object)b == null) return (object)a == (object)b;

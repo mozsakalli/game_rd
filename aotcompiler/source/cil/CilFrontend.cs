@@ -140,6 +140,8 @@ namespace DigitoyEngine.Cil
                 "System.Collections.Generic.IEnumerable`1", "System.Collections.Generic.IEnumerator`1",
                 "System.Collections.Generic.ICollection`1", "System.Collections.Generic.IList`1",
                 "System.Collections.Generic.IDictionary`2",
+                "System.Collections.Generic.IReadOnlyCollection`1", "System.Collections.Generic.IReadOnlyList`1",
+                "System.Collections.Generic.IReadOnlyDictionary`2", "System.Collections.Generic.IComparer`1",
                 "System.Collections.IEnumerable", "System.Collections.IEnumerator", "System.IDisposable",
                 "System.Runtime.CompilerServices.IAsyncStateMachine",
             };
@@ -183,6 +185,11 @@ namespace DigitoyEngine.Cil
                     case "System.Collections.Generic.List`1/Enumerator": full = "System.Collections.Generic.ListEnumerator`1"; break;
                     case "System.Collections.Generic.HashSet`1/Enumerator": full = "System.Collections.Generic.HashSetEnumerator`1"; break;
                     case "System.Collections.Generic.Dictionary`2/Enumerator": full = "System.Collections.Generic.DictionaryEnumerator`2"; break;
+                    // .Keys/.Values gorunumleri ve enumerator'lari (foreach (var k in dict.Keys))
+                    case "System.Collections.Generic.Dictionary`2/KeyCollection": full = "System.Collections.Generic.DictionaryKeyCollection`2"; break;
+                    case "System.Collections.Generic.Dictionary`2/ValueCollection": full = "System.Collections.Generic.DictionaryValueCollection`2"; break;
+                    case "System.Collections.Generic.Dictionary`2/KeyCollection/Enumerator": full = "System.Collections.Generic.DictionaryKeyEnumerator`2"; break;
+                    case "System.Collections.Generic.Dictionary`2/ValueCollection/Enumerator": full = "System.Collections.Generic.DictionaryValueEnumerator`2"; break;
                 }
                 foreach (var kv in prims) // az tip: lineer arama yeterli
                     if (kv.Value.Name == full) return kv.Value;
@@ -367,7 +374,9 @@ namespace DigitoyEngine.Cil
                         bool isStatic = (m.Attributes & MethodAttributes.Static) != 0;
                         bool isVirtualAttr = (m.Attributes & MethodAttributes.Virtual) != 0;
                         bool isNewSlot = (m.Attributes & MethodAttributes.NewSlot) != 0;
-                        var simple = mname == ".ctor" ? "ctor" : mname == ".cctor" ? "cctor" : mname;
+                        // operator adlari MiniCs/corelib adlariyla (op_add...) kaydedilir: cross-assembly
+                        // MemberRef aramasi (ResolveMethod -> OperatorRemap) ayni adi arar.
+                        var simple = mname == ".ctor" ? "ctor" : mname == ".cctor" ? "cctor" : OperatorRemap(mname);
                         explicitImpls.TryGetValue(mh, out var expl);
                         var simpleDisp = expl.iface != null ? expl.simple : simple; // acik impl: gosterim/eslesme basit ad
                         var code = new Code
@@ -602,8 +611,12 @@ namespace DigitoyEngine.Cil
                     return baseCode;
                 }
                 if (h.Kind == HandleKind.MethodDefinition)
-                    return methodMap.TryGetValue((MethodDefinitionHandle)h, out var c) ? c
-                        : throw new Exception("CIL: govdesi yuklenmemis MethodDef");
+                {
+                    if (methodMap.TryGetValue((MethodDefinitionHandle)h, out var c)) return c;
+                    // hedef ayni assembly'de ama kaydi yok = imzasi reddedilip "skip method" ile dusurulmus (kaskad)
+                    var dm = md.GetMethodDefinition((MethodDefinitionHandle)h);
+                    throw new Exception($"CIL: cagrilan method atlanmis (skip method'a bak): {RefName(dm.GetDeclaringType())}.{md.GetString(dm.Name)}");
+                }
                 if (h.Kind != HandleKind.MemberReference)
                     throw new Exception($"CIL: beklenmeyen cagri hedefi: {h.Kind}");
                 var mr = md.GetMemberReference((MemberReferenceHandle)h);
@@ -847,7 +860,20 @@ namespace DigitoyEngine.Cil
                 throw new Exception("CIL: bilinmeyen TypeDef: " + reader.GetString(td.Namespace) + "." + reader.GetString(td.Name));
             }
             public Primitive GetTypeFromReference(MetadataReader reader, TypeReferenceHandle handle, byte rawTypeKind)
-                => loader.ResolveName(loader.RefName(handle));
+            {
+                var full = loader.RefName(handle);
+                // modreq/modopt isaretcileri (in parametresi = modreq(InAttribute), volatile alan = modreq(IsVolatile)):
+                // GetModifiedType zaten modifier'i dusurur; isaretci tipin corelib'de olmasi gerekmez.
+                if (ModifierMarkers.Contains(full)) return Primitive.Object;
+                return loader.ResolveName(full);
+            }
+            static readonly HashSet<string> ModifierMarkers = new HashSet<string>
+            {
+                "System.Runtime.InteropServices.InAttribute", "System.Runtime.InteropServices.OutAttribute",
+                "System.Runtime.CompilerServices.IsVolatile", "System.Runtime.CompilerServices.IsReadOnlyAttribute",
+                "System.Runtime.CompilerServices.IsByRefLikeAttribute", "System.Runtime.CompilerServices.IsExternalInit",
+                "System.Runtime.CompilerServices.CallConvCdecl", "System.Runtime.CompilerServices.CallConvStdcall",
+            };
             public Primitive GetTypeFromSpecification(MetadataReader reader, GenCtx ctx2, TypeSpecificationHandle handle, byte rawTypeKind)
                 => reader.GetTypeSpecification(handle).DecodeSignature(this, ctx2); // ic imzayi ayni baglamla coz
             public Primitive GetSZArrayType(Primitive elementType)
@@ -1651,9 +1677,11 @@ namespace DigitoyEngine.Cil
                     case ILOpCode.Dup: Emit(OpType.Dup); Push(Top); return p;
                     case ILOpCode.Pop: Emit(OpType.Pop); Pop(); return p;
 
-                    case ILOpCode.Add: Emit(OpType.Add); Bin(); return p;
-                    case ILOpCode.Sub: Emit(OpType.Sub); Bin(); return p;
-                    case ILOpCode.Mul: Emit(OpType.Mul); Bin(); return p;
+                    // *.ovf(.un): tasma kontrolu YOK (bilinen sinir) — Roslyn `stackalloc T[n]` ve `checked` icin uretir;
+                    // C'de duz aritmetik. OverflowException firlatilmaz.
+                    case ILOpCode.Add: case ILOpCode.Add_ovf: case ILOpCode.Add_ovf_un: Emit(OpType.Add); Bin(); return p;
+                    case ILOpCode.Sub: case ILOpCode.Sub_ovf: case ILOpCode.Sub_ovf_un: Emit(OpType.Sub); Bin(); return p;
+                    case ILOpCode.Mul: case ILOpCode.Mul_ovf: case ILOpCode.Mul_ovf_un: Emit(OpType.Mul); Bin(); return p;
                     case ILOpCode.Div: case ILOpCode.Div_un: Emit(OpType.Div); Bin(); return p;
                     case ILOpCode.Rem: case ILOpCode.Rem_un: Emit(OpType.Mod); Bin(); return p;
                     case ILOpCode.And: Emit(OpType.And); Bin(); return p;

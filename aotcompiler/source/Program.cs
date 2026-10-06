@@ -98,6 +98,18 @@ public static class Program
         Resolver.ResolveAll(ctx, allCodes);
         Lap("resolve/monomorph");
 
+        // STUB KAPISI: host dongusunden (Init/Frame/Shutdown) cagri grafiyla ERISILEBILEN stub =
+        // runtime'da NotImplementedException demek -> build HATASI (exe cikmaz; liste basilir).
+        // Erisilemeyen stub'lar (editor/import yolu, kullanilmayan API) diag.txt'de kalir.
+        var reachableStubs = ReachableStubs(ctx, new[] { initCode, frameCode, shutdownCode });
+        if (reachableStubs.Count > 0)
+        {
+            Console.WriteLine($"[HATA] runtime'dan erisilebilen {reachableStubs.Count} AOT stub (calisirken patlar):");
+            foreach (var (code, via) in reachableStubs)
+                Console.WriteLine($"  {code.Owner?.Name}.{code.DisplayName}\n      neden: {code.UntranslatableReason}\n      yol:   {via}");
+            throw new Exception("AOT stub kapisi: eksik corelib/frontend destegi (yukaridaki liste); corelib'e ekleyin ya da motor kodunu yuzeye uydurun");
+        }
+
         // 3) C transpile + host main: crash dump dizini (exe yaninda "crash/"), cikista rapor
         //    (sessiz cikis YOK: managed frame icindeyken exit = crash dump), runtime init, Main.
         //    Unhandled exception yolu runtime'da (DIGITOYENGINE_dispatch -> rapor + dump + exit 134).
@@ -327,6 +339,62 @@ public static class Program
     }
 
     static string Quote(string s) => "\"" + s + "\"";
+
+    // Cagri grafi erisilebilirligi (koklerden BFS). Sanal cagrida hedefin tum alt-tip
+    // override'lari da (ayni mangled ad, Owner alt tipi) erisilebilir sayilir (konservatif).
+    // Donus: erisilen stub'lar + ilk bulunan cagri yolu (tani icin).
+    static List<(Code Code, string Via)> ReachableStubs(Context ctx, IEnumerable<Code> roots)
+    {
+        var all = ctx.AllCodes.ToList();
+        var byName = new Dictionary<string, List<Code>>();
+        foreach (var c in all)
+        {
+            if (!byName.TryGetValue(c.Name, out var l)) byName[c.Name] = l = new List<Code>();
+            l.Add(c);
+        }
+        static bool IsSubtype(Primitive t, Primitive of)
+        {
+            if (t == null || of == null) return false;
+            var ofT = of.GenericTemplate ?? of;
+            for (var p = t; p != null; p = p.Parent)
+            {
+                if ((p.GenericTemplate ?? p) == ofT) return true;
+                foreach (var i in p.Interfaces)
+                    if ((i.GenericTemplate ?? i) == ofT) return true;
+            }
+            return false;
+        }
+        var parent = new Dictionary<Code, Code>();
+        var queue = new Queue<Code>();
+        foreach (var r in roots) { if (r != null && parent.TryAdd(r, null)) queue.Enqueue(r); }
+        void Visit(Code target, Code from)
+        {
+            if (target == null || !parent.TryAdd(target, from)) return;
+            queue.Enqueue(target);
+        }
+        while (queue.Count > 0)
+        {
+            var c = queue.Dequeue();
+            foreach (var op in c.Operations)
+            {
+                if (op.Code == null) continue;
+                Visit(op.Code, c);
+                if (op.Type == OpType.CallVirtual && byName.TryGetValue(op.Code.Name, out var cands))
+                    foreach (var cand in cands)
+                        if (cand != op.Code && IsSubtype(cand.Owner, op.Code.Owner)) Visit(cand, c);
+            }
+        }
+        var result = new List<(Code, string)>();
+        foreach (var kv in parent)
+        {
+            if (kv.Key.UntranslatableReason == null) continue;
+            var path = new List<string>();
+            for (var p = kv.Value; p != null && path.Count < 6; p = parent[p]) path.Add($"{p.Owner?.Name}.{p.DisplayName}");
+            result.Add((kv.Key, string.Join(" <- ", path)));
+        }
+        result.Sort((a, b) => string.CompareOrdinal(a.Item1.Owner?.Name + a.Item1.Name, b.Item1.Owner?.Name + b.Item1.Name));
+        return result;
+    }
 
     // clang PATH'te olmayabilir (Windows); once PATH, sonra bilinen LLVM kurulum yollari.
     static string ClangPath()

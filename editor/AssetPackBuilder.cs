@@ -28,7 +28,10 @@ static class AssetPackBuilder
         || rel.StartsWith("Editor/", StringComparison.OrdinalIgnoreCase);
 
     [MenuItem("Project/Build Asset Pack", 1)]
-    internal static void Build()
+    internal static void BuildMenu() => Build();
+
+    // Donus: pak yazildi ve dogrulandi. Hata/iptal loglanir (PlayerBuilder bunu kapi olarak kullanir).
+    internal static bool Build()
     {
         var assets = App.Assets;
         var catalog = App.Catalog;
@@ -41,7 +44,7 @@ static class AssetPackBuilder
         if (roots.Count == 0)
         {
             EditorLog.Error("[pak] build'e dahil sahne yok: Project > Player Settings > Scenes In Build");
-            return;
+            return false;
         }
         bool rootsOk = true;
         foreach (var r in roots)
@@ -53,7 +56,7 @@ static class AssetPackBuilder
             }
         }
         if (!rootsOk)
-            return;
+            return false;
         if (!project.Player.scenes.Contains(project.Player.startScene))
             EditorLog.Warning($"[pak] startScene listede degil, otomatik eklendi: {project.Player.startScene}");
 
@@ -218,7 +221,7 @@ static class AssetPackBuilder
             $"{items.Count} giris ({dtexCount} dtex, {bakedCount} baked sahne/prefab, {skipped} yutulmus) -> {outPath} " +
             $"({pakSize / 1024.0:0.0} KB, acik {rawTotal / 1024.0:0.0} KB, %{100.0 * pakSize / Math.Max(1, rawTotal):0.0})");
 
-        Verify(outPath, items, texKey, texFile);
+        return Verify(outPath, items, texKey, texFile);
     }
 
     static bool IsSceneLike(string key)
@@ -253,7 +256,7 @@ static class AssetPackBuilder
     // Yazilan pak'i geri okuyup dogrular: index sayisi, tum girisler bayt-esit
     // (zlib round-trip dahil), texture pikselleri pak(DTEX+inflate+defilter)
     // yolundan kaynagin dogrudan decode'uyla BIREBIR ayni mi.
-    static void Verify(string pakPath, List<(string Key, string Guid, byte[] Data)> items,
+    static bool Verify(string pakPath, List<(string Key, string Guid, byte[] Data)> items,
         string texKey, string texFile)
     {
         try
@@ -262,7 +265,7 @@ static class AssetPackBuilder
             if (pak.Count != items.Count)
             {
                 EditorLog.Error($"[pak] verify FAIL: index {pak.Count} != {items.Count}");
-                return;
+                return false;
             }
             foreach (var it in items)
             {
@@ -270,7 +273,7 @@ static class AssetPackBuilder
                 if (a == null || !a.AsSpan().SequenceEqual(it.Data))
                 {
                     EditorLog.Error($"[pak] verify FAIL: bayt farki {it.Key}");
-                    return;
+                    return false;
                 }
             }
 
@@ -282,16 +285,18 @@ static class AssetPackBuilder
                     || !pakPx.AsSpan().SequenceEqual(srcPx))
                 {
                     EditorLog.Error($"[pak] verify FAIL: piksel farki {texKey} (pak {pw}x{ph}, kaynak {sw}x{sh})");
-                    return;
+                    return false;
                 }
                 EditorLog.Info($"[pak] verify OK: {items.Count} bayt-esit, {texKey} defilter pikselleri kaynakla BIREBIR ({pw}x{ph})");
             }
             else
                 EditorLog.Info($"[pak] verify OK: {items.Count} bayt-esit (texture yok, decode atlandi)");
+            return true;
         }
         catch (Exception e)
         {
             EditorLog.Error("[pak] verify FAIL: " + e.Message);
+            return false;
         }
     }
 }
