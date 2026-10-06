@@ -20,10 +20,10 @@ public sealed class FontImportSettings
 // TTF -> prebaked SDF font: glyph'ler TEK TEK pisirilir (native stb_truetype), ortak
 // paketleyiciyle bir "sheet"e dizilir. Ciktilar:
 //   main    : DFNT v3 (metrikler + glyph tablosu + kerning; doku YOK)
-//   sheet   : DPIX R8 glyph sayfasi (+ UiPieces bandi) — gruba alinmamis font bunu kullanir
-//   regions : bolge manifestosu — AtlasImporter glyph'leri kendi sayfasina tasir
+//   sheet   : DPIX R8 glyph sayfasi (+ UiPieces bandi) — Standalone: gruba alinmamis font bunu kullanir
+//   regions : bolge manifestosu — Editor: AtlasImporter glyph'leri kendi sayfasina tasir
 // Pak'a ttf girmez, runtime bake yok.
-[AssetImporter(".ttf", ".otf", Version = 5, Settings = typeof(FontImportSettings))]
+[AssetImporter(".ttf", ".otf", Version = 6, Settings = typeof(FontImportSettings))]
 public sealed unsafe class FontImporter : AssetImporter
 {
     const int SheetMaxSize = 4096;
@@ -138,8 +138,8 @@ public sealed unsafe class FontImporter : AssetImporter
 
         ctx.AddArtifact("main", Font.WriteArtifact(metrics[0], metrics[1], metrics[2], metrics[3], metrics[4],
             page.Width, page.Height, page.PiecesX, page.PiecesY, glyphs, kern));
-        ctx.AddArtifact("sheet", PixelBlob.Build(1, page.Width, page.Height, page.Pixels));
-        ctx.AddArtifact("regions", manifest.Write());
+        ctx.AddArtifact("sheet", PixelBlob.Build(1, page.Width, page.Height, page.Pixels), ArtifactScope.Standalone);
+        ctx.AddArtifact("regions", manifest.Write(), ArtifactScope.Editor);
     }
 
     // Charset metni -> sirali, tekil codepoint listesi (' ' ve '?' garanti).

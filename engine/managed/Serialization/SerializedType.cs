@@ -31,6 +31,7 @@ public static class SerializedType
         // gizlerken OLCUM ve CIZIM ayni kosulu kullanmali.
         public FieldSchema ShowIf;
         public string ShowIfScalar;
+        public bool Hidden;            // [HideInInspector]: serilesir, inspector cizmez (editor)
 
         // CEKIRDEK boxed erisimciler + kuruculuar: serializer/clone IC YOLLARI yalniz
         // bunlari kullanir (Info'ya asla dokunmaz). Editorde FieldInfo'dan sarilir;
@@ -118,10 +119,12 @@ public static class SerializedType
 
 #if DE_EDITOR
     // [ShowIf] kardes referanslari sema kurulduktan sonra cozulur (ileri referans serbest).
+    // [HideInInspector] da burada okunur (ayni editor-only gecis).
     static void ResolveShowIf(FieldSchema[] schema)
     {
         foreach (var f in schema)
         {
+            f.Hidden = f.Info.GetCustomAttribute<HideInInspectorAttribute>() != null;
             var attr = f.Info.GetCustomAttribute<ShowIfAttribute>();
             if (attr == null)
                 continue;
@@ -136,6 +139,8 @@ public static class SerializedType
     // Canli nesne uzerinden kosul (asset inspector / live mod).
     public static bool ShowIfVisible(FieldSchema f, object owner)
     {
+        if (f.Hidden)
+            return false;
         if (f.ShowIf == null || owner == null)
             return true;
         object v = f.ShowIf.Get(owner);
@@ -147,6 +152,8 @@ public static class SerializedType
     // Kanonik skaler uzerinden kosul (doc modu kardes DocNode.Scalar verir).
     public static bool ShowIfMatch(FieldSchema f, string actualScalar)
     {
+        if (f.Hidden)
+            return false;
         if (f.ShowIf == null)
             return true;
         if (f.ShowIfScalar != null)

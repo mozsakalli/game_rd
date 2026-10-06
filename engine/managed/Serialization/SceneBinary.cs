@@ -676,23 +676,50 @@ public static unsafe class SceneBinary
 }
 
 // Proje ayarlari (release): pak icinde ".project" anahtariyla pismis kayit;
-// runtime project.yaml OKUMAZ. Duzen: i32 magic "DPRJ", i32 version, str name, str startScene.
+// runtime project.yaml OKUMAZ. Duzen (v2): i32 magic "DPRJ", i32 version, str name,
+// str startScene, i32 nScenes, str[] scenes (build'e dahil sahneler; startScene ilk).
 public static class ProjectBinary
 {
     public const string PakKey = ".project";
     public const int Magic = 0x4A525044; // "DPRJ"
-    public const int Version = 1;
+    public const int Version = 2;
+
+    public sealed class Record
+    {
+        public string Name;
+        public string StartScene;
+        public string[] Scenes = Array.Empty<string>();
+    }
 
     public static bool TryRead(byte[] data, out string name, out string startScene)
     {
-        name = startScene = null;
+        bool ok = TryRead(data, out var rec);
+        name = rec?.Name;
+        startScene = rec?.StartScene;
+        return ok;
+    }
+
+    public static bool TryRead(byte[] data, out Record rec)
+    {
+        rec = null;
         if (data == null || data.Length < 8)
             return false;
         int pos = 0;
-        if (I32(data, ref pos) != Magic || I32(data, ref pos) != Version)
+        if (I32(data, ref pos) != Magic)
             return false;
-        name = Str(data, ref pos);
-        startScene = Str(data, ref pos);
+        int version = I32(data, ref pos);
+        if (version < 1 || version > Version)
+            return false;
+        rec = new Record { Name = Str(data, ref pos), StartScene = Str(data, ref pos) };
+        if (version >= 2)
+        {
+            int n = I32(data, ref pos);
+            rec.Scenes = new string[n];
+            for (int i = 0; i < n; i++)
+                rec.Scenes[i] = Str(data, ref pos);
+        }
+        else
+            rec.Scenes = new[] { rec.StartScene };
         return true;
     }
 
@@ -713,19 +740,31 @@ public static class ProjectBinary
     }
 
 #if DE_EDITOR
-    public static byte[] Write(string name, string startScene)
+    public static byte[] Write(string name, string startScene, IReadOnlyList<string> scenes = null)
     {
-        var n = Encoding.UTF8.GetBytes(name ?? "");
-        var s = Encoding.UTF8.GetBytes(startScene ?? "");
-        var b = new byte[8 + 2 + n.Length + 2 + s.Length];
+        var strs = new List<byte[]> { Encoding.UTF8.GetBytes(name ?? ""), Encoding.UTF8.GetBytes(startScene ?? "") };
+        int nScenes = scenes?.Count ?? 0;
+        for (int i = 0; i < nScenes; i++)
+            strs.Add(Encoding.UTF8.GetBytes(scenes[i] ?? ""));
+        int size = 8 + 4;
+        foreach (var s in strs)
+            size += 2 + s.Length;
+        var b = new byte[size];
         int p = 0;
         Put(b, ref p, Magic);
         Put(b, ref p, Version);
-        b[p++] = (byte)n.Length; b[p++] = (byte)(n.Length >> 8);
-        Buffer.BlockCopy(n, 0, b, p, n.Length); p += n.Length;
-        b[p++] = (byte)s.Length; b[p++] = (byte)(s.Length >> 8);
-        Buffer.BlockCopy(s, 0, b, p, s.Length);
+        PutStr(b, ref p, strs[0]);
+        PutStr(b, ref p, strs[1]);
+        Put(b, ref p, nScenes);
+        for (int i = 0; i < nScenes; i++)
+            PutStr(b, ref p, strs[2 + i]);
         return b;
+    }
+
+    static void PutStr(byte[] b, ref int p, byte[] s)
+    {
+        b[p++] = (byte)s.Length; b[p++] = (byte)(s.Length >> 8);
+        Buffer.BlockCopy(s, 0, b, p, s.Length); p += s.Length;
     }
 
     static void Put(byte[] b, ref int p, int v)

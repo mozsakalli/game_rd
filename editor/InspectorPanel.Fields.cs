@@ -437,6 +437,8 @@ public sealed partial class InspectorPanel
     // [ShowIf] doc modu: kardes prop eksikse default deger uzerinden degerlendirilir.
     static bool DocVisible(SerializedType.FieldSchema f, DocNode map)
     {
+        if (f.Hidden)
+            return false;
         if (f.ShowIf == null)
             return true;
         var sibling = FindMapValue(map, f.ShowIf) ?? CreateDefaultFieldNode(f.ShowIf);
@@ -445,6 +447,8 @@ public sealed partial class InspectorPanel
 
     static bool DocVisible(SerializedType.FieldSchema f, SceneDoc.CompDoc cd)
     {
+        if (f.Hidden)
+            return false;
         if (f.ShowIf == null)
             return true;
         var sibling = FindProp(cd, f.ShowIf) ?? CreateDefaultFieldNode(f.ShowIf);

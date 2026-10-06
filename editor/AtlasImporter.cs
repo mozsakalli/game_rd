@@ -34,11 +34,12 @@ public class AtlasGroup
 // RegionPacker ile sayfalara dizilir. Ciktilar:
 //   main    : DATL (sayfa tanimlari + bolge tablosu)
 //   pageN   : DPIX sayfa pikselleri
-//   members : gruba alinan asset anahtarlari (pak builder bunlarin tekil kopyasini atlar)
-// Bagimliliklar (uye png'ler, fontlarin artifact'leri) stamp'e girer: biri degisince
-// grup otomatik yeniden paketlenir. Bolge ureticisi importer'lar (font, ileride spine)
+// Uyeler CollectDependencies'te Absorbs ile bildirilir: stamp'e girer (biri degisince
+// grup otomatik yeniden paketlenir) ve pak builder uyelerin tekil kopyasini atlayip
+// uye->grup kenari yazar. Pak build'inde ctx.IsLive filtresi uygulanir: sahne grafinin
+// erismedigi uye sayfaya girmez. Bolge ureticisi importer'lar (font, ileride spine)
 // "regions" manifestosu + piksel artifact'iyle katilir — bu importer baska format bilmez.
-[AssetImporter(".asset", AssetType = nameof(AtlasGroup), Version = 1)]
+[AssetImporter(".asset", AssetType = nameof(AtlasGroup), Version = 2)]
 public sealed class AtlasImporter : AssetImporter
 {
     public const string TypeName = nameof(AtlasGroup);
@@ -107,9 +108,9 @@ public sealed class AtlasImporter : AssetImporter
     {
         var g = ReadGroup(ctx.SourcePath, out var fontPaths);
         foreach (var m in ImageMembers(g, ctx.AllAssets))
-            ctx.DependsOn(m);
+            ctx.Absorbs(m); // uyenin pikselleri sayfada yasar; tekil kopyasi pak'a girmez
         foreach (var f in fontPaths)
-            ctx.DependsOn(f);
+            ctx.Absorbs(f); // glyph'ler sayfada; fontun kendi sheet'i (Standalone) gereksiz
     }
 
     public override void Import(ImportContext ctx)
@@ -120,8 +121,11 @@ public sealed class AtlasImporter : AssetImporter
         var errors = new StringBuilder();
 
         // png/jpg uyeleri: tek bolge, pikseller dogrudan decode (importer'siz kaynak).
+        // Build filtresi (IsLive): sahne grafinin erismedigi uye sayfaya girmez.
         foreach (var rel in ImageMembers(g, App.Assets?.AllAssets.Keys ?? Array.Empty<string>()))
         {
+            if (!ctx.IsLive(rel))
+                continue;
             var rgba = EditorPixels.DecodeFile(ctx.FullPath(rel), out int w, out int h);
             if (rgba == null)
             {
@@ -138,6 +142,8 @@ public sealed class AtlasImporter : AssetImporter
         int unit = 0;
         foreach (var fp in fontPaths)
         {
+            if (!ctx.IsLive(fp))
+                continue;
             var mb = ctx.ReadArtifact(fp, "regions");
             var man = mb != null ? RegionManifest.Parse(mb) : null;
             if (man == null)
@@ -218,36 +224,10 @@ public sealed class AtlasImporter : AssetImporter
             ctx.AddArtifact(AtlasData.PageArtifact(p), PixelBlob.Build(channels, page.Width, page.Height, page.Pixels));
         }
         ctx.AddArtifact("main", data.Write());
-        ctx.AddArtifact("members", Encoding.UTF8.GetBytes(string.Join("\n", members)));
 
         if (errors.Length > 0)
             EditorLog.Warning($"[atlas] {ctx.AssetPath}: {errors.ToString().TrimEnd(' ', ';')}");
         EditorLog.Info($"[atlas] {ctx.AssetPath}: {data.Regions.Count} bolge, {pages.Count} sayfa ({(channels == 1 ? "R8" : "RGBA8")}, {members.Count} uye)");
-    }
-
-    // Pak builder: gruplara alinmis asset'ler (tekil kopyalari paketlenmez).
-    public static HashSet<string> ClaimedMembers(IEnumerable<string> atlasAssets)
-    {
-        var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var kv in MemberToAtlas(atlasAssets))
-            set.Add(kv.Key);
-        return set;
-    }
-
-    // Pak builder bagimlilik kenari: uye -> onu tasiyan atlas asset'i.
-    public static Dictionary<string, string> MemberToAtlas(IEnumerable<string> atlasAssets)
-    {
-        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var rel in atlasAssets)
-        {
-            var mb = ImportPipeline.GetArtifact(rel, "members");
-            if (mb == null)
-                continue;
-            foreach (var line in Encoding.UTF8.GetString(mb).Split('\n'))
-                if (line.Length > 0)
-                    map[line.Trim()] = rel;
-        }
-        return map;
     }
 }
 

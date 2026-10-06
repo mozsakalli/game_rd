@@ -57,6 +57,13 @@ public sealed class ShowIfAttribute : Attribute
     }
 }
 
+// Unity [HideInInspector] karsiligi: alan serilesir ama jenerik inspector/ObjectDrawer
+// cizmez — sahibi ozel UI ile cizer (PlayerSettings sahne listesi gibi).
+[AttributeUsage(AttributeTargets.Field)]
+public sealed class HideInInspectorAttribute : Attribute
+{
+}
+
 // Unity [CreateAssetMenu] karsiligi: [Serializable] tipin Project panelindeki
 // Create menusunde gorunmesi ACIK OPT-IN'dir — her serializable menuye dusmez.
 // MenuName '/' ile alt menu kurar ("Config/Game Settings"). Tanim her yapida (oyun kodu kullanir);

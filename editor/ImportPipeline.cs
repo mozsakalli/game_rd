@@ -38,7 +38,17 @@ public abstract class AssetImporter
     public abstract void Import(ImportContext ctx);
 
     // Kaynak dosya DISINDAKI girdiler (baska asset'ler/artifact'ler): stamp'e girer.
+    // Girdiyi YUTAN importer (atlas: uyeler sayfada yasar) DependsOn yerine Absorbs
+    // bildirir — pak builder uyeyi tek basina paketlemez, tuketiciye kenar yazar.
     public virtual void CollectDependencies(DependencyContext ctx) { }
+}
+
+// Artifact'in pak'taki kaderi. Importer bildirir, builder format bilmeden uygular.
+public enum ArtifactScope
+{
+    Runtime,    // her zaman pak'a girer (main ve runtime'in okudugu ekler)
+    Editor,     // editor-ici sozlesme (importer'lar arasi manifesto); pak'a girmez
+    Standalone, // asset bir tuketici tarafindan YUTULMAMISSA pak'a girer (fontun kendi sheet'i)
 }
 
 public sealed class ImportContext
@@ -46,11 +56,13 @@ public sealed class ImportContext
     public string SourcePath;  // tam yol
     public string AssetPath;   // Assets'e goreli (asset anahtari)
     public object Settings;    // Settings tipi (yoksa null)
-    internal readonly List<(string Name, byte[] Data)> Artifacts = new();
+    internal readonly List<(string Name, byte[] Data, ArtifactScope Scope)> Artifacts = new();
     internal string Error;
+    internal Func<string, bool> Filter; // build filtresi (null = editor import, hepsi canli)
 
     // "main" = kaynak anahtariyla yuklenen birincil cikti (pak bunu paketler).
-    public void AddArtifact(string name, byte[] data) => Artifacts.Add((name, data));
+    public void AddArtifact(string name, byte[] data, ArtifactScope scope = ArtifactScope.Runtime)
+        => Artifacts.Add((name, data, scope));
 
     public void Fail(string message) => Error = message;
 
@@ -58,6 +70,10 @@ public sealed class ImportContext
     public byte[] ReadArtifact(string assetPath, string name) => ImportPipeline.GetArtifact(assetPath, name);
 
     public string FullPath(string assetPath) => ImportPipeline.FullPath(assetPath);
+
+    // Girdi bu import'ta kullanilmali mi: editor'de daima true; pak build'inde yalniz
+    // sahne grafindan erisilen girdiler. Yutan importer'lar girdilerini bununla suzer.
+    public bool IsLive(string assetPath) => Filter == null || Filter(assetPath);
 }
 
 public sealed class DependencyContext
@@ -66,11 +82,21 @@ public sealed class DependencyContext
     public string AssetPath;
     public object Settings;
     internal readonly List<string> Deps = new();
+    internal readonly List<string> Absorbed = new();
 
     public void DependsOn(string assetPath)
     {
         if (!string.IsNullOrEmpty(assetPath) && !Deps.Contains(assetPath))
             Deps.Add(assetPath);
+    }
+
+    // Girdi bu importer'in ciktisinda yasar (bagimlilik + yutma): girdinin bagimsiz
+    // temsili (png pikselleri, fontun Standalone artifact'leri) pak'ta gereksizdir.
+    public void Absorbs(string assetPath)
+    {
+        DependsOn(assetPath);
+        if (!string.IsNullOrEmpty(assetPath) && !Absorbed.Contains(assetPath))
+            Absorbed.Add(assetPath);
     }
 
     // Projedeki tum asset anahtarlari (klasor-uyelik gibi kurallar icin).
@@ -201,18 +227,128 @@ public static class ImportPipeline
         return File.Exists(p) ? File.ReadAllBytes(p) : null;
     }
 
-    // Artifact klasorundeki adlar (pak builder tum ciktilari paketler).
-    public static IEnumerable<string> ArtifactNames(string rel)
+    // Artifact klasorundeki adlar ve kapsamlari (pak builder kapsama gore paketler).
+    // Manifest (.artifacts) yoksa (eski import) hepsi Runtime sayilir.
+    public static IEnumerable<(string Name, ArtifactScope Scope)> ArtifactNames(string rel)
     {
         string dir = EnsureImported(rel);
         if (dir == null)
             yield break;
+        var scopes = ReadManifest(dir);
         foreach (var f in Directory.GetFiles(dir))
         {
             string n = Path.GetFileName(f);
-            if (n != ".stamp")
-                yield return n;
+            if (n == StampFile || n == ManifestFile)
+                continue;
+            yield return (n, scopes.TryGetValue(n, out var s) ? s : ArtifactScope.Runtime);
         }
+    }
+
+    const string StampFile = ".stamp";
+    const string ManifestFile = ".artifacts";
+
+    static Dictionary<string, ArtifactScope> ReadManifest(string dir)
+    {
+        var map = new Dictionary<string, ArtifactScope>(StringComparer.Ordinal);
+        string p = Path.Combine(dir, ManifestFile);
+        if (!File.Exists(p))
+            return map;
+        foreach (var line in File.ReadAllLines(p))
+        {
+            int eq = line.LastIndexOf('=');
+            if (eq > 0 && Enum.TryParse(line[(eq + 1)..], out ArtifactScope s))
+                map[line[..eq]] = s;
+        }
+        return map;
+    }
+
+    // --- Build-time (pak) girisleri: bagimlilik haritasi ve filtreli import ---
+
+    // Importer'in bildirdigi girdiler (deps) ve yuttuklari (absorbed). Importer'siz
+    // anahtar icin bos. Stamp hesabindaki ayni cagri; tek kaynak.
+    public static (List<string> Deps, List<string> Absorbed) DependenciesOf(string rel)
+    {
+        var e = ImporterFor(rel);
+        if (e == null)
+            return (new List<string>(), new List<string>());
+        var dctx = new DependencyContext { AssetPath = rel, SourcePath = FullPath(rel), Settings = LoadSettings(rel, e) };
+        e.Instance.CollectDependencies(dctx);
+        return (dctx.Deps, dctx.Absorbed);
+    }
+
+    // Projedeki tum importer'li asset'ler taranir: yutulan girdi -> tuketici anahtari.
+    // Builder bu haritayla "uye erisildi => tuketici de erisildi" kenarini yazar;
+    // hangi importer'in yuttugunu bilmez.
+    public static Dictionary<string, string> AbsorbedByMap()
+    {
+        var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        var assets = App.Assets;
+        if (assets == null)
+            return map;
+        foreach (var rel in assets.AllAssets.Keys)
+        {
+            var e = ImporterFor(rel);
+            if (e == null)
+                continue;
+            var dctx = new DependencyContext { AssetPath = rel, SourcePath = FullPath(rel), Settings = LoadSettings(rel, e) };
+            try { e.Instance.CollectDependencies(dctx); }
+            catch (Exception ex) { EditorLog.Warning($"[import] bagimlilik toplanamadi {rel}: {ex.Message}"); continue; }
+            foreach (var a in dctx.Absorbed)
+            {
+                if (map.TryGetValue(a, out var other) && other != rel)
+                    EditorLog.Warning($"[import] {a} iki tuketici tarafindan yutuluyor: {other}, {rel} (ilki gecerli)");
+                else
+                    map[a] = rel;
+            }
+        }
+        return map;
+    }
+
+    // Pak icin artifact'ler: importer isLive filtresiyle BELLEKTE calisir, Library'ye
+    // yazmaz (editor tam ciktiyi korur). Filtre importer'in hicbir girdisini dusurmuyorsa
+    // Library artifact'leri aynen doner (pahali import tekrar kosmaz). Hata = null.
+    public static List<(string Name, byte[] Data, ArtifactScope Scope)> BuildArtifacts(string rel, Func<string, bool> isLive)
+    {
+        var e = ImporterFor(rel);
+        if (e == null)
+            return null;
+        bool filtered = false;
+        if (isLive != null)
+        {
+            foreach (var d in DependenciesOf(rel).Deps)
+                if (!isLive(d)) { filtered = true; break; }
+        }
+        if (!filtered)
+        {
+            string dir = EnsureImported(rel);
+            if (dir == null)
+                return null;
+            var list = new List<(string, byte[], ArtifactScope)>();
+            foreach (var (name, scope) in ArtifactNames(rel))
+                list.Add((name, File.ReadAllBytes(Path.Combine(dir, name)), scope));
+            return list;
+        }
+        var ctx = RunImporter(e, rel, LoadSettings(rel, e), isLive);
+        if (ctx.Error != null || ctx.Artifacts.Count == 0)
+        {
+            EditorLog.Error($"[import] {rel} build FAIL: {ctx.Error ?? "artifact uretilmedi"}");
+            return null;
+        }
+        return ctx.Artifacts;
+    }
+
+    static ImportContext RunImporter(Entry e, string rel, object settings, Func<string, bool> filter)
+    {
+        var ctx = new ImportContext { SourcePath = FullPath(rel), AssetPath = rel, Settings = settings, Filter = filter };
+        try
+        {
+            e.Instance.Import(ctx);
+        }
+        catch (Exception ex)
+        {
+            ctx.Error = ex.Message;
+        }
+        return ctx;
     }
 
     // --- Ayarlar (.meta "importer:" blogu) ---
@@ -267,7 +403,7 @@ public static class ImportPipeline
         if (ImporterFor(rel) != null)
         {
             string dir = EnsureImported(rel);
-            string sp = dir != null ? Path.Combine(dir, ".stamp") : null;
+            string sp = dir != null ? Path.Combine(dir, StampFile) : null;
             return sp != null && File.Exists(sp) ? File.ReadAllText(sp) : "fail";
         }
         string full = FullPath(rel);
@@ -321,7 +457,7 @@ public static class ImportPipeline
         if (guid == null)
             return null; // meta'siz dosya (ScanMetas henuz gormedi)
         string dir = Path.Combine(_artifactsRoot, guid);
-        string stampPath = Path.Combine(dir, ".stamp");
+        string stampPath = Path.Combine(dir, StampFile);
 
         object settings = LoadSettings(rel, e);
         _stamping.Add(rel);
@@ -331,16 +467,8 @@ public static class ImportPipeline
         if (!force && File.Exists(stampPath) && File.ReadAllText(stampPath) == stamp)
             return dir;
 
-        var ctx = new ImportContext { SourcePath = src, AssetPath = rel, Settings = settings };
         var sw = System.Diagnostics.Stopwatch.StartNew();
-        try
-        {
-            e.Instance.Import(ctx);
-        }
-        catch (Exception ex)
-        {
-            ctx.Error = ex.Message;
-        }
+        var ctx = RunImporter(e, rel, settings, filter: null);
         ran = true;
         if (ctx.Error != null || ctx.Artifacts.Count == 0)
         {
@@ -354,8 +482,13 @@ public static class ImportPipeline
         if (Directory.Exists(dir))
             Directory.Delete(dir, recursive: true);
         Directory.CreateDirectory(dir);
-        foreach (var (name, data) in ctx.Artifacts)
+        var manifest = new StringBuilder();
+        foreach (var (name, data, scope) in ctx.Artifacts)
+        {
             File.WriteAllBytes(Path.Combine(dir, name), data);
+            manifest.Append(name).Append('=').Append(scope).Append('\n');
+        }
+        File.WriteAllText(Path.Combine(dir, ManifestFile), manifest.ToString());
         File.WriteAllText(stampPath, stamp);
         EditorLog.Info($"[import] {rel} -> {ctx.Artifacts.Count} artifact ({e.Type.Name}, {sw.ElapsedMilliseconds}ms)");
         return dir;

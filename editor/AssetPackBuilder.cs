@@ -7,11 +7,17 @@ using DigitoyEngine.Editor;
 
 namespace DigitoyEditor;
 
-// Release asset ciktisi: Assets/ altindaki icerik tek game.pak dosyasina
-// paketlenir (guid tablosu gomulu — release'te ScanMetas/.meta/dizin taramasi yok).
-// Texture'lar build'de BIR KEZ cozulup DTEX (ham RGBA) yazilir: runtime'da png
-// decode maliyeti sifir, giris-bazli zlib boyutu geri alir. V1 tum asset'leri
-// alir; strip/Consumes (yalniz kullanilanlar) build fazi borcu.
+// Release asset ciktisi: PlayerSettings "Scenes In Build" listesinden ERISILEN icerik
+// tek game.pak dosyasina paketlenir (guid tablosu gomulu — release'te ScanMetas/.meta/
+// dizin taramasi yok). Iki faz:
+//   1) Erisilebilirlik: kok sahneler bake edilir, asset referanslari gezilir (prefab'lar
+//      kendi referanslariyla gecisli); yutulan girdi (atlas uyesi) tuketicisini de ceker.
+//      Tuketicinin kendi girdileri CEKILMEZ: atlas klasorundeki referanssiz png gelmez.
+//   2) Veri: yalniz canli kume. Importer'li asset'ler ImportPipeline.BuildArtifacts ile
+//      canli-filtreli uretilir (atlas sayfasina yalniz canli uyeler girer); artifact
+//      kapsami (Runtime/Editor/Standalone) importer'dan gelir, builder format bilmez.
+// Texture'lar build'de BIR KEZ cozulup DTEX (ham RGBA) yazilir: runtime'da png decode
+// maliyeti sifir, giris-bazli zlib boyutu geri alir.
 static class AssetPackBuilder
 {
     // Paketlenmeyenler: meta (guid pak index'inde), kod (ayri derlenir), editor icerigi.
@@ -26,26 +32,33 @@ static class AssetPackBuilder
     {
         var assets = App.Assets;
         var catalog = App.Catalog;
+        var project = App.Project;
         string root = assets.Root;
-        string outPath = Path.Combine(App.Project.Root, "Build", "game.pak");
+        string outPath = Path.Combine(project.Root, "Build", "game.pak");
 
-        var files = new List<(string Key, string File)>();
-        foreach (var file in Directory.GetFiles(root, "*", SearchOption.AllDirectories))
+        // Kokler: Scenes In Build (+ startScene). Eksik kok = build iptal (sessiz bos pak yok).
+        var roots = project.Player.BuildScenes();
+        if (roots.Count == 0)
         {
-            string rel = Path.GetRelativePath(root, file).Replace('\\', '/');
-            if (!Skip(rel))
-                files.Add((rel, file));
+            EditorLog.Error("[pak] build'e dahil sahne yok: Project > Player Settings > Scenes In Build");
+            return;
         }
-        files.Sort((a, b) => string.CompareOrdinal(a.Key, b.Key)); // deterministik cikti
-
-        // Atlas gruplarina alinan uyeler: pak'ta sayfalarda yasar, tekil kopya gereksiz
-        // (png tamamen atlanir; fontun yalniz "sheet" artifact'i atlanir).
-        var atlasGroups = AtlasSystem.GroupAssets();
-        var claimed = AtlasImporter.ClaimedMembers(atlasGroups);
-        var memberAtlas = AtlasImporter.MemberToAtlas(atlasGroups);
+        bool rootsOk = true;
+        foreach (var r in roots)
+        {
+            if (!assets.AllAssets.ContainsKey(r))
+            {
+                EditorLog.Error($"[pak] kok sahne bulunamadi: {r}");
+                rootsOk = false;
+            }
+        }
+        if (!rootsOk)
+            return;
+        if (!project.Player.scenes.Contains(project.Player.startScene))
+            EditorLog.Warning($"[pak] startScene listede degil, otomatik eklendi: {project.Player.startScene}");
 
         // Bagimlilik grafigi (pak index'ine yazilir): kim neyi yuklenmeden once ister.
-        // Kenarlari build bilgisi olan yazar: importer artifact'leri, atlas uyeligi,
+        // Kenarlari build bilgisi olan yazar: importer artifact'leri, yutma (uye->tuketici),
         // sahne/prefab asset referanslari. Runtime tek genel yuruyucuyle gezer.
         var deps = new Dictionary<string, List<string>>(StringComparer.Ordinal);
         void AddDep(string from, string to)
@@ -55,20 +68,76 @@ static class AssetPackBuilder
             if (!l.Contains(to)) l.Add(to);
         }
 
+        // ---- Faz 1: erisilebilirlik (worklist) ----
+        var absorbedBy = ImportPipeline.AbsorbedByMap(); // yutulan girdi -> tuketici
+        var live = new HashSet<string>(StringComparer.Ordinal);
+        var baked = new Dictionary<string, byte[]>(StringComparer.Ordinal);
+        var unresolved = new List<string>();
+        var queue = new Queue<string>(roots);
+        while (queue.Count > 0)
+        {
+            string key = queue.Dequeue();
+            if (live.Contains(key))
+                continue;
+            if (!assets.AllAssets.ContainsKey(key))
+            {
+                unresolved.Add(key);
+                continue;
+            }
+            if (Skip(key))
+            {
+                EditorLog.Warning($"[pak] referanslanan asset paketlenmeyen sinifta, atlandi: {key}");
+                continue;
+            }
+            if (IsSceneLike(key))
+            {
+                var refs = new List<string>();
+                var data = BakeScene(key, Path.Combine(root, key), catalog, assets, refs);
+                if (data == null)
+                    continue; // hata loglandi; sahne pak'a girmez
+                baked[key] = data;
+                foreach (var r in refs)
+                {
+                    string p = assets.ResolvePath(r); // guid -> yol (yol ise aynen)
+                    if (!assets.AllAssets.ContainsKey(p))
+                    {
+                        unresolved.Add($"{p} <- {key}");
+                        continue;
+                    }
+                    AddDep(key, p);
+                    queue.Enqueue(p);
+                }
+            }
+            live.Add(key);
+            if (absorbedBy.TryGetValue(key, out var consumer))
+            {
+                AddDep(key, consumer); // uye yuklenmeden once tuketici (sayfa) hazir olmali
+                queue.Enqueue(consumer);
+            }
+        }
+        foreach (var u in unresolved)
+            EditorLog.Warning($"[pak] cozulemeyen referans: {u}");
+
+        // ---- Faz 2: veri (yalniz canli kume, deterministik sira) ----
+        bool IsLive(string p) => live.Contains(p);
+        var keys = new List<string>(live);
+        keys.Sort(string.CompareOrdinal);
+
         int dtexCount = 0, skipped = 0, bakedCount = 0;
         var items = new List<(string Key, string Guid, byte[] Data)>();
         string texKey = null, texFile = null;
-        foreach (var (key, file) in files)
+        foreach (var key in keys)
         {
+            string file = Path.Combine(root, key);
+            bool absorbed = absorbedBy.ContainsKey(key);
             byte[] data;
-            if (AssetDatabase.ImportTypeOf(key) == typeof(Sprite))
+            if (AssetDatabase.ImportTypeOf(key) == typeof(Sprite) && ImportPipeline.ImporterFor(key) == null)
             {
-                if (claimed.Contains(key))
+                if (absorbed)
                 {
-                    // Pikseller atlas sayfasinda; guid->yol eslemesi icin bos stub girisi kalir
-                    // (sahne guid'le referanslar, LoadSprite bolge tablosundan baglar).
+                    // Pikseller tuketicinin sayfasinda; guid->yol eslemesi icin bos stub girisi
+                    // kalir (sahne guid'le referanslar, LoadSprite bolge tablosundan baglar).
                     items.Add((key, assets.PathToGuid(key), Array.Empty<byte>()));
-                    AddDep(key, memberAtlas[key]);
                     skipped++;
                     continue;
                 }
@@ -89,43 +158,43 @@ static class AssetPackBuilder
             else if (ImportPipeline.ImporterFor(key) != null)
             {
                 // Importer'li kaynak: pak'a ARTIFACT'ler girer, kaynak degil (ttf disarida
-                // kalir). "main" asset anahtariyla, digerleri "<anahtar>#<ad>" ile.
-                data = ImportPipeline.GetArtifact(key, "main");
-                if (data == null)
+                // kalir). "main" asset anahtariyla, digerleri "<anahtar>#<ad>" ile. Kapsam:
+                // Editor girmez; Standalone yalniz asset yutulmamissa (fontun kendi sheet'i).
+                var arts = ImportPipeline.BuildArtifacts(key, IsLive);
+                if (arts == null)
                 {
                     EditorLog.Warning($"[pak] import basarisiz, atlandi: {key}");
                     continue;
                 }
-                bool claimedFont = claimed.Contains(key);
-                if (claimedFont)
-                    AddDep(key, memberAtlas[key]);
-                foreach (var name in ImportPipeline.ArtifactNames(key))
+                data = null;
+                foreach (var (name, bytes, scope) in arts)
                 {
-                    if (name == "main" || name == "members" || name == "regions")
-                        continue; // editor-ici sozlesmeler; runtime okumaz
-                    if (claimedFont && name == "sheet")
+                    if (scope == ArtifactScope.Editor)
+                        continue;
+                    if (scope == ArtifactScope.Standalone && absorbed)
                     {
                         skipped++;
                         continue;
                     }
-                    var extra = ImportPipeline.GetArtifact(key, name);
-                    if (extra != null)
+                    if (name == "main")
                     {
-                        items.Add((key + "#" + name, "", extra));
-                        AddDep(key, key + "#" + name);
+                        data = bytes;
+                        continue;
                     }
+                    items.Add((key + "#" + name, "", bytes));
+                    AddDep(key, key + "#" + name);
+                }
+                if (data == null)
+                {
+                    EditorLog.Warning($"[pak] 'main' artifact yok, atlandi: {key}");
+                    continue;
                 }
             }
             else if (IsSceneLike(key))
             {
-                // Sahne/prefab: YAML -> pismis SceneBinary (prefab'lar ACILIR, override'lar
-                // uygulanir, alanlar sema indeksiyle yazilir). Runtime YAML/DocNode gormez.
-                var refs = new List<string>();
-                data = BakeScene(key, file, catalog, assets, refs);
-                if (data == null)
-                    continue;
-                foreach (var r in refs)
-                    AddDep(key, assets.ResolvePath(r)); // guid -> yol (yol ise aynen)
+                // Faz 1'de pisti: YAML -> SceneBinary (prefab'lar ACILMIS, override'lar
+                // uygulanmis, alanlar sema indeksiyle). Runtime YAML/DocNode gormez.
+                data = baked[key];
                 bakedCount++;
             }
             else
@@ -133,14 +202,20 @@ static class AssetPackBuilder
             items.Add((key, assets.PathToGuid(key), data));
         }
 
-        // Proje ayarlari: runtime project.yaml okumaz; pismis kayit pak'ta.
-        items.Add((ProjectBinary.PakKey, "", ProjectBinary.Write(App.Project.Name, App.Project.StartScene)));
+        // Proje ayarlari: runtime project.yaml okumaz; pismis kayit pak'ta (sahne listesi dahil).
+        items.Add((ProjectBinary.PakKey, "", ProjectBinary.Write(project.Name, project.StartScene, roots)));
 
         var (rawTotal, pakSize) = PakWriter.Write(outPath, items,
             // Stream tipli ses: native player dosyadan offset'le okur -> zlib OLAMAZ.
             key => AssetDatabase.ImportTypeOf(key) == typeof(AudioClip) && AudioImporter.IsStream(key),
             key => deps.TryGetValue(key, out var l) ? l : null);
-        EditorLog.Info($"[pak] {items.Count} giris ({dtexCount} dtex, {bakedCount} baked sahne/prefab, {skipped} atlas uyesi atlandi) -> {outPath} " +
+
+        int candidates = 0;
+        foreach (var rel in assets.AllAssets.Keys)
+            if (!Skip(rel))
+                candidates++;
+        EditorLog.Info($"[pak] {roots.Count} kok sahne -> {live.Count}/{candidates} asset canli ({candidates - live.Count} strip), " +
+            $"{items.Count} giris ({dtexCount} dtex, {bakedCount} baked sahne/prefab, {skipped} yutulmus) -> {outPath} " +
             $"({pakSize / 1024.0:0.0} KB, acik {rawTotal / 1024.0:0.0} KB, %{100.0 * pakSize / Math.Max(1, rawTotal):0.0})");
 
         Verify(outPath, items, texKey, texFile);
