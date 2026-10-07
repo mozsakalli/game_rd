@@ -99,9 +99,14 @@ B ──┘
   otomatik provided ekler. Player `Frame`'de `Module.TickAll()`; dev kancası: `Build/autoload.module.pak` varsa yüklenir.
   **Dikey dilim doğrulandı**: Sandbox'ın kendisi modül olarak Sandbox player'ına yüklendi (`tools/modpak` ile paketlenip);
   `RegisterAll` + baked `Read_N` okuyucuları + `Spinner.Update`/`ProgressDemo.Update`/`Awake`/ctor her frame yorumlandı.
-- **Sırada**: editör menüsünden gerçek publish denemesi; Faz E (trampoline sınırında hata izolasyonu → `Unload`, `.dmod` sürüm/engine
-  min-sürüm başlığı, `[mod:x]` trace etiketi, deny-list); registry'de yalnız modül tiplerini üretme (şu an engine tipleri de girer → şişkin);
-  Faz F (.NET/editörde ALC ile deneme).
+- **Faz E (çekirdek) tamam**: trampoline sınırında izolasyon — host'ta handler varsa (RtTry / coroutine `__trypc`) exception
+  yeniden fırlatılır (Task fault, SceneLoader try/catch gibi meşru yollar korunur); hiç handler yoksa (alternatif: süreç çökmesi)
+  rapor + modül FAULT (no-op) → `Module.TickAll` fark edip `Unload` eder. `.dmod` v2 başlığında üretici/engine sürüm metni
+  (yükleme hatalarında basılır), `vmint_load(name)` ile `[mod:ad]` trace etiketi. Selftest harness fault testi: `faulted=1`.
+  **Ertelenen**: deny-list (güvenilmeyen remote modüller için pointer op / NativeFs / P-Invoke referansı reddi).
+- Registry filtresi: `ModuleBuilder` yalnız modül assembly'sinin tiplerini yazar (`t.Assembly == gameAsm`); `tools/modpak`
+  test yolu tam Registry.g.cs kullandığı için orada engine tipleri de girer (yalnız test).
+- **Sırada**: editör menüsünden gerçek publish denemesi; Faz F (.NET/editörde ALC ile deneme); deny-list.
 
 ### Öğrenilenler (C tarafı)
 - `jmp_buf` 16 hizalı olmalı (VM arena tahsisleri 16'ya yuvarlanır).

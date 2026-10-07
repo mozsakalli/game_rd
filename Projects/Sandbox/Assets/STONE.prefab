@@ -1,0 +1,45 @@
+scene: STONE
+objects:
+  - id: 1
+    parent: 0
+    name: STONE
+    pos: -280.6667 -94 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 50
+        height: 70
+        fill:
+          type: Linear
+          direction: Vertical
+          color: '#faf7dcff'
+          color2: '#898564ff'
+        radius: 3 2 3 3
+        border: 0 0 1 1
+        borderFill:
+          type: Solid
+          direction: Vertical
+          color: '#0000003b'
+          color2: '#00000000'
+        font: fd5600eb13f947c7af4439bb29c33b96
+        text: 13
+        textAlign: Center
+        textAlignV: Center
+        textFill:
+          type: Solid
+          direction: Vertical
+          color: '#222222ff'
+          color2: '#ffffffff'
+        textSize: 50
+        textSpacing: -4.306665
+        padding: 0 0 6.7000003 16.53333
+        textOutline:
+          type: Linear
+          direction: Vertical
+          color: '#ffffffff'
+          color2: '#979596ff'
+        textOutlineWidth: 0
+        textShadowColor: '#ffffff5a'
+        textShadowOffset: 1 1
+        textShadowBlur: 1

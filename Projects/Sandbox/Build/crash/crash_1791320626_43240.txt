@@ -1,2 +1,0 @@
-reason: exit inside managed frames
-  at DigitoyPlayer.PlayerApp.Frame() (PlayerApp.cs:118:17)

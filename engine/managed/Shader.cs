@@ -62,12 +62,20 @@ public sealed unsafe class Shader
     // Yerlesik sprite shader'i (doku * renk). GL setup sonrasi ilk erisimde kurulur.
     public static Shader Default => _default ??= CreateEffect(_defaultFragment);
 
+    // GLSL surum basligi: masaustu GLCORE 410; Android/WebGL2 GLES3 "300 es" (+ precision; ES'te zorunlu).
+    // Geri kalan GLSL (in/out, texture(), dFdx) iki profilde de ayni.
+#if DE_RENDERER_GLES3
+    const string _glslHeader = "#version 300 es\nprecision highp float;\nprecision highp int;\nprecision highp sampler2D;\n";
+#else
+    const string _glslHeader = "#version 410\n";
+#endif
+
     // Ortak instanced vertex shader (engine.c _engine_vs_src, GLCORE 410).
     // Kose tint'leri uv uzayinda bilinear secilir: 4 renk ayniysa eski tek-tint
     // davranisiyla birebir; farkliysa quad ici gradient (DrawMultiColorQuad modeli).
     // {USER_*}/{FXP_*} yer tutuculari fragment USER/FXP kullaniyorsa doldurulur.
     const string _vertexTemplate =
-        "#version 410\n" +
+        "{GLSL_HEADER}" +
         "uniform mat4 u_viewProj;\n" +
         "in vec3 a_pos;\n" +
         "in vec2 a_uv;\n" +
@@ -103,7 +111,7 @@ public sealed unsafe class Shader
 
     // Fragment DSL sarmalayicilari (engine_shader.c GLCORE yolu).
     const string _fragPrefix =
-        "#version 410\n" +
+        "{GLSL_HEADER}" +
         "uniform sampler2D tex;\n" +
         "#define SAMPLE(t, uv) texture(t, uv)\n" +
         "#define SATURATE(x) clamp(x, 0.0, 1.0)\n" +
@@ -273,6 +281,7 @@ public sealed unsafe class Shader
         else
         {
             vertexSource = _vertexTemplate
+                .Replace("{GLSL_HEADER}", _glslHeader)
                 .Replace("{USER_IN}", usesUser ? "in vec4 a_user;\n" : "")
                 .Replace("{FXP_IN}", usesFxp ? "in vec4 a_fxp;\n" : "")
                 .Replace("{LOCAL_IN}", localUv ? "in vec4 a_fxrect;\n" : "")
@@ -282,7 +291,7 @@ public sealed unsafe class Shader
                 .Replace("{USER_ASSIGN}", usesUser ? "  v_user = a_user;\n" : "")
                 .Replace("{FXP_ASSIGN}", usesFxp ? "  v_fxp = a_fxp;\n" : "")
                 .Replace("{LOCAL_ASSIGN}", localUv ? "  v_uvLocal = a_fxrect.xy + a_uv * a_fxrect.zw;\n" : "");
-            fragmentSource = _fragPrefix
+            fragmentSource = _fragPrefix.Replace("{GLSL_HEADER}", _glslHeader)
                 + (usesUser ? _fragUserPrefix : "")
                 + (localUv ? _fragLocalPrefix : "")
                 + (usesFxp ? _fragFxpPrefix : "")

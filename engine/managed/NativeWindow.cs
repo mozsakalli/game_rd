@@ -1,7 +1,6 @@
+#if DE_EDITOR // editorun ikincil pencereleri (GLFW + GL FBO); oyun/mobil hedeflerde yok
 using System;
-#if DE_EDITOR
 using DigitoyEngine.Editor;
-#endif
 
 namespace DigitoyEngine;
 
@@ -283,3 +282,4 @@ public sealed unsafe class NativeWindow
     }
 #endif
 }
+#endif // DE_EDITOR

@@ -14,7 +14,7 @@ namespace DigitoyEngine.Language
     // Govdesi C'de olan (extern/NativeBody) kodlar yerel OLAMAZ -> hep dis referans (host'ta yoksa load hatasi).
     //
     // FORMAT (little-endian; tum indeksler 0-tabanli, -1 = yok):
-    //   u32 magic 'DMOD' | u32 version | u32 nStr | u32 nType | u32 nField | u32 nMethod | u32 entryMethod(-1)
+    //   u32 magic 'DMOD' | u32 version | u32 nStr | u32 nType | u32 nField | u32 nMethod | u32 entryMethod(-1) | i32 infoStr
     //   STR[nStr]   : u32 byteLen, utf8 bytes, u8 0
     //   TYPE[nType] : u8 kind (bkz. TK_*), i32 nameStr, i32 displayStr
     //       TK_SCALAR  : u8 tag ('i','u','l','q','h','H','b','z','c','B','f','d','V')
@@ -36,7 +36,7 @@ namespace DigitoyEngine.Language
     public static class ModuleWriter
     {
         public const uint Magic = 0x444F4D44; // "DMOD"
-        public const uint Version = 1;
+        public const uint Version = 2; // v2: baslikta infoStr (uretici + engine surumu; tani)
 
         public const byte TK_SCALAR = 0, TK_ARRAY = 1, TK_FIXED = 2, TK_POINTER = 3, TK_EXTERN = 4, TK_ENUM = 5,
                           TK_CLASS = 6, TK_STRUCT = 7, TK_IFACE = 8, TK_DELEGATE = 9;
@@ -223,10 +223,11 @@ namespace DigitoyEngine.Language
             }
         }
 
-        // roots: bundled assembly'lerin tum somut tipleri ve uyeleri. Donus: .dmod baytlari.
-        public static byte[] Write(Context ctx, IEnumerable<string> bundledAssemblies, Code entry, out Report report)
+        // roots: bundled assembly'lerin tum somut tipleri ve uyeleri. info: uretici/engine surumu metni (yukleme hatalarinda basilir).
+        public static byte[] Write(Context ctx, IEnumerable<string> bundledAssemblies, Code entry, string info, out Report report)
         {
             var w = new W(ctx, new HashSet<string>(bundledAssemblies));
+            w.Str(info ?? "");
             foreach (var p in ctx.AllPrimitives)
                 if (w.IsLocalType(p, out var prefer) && !prefer)
                     w.Type(p);
@@ -245,6 +246,7 @@ namespace DigitoyEngine.Language
             b.Write(Magic); b.Write(Version);
             b.Write(nStr); b.Write(nType); b.Write(nField); b.Write(nMethod);
             b.Write(entry != null ? w.Method(entry, "entry") : -1);
+            b.Write(w.Str(info ?? ""));
             foreach (var s in w.strs)
             {
                 var bytes = Encoding.UTF8.GetBytes(s);

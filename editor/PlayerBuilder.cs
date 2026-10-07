@@ -29,12 +29,16 @@ public static class PlayerBuilder
 
     static Task _task;
 
-    [MenuItem("Project/Build Player", 2)]
-    static void BuildMenu() => Start();
+    [MenuItem("Project/Build Player (Windows)", 2)]
+    static void BuildMenu() => Start("windows");
+
+    // Android: Android Studio projesi uretilir (<proje>/Build/android); APK'yi kullanici Android Studio'da derler.
+    [MenuItem("Project/Build Android Project", 2)]
+    static void BuildAndroidMenu() => Start("android");
 
     // Donus: zincir baslatildi (arka plan surecinin sonucu Version/LastOk ile izlenir).
-    // false = on kosul/pak hatasi, loglandi.
-    public static bool Start()
+    // false = on kosul/pak hatasi, loglandi. target: windows | android
+    public static bool Start(string target = "windows")
     {
         if (IsRunning)
         {
@@ -51,9 +55,10 @@ public static class PlayerBuilder
         string registry = Path.Combine(project.LibraryPath, "Build", "Registry.g.cs");
         if (!File.Exists(registry))
             return Fail("Registry.g.cs yok (katalog kurulmadi): " + registry);
-        string aotProj = Path.Combine(App.RepoRoot, "aotcompiler", "aotcompiler.csproj");
-        if (!File.Exists(aotProj))
-            return Fail("aotcompiler bulunamadi: " + aotProj);
+        var ps = project.Player;
+        string appArgs = $" --app-id \"{ps.bundleIdentifier}\" --app-name \"{ps.productName}\" --app-version \"{ps.version}\" --orientation {ps.orientation}";
+        if (!SdkLayout.TryAotCommand($"player \"{project.Root}\" --target {target}{appArgs}", out string aotFile, out string aotArgs, out string aotErr))
+            return Fail(aotErr);
 
         Failed = false;
         Status = "Building pak...";
@@ -62,10 +67,13 @@ public static class PlayerBuilder
             return Fail("game.pak uretilemedi");
 
         string projName = Path.GetFileName(project.Root.TrimEnd('\\', '/'));
-        string exe = Path.Combine(project.Root, "Build", projName + ".exe");
-        Status = "Building player...";
-        EditorLog.Info($"[player-build] 2/2 aotcompiler player {project.Root}");
-        _task = Task.Run(() => RunAot(aotProj, project.Root, exe));
+        // Basari olcutu: windows -> exe; android -> uretilen proje (CMakeLists)
+        string result = target == "android"
+            ? Path.Combine(project.Root, "Build", "android", "generated", "cpp", "CMakeLists.txt")
+            : Path.Combine(project.Root, "Build", projName + ".exe");
+        Status = target == "android" ? "Building android project..." : "Building player...";
+        EditorLog.Info($"[player-build] 2/2 aotcompiler player {project.Root} --target {target}" + (SdkLayout.Installed ? " (kurulu sdk)" : ""));
+        _task = Task.Run(() => RunAot(aotFile, aotArgs, result));
         return true;
     }
 
@@ -77,18 +85,17 @@ public static class PlayerBuilder
         return false;
     }
 
-    // Arka plan: dotnet run (aotcompiler gerekirse derlenir) -> satirlar Console'a.
-    static void RunAot(string aotProj, string projectRoot, string exe)
+    // Arka plan: aotcompiler (kurulu: paket dll'i; dev: dotnet run, gerekirse derlenir) -> satirlar Console'a.
+    static void RunAot(string file, string args, string exe)
     {
         var sw = Stopwatch.StartNew();
         var tail = new List<string>();
         int exit = -1;
         try
         {
-            var psi = new ProcessStartInfo("dotnet",
-                $"run --project \"{aotProj}\" --no-launch-profile -v q -- player \"{projectRoot}\"")
+            var psi = new ProcessStartInfo(file, args)
             {
-                WorkingDirectory = Path.GetDirectoryName(aotProj), // RepoRoot = ".." varsayimi
+                WorkingDirectory = SdkLayout.AotWorkDir, // obj/ buraya; dev'de aotcompiler/ (c_runtime goreli)
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
                 UseShellExecute = false,
@@ -129,7 +136,9 @@ public static class PlayerBuilder
         LastExe = ok ? exe : "";
         Failed = !ok;
         Status = ok ? "" : "Player build failed";
-        if (ok)
+        if (ok && exe.EndsWith("CMakeLists.txt"))
+            EditorLog.Info($"[player-build] OK -> Android Studio projesi: {Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(exe)))} ({sw.Elapsed.TotalSeconds:F0} s)");
+        else if (ok)
             EditorLog.Info($"[player-build] OK -> {exe} ({new FileInfo(exe).Length / 1024} KB, {sw.Elapsed.TotalSeconds:F0} s)");
         else
             EditorLog.Error($"[player-build] FAIL (exit {exit}, {sw.Elapsed.TotalSeconds:F0} s) — ayrintilar yukarida [aot] satirlarinda");

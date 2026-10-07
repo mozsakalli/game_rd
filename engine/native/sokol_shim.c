@@ -1293,7 +1293,33 @@ SOKOL_API void de_menu_destroy(void *menu)
     DestroyMenu((HMENU)menu); // alt popup'lari da yok eder
 }
 
-#else // !_WIN32 : POSIX (macOS/iOS) — pthread IO + Cocoa menu
+// Klasor secici (Open Project): modal, SENKRON. Donus 1 = secildi (out UTF-8), 0 = iptal.
+#include <shlobj.h>
+SOKOL_API int de_dialog_pick_folder(void *glfwWindow, const char *title, char *out, int cap)
+{
+    HWND hwnd = glfwWindow ? (HWND)glfwGetWin32Window(glfwWindow) : NULL;
+    CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+    wchar_t wtitle[256];
+    de__menu_wide(title ? title : "Select folder", wtitle, 256);
+    BROWSEINFOW bi;
+    memset(&bi, 0, sizeof bi);
+    bi.hwndOwner = hwnd;
+    bi.lpszTitle = wtitle;
+    bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE | BIF_EDITBOX;
+    LPITEMIDLIST pidl = SHBrowseForFolderW(&bi);
+    if (!pidl)
+        return 0;
+    wchar_t wpath[MAX_PATH];
+    int ok = SHGetPathFromIDListW(pidl, wpath) ? 1 : 0;
+    CoTaskMemFree(pidl);
+    if (!ok)
+        return 0;
+    WideCharToMultiByte(CP_UTF8, 0, wpath, -1, out, cap, NULL, NULL);
+    out[cap - 1] = 0;
+    return 1;
+}
+
+#elif defined(__APPLE__) // macOS: pthread IO + Cocoa menu/dialog (editor). Android/wasm/iOS: menu/dialog yok (DllImport'lar weak, cagrilmaz).
 // ---------------------------------------------------------------------------
 // Native menu (Cocoa): editor ana penceresine NSMenu bar takar; sag-tik
 // context menusu SENKRON secim dondurur. Item id'leri NSMenuItem.tag'inde.
@@ -1405,4 +1431,25 @@ SOKOL_API void de_menu_destroy(void *menu)
 {
     CFBridgingRelease(menu); // alt popup'lar item hiyerarsisiyle birlikte serbest kalir
 }
-#endif // _WIN32
+
+// Klasor secici (Open Project): NSOpenPanel, modal/senkron. Donus 1 = secildi (out UTF-8), 0 = iptal.
+SOKOL_API int de_dialog_pick_folder(void *glfwWindow, const char *title, char *out, int cap)
+{
+    (void)glfwWindow;
+    NSOpenPanel *panel = [NSOpenPanel openPanel];
+    [panel setCanChooseDirectories:YES];
+    [panel setCanChooseFiles:NO];
+    [panel setAllowsMultipleSelection:NO];
+    if (title)
+        [panel setMessage:[NSString stringWithUTF8String:title]];
+    if ([panel runModal] != NSModalResponseOK)
+        return 0;
+    NSURL *url = [[panel URLs] firstObject];
+    if (!url)
+        return 0;
+    const char *p = [[url path] UTF8String];
+    strncpy(out, p, cap - 1);
+    out[cap - 1] = 0;
+    return 1;
+}
+#endif // _WIN32 / __APPLE__

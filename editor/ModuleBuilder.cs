@@ -121,15 +121,14 @@ public static class ModuleBuilder
 
     static bool RunAotModule(string dll, string hostDll, string dmod)
     {
-        string aotProj = Path.Combine(App.RepoRoot, "aotcompiler", "aotcompiler.csproj");
-        if (!File.Exists(aotProj))
-            return Fail("aotcompiler bulunamadi: " + aotProj);
-        string args = $"run --project \"{aotProj}\" --no-launch-profile -v q -- module \"{dmod}\" --bundled \"{dll}\"";
+        string aotArgs = $"module \"{dmod}\" --bundled \"{dll}\"";
         if (!string.IsNullOrWhiteSpace(hostDll))
-            args += $" --provided \"{hostDll}\"";
-        var psi = new ProcessStartInfo("dotnet", args)
+            aotArgs += $" --provided \"{hostDll}\"";
+        if (!SdkLayout.TryAotCommand(aotArgs, out string file, out string args, out string err))
+            return Fail(err);
+        var psi = new ProcessStartInfo(file, args)
         {
-            WorkingDirectory = Path.GetDirectoryName(aotProj),
+            WorkingDirectory = SdkLayout.AotWorkDir,
             RedirectStandardOutput = true,
             RedirectStandardError = true,
             UseShellExecute = false,

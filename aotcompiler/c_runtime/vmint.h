@@ -7,10 +7,13 @@
 
 typedef struct VmModule VmModule;
 
-// Yukle + bagla (eager). Hata: 0 doner, err'e tek satir aciklama (eksik sembol vb.).
-VmModule *vmint_load(const unsigned char *data, int len, char *err, int errcap);
+// Yukle + bagla (eager). name: tani etiketi ([mod:name] trace, loglar). Hata: 0 doner, err'e tek satir aciklama.
+VmModule *vmint_load(const unsigned char *data, int len, const char *name, char *err, int errcap);
 // Modulu kapat: state=unloaded (trampoline'ler no-op), kokler birakilir; bellek canli nesne kalmayinca (GC) serbest.
 void vmint_unload(VmModule *m);
+// Host->modul sinirinda yakalanmamis exception (host'ta hicbir handler yokken) -> modul FAULT: no-op'a alinir, rapor
+// basilir, host bunu gorup Unload eder (Module.TickAll). Donus 1 = fault'lu.
+int vmint_faulted(VmModule *m);
 // Unload edilmis ve live==0 moduller icin bellegi serbest birakir (host GC adimi sonrasi cagirir). Donus: serbest kalan sayisi.
 int vmint_collect(void);
 // Giris metodu (.dmod entry; selftest Main gibi parametresiz static). Yoksa -1.

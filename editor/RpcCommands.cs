@@ -462,6 +462,41 @@ static class RpcCommands
         return r;
     }
 
+    [RpcCommand("project.open", "Baska bir projeyi acar: editor o yolla yeniden baslar, bu surec kapanir (RPC baglantisi kopar)")]
+    static DocNode ProjectOpen(string path)
+    {
+        string full = Path.GetFullPath(path);
+        if (!ProjectSwitcher.IsProjectRoot(full))
+            throw new RpcError($"proje klasoru degil: {path}");
+        ProjectSwitcher.Open(full);
+        var r = DocNode.Map();
+        r.Add("ok", DocNode.Scal("true"));
+        r.Add("project", DocNode.Scal(full));
+        return r;
+    }
+
+    [RpcCommand("project.recent", "Son acilan projeler (kullanici tercihleri) + repo Projects/* adaylari")]
+    static DocNode ProjectRecent()
+    {
+        var prefs = EditorPrefs.Load();
+        var r = DocNode.Map();
+        r.Add("current", DocNode.Scal(App.Project?.Root ?? ""));
+        var seq = DocNode.Seq();
+        foreach (var p in prefs.recentProjects)
+            seq.Items.Add(DocNode.Scal(p));
+        r.Add("recent", seq);
+        return r;
+    }
+
+    [RpcCommand("module.build", "Acik projeyi dinamik modul (.module.pak) olarak publish eder (Project > Build Module)")]
+    static DocNode ModuleBuild()
+    {
+        bool ok = ModuleBuilder.Build();
+        var r = DocNode.Map();
+        r.Add("ok", DocNode.Scal(ok ? "true" : "false"));
+        return r;
+    }
+
     [RpcCommand("asset.buildPak", "Release asset paketini (Build/game.pak) uretir; sonuc log.tail'de")]
     static DocNode AssetBuildPak()
     {
@@ -471,11 +506,11 @@ static class RpcCommands
         return r;
     }
 
-    [RpcCommand("player.build", "game.pak + aotcompiler ile release player exe'si uretir; sonuc build bitince doner (dakikalar)")]
-    static DocNode PlayerBuild()
+    [RpcCommand("player.build", "game.pak + aotcompiler ile player uretir (target: windows=exe | android=Android Studio projesi); sonuc build bitince doner")]
+    static DocNode PlayerBuild(string target = "windows")
     {
         int v0 = PlayerBuilder.Version;
-        if (!PlayerBuilder.Start())
+        if (!PlayerBuilder.Start(target))
         {
             var r = DocNode.Map();
             r.Add("ok", DocNode.Scal("false"));

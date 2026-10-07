@@ -1,0 +1,30 @@
+# --- .NET derleme ciktilari ---
+[Bb]in/
+[Oo]bj/
+*.user
+*.suo
+.vs/
+
+# --- native derleme ciktilari (build_editor.cmd / build_native_static.cmd) ---
+engine/native/build/
+
+# --- oyun projeleri: editor cache + build ciktilari (yeniden uretilir) ---
+# Library: Artifacts, Registry.g.cs, Game.dll, typemap; Build: game.pak, exe, android/ios/wasm projeleri; UserSettings: kisisel
+Projects/*/Library/
+Projects/*/Build/
+Projects/*/UserSettings/
+
+# --- Android Studio / Gradle (uretilen projelerin icinde) ---
+.gradle/
+.cxx/
+local.properties
+*.iml
+.idea/
+
+# --- crash dump / log ---
+crash/
+*.log
+
+# --- OS ---
+.DS_Store
+Thumbs.db

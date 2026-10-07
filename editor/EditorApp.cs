@@ -89,8 +89,13 @@ public unsafe class App
 #endif
         // Kullanici yerlesimi proje altindan (UserSettings gitignore'lanir);
         // yoksa/bozuksa asagidaki varsayilan agac kurulur.
-        string projectPath = Environment.GetCommandLineArgs() is { Length: > 1 } cli
-            ? cli[1] : DefaultProjectPath;
+        // Proje: CLI arg > kullanici tercihlerinde son acilan (hala varsa) > Projects/Sandbox. Acilan proje recent'a yazilir.
+        string projectPath = ProjectSwitcher.ResolveStartupProject(
+            Environment.GetCommandLineArgs() is { Length: > 1 } cli ? cli[1] : null, DefaultProjectPath);
+        projectPath = System.IO.Path.GetFullPath(projectPath);
+        { var prefs = EditorPrefs.Load(); prefs.Touch(projectPath); prefs.Save(); }
+        _window = window;
+        GLFW.SetWindowTitle(window, "Editor - " + System.IO.Path.GetFileName(projectPath.TrimEnd('\\', '/')));
         _layoutPath = System.IO.Path.Combine(projectPath, "UserSettings", "Layout.txt");
         if (!GuiDock.LoadLayout(_layoutPath))
         {
@@ -586,6 +591,10 @@ public unsafe class App
 
     // CLI arg ile baska proje acilabilir.
     static string DefaultProjectPath => System.IO.Path.Combine(RepoRoot, "Projects", "Sandbox");
+
+    static IntPtr _window;
+    // Proje degistirme: pencereyi kapat (cikis yolu RPC/layout/ayarlari kaydeder); yeni surec zaten baslatildi.
+    internal static void RequestClose() => GLFW.SetWindowShouldClose(_window, GLFWConst.TRUE);
 
     static string AssetsPath => _project.AssetsPath;
     static string _settingsPath;

@@ -32,6 +32,9 @@ public class PlayerSettings
     // 0 = platform varsayilani (vsync).
     public int targetFrameRate;
 
+    // Mobil ekran yonu: "auto" | "landscape" | "portrait" (Android manifest / iOS Info.plist; proje kabugu ilk uretimde yazilir).
+    public string orientation = "landscape";
+
     // Dinamik modul (Build > Module): bu proje bir host oyuna karsi modul olarak publish ediliyorsa, host'un AOT
     // player assembly'si (player/bin/Release/net9.0/DigitoyPlayer.dll gibi) — host tipleri "provided" sayilir,
     // modul kodu onlara isimle baglanir. Bos = yalniz engine API'si.

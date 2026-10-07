@@ -649,3 +649,44 @@ objects:
         anchoredPos: 0 -36.00001
         textShadowColor: '#0000008b'
         textShadowOffset: 0 1
+  - id: 25
+    parent: 0
+    name: STONE
+    pos: -301.36404 -99.644745 0
+    rot: 0 0 0
+    scale: 1 1 1
+    prefab: caad6699497e45e5a9ea3e5ed5660cde
+    prefabIds: '1:25'
+  - id: 26
+    parent: 0
+    name: STONE (1)
+    pos: -251.9486 -99.74358 0
+    rot: 0 0 0
+    scale: 1 1 1
+    prefab: caad6699497e45e5a9ea3e5ed5660cde
+    prefabIds: '1:26'
+    overrides:
+      - node: 1
+        comp: 'LayoutBox:0'
+        prop: border
+        value: 2 2 2 2
+      - node: 1
+        comp: 'LayoutBox:0'
+        prop: borderFill
+        value:
+          type: Solid
+          direction: Vertical
+          color: '#ffffff3b'
+          color2: '#00000000'
+      - node: 1
+        comp: 'LayoutBox:0'
+        prop: text
+        value: 9
+      - node: 1
+        comp: 'LayoutBox:0'
+        prop: textFill
+        value:
+          type: Solid
+          direction: Vertical
+          color: '#971c1cff'
+          color2: '#ffffffff'

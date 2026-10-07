@@ -33,13 +33,31 @@ public static class Program
             if (args.Length > 0 && args[0] == "engine")
                 return RunEngineBuild();
 
-            // 'player <proje koku>' modu: oyunu tek native exe'ye derle (release urunu).
+            // 'player <proje koku> [--target windows|android]' modu: oyunu derle. windows: tek native exe;
+            // android: Android Studio projesi (<proje>/Build/android, kaynak + CMake; kullanici derler).
             if (args.Length > 0 && args[0] == "player")
-                return RunPlayerBuild(args.Length > 1 ? args[1] : Path.Combine(RepoRoot, "Projects", "Sandbox"));
+            {
+                string target = "windows";
+                var app = new AppInfo();
+                for (int i = 2; i + 1 < args.Length; i++)
+                    switch (args[i])
+                    {
+                        case "--target": target = args[++i]; break;
+                        case "--app-id": app.Id = args[++i]; break;
+                        case "--app-name": app.Name = args[++i]; break;
+                        case "--app-version": app.Version = args[++i]; break;
+                        case "--orientation": app.Orientation = args[++i]; break;
+                    }
+                return RunPlayerBuild(args.Length > 1 && !args[1].StartsWith("--") ? args[1] : Path.Combine(RepoRoot, "Projects", "Sandbox"), target, app);
+            }
 
             // 'module <cikti.dmod> --bundled a.dll;b.dll [--provided c.dll;d.dll]' modu: dinamik modul IR'i (docs/modules.md Faz B).
             if (args.Length > 0 && args[0] == "module")
                 return RunModuleBuild(args);
+
+            // 'sdk-il <dir>' modu: publisher icin prebuilt IL (Digitoy.CoreLib.dll + DigitoyEngine.dll AOT).
+            if (args.Length > 1 && args[0] == "sdk-il")
+                return RunSdkIl(args[1]);
 
             // Varsayilan: CIL frontend selftest'i (derlenmis DLL -> IR). Tek frontend CIL'dir; corelib de
             // Roslyn ile derlenip ayni yoldan yuklenir (MiniCs kaynak frontend'i silindi).
@@ -57,26 +75,113 @@ public static class Program
     // Calisma dizini aotcompiler/ (c_runtime goreli yollari); repo koku bir ust.
     static string RepoRoot => Path.GetFullPath("..");
 
-    // corelib: c_runtime/corelib/*.cs Roslyn ile (NoStdLib) Digitoy.CoreLib.dll'e derlenir, CIL frontend
-    // engine/player ile AYNI yoldan yukler (isCoreLib: well-known binding + extern kurali). Tek frontend.
-    const string CoreLibProj = "corelib/Digitoy.CoreLib.csproj";
-    const string CoreLibDll = "corelib/bin/Digitoy.CoreLib.dll";
+    // ---- Managed IL kaynaklari (docs/platform-hosts.md H2) ----
+    // Uc assembly, hepsi in-process Roslyn (dotnet build / csproj YOK):
+    //   Digitoy.CoreLib.dll   c_runtime/corelib/**.cs, NoStdLib, referanssiz          -> prebuilt (sdk/) ya da dev'de taze
+    //   DigitoyEngine.dll     engine/managed/**.cs, NoStdLib, ref CoreLib, DE_AOT     -> prebuilt (sdk/) ya da dev'de taze
+    //   <Ad>.Game.dll         <proje>/Library/Build/Registry.g.cs + Assets/Scripts   -> her build (kullanici makinesi)
+    // KURULU MOD: aotcompiler.dll'in yaninda Digitoy.CoreLib.dll + DigitoyEngine.dll varsa (publisher sdk/) onlar kullanilir;
+    // DEV MOD: repo kaynaklarindan derlenir, obj/aot-il/ altinda mtime cache.
+    static readonly string AotIlDir = Path.Combine("obj", "aot-il");
+    static string PrebuiltDir => AppContext.BaseDirectory;
+    static bool Installed => File.Exists(Path.Combine(PrebuiltDir, "Digitoy.CoreLib.dll")) && !Directory.Exists(Path.Combine("c_runtime", "corelib"));
+    // Hedef -> renderer define'i (Shader.cs GLSL profili). windows: GLCORE 410; mac: Metal; android/wasm: GLES3.
+    static string RendererDefine(string target) => target switch
+    {
+        "android" or "wasm" => "DE_RENDERER_GLES3",
+        "mac" or "ios" => "DE_RENDERER_METAL",
+        _ => OperatingSystem.IsMacOS() ? "DE_RENDERER_METAL" : "DE_RENDERER_OPENGL",
+    };
+    // Hedefin platform define'lari: renderer + DE_DESKTOP (GLFW binding'leri yalniz masaustunde).
+    static IEnumerable<string> TargetDefines(string target)
+    {
+        yield return RendererDefine(target);
+        if (target == "windows" || target == "mac") yield return "DE_DESKTOP";
+    }
+    // Prebuilt engine IL hedefe gore: masaustu kokte DigitoyEngine.dll; digerleri DigitoyEngine.<target>.dll.
+    static string EngineIlName(string target) => target == "windows" || target == "mac" ? "DigitoyEngine.dll" : $"DigitoyEngine.{target}.dll";
+
+    static string CoreLibDll()
+    {
+        if (Installed) return Path.Combine(PrebuiltDir, "Digitoy.CoreLib.dll");
+        string dll = Path.Combine(AotIlDir, "Digitoy.CoreLib.dll");
+        var r = DigitoyEngine.Build.RoslynCompiler.CompileToFile(new DigitoyEngine.Build.RoslynBuild
+        {
+            AssemblyName = "Digitoy.CoreLib",
+            SourceFiles = DigitoyEngine.Build.RoslynCompiler.SourcesUnder(Path.Combine("c_runtime", "corelib")),
+            NoStdLib = true,
+        }, dll, useCache: true);
+        if (!r.Ok) throw new Exception("corelib derlemesi basarisiz (Roslyn):\n" + r.Errors);
+        return dll;
+    }
+
+    static string EngineAotDll(string target)
+    {
+        if (Installed) return Path.Combine(PrebuiltDir, EngineIlName(target));
+        string dll = Path.Combine(AotIlDir, EngineIlName(target));
+        var defines = new List<string> { "DE_AOT" }; defines.AddRange(TargetDefines(target));
+        var r = DigitoyEngine.Build.RoslynCompiler.CompileToFile(new DigitoyEngine.Build.RoslynBuild
+        {
+            AssemblyName = "DigitoyEngine",
+            SourceFiles = DigitoyEngine.Build.RoslynCompiler.SourcesUnder(Path.Combine(RepoRoot, "engine", "managed")),
+            References = { CoreLibDll() },
+            Defines = defines.ToArray(),
+            NoStdLib = true,
+            Optimize = true,
+        }, dll, useCache: true);
+        if (!r.Ok) throw new Exception("engine AOT derlemesi basarisiz (Roslyn):\n" + r.Errors);
+        return dll;
+    }
+
+    // Oyun: uretilmis Registry + Assets/Scripts (Assets/**/Editor/ haric) -> <Ad>.Game.dll (DE_AOT, NoStdLib).
+    static string GameAotDll(string projectRoot, string projName, string outDir, string target)
+    {
+        string registry = Path.Combine(projectRoot, "Library", "Build", "Registry.g.cs");
+        if (!File.Exists(registry)) throw new Exception("Registry.g.cs yok — projeyi once editorle acin: " + registry);
+        var sources = DigitoyEngine.Build.RoslynCompiler.SourcesUnder(Path.Combine(projectRoot, "Assets", "Scripts"), "/Editor/");
+        sources.Insert(0, registry);
+        var defines = new List<string> { "DE_AOT", "DE_GAME" }; defines.AddRange(TargetDefines(target));
+        string dll = Path.Combine(outDir, projName + ".Game.dll");
+        var r = DigitoyEngine.Build.RoslynCompiler.CompileToFile(new DigitoyEngine.Build.RoslynBuild
+        {
+            AssemblyName = projName + ".Game",
+            SourceFiles = sources,
+            References = { CoreLibDll(), EngineAotDll(target) },
+            Defines = defines.ToArray(),
+            NoStdLib = true,
+            Optimize = true,
+        }, dll, useCache: false);
+        if (!r.Ok) throw new Exception("oyun kodu AOT derlemesi basarisiz:\n" + r.Errors);
+        return dll;
+    }
+
+    // 'sdk-il <dir>': publisher icin prebuilt IL (CoreLib + Engine AOT, +pdb) uretir.
+    static int RunSdkIl(string outDir)
+    {
+        Directory.CreateDirectory(outDir);
+        foreach (var src in new[] { CoreLibDll(), EngineAotDll("windows"), EngineAotDll("android") })
+        {
+            File.Copy(src, Path.Combine(outDir, Path.GetFileName(src)), true);
+            string pdb = Path.ChangeExtension(src, ".pdb");
+            if (File.Exists(pdb)) File.Copy(pdb, Path.Combine(outDir, Path.GetFileName(pdb)), true);
+            Console.WriteLine("sdk-il: " + Path.GetFileName(src));
+        }
+        return 0;
+    }
 
     static List<Code> LoadCoreLib(Context ctx)
     {
-        var (exit, output) = RunProcess("dotnet", $"build {Quote(CoreLibProj)} -v q --nologo");
-        if (exit != 0) throw new Exception($"corelib derlemesi basarisiz (Roslyn):\n{output}");
-        if (!File.Exists(CoreLibDll)) throw new Exception("corelib dll bulunamadi: " + CoreLibDll);
-        var codes = CilFrontend.Compile(ctx, CoreLibDll, out _, isCoreLib: true);
+        string dll = CoreLibDll();
+        var codes = CilFrontend.Compile(ctx, dll, out _, isCoreLib: true);
         if (CilFrontend.LastDiagnostics.Count > 0)
             Console.WriteLine($"[corelib] CIL tani: {CilFrontend.LastDiagnostics.Count} oge:\n  " + string.Join("\n  ", CilFrontend.LastDiagnostics));
         return codes;
     }
 
-    // NIHAI URUN: DigitoyPlayer (engine + uretilmis registry + oyun scriptleri tek DLL,
-    // DE_AOT) -> CIL -> IR -> C -> clang; native (sokol + glfw + ses) STATIK linklenir.
+    // NIHAI URUN: engine (DE_AOT) + oyun (Registry + scriptler) -> CIL -> IR -> C -> clang; platform host
+    // (c_runtime/host_desktop.c) + native (sokol + glfw + ses) STATIK linklenir. DigitoyPlayer assembly'si YOK.
     // Cikti: <proje>/Build/<ProjeAdi>.exe, game.pak'in yanina. Exe ".." = proje koku kabul eder.
-    static int RunPlayerBuild(string projectRoot)
+    static int RunPlayerBuild(string projectRoot, string target, AppInfo app)
     {
         projectRoot = Path.GetFullPath(projectRoot);
         string projName = Path.GetFileName(projectRoot.TrimEnd('\\', '/'));
@@ -86,17 +191,12 @@ public static class Program
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
         void Lap(string what) { Console.WriteLine($"  [sure] {what}: {sw.Elapsed.TotalSeconds:F1} s"); sw.Restart(); }
-        // 1) managed derleme (Release: DE_EDITOR yok; GameProject: registry + scriptler gomulu)
-        var playerProj = Path.Combine(RepoRoot, "player", "DigitoyPlayer.csproj");
-        var (bexit, bout) = RunProcess("dotnet", $"build {Quote(playerProj)} -c Release -v q --nologo -p:GameProject={Quote(projectRoot)}");
-        if (bexit != 0) throw new Exception($"player derlemesi basarisiz:\n{bout}");
-        var binDir = Path.Combine(RepoRoot, "player", "bin", "Release", "net9.0");
-        var engineDll = Path.Combine(binDir, "DigitoyEngine.dll");
-        var playerDll = Path.Combine(binDir, "DigitoyPlayer.dll");
-        foreach (var d in new[] { engineDll, playerDll })
-            if (!File.Exists(d)) throw new Exception("dll bulunamadi: " + d);
-        Console.WriteLine($"managed: {engineDll}\n         {playerDll}");
-        Lap("dotnet build (engine+player Release)");
+        // 1) managed IL: corelib + engine (prebuilt ya da taze) + oyun (Roslyn, her seferinde)
+        Directory.CreateDirectory(workDir);
+        var engineDll = EngineAotDll(target);
+        var playerDll = GameAotDll(projectRoot, projName, workDir, target);
+        Console.WriteLine($"managed: {engineDll}\n         {playerDll}" + (Installed ? "  (kurulu mod: prebuilt sdk)" : ""));
+        Lap("Roslyn (engine AOT + oyun)");
 
         // 2) CIL -> IR: corelib + engine + player (player engine tiplerini ctx'ten cozer)
         var ctx = new Context();
@@ -109,22 +209,35 @@ public static class Program
         allCodes.AddRange(CilFrontend.Compile(ctx, playerDll, out _));
         diag.AddRange(CilFrontend.LastDiagnostics.Select(d => "[player] " + d));
         Lap("CIL frontend (engine+player)");
-        // Host sozlesmesi: Main KULLANILMAZ; C dongusu Init/Frame/Shutdown cagirir (GC safepoint = Frame sonrasi).
-        Code HostCode(string name) => ctx.TryGetCode("DigitoyPlayer.PlayerApp$" + name, out var c) ? c
-            : throw new Exception($"DigitoyPlayer.PlayerApp.{name} bulunamadi");
-        var initCode = HostCode("Init_System_String");
+        // Host sozlesmesi (docs/platform-hosts.md): Main KULLANILMAZ; platform host'u de_app.h uzerinden
+        // GameHost.Init/Event/Frame/Pause/Resume/Shutdown'i surer (GC safepoint = de_app_frame icinde).
+        Code HostCode(string name)
+        {
+            var hits = ctx.AllCodes.Where(c => c.Owner?.Name == "DigitoyEngine.GameHost" && !c.IsExternal
+                && (c.Name == name || c.Name.StartsWith(name + "_", StringComparison.Ordinal))).ToList();
+            if (hits.Count != 1) throw new Exception($"DigitoyEngine.GameHost.{name}: {hits.Count} aday (1 bekleniyor)");
+            return hits[0];
+        }
+        var initCode = HostCode("Init");
+        var eventCode = HostCode("Event");
         var frameCode = HostCode("Frame");
+        var pauseCode = HostCode("Pause");
+        var resumeCode = HostCode("Resume");
         var shutdownCode = HostCode("Shutdown");
+        // Oyunun uretilmis kaydi: de_game_register(cat) -> Generated.Registry.RegisterAll(cat)
+        var registerCode = ctx.AllCodes.SingleOrDefault(c => c.Owner?.Name == "DigitoyEngine.Generated.Registry" && c.Name.StartsWith("RegisterAll", StringComparison.Ordinal))
+            ?? throw new Exception("DigitoyEngine.Generated.Registry.RegisterAll bulunamadi (editor Registry.g.cs uretmedi mi?)");
         Directory.CreateDirectory(workDir);
         File.WriteAllLines(Path.Combine(workDir, "diag.txt"), diag);
         Console.WriteLine($"CIL tani: {diag.Count} oge atlandi/stub'landi -> {Path.Combine(workDir, "diag.txt")}");
         Resolver.ResolveAll(ctx, allCodes);
         Lap("resolve/monomorph");
 
-        // STUB KAPISI: host dongusunden (Init/Frame/Shutdown) cagri grafiyla ERISILEBILEN stub =
+        // STUB KAPISI: host girislerinden cagri grafiyla ERISILEBILEN stub =
         // runtime'da NotImplementedException demek -> build HATASI (exe cikmaz; liste basilir).
         // Erisilemeyen stub'lar (editor/import yolu, kullanilmayan API) diag.txt'de kalir.
-        var reachableStubs = ReachableStubs(ctx, new[] { initCode, frameCode, shutdownCode });
+        var hostEntries = new[] { initCode, eventCode, frameCode, pauseCode, resumeCode, shutdownCode, registerCode };
+        var reachableStubs = ReachableStubs(ctx, hostEntries);
         if (reachableStubs.Count > 0)
         {
             Console.WriteLine($"[HATA] runtime'dan erisilebilen {reachableStubs.Count} AOT stub (calisirken patlar):");
@@ -133,59 +246,182 @@ public static class Program
             throw new Exception("AOT stub kapisi: eksik corelib/frontend destegi (yukaridaki liste); corelib'e ekleyin ya da motor kodunu yuzeye uydurun");
         }
 
-        // 3) C transpile + host main: crash dump dizini (exe yaninda "crash/"), cikista rapor
-        //    (sessiz cikis YOK: managed frame icindeyken exit = crash dump), runtime init, Main.
-        //    Unhandled exception yolu runtime'da (DIGITOYENGINE_dispatch -> rapor + dump + exit 134).
+        // 3) C transpile + de_app.h kopruleri: main/dongu/crash dizini artik platform host'unda
+        //    (c_runtime/host_desktop.c + de_app.c). Unhandled exception yolu runtime'da (DIGITOYENGINE_dispatch).
         var cSource = CTranspiler.TranspileProgram(ctx);
         string Sym(Code c) => CTranspiler.CName(c.EncodeName());
         var entrySym = Sym(frameCode);
-        // Host dongusu (langtest modeli): her frame managed Frame(), ardindan managed frame YOKKEN
-        // GC safepoint: gc_minor (genc nesil, ucuz) + gc_maybe_major(butce) (artimli, fps'i oldurmez).
-        cSource += "\n#include <direct.h>\nstatic void digitoyengine_host_atexit(void) {\n" +
-            "    fprintf(stderr, \"[host] exit (shadow stack depth %d)\\n\", DIGITOYENGINE_sp);\n" +
-            "    if (DIGITOYENGINE_sp > 0) DIGITOYENGINE_crash_dump(\"exit inside managed frames\", DIGITOYENGINE_stack, DIGITOYENGINE_sp);\n" +
-            "}\n" +
-            "int main(void) {\n" +
-            "    _mkdir(\"crash\");\n    digitoyengine_crash_init(\"crash\");\n" +
-            "    atexit(digitoyengine_host_atexit);\n" +
-            "    fprintf(stderr, \"[host] start\\n\");\n" +
-            "    digitoyengine_init();\n" +
-            $"    {Sym(initCode)}(0);\n" +
-            $"    while ({Sym(frameCode)}()) {{\n" +
-            "        if (!getenv(\"AOT_NOGC\")) gc_maybe_major(1 << 14); // artimli GC dilimi: managed frame YOKKEN (safepoint)\n" +
-            "    }\n" +
-            $"    {Sym(shutdownCode)}();\n" +
-            "    gc_major();\n" +
-            "    fprintf(stderr, \"[host] main returned\\n\");\n" +
-            "    return 0;\n}\n";
+        var catType = CTranspiler.CType(registerCode.Arguments[0].Type);
+        cSource += "\n/* de_app.h kopruleri (platform host -> managed) */\n" +
+            $"void de_managed_init(const char* root, int fbw, int fbh, float scale) {{ {Sym(initCode)}(digitoyengine_from_utf8(root), fbw, fbh, scale); }}\n" +
+            $"int de_managed_frame(float dt, int fbw, int fbh, float scale) {{ return {Sym(frameCode)}(dt, fbw, fbh, scale) ? 1 : 0; }}\n" +
+            $"void de_managed_event(int type, int id, float x, float y, int a, int b) {{ {Sym(eventCode)}(type, id, x, y, a, b); }}\n" +
+            $"void de_managed_pause(void) {{ {Sym(pauseCode)}(); }}\n" +
+            $"void de_managed_resume(void) {{ {Sym(resumeCode)}(); }}\n" +
+            $"void de_managed_shutdown(void) {{ {Sym(shutdownCode)}(); }}\n" +
+            $"void de_game_register({catType} cat) {{ {Sym(registerCode)}(cat); }}\n";
         File.WriteAllText(generated, cSource);
         Console.WriteLine($"transpile -> {generated} ({cSource.Length} karakter, giris {entrySym})");
         Lap("C transpile + yaz");
 
-        // 4) clang: uretilen C + runtime (vmrt/corelib) + STATIK native kutuphane
-        //    (engine/native/build_native_static.cmd -> digitoyengine_native_static.lib: sokol+glfw+ses+de_fs).
-        //    DLL yok, P/Invoke yok: [DllImport] sembolleri linker'da statik cozulur.
-        var native = Path.Combine(RepoRoot, "engine", "native");
-        var staticLib = Path.Combine(native, "build", "digitoyengine_native_static.lib");
-        if (!File.Exists(staticLib) || Directory.GetFiles(native, "*.c").Any(f => File.GetLastWriteTimeUtc(f) > File.GetLastWriteTimeUtc(staticLib)))
+        if (target == "android")
         {
-            Console.WriteLine("native statik lib eski/yok -> build_native_static.cmd");
-            var (nexit, nout) = RunProcess("cmd.exe", $"/c \"{Path.Combine(native, "build_native_static.cmd")}\"");
-            if (nexit != 0) throw new Exception($"native statik lib derlemesi basarisiz:\n{nout}");
+            EmitAndroidProject(projectRoot, projName, generated, app);
+            Lap("android projesi");
+            return 0;
         }
-        var cFiles = new List<string> { generated, "c_runtime/vmrt.c", "c_runtime/corelib.c", "c_runtime/vmint.c" };
+        if (target != "windows")
+            throw new Exception("bilinmeyen hedef: " + target + " (windows | android)");
+
+        // 4) clang: uretilen C + runtime (vmrt/corelib/vmint) + platform host (de_app/host_desktop) + native
+        //    (sokol+glfw+ses+de_fs) — hepsi KAYNAKTAN (prebuilt player native'i yok; docs/platform-hosts.md).
+        //    Native kaynaklar obj/native-static/ altinda mtime cache'li arsive derlenir. DLL yok, P/Invoke yok.
+        var staticLib = BuildNativeStaticLib();
+        var cFiles = new List<string> { generated };
+        foreach (var n in new[] { "vmrt.c", "corelib.c", "vmint.c", "de_app.c", "host_desktop.c" })
+            cFiles.Add(Path.Combine(CRuntimeDir, n));
         var defines = "-DSOKOL_GLCORE" + (Environment.GetEnvironmentVariable("AOT_GCPOISON") == "1" ? " -DDIGITOYENGINE_GC_POISON" : "");
-        var libs = "-lopengl32 -lgdi32 -luser32 -lkernel32 -lshell32 -lole32 -loleaut32 -lmfplat -lmfuuid";
+        var libs = "-lopengl32 -lgdi32 -luser32 -lkernel32 -lshell32 -lole32 -loleaut32 -lmfplat -lmfuuid -luuid";
         Directory.CreateDirectory(Path.GetDirectoryName(outExe));
         // AOT_DEBUG: -O0 + sembol (lldb) + DIGITOYENGINE_DEBUG (STEP/local tablolari -> crash'te degisken dokumu)
         var dbg = Environment.GetEnvironmentVariable("AOT_DEBUG") == "1" ? "-O0 -g -gcodeview -DDIGITOYENGINE_DEBUG" : "-O1";
-        var compileArgs = $"{dbg} -w {defines} -Ic_runtime -I{Quote(native)} " +
+        var compileArgs = $"{dbg} -w {defines} {NativeIncludes} " +
             $"{string.Join(" ", cFiles.Select(Quote))} {Quote(staticLib)} {libs} -o {Quote(outExe)}";
         var (ccExit, ccOut) = RunProcess(ClangPath(), compileArgs);
         if (ccExit != 0) throw new Exception($"clang derleme/link hatasi (exit {ccExit}):\n{ccOut}");
         Console.WriteLine($"clang ok -> {outExe} ({new FileInfo(outExe).Length / 1024} KB)");
         Lap("clang + link");
         return 0;
+    }
+
+    // ---- Android (docs/platform-hosts.md H5): Android Studio projesi, kaynak + CMake; kullanici derler ----
+    // <proje>/Build/android/
+    //   generated/   HER build silinip yazilir: cpp/{generated.c, c_runtime/, native/, CMakeLists.txt}, java/com/digitoy/host/*.kt, assets/game.pak
+    //   app/, settings.gradle.kts, build.gradle.kts, gradle.properties, gradle/wrapper   ILK uretimde sablondan ({{APP_NAME}}/{{APP_ID}}), sonra DOKUNULMAZ
+    static string PlatformsDir => Installed ? Path.GetFullPath(Path.Combine(PrebuiltDir, "..", "platforms")) : "platforms";
+
+    // Yayin kimligi (editor PlayerSettings'ten --app-* ile gelir; CLI'dan verilmezse proje adindan turetilir).
+    sealed class AppInfo { public string Id, Name, Version = "1.0", Orientation = "landscape"; }
+
+    static void EmitAndroidProject(string projectRoot, string projName, string generatedC, AppInfo app)
+    {
+        string tpl = Path.Combine(PlatformsDir, "android");
+        if (!Directory.Exists(tpl)) throw new Exception("android sablonu yok: " + tpl);
+        string root = Path.Combine(projectRoot, "Build", "android");
+        string gen = Path.Combine(root, "generated");
+        if (Directory.Exists(gen)) Directory.Delete(gen, true);
+
+        // cpp: generated.c + runtime (host_desktop haric) + native shim'ler (glfw yok) + CMake
+        string cpp = Path.Combine(gen, "cpp");
+        Directory.CreateDirectory(Path.Combine(cpp, "c_runtime"));
+        Directory.CreateDirectory(Path.Combine(cpp, "native"));
+        File.Copy(generatedC, Path.Combine(cpp, "generated.c"), true);
+        foreach (var f in Directory.GetFiles(CRuntimeDir))
+        {
+            string n = Path.GetFileName(f);
+            if (n == "host_desktop.c" || !(n.EndsWith(".c") || n.EndsWith(".h"))) continue;
+            File.Copy(f, Path.Combine(cpp, "c_runtime", n), true);
+        }
+        foreach (var f in Directory.GetFiles(EngineNativeDir))
+        {
+            string n = Path.GetFileName(f);
+            if (!(n.EndsWith(".c") || n.EndsWith(".h"))) continue;
+            File.Copy(f, Path.Combine(cpp, "native", n), true);
+        }
+        CopyTree(Path.Combine(EngineNativeDir, "sokol"), Path.Combine(cpp, "native", "sokol"));
+        File.Copy(Path.Combine(tpl, "CMakeLists.txt"), Path.Combine(cpp, "CMakeLists.txt"), true);
+
+        // java: host (her build taze — engine'e ait), assets: game.pak
+        CopyTree(Path.Combine(tpl, "java"), Path.Combine(gen, "java"));
+        string pak = Path.Combine(projectRoot, "Build", "game.pak");
+        if (!File.Exists(pak)) throw new Exception("game.pak yok (once asset pack): " + pak);
+        Directory.CreateDirectory(Path.Combine(gen, "assets"));
+        File.Copy(pak, Path.Combine(gen, "assets", "game.pak"), true);
+
+        // kabuk: yalniz yoksa (kullaniciya ait)
+        if (!File.Exists(Path.Combine(root, "settings.gradle.kts")))
+        {
+            string appId = app.Id;
+            if (string.IsNullOrWhiteSpace(appId) || appId == "com.defaultcompany.game")
+            {
+                appId = "com.digitoy." + new string(projName.ToLowerInvariant().Where(ch => char.IsLetterOrDigit(ch)).ToArray());
+                if (appId.EndsWith(".")) appId += "game";
+            }
+            string appName = string.IsNullOrWhiteSpace(app.Name) || app.Name == "Game" ? projName : app.Name;
+            string orientation = app.Orientation switch { "portrait" => "sensorPortrait", "auto" => "fullSensor", _ => "sensorLandscape" };
+            foreach (var f in Directory.GetFiles(Path.Combine(tpl, "shell"), "*", SearchOption.AllDirectories))
+            {
+                string rel = Path.GetRelativePath(Path.Combine(tpl, "shell"), f);
+                string to = Path.Combine(root, rel);
+                Directory.CreateDirectory(Path.GetDirectoryName(to));
+                string text = File.ReadAllText(f).Replace("{{APP_NAME}}", appName).Replace("{{APP_ID}}", appId)
+                    .Replace("{{APP_VERSION}}", app.Version).Replace("{{ORIENTATION}}", orientation);
+                File.WriteAllText(to, text);
+            }
+            Console.WriteLine($"android kabugu olusturuldu: {root} (applicationId {appId}, {app.Orientation})");
+        }
+        else
+            Console.WriteLine("android kabugu mevcut, dokunulmadi: " + root);
+        Console.WriteLine($"android projesi hazir -> {root}  (Android Studio: Open -> bu klasor -> Run)");
+    }
+
+    static void CopyTree(string src, string dst)
+    {
+        Directory.CreateDirectory(dst);
+        foreach (var f in Directory.GetFiles(src, "*", SearchOption.AllDirectories))
+        {
+            string to = Path.Combine(dst, Path.GetRelativePath(src, f));
+            Directory.CreateDirectory(Path.GetDirectoryName(to));
+            File.Copy(f, to, true);
+        }
+    }
+
+    // ---- Native kaynak yerlesimi (docs/editor-distribution.md "Paket duzeni") ----
+    // DEV: aotcompiler/c_runtime + <repo>/engine/native.  KURULU: <sdk>/native/c_runtime + <sdk>/native/engine
+    // (EditorPublisher NativeSources adimi kopyalar). Player native'i her iki modda da KAYNAKTAN derlenir.
+    static string SdkNativeDir => Path.GetFullPath(Path.Combine(PrebuiltDir, "..", "native"));
+    static string CRuntimeDir => Installed ? Path.Combine(SdkNativeDir, "c_runtime") : "c_runtime";
+    static string EngineNativeDir => Installed ? Path.Combine(SdkNativeDir, "engine") : Path.Combine(RepoRoot, "engine", "native");
+    static string NativeIncludes => $"-I{Quote(CRuntimeDir)} -I{Quote(EngineNativeDir)} -I{Quote(Path.Combine(EngineNativeDir, "glfw-master", "include"))}";
+
+    // engine/native/build_native_static.cmd'nin esdegeri, aotcompiler icinde (cmd/sh bagimliligi yok; kurulu modda da calisir):
+    // sokol_shim + audio_shim + de_fs + GLFW (Win32) -> obj/native-static/digitoyengine_native_static.a. Kaynak/header degistiyse yeniden.
+    static readonly string[] GlfwWin32Sources = { "context", "init", "input", "monitor", "platform", "vulkan", "window", "win32_init", "win32_joystick",
+        "win32_module", "win32_monitor", "win32_time", "win32_thread", "win32_window", "wgl_context", "egl_context", "osmesa_context",
+        "null_init", "null_joystick", "null_monitor", "null_window" };
+
+    static string BuildNativeStaticLib()
+    {
+        string outDir = Path.Combine("obj", "native-static");
+        string lib = Path.Combine(outDir, "digitoyengine_native_static.a");
+        string clang = ClangPath();
+        // Cache anahtari: kaynak/header mtime'lari + TOOLCHAIN (MSVC-hedef clang ile mingw nesneleri karismasin: __chkstk/_fltused).
+        string stamp = Path.Combine(outDir, ".toolchain");
+        var sources = new List<string>();
+        foreach (var n in new[] { "sokol_shim.c", "audio_shim.c", "de_fs.c" }) sources.Add(Path.Combine(EngineNativeDir, n));
+        foreach (var g in GlfwWin32Sources) sources.Add(Path.Combine(EngineNativeDir, "glfw-master", "src", g + ".c"));
+        var inputs = sources.Concat(Directory.GetFiles(EngineNativeDir, "*.h", SearchOption.AllDirectories)).ToList();
+        bool sameToolchain = File.Exists(stamp) && File.ReadAllText(stamp) == clang;
+        if (sameToolchain && File.Exists(lib) && inputs.All(f => File.Exists(f) && File.GetLastWriteTimeUtc(f) <= File.GetLastWriteTimeUtc(lib)))
+            return lib;
+        Console.WriteLine($"native statik lib eski/yok -> {sources.Count} kaynak derleniyor ({EngineNativeDir})");
+        if (Directory.Exists(outDir)) Directory.Delete(outDir, true);
+        Directory.CreateDirectory(outDir);
+        string ar = Path.Combine(Path.GetDirectoryName(clang) ?? "", "llvm-ar" + Path.GetExtension(clang));
+        if (!File.Exists(ar)) ar = "llvm-ar";
+        var objs = new List<string>();
+        foreach (var src in sources)
+        {
+            string obj = Path.Combine(outDir, Path.GetFileNameWithoutExtension(src) + ".o");
+            var (e, o) = RunProcess(clang, $"-O2 -w -c -DSOKOL_GLCORE -D_GLFW_WIN32 -DSOKOL_IMPL {NativeIncludes} {Quote(src)} -o {Quote(obj)}");
+            if (e != 0) throw new Exception($"native derleme basarisiz: {src}\n{o}");
+            objs.Add(obj);
+        }
+        if (File.Exists(lib)) File.Delete(lib);
+        var (ae, ao) = RunProcess(ar, $"rcs {Quote(lib)} {string.Join(" ", objs.Select(Quote))}");
+        if (ae != 0) throw new Exception($"native arsiv olusturulamadi:\n{ao}");
+        File.WriteAllText(stamp, clang);
+        return lib;
     }
 
     // Engine managed DLL'ini derler, CIL -> IR -> C transpile eder ve kendi native
@@ -277,7 +513,8 @@ public static class Program
             if (bundled.Contains(dll)) bundledNames.Add(AssemblyNameOf(dll));
         }
         Resolver.ResolveAll(ctx, allCodes);
-        var bytes = ModuleWriter.Write(ctx, bundledNames, null, out var report);
+        var info = "dmod v" + ModuleWriter.Version + "; " + string.Join(", ", provided.Select(p => Path.GetFileNameWithoutExtension(p) + " " + AssemblyVersionOf(p)));
+        var bytes = ModuleWriter.Write(ctx, bundledNames, null, info, out var report);
         if (report.ReachableStubs.Count > 0)
         {
             Console.WriteLine($"[HATA] modulden erisilebilen {report.ReachableStubs.Count} AOT stub:");
@@ -297,6 +534,13 @@ public static class Program
         using var pe = new System.Reflection.PortableExecutable.PEReader(File.OpenRead(dll));
         var md = System.Reflection.Metadata.PEReaderExtensions.GetMetadataReader(pe);
         return md.GetString(md.GetAssemblyDefinition().Name);
+    }
+
+    static string AssemblyVersionOf(string dll)
+    {
+        using var pe = new System.Reflection.PortableExecutable.PEReader(File.OpenRead(dll));
+        var md = System.Reflection.Metadata.PEReaderExtensions.GetMetadataReader(pe);
+        return md.GetAssemblyDefinition().Version.ToString();
     }
 
     static IEnumerable<string> ModuleReportLines(ModuleWriter.Report r, List<string> diag)
@@ -354,7 +598,7 @@ public static class Program
             {
                 Directory.CreateDirectory(WorkDir);
                 var dmod = Path.Combine(WorkDir, "selftest.dmod");
-                var bytes = ModuleWriter.Write(ctx, new[] { AssemblyNameOf(dll) }, entry, out var report);
+                var bytes = ModuleWriter.Write(ctx, new[] { AssemblyNameOf(dll) }, entry, "selftest dmod v" + ModuleWriter.Version, out var report);
                 File.WriteAllBytes(dmod, bytes);
                 File.WriteAllLines(Path.ChangeExtension(dmod, ".report.txt"), ModuleReportLines(report, CilFrontend.LastDiagnostics));
                 Console.WriteLine($"module -> {dmod}: {report}");
@@ -395,10 +639,13 @@ public static class Program
                 "    FILE *f = fopen(argv[1], \"rb\"); if (!f) { fprintf(stderr, \"[interp] dosya acilamadi\\n\"); return 2; }\n" +
                 "    fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET);\n" +
                 "    unsigned char *buf = (unsigned char *)malloc(n); fread(buf, 1, n, f); fclose(f);\n" +
-                "    char err[512]; VmModule *m = vmint_load(buf, (int)n, err, sizeof err);\n" +
+                "    char err[512]; VmModule *m = vmint_load(buf, (int)n, \"selftest\", err, sizeof err);\n" +
                 "    if (!m) { fprintf(stderr, \"[interp] yukleme hatasi: %s\\n\", err); return 3; }\n" +
                 "    fprintf(stderr, \"[interp] yuklendi; entry kosuyor\\n\");\n" +
                 "    vmint_run_entry(m);\n" +
+                "    /* fault izolasyonu: host'ta handler yokken stub metot (NotImplemented) -> crash degil FAULT */\n" +
+                "    vmint_call(m, \"Demo47.App47$Run\", 0, 0);\n" +
+                "    fprintf(stderr, \"[interp] fault testi: faulted=%d (1 bekleniyor)\\n\", vmint_faulted(m));\n" +
                 "    vmint_unload(m); gc_major(); gc_major(); /* ilk dongu surmekte olabilir (yeni nesneler siyah dogar) */\n" +
                 "    fprintf(stderr, \"[interp] unload: live=%d, collect=%d\\n\", vmint_live(m), vmint_collect());\n" +
                 "    return 0;\n}\n";
@@ -538,16 +785,18 @@ public static class Program
     }
 
     // clang PATH'te olmayabilir (Windows); once PATH, sonra bilinen LLVM kurulum yollari.
+    // Windows: llvm-mingw (kullanici dizini; yoksa indirilir — docs/editor-distribution.md). AOT_CLANG=<yol> ile ezilebilir
+    // (dev deneyleri, MSVC-hedef clang). Diger OS: PATH'teki clang (macOS: Xcode).
     static string ClangPath()
     {
-        var candidates = new[]
+        var env = Environment.GetEnvironmentVariable("AOT_CLANG");
+        if (!string.IsNullOrEmpty(env)) return env;
+        if (OperatingSystem.IsWindows())
         {
-            @"C:\Program Files\LLVM\bin\clang.exe",
-            @"C:\Program Files (x86)\LLVM\bin\clang.exe",
-        };
-        foreach (var c in candidates)
-            if (File.Exists(c)) return c;
-        return "clang"; // PATH'e birak (Linux/macOS ya da PATH'te kuruluysa)
+            DigitoyEngine.Build.MingwToolchain.Ensure(Console.WriteLine);
+            return DigitoyEngine.Build.MingwToolchain.Clang;
+        }
+        return "clang";
     }
 
     static (int exitCode, string output) RunProcess(string file, string args)

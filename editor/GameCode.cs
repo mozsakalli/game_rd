@@ -1,17 +1,20 @@
 using System;
 using System.Collections.Generic;
-using System.Diagnostics;
 using System.IO;
 using System.Reflection;
 using System.Runtime.Loader;
+using System.Text;
+using DigitoyEngine.Build;
 
 namespace DigitoyEditor;
 
 // Oyun kodu derleyici + yukleyici. Unity modeli: Assets/ altinda gorulen HER .cs
 // derlenir; yolu /Editor/ iceren dosyalar oyun assembly'sine GIRMEZ (custom editor
-// kodu — ayri assembly olarak derlenmesi sonraki faz). Derleme: Library/Build'e
-// uretilen csproj + dotnet build (bagimlilik yok); yukleme: collectible
-// AssemblyLoadContext (unload → taze derleme → TypeCatalog yeniden kurulur).
+// kodu — ayri assembly olarak derlenmesi sonraki faz). Derleme: IN-PROCESS Roslyn
+// (RegistryCompiler ile ayni; .NET SDK GEREKMEZ — kurulu editor yalniz runtime ister;
+// docs/editor-distribution.md Faz 2). Cikti Library/Build/bin/<Ad>.Game.dll + portable pdb
+// (satir numarali trace). Yukleme: collectible AssemblyLoadContext (unload -> taze derleme
+// -> TypeCatalog yeniden kurulur).
 public sealed class GameCode
 {
     AssemblyLoadContext _alc;
@@ -24,7 +27,7 @@ public sealed class GameCode
     // Son derlemede tespit edilen tip rename'leri (eski -> yeni). Katalog alias'i olur.
     public readonly List<KeyValuePair<string, string>> Renames = new();
 
-    // Worker-safe derleme ciktisi: yalniz dosya IO + subprocess urunu, ALC yok.
+    // Worker-safe derleme ciktisi: yalniz dosya IO + Roslyn, ALC yok.
     public sealed class CompileJob
     {
         public bool Ok;
@@ -34,17 +37,13 @@ public sealed class GameCode
         public string AsmName;
     }
 
-    // SAF derleme (background thread'te kosabilir): script topla, csproj uret,
-    // dotnet build. ALC'ye, sahneye, GPU'ya DOKUNMAZ.
+    // SAF derleme (background thread'te kosabilir): script topla, ortak RoslynCompiler ile derle
+    // (aotcompiler/source/RoslynCompiler.cs; Link ile bu projede), dll+pdb yaz. ALC'ye, sahneye, GPU'ya DOKUNMAZ.
+    // Eski csproj ile birebir: framework TPA + engine DLL referansi, DEBUG;TRACE;DE_GAME, Debug, portable PDB.
     public static CompileJob CompileOnly(Project project)
     {
         var job = new CompileJob();
-        foreach (var f in Directory.GetFiles(project.AssetsPath, "*.cs", SearchOption.AllDirectories))
-        {
-            if (f.Replace('\\', '/').Contains("/Editor/"))
-                continue; // editor-yalniz kod: oyun assembly'sine girmez
-            job.Scripts.Add(f);
-        }
+        job.Scripts.AddRange(RoslynCompiler.SourcesUnder(project.AssetsPath, "/Editor/")); // editor-yalniz kod oyun assembly'sine girmez
         if (job.Scripts.Count == 0)
         {
             job.Ok = true;
@@ -52,53 +51,28 @@ public sealed class GameCode
         }
 
         string buildDir = Path.Combine(project.LibraryPath, "Build");
-        Directory.CreateDirectory(buildDir);
+        string binDir = Path.Combine(buildDir, "bin");
+        Directory.CreateDirectory(binDir);
         job.AsmName = project.Name + ".Game";
-        string enginePath = typeof(DigitoyEngine.GameObject).Assembly.Location;
+        string dll = Path.Combine(binDir, job.AsmName + ".dll");
 
-        var sb = new System.Text.StringBuilder(1024);
-        sb.Append("<Project Sdk=\"Microsoft.NET.Sdk\">\n");
-        sb.Append("  <PropertyGroup>\n");
-        sb.Append("    <TargetFramework>net9.0</TargetFramework>\n");
-        sb.Append("    <AssemblyName>").Append(job.AsmName).Append("</AssemblyName>\n");
-        sb.Append("    <Nullable>disable</Nullable>\n");
-        sb.Append("    <ImplicitUsings>disable</ImplicitUsings>\n");
-        sb.Append("    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>\n");
-        sb.Append("    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>\n");
-        sb.Append("    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>\n");
-        sb.Append("    <OutputPath>bin</OutputPath>\n");
-        sb.Append("    <ProduceReferenceAssembly>false</ProduceReferenceAssembly>\n");
-        sb.Append("  </PropertyGroup>\n  <ItemGroup>\n");
-        sb.Append("    <Reference Include=\"DigitoyEngine\"><HintPath>").Append(enginePath).Append("</HintPath></Reference>\n");
-        sb.Append("    <Compile Include=\"RegistryVisibility.g.cs\" />\n");
-        foreach (var s in job.Scripts)
-            sb.Append("    <Compile Include=\"").Append(s).Append("\" />\n");
-        sb.Append("  </ItemGroup>\n</Project>\n");
-
-        string csproj = Path.Combine(buildDir, "Game.csproj");
-        File.WriteAllText(csproj, sb.ToString());
-
-        // Uretilen registry assembly'si internal oyun tiplerine erisebilsin.
-        string ivt = Path.Combine(buildDir, "RegistryVisibility.g.cs");
-        File.WriteAllText(ivt, "[assembly: System.Runtime.CompilerServices.InternalsVisibleTo(\""
-            + CatalogWriter.AssemblyName + "\")]\n");
-
-        var psi = new ProcessStartInfo("dotnet", $"build \"{csproj}\" -v q --nologo")
+        var build = new RoslynBuild
         {
-            RedirectStandardOutput = true,
-            RedirectStandardError = true,
-            UseShellExecute = false,
-            CreateNoWindow = true,
+            AssemblyName = job.AsmName,
+            SourceFiles = job.Scripts,
+            References = { typeof(DigitoyEngine.GameObject).Assembly.Location },
+            Defines = new[] { "DEBUG", "TRACE", "DE_GAME" },
         };
-        using var proc = Process.Start(psi);
-        job.Output = proc.StandardOutput.ReadToEnd() + proc.StandardError.ReadToEnd();
-        proc.WaitForExit();
-        job.Ok = proc.ExitCode == 0;
-        if (job.Ok)
-            job.Dll = Path.Combine(buildDir, "bin", job.AsmName + ".dll");
+        // Uretilen registry assembly'si internal oyun tiplerine erisebilsin.
+        build.ExtraSources.Add((Path.Combine(buildDir, "RegistryVisibility.g.cs"),
+            "[assembly: System.Runtime.CompilerServices.InternalsVisibleTo(\"" + CatalogWriter.AssemblyName + "\")]\n"));
+        // Basarisizsa diskteki eski (calisan) dll'e dokunulmaz (CompileToFile once bellege derler).
+        var r = RoslynCompiler.CompileToFile(build, dll, useCache: false);
+        job.Output = r.Errors;
+        job.Ok = r.Ok;
+        if (r.Ok) job.Dll = dll;
         return job;
     }
-
     // ANA THREAD: eski ALC bosalir, taze dll stream'den yuklenir, typemap guncellenir.
     // Cagiran once tum canli instance'lari yikmis olmali (UnloadLive/Stop).
     public bool LoadCompiled(Project project, DigitoyEngine.AssetDatabase assets, CompileJob job)

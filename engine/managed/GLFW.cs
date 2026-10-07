@@ -1,3 +1,4 @@
+#if DE_DESKTOP // GLFW yalniz masaustu (Windows/macOS) host'larinda: editor + .NET dev player + host_desktop.c esligi
 using System;
 using System.Runtime.InteropServices;
 
@@ -391,3 +392,4 @@ public static class GLFWConst
     public const int KEY_RIGHT_CONTROL = 345;
     public const int KEY_RIGHT_ALT = 346;
 }
+#endif // DE_DESKTOP

@@ -14,8 +14,9 @@ namespace DigitoyEditor;
 // hic player build alinmamis) sessizce atlanir.
 public static class AotCompatCheck
 {
-    public static string CoreLibDll => Path.Combine(App.RepoRoot, "aotcompiler", "corelib", "bin", "Digitoy.CoreLib.dll");
-    public static string AotEngineDll => Path.Combine(App.RepoRoot, "player", "bin", "Release", "net9.0", "DigitoyEngine.dll");
+    // Kurulu: sdk/aotcompiler (prebuilt IL). Dev: aotcompiler/obj/aot-il (ilk player build'de uretilir).
+    public static string CoreLibDll => Path.Combine(SdkLayout.AotIlDir, "Digitoy.CoreLib.dll");
+    public static string AotEngineDll => Path.Combine(SdkLayout.AotIlDir, "DigitoyEngine.dll");
 
     public static bool Available => File.Exists(CoreLibDll) && File.Exists(AotEngineDll);
 

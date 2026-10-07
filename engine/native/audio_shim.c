@@ -133,6 +133,10 @@ static int de_device_rate = DE_AUDIO_RATE;
 #include <mfapi.h>
 #include <mfmediaengine.h>
 #include <mferror.h>
+#if defined(__MINGW32__)
+// mingw-w64 mfidl.h bu prototipi tasimaz; mfplat.dll export'u (libmfplat.a'da var). Imza MS SDK ile ayni.
+HRESULT WINAPI MFCreateMFByteStreamOnStream(IStream *pStream, IMFByteStream **ppByteStream);
+#endif
 static void Sleep_ms_1(void) { Sleep(1); }
 #else
 #include <time.h>

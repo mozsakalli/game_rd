@@ -112,35 +112,48 @@ public sealed class Module
         }
     }
 
-    // Host her frame cagirir: modul asset job'lari + unload edilmis modullerin bellegi (GC sonrasi live==0).
+    // Host her frame cagirir: modul asset job'lari + fault'lu modulleri kaldir + unload edilmis modullerin bellegi (GC sonrasi live==0).
     public static void TickAll()
     {
-        for (int i = 0; i < _all.Count; i++)
-            if (_all[i].Assets != null)
-                _all[i].Assets.Tick();
+        for (int i = _all.Count - 1; i >= 0; i--)
+        {
+            var m = _all[i];
+            if (m.IsLoaded && m.IsFaulted)
+            {
+                // Yorumlanan koddan host'ta hicbir handler yokken sizan exception: vmint modulu no-op'a aldi, rapor stderr'de.
+                Console.WriteLine("[module] FAULT -> unload: " + m.Name);
+                m.Error = "modul kodu yakalanmamis exception firlatti (ayrintilar stderr: [vmint] FAULT)";
+                m.Unload();
+                continue;
+            }
+            if (m.Assets != null)
+                m.Assets.Tick();
+        }
         CollectVm();
     }
+
+    bool IsFaulted => _vm != IntPtr.Zero && VmFaulted(_vm) != 0;
 
 #if DE_AOT
     const string Lib = "digitoyengine_native"; // AOT: semboller statik (c_runtime/vmint.c); lib adi yok sayilir
 
     [DllImport(Lib, EntryPoint = "vmint_load")]
-    static extern unsafe IntPtr VmLoad(byte* data, int len, byte* err, int errcap);
+    static extern unsafe IntPtr VmLoad(byte* data, int len, [MarshalAs(UnmanagedType.LPUTF8Str)] string name, byte* err, int errcap);
     [DllImport(Lib, EntryPoint = "vmint_unload")]
     static extern void VmUnload(IntPtr m);
     [DllImport(Lib, EntryPoint = "vmint_collect")]
     static extern int VmCollect();
+    [DllImport(Lib, EntryPoint = "vmint_faulted")]
+    static extern int VmFaulted(IntPtr m);
     [DllImport(Lib, EntryPoint = "vmint_call_obj")]
     static extern int VmCallObj(IntPtr m, [MarshalAs(UnmanagedType.LPUTF8Str)] string encodedName, object arg0);
-    [DllImport(Lib, EntryPoint = "vmint_set_name")]
-    static extern void VmSetName(IntPtr m, [MarshalAs(UnmanagedType.LPUTF8Str)] string name);
 
     unsafe bool LoadCode(byte[] code, string entryName, out string error)
     {
         var err = new byte[512];
         fixed (byte* p = code)
         fixed (byte* e = err)
-            _vm = VmLoad(p, code.Length, e, err.Length);
+            _vm = VmLoad(p, code.Length, Name ?? "module", e, err.Length);
         if (_vm == IntPtr.Zero)
         {
             int n = 0;
@@ -148,7 +161,6 @@ public sealed class Module
             error = "modul kodu yuklenemedi: " + System.Text.Encoding.UTF8.GetString(err, 0, n);
             return false;
         }
-        VmSetName(_vm, Name ?? "module");
         if (VmCallObj(_vm, entryName, Catalog) == 0)
         {
             error = "modul registry girisi bulunamadi: " + entryName;
@@ -170,5 +182,6 @@ public sealed class Module
     }
     static void UnloadVm(IntPtr vm) { }
     static void CollectVm() { }
+    static int VmFaulted(IntPtr vm) => 0;
 #endif
 }

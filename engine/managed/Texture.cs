@@ -206,7 +206,7 @@ public unsafe class Texture : GpuResource
     // GPU'ya yukleme _dirty ile bir sonraki _Sync'te olur.
     internal void BlitFrom(Texture src, int dx, int dy)
     {
-        if (_pixels == null || src?._pixels == null)
+        if (_pixels == null || src == null || src._pixels == null)
             return;
         int w = Math.Min(src.Width, Width - dx);
         int h = Math.Min(src.Height, Height - dy);

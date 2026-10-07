@@ -273,7 +273,7 @@ namespace DigitoyEngine.Language
 
         // yerel/parametre/donus tipi olarak kullanilan C tip adi. IsStruct=true -> gercek deger tipi
         // (GCHeader yok, pointer yok, kopyalanarak gecer); IsStruct=false -> GC heap'te referans (pointer).
-        static string CType(Primitive t)
+        internal static string CType(Primitive t)
         {
             if (t == Primitive.Object) return "VmObject*"; // runtime koku (struct uretilmez)
             if (t == Primitive.String) return "VmString*"; // runtime string (struct uretilmez)

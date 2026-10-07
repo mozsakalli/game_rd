@@ -1,34 +1,25 @@
 using System;
 using System.IO;
 using System.Reflection;
-using System.Threading.Tasks;
 using DigitoyEngine;
 
 namespace DigitoyPlayer;
 
-// Standalone runtime host (Windows minimal). Editorun aksine GUI/dock/panel yok:
-// pencere = oyun ekrani. Katalog reflection TARAMASI yok — editorun urettigi
-// Digitoy.Registry.dll (CatalogWriter ciktisi) RegisterAll ile kurulur; player
-// ve editor ayni kayit kodunu kosar. Asset kaynagi: Build/game.pak varsa pak
-// (release yolu), yoksa loose Assets/ + Library/Artifacts fallback'i (dev
-// konforu: editorle bir kez acilmis proje pak'siz da kosar).
-public class PlayerApp
+// .NET DEV HOST (docs/platform-hosts.md): editorsuz hizli test. GLFW pencere acar, olaylari
+// GameHost.Event'e verir, GameHost.Frame'i surer — AOT'deki host_desktop.c'nin managed esi.
+// Oyun mantigi burada DEGIL, DigitoyEngine.GameHost'ta. Release/AOT yolunda bu dosya derlenmez
+// (AOT host = c_runtime/host_desktop.c + de_app.c; Registry de_game_register ile baglanir).
+//
+// Asset kaynagi: Build/game.pak varsa pak (release yolu), yoksa loose Assets/ + Library/Artifacts
+// fallback'i (dev konforu: editorle bir kez acilmis proje pak'siz da kosar; DE_EDITOR gerekir).
+public static class PlayerApp
 {
-    // Frame'ler arasi yasayan durum STATIC'te (GC koku). Safepoint modeli: toplama yalniz
-    // host dongusunde, Frame() dondukten sonra (managed frame yokken) kosar; C stack'teki
-    // managed local'ler kok DEGILDIR -> dongu managed kodda tutulamaz, host'ta tutulur.
-    static AssetSource _source;
     static IntPtr _window;
-    static CommandBuffer _cb;
-    static System.Collections.Generic.List<Camera> _gameCams;
-    static double _lastT;
-    static bool _mouseWasDown;
+    static bool _mouseDown;
+    static float _mouseScale = 1f;
 
-    // .NET host: ayni Init/Frame/Shutdown sozlesmesi. AOT'de C main dogrudan Init/Frame/Shutdown
-    // cagirir (Main kullanilmaz; OutputType=Exe icin yine de gerekli).
     public static void Main(string[] args)
     {
-#if !DE_AOT
         AppDomain.CurrentDomain.UnhandledException += (_, e) =>
         {
             string text = $"[crash] {DateTime.Now:yyyy-MM-dd HH:mm:ss}\n{e.ExceptionObject}\n";
@@ -36,31 +27,18 @@ public class PlayerApp
             try { File.AppendAllText("player_crash.log", text); }
             catch { }
         };
-        Init(args.Length > 0 ? args[0] : DefaultProjectPath);
-        while (Frame()) { }
-        Shutdown();
-#endif
-    }
+        string root = args.Length > 0 ? args[0] : DefaultProjectPath;
 
-    // Pencere + sokol + async boot baslatir. Bloklamaz.
-    public static void Init(string root)
-    {
-        if (string.IsNullOrEmpty(root))
-            root = DefaultProjectPath;
-        AssetDatabase.LogWarning = m => Console.WriteLine("[warn] " + m);
-
-        // --- pencere + sokol ONCE: yukleme boyunca dongu doner (preload ekrani cizilebilir) ---
         GLFW.Init();
 #if DE_RENDERER_METAL
         GLFW.WindowHint(GLFWConst.CLIENT_API, GLFWConst.NO_API);
-        GLFW.WindowHint(GLFWConst.SCALE_TO_MONITOR, GLFWConst.TRUE);
 #else
         GLFW.WindowHint(GLFWConst.CONTEXT_VERSION_MAJOR, 4);
         GLFW.WindowHint(GLFWConst.CONTEXT_VERSION_MINOR, 1);
         GLFW.WindowHint(GLFWConst.OPENGL_PROFILE, GLFWConst.OPENGL_CORE_PROFILE);
         GLFW.WindowHint(GLFWConst.OPENGL_FORWARD_COMPAT, GLFWConst.TRUE);
-        GLFW.WindowHint(GLFWConst.SCALE_TO_MONITOR, GLFWConst.TRUE);
 #endif
+        GLFW.WindowHint(GLFWConst.SCALE_TO_MONITOR, GLFWConst.TRUE);
         _window = GLFW.CreateWindow(1280, 720, "Loading...", IntPtr.Zero, IntPtr.Zero);
 #if DE_RENDERER_METAL
         Sokol.MetalInitWindow(_window);
@@ -68,216 +46,89 @@ public class PlayerApp
         GLFW.MakeContextCurrent(_window);
         GLFW.SwapInterval(1);
 #endif
-        Sokol.Setup();
+        GameHost.SetTitle = t => GLFW.SetWindowTitle(_window, t);
+        GameHost.CatalogProvider = () => LoadCatalog(root);
 
-        _cb = new CommandBuffer();
-        _gameCams = new System.Collections.Generic.List<Camera>
-            { new Camera { Order = 0, BackgroundColor = new Color(0, 0, 0, 255) } };
-
-        // --- async acilis: pak -> proje -> katalog -> sahne (bagimlilik grafigi) ---
-        // Hicbir adim bloklamaz; her Frame job'lari pompalar, continuation'lar ana
-        // thread'de kosar. Hata: Task'ta kalir, Frame her kare gozler ve raporlayip firlatir.
-        _bootTask = Boot(root, _window);
-    }
-
-    // Bir frame: giris, pompa, simulasyon, cizim. false = pencere kapandi.
-    public static bool Frame()
-    {
-        if (GLFW.WindowShouldClose(_window) != GLFWConst.FALSE)
-            return false;
-        GLFW.PollEvents();
-        GLFW.GetFramebufferSize(_window, out int fbw, out int fbh);
-        if (fbw <= 0 || fbh <= 0)
-            return true; // minimize
-
-        GLFW.GetWindowContentScale(_window, out float uiScale, out _);
-        if (uiScale <= 0) uiScale = 1f;
-        float lw = fbw / uiScale, lh = fbh / uiScale;
-        // Pencere-uzayi -> mantiksal bolen (macOS'ta pencere zaten point'tir).
-        GLFW.GetWindowSize(_window, out int winW, out _);
-        float mouseScale = winW > 0 ? winW / lw : uiScale;
-
-        double t = GLFW.GetTime();
-        float dt = _lastT > 0 ? (float)(t - _lastT) : 0f;
-        _lastT = t;
-
-        if (_assets != null)
-            _assets.Tick(); // job pompasi + biten texture'lari butceli bagla
+        Measure(out int fbw, out int fbh, out float scale);
+        if (File.Exists(Path.Combine(root, "Build", "game.pak")))
+            GameHost.Init(root, fbw, fbh, scale);
         else
-            AsyncJobs.Pump();
-        Module.TickAll(); // dinamik modullerin asset job'lari + unload edilmis modul bellegi
-        // Async Boot'un hatasi Task'ta kalir (state machine yakalar); burada gozlenir: orijinal
-        // firlatma yeri + trace raporlanir, sonra yeniden firlatilir (sessiz kalma yok).
-        if (_bootTask != null && _bootTask.IsFaulted)
+            InitLoose(root, fbw, fbh, scale);
+
+        double last = 0;
+        while (GLFW.WindowShouldClose(_window) == GLFWConst.FALSE)
         {
-            var task = _bootTask;
-            _bootTask = null;
-            try { task.GetAwaiter().GetResult(); }
-            catch (Exception e)
-            {
-                Console.WriteLine("[player] BOOT HATASI: " + e.GetType().Name + ": " + e.Message);
-                Console.WriteLine(e.StackTrace);
-                throw;
-            }
-        }
-        var scene = Scene.Active;
-        Scene.UpdateAll(dt, lw, lh, simulate: true);
-
-        // Pointer: pencere = oyun ciktisi, mantiksal px birebir.
-        GLFW.GetCursorPos(_window, out double mx, out double my);
-        float px = (float)mx / mouseScale, py = (float)my / mouseScale;
-        bool mouseDown = GLFW.GetMouseButton(_window, 0) == GLFWConst.PRESS;
-        var ptr = scene.Pointer;
-        if (mouseDown && !_mouseWasDown) ptr.Down(px, py);
-        else if (mouseDown) ptr.Move(px, py);
-        else if (_mouseWasDown) ptr.Up(px, py);
-        _mouseWasDown = mouseDown;
-
-        // Sahne kameralari swapchain'e (Target=null); kamera yoksa DriveCameras
-        // pool[0] piksel-ortho fallback'ini kendisi kurar (>=1 doner).
-        int camCount = scene.DriveCameras(_gameCams, lw, lh);
-
-        _cb.Begin();
-        for (int i = 0; i < camCount; i++)
-            _gameCams[i].Encode(_cb, fbw, fbh);
-        _cb.Submit();
-        Sokol.Commit();
+            GLFW.PollEvents();
+            Measure(out fbw, out fbh, out scale);
+            PollPointer();
+            double t = GLFW.GetTime();
+            float dt = last > 0 ? (float)(t - last) : 0f;
+            last = t;
+            if (!GameHost.Frame(dt, fbw, fbh, scale)) break;
 #if !DE_RENDERER_METAL
-        GLFW.SwapBuffers(_window);
+            if (fbw > 0 && fbh > 0) GLFW.SwapBuffers(_window);
 #endif
-        return true;
-    }
-
-    public static void Shutdown()
-    {
-        Audio.Shutdown();
-        Sokol.Shutdown();
+        }
+        GameHost.Shutdown();
         GLFW.Terminate();
     }
 
-    static AssetDatabase _assets;
-    static Task<bool> _bootTask;
-
-    static async Task<bool> Boot(string root, IntPtr window)
+    static void Measure(out int fbw, out int fbh, out float scale)
     {
+        GLFW.GetFramebufferSize(_window, out fbw, out fbh);
+        GLFW.GetWindowContentScale(_window, out scale, out _);
+        if (scale <= 0) scale = 1f;
+        GLFW.GetWindowSize(_window, out int winW, out _);
+        float lw = fbw / scale;
+        _mouseScale = winW > 0 && lw > 0 ? winW / lw : scale;
+    }
+
+    // GLFW callback'i yerine poll (dev host; marshal'siz). Mantiksal px'e cevrilip olay olarak verilir.
+    static void PollPointer()
+    {
+        GLFW.GetCursorPos(_window, out double mx, out double my);
+        float px = (float)mx / _mouseScale, py = (float)my / _mouseScale;
+        bool down = GLFW.GetMouseButton(_window, 0) == GLFWConst.PRESS;
+        if (down && !_mouseDown) GameHost.Event(GameHost.EvPointerDown, 0, px, py, 0, 0);
+        else if (down) GameHost.Event(GameHost.EvPointerMove, 0, px, py, 0, 0);
+        else if (_mouseDown) GameHost.Event(GameHost.EvPointerUp, 0, px, py, 0, 0);
+        _mouseDown = down;
+    }
+
+    // Pak yok: loose Assets/ + Library/Artifacts (YAML sahne). Proje kimligi PlayerSettings.asset'ten.
+    static void InitLoose(string root, int fbw, int fbh, float scale)
+    {
+#if DE_EDITOR
+        string name = "Game", startScene = "Scenes/Main.scene";
+        string playerSettings = Path.Combine(root, "ProjectSettings", "PlayerSettings.asset");
+        if (File.Exists(playerSettings))
         {
-            string name = "Game", startScene = "Scenes/Main.scene";
-            string pak = root + "/Build/game.pak";
-            var pakSource = await PakSource.OpenAsync(pak);
-            AssetDatabase assets;
-            if (pakSource != null)
-            {
-                _source = pakSource;
-                assets = new AssetDatabase(_source); // guid tablosu pak'tan, ScanMetas yok
-                Console.WriteLine("[player] pak: " + pak);
-                // Proje ayarlari pak icinde pismis (YAML release'e girmez).
-                if (!ProjectBinary.TryRead(await _source.ReadBytesAsync(ProjectBinary.PakKey), out name, out startScene))
-                    throw new Exception("pak'ta proje kaydi yok (" + ProjectBinary.PakKey + ") — pak'i yeniden build edin");
-            }
-            else
-            {
-#if DE_EDITOR
-                // Dev konforu: pak yoksa loose Assets/ + Library/Artifacts (YAML sahne, senkron).
-                // Proje kimligi standart PlayerSettings.asset'ten; eski project.yaml fallback.
-                string playerSettings = Path.Combine(root, "ProjectSettings", "PlayerSettings.asset");
-                string settings = Path.Combine(root, "ProjectSettings", "project.yaml");
-                if (File.Exists(playerSettings))
-                {
-                    var ps = ObjectSerializer.Load<PlayerSettings>(playerSettings);
-                    name = ps.productName;
-                    startScene = ps.startScene;
-                }
-                else if (File.Exists(settings))
-                {
-                    var pdoc = Yaml.Parse(File.ReadAllText(settings));
-                    name = pdoc.GetScalar("name", name);
-                    startScene = pdoc.GetScalar("startScene", startScene);
-                }
-                string assetsPath = Path.Combine(root, "Assets");
-                _source = new LooseFileSource(assetsPath);
-                assets = new AssetDatabase(assetsPath);
-                assets.ScanMetas(createMissing: false);
-                string artifacts = Path.Combine(root, "Library", "Artifacts");
-                assets.ArtifactResolver = key =>
-                {
-                    int hash = key.IndexOf('#');
-                    string rel = hash < 0 ? key : key.Substring(0, hash);
-                    string art = hash < 0 ? "main" : key.Substring(hash + 1);
-                    string guid = assets.PathToGuid(rel);
-                    if (guid == null)
-                        return null;
-                    string p = Path.Combine(artifacts, guid, art);
-                    return File.Exists(p) ? File.ReadAllBytes(p) : null;
-                };
-                Console.WriteLine("[player] loose: " + assetsPath + " (pak yok)");
-#else
-                throw new Exception("game.pak acilamadi: " + pak);
-#endif
-            }
-
-            GLFW.SetWindowTitle(window, name);
-            var catalog = LoadCatalog(root);
-            Audio.Source = _source;
-            Scene.Active.Catalog = catalog;
-            _assets = assets;
-
-            if (pakSource != null)
-            {
-                // Release: bagimlilik grafigi (atlas/font/ses/texture/prefab) hazir olunca Spawn.
-                var op = SceneLoader.LoadAsync(startScene, assets, catalog);
-                int lastDone = -1;
-                while (!op.IsDone)
-                {
-                    if (op.Progress.Done != lastDone)
-                    {
-                        lastDone = op.Progress.Done;
-                        Console.WriteLine($"[player] yukleniyor {op.Progress.Done}/{op.Progress.Total}");
-                    }
-                    await DigitoyEngine.Frame.Next();
-                }
-                if (op.Failed)
-                    throw new Exception(op.Error);
-                Console.WriteLine("[player] sahne hazir: " + startScene);
-
-                // Dev/test kancasi (docs/modules.md dikey dilim): Build/autoload.module.pak varsa dinamik modul olarak yukle.
-                string autoload = root + "/Build/autoload.module.pak";
-                var probe = await PakSource.OpenAsync(autoload);
-                if (probe != null)
-                {
-                    var mod = await Module.LoadAsync(autoload);
-                    Console.WriteLine(mod.IsLoaded ? "[player] autoload modul yuklendi: " + mod.Name : "[player] autoload modul HATA: " + mod.Error);
-                }
-            }
-#if DE_EDITOR
-            else
-            {
-                assets.LoadAtlases();
-                var sceneBytes = _source.ReadBytes(startScene);
-                if (sceneBytes == null)
-                    throw new Exception("startScene bulunamadi: " + startScene);
-                var doc = SceneDoc.Parse(System.Text.Encoding.UTF8.GetString(sceneBytes));
-                doc.ExpandPrefabs(catalog, assets);
-                doc.Spawn(null, catalog, assets);
-            }
-#endif
-            return true;
+            var ps = ObjectSerializer.Load<PlayerSettings>(playerSettings);
+            name = ps.productName;
+            startScene = ps.startScene;
         }
-
-    }
-
-#if DE_AOT
-    // Registry + oyun kodu bu assembly'de derlenmis: reflection/yukleme yok.
-    static TypeCatalog LoadCatalog(string root)
-    {
-        var cat = new TypeCatalog();
-        DigitoyEngine.Generated.Registry.RegisterAll(cat);
-        Console.WriteLine("[player] katalog: gomulu registry (AOT)");
-        return cat;
-    }
-
-    // Exe Build/ icinde game.pak'in yaninda durur; proje koku bir ust klasor.
-    static string DefaultProjectPath => "..";
+        string assetsPath = Path.Combine(root, "Assets");
+        var assets = new AssetDatabase(assetsPath);
+        assets.ScanMetas(createMissing: false);
+        string artifacts = Path.Combine(root, "Library", "Artifacts");
+        assets.ArtifactResolver = key =>
+        {
+            int hash = key.IndexOf('#');
+            string rel = hash < 0 ? key : key.Substring(0, hash);
+            string art = hash < 0 ? "main" : key.Substring(hash + 1);
+            string guid = assets.PathToGuid(rel);
+            if (guid == null)
+                return null;
+            string p = Path.Combine(artifacts, guid, art);
+            return File.Exists(p) ? File.ReadAllBytes(p) : null;
+        };
+        Console.WriteLine("[player] loose: " + assetsPath + " (pak yok)");
+        GameHost.InitLoose(new LooseFileSource(assetsPath), name, assets, startScene, fbw, fbh, scale);
 #else
+        throw new Exception("game.pak yok: " + Path.Combine(root, "Build", "game.pak") + " (loose Assets yolu yalniz Debug/DE_EDITOR)");
+#endif
+    }
+
     // Game.dll (varsa) + Digitoy.Registry.dll Library/Build'den yuklenir; katalog
     // uretilmis RegisterAll'dan kurulur. Registry yoksa acik hata: once editorle ac.
     static TypeCatalog LoadCatalog(string root)
@@ -304,5 +155,4 @@ public class PlayerApp
     // bin/Debug/netX.Y -> repo koku (editorle ayni gelistirme konforu).
     static string DefaultProjectPath => Path.GetFullPath(
         Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "Projects", "Sandbox"));
-#endif
 }

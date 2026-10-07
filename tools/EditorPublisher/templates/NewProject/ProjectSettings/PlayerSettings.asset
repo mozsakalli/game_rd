@@ -1,0 +1,11 @@
+type: PlayerSettings
+fields:
+  companyName: DefaultCompany
+  productName: NewProject
+  version: 0.1.0
+  bundleIdentifier: com.defaultcompany.newproject
+  scenes:
+    - Scenes/Main.scene
+  startScene: Scenes/Main.scene
+  defaultWidth: 1280
+  defaultHeight: 720

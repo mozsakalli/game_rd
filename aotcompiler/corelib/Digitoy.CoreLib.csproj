@@ -1,10 +1,7 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- Digitoy.CoreLib: AOT runtime'in BCL'si. c_runtime/corelib/*.cs Roslyn ile FRAMEWORKSUZ
-       derlenir (NoStdLib: System.Object dahil her tip burada tanimlidir). Cikti:
-         1) aotcompiler CIL frontend'ine girdi (engine/player ile ayni yol; MiniCs yok)
-         2) AOT konfigurasyonunda engine/player/oyun kodunun TEK BCL referansi
-       extern (govdesiz, DllImport'suz) metotlar = C govdesi c_runtime/corelib.c'de (CS0626 susturulur). -->
+  <!-- Digitoy.CoreLib: AOT runtime'in BCL'si (c_runtime/corelib/*.cs, NoStdLib). Bu csproj YALNIZ IDE/IntelliSense icindir:
+       aotcompiler corelib'i in-process Roslyn ile derler (source/Program.cs CoreLibDll -> obj/aot-il/), dotnet build cagirmaz. -->
   <PropertyGroup>
     <OutputType>Library</OutputType>
     <TargetFramework>net9.0</TargetFramework>

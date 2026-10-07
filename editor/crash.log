@@ -1,6 +1,0 @@
-[crash] 2026-10-02 08:30:17
-System.IO.IOException: Cannot create 'C:\Work\digitoygames\game_rd\editor\DigitoyEditor.csproj' because a file or directory with the same name already exists.
-   at System.IO.FileSystem.CreateDirectory(String fullPath, Byte[] securityDescriptor)
-   at System.IO.Directory.CreateDirectory(String path)
-   at DigitoyEditor.Project.Load(String root) in C:\Work\digitoygames\game_rd\editor\Project.cs:line 29
-   at DigitoyEditor.App.Main() in C:\Work\digitoygames\game_rd\editor\EditorApp.cs:line 120

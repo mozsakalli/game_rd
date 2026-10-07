@@ -24,7 +24,7 @@ enum
 };
 enum { TK_SCALAR, TK_ARRAY, TK_FIXED, TK_POINTER, TK_EXTERN, TK_ENUM, TK_CLASS, TK_STRUCT, TK_IFACE, TK_DELEGATE };
 #define DMOD_MAGIC 0x444F4D44u
-#define DMOD_VERSION 1u
+#define DMOD_VERSION 2u
 
 typedef struct VmT VmT;
 typedef struct VmMethod VmMethod;
@@ -88,6 +88,8 @@ struct VmModule
     VmLocalType closureType; VmLocalType *enumBoxTypes;
     struct VmModule *next;
     const char *name;
+    const char *info; // .dmod ureticisi/engine surumu (tani)
+    int faulted;
     GCHeader **roots; int nroots, caproots;
 };
 
@@ -301,7 +303,8 @@ static void ld_err(LoadCtx *L, const char *fmt, const char *a, const char *b)
     if (L->failed) return;
     L->failed = 1;
     if (L->err && L->errcap > 0) snprintf(L->err, L->errcap, fmt, a ? a : "", b ? b : "");
-    fprintf(stderr, "[vmint] yukleme hatasi: "); fprintf(stderr, fmt, a ? a : "", b ? b : ""); fprintf(stderr, "\n");
+    fprintf(stderr, "[vmint] yukleme hatasi [mod:%s]%s%s: ", L->m->name ? L->m->name : "?", L->m->info ? " " : "", L->m->info ? L->m->info : "");
+    fprintf(stderr, fmt, a ? a : "", b ? b : ""); fprintf(stderr, "\n");
 }
 
 static void vm_resolve_type(LoadCtx *L, VmT *t);
@@ -471,7 +474,11 @@ static void vm_resolve_method(LoadCtx *L, VmMethod *m)
     for (int i = 0; i < m->nargs; i++) { m->argBlobOff[i] = -1; VmArg *a = &m->args[i]; if (!a->isRef && !a->isOut && vm_is_struct(a->type)) { vm_resolve_type(L, a->type); off = vm_align_up(off, 8); m->argBlobOff[i] = off; off += a->type->size; } }
     for (int i = 0; i < m->nlocals; i++) { m->localBlobOff[i] = -1; VmT *t = m->locals[i]; if (vm_is_struct(t)) { vm_resolve_type(L, t); off = vm_align_up(off, 8); m->localBlobOff[i] = off; off += t->size; } }
     m->blobBytes = vm_align_up(off, 8);
-    m->mi.name = vm_immortal_str(L->m, m->display ? m->display : m->name);
+    { // trace etiketi: "[mod:ad] Gosterim" -> crash/exception raporlarinda modul frame'leri ayirt edilir
+        const char *disp = m->display ? m->display : m->name; const char *mn = L->m->name ? L->m->name : "?";
+        char *tag = (char *)vm_zalloc(strlen(disp) + strlen(mn) + 10); sprintf(tag, "[mod:%s] %s", mn, disp);
+        m->mi.name = vm_immortal_str(L->m, tag); free(tag);
+    }
     m->mi.file = m->file ? vm_immortal_str(L->m, m->file) : 0;
     m->mi.trypc_off = -1;
     vm_marker_put(&m->marker, m);
@@ -526,8 +533,9 @@ static int vm_parse(LoadCtx *L, Rd *r)
     VmModule *m = L->m;
     if (rd_u32(r) != DMOD_MAGIC) { ld_err(L, "dmod magic uyusmuyor", 0, 0); return 0; }
     unsigned ver = rd_u32(r);
-    if (ver != DMOD_VERSION) { ld_err(L, "dmod surumu desteklenmiyor", 0, 0); return 0; }
+    if (ver != DMOD_VERSION) { ld_err(L, "dmod surumu desteklenmiyor (bu interpreter v2 ister)", 0, 0); return 0; }
     m->nstr = rd_i32(r); m->ntypes = rd_i32(r); m->nfields = rd_i32(r); m->nmethods = rd_i32(r); m->entry = rd_i32(r);
+    int infoIdx = rd_i32(r);
     if (r->err || m->nstr < 0 || m->ntypes < 0) { ld_err(L, "dmod basligi bozuk", 0, 0); return 0; }
     m->strs = (const char **)vm_zalloc(sizeof(char *) * (m->nstr + 1));
     m->literals = (VmString **)vm_zalloc(sizeof(VmString *) * (m->nstr + 1));
@@ -538,6 +546,7 @@ static int vm_parse(LoadCtx *L, Rd *r)
         m->strblob = (char *)vm_zalloc(total + 1); char *w = m->strblob;
         for (int i = 0; i < m->nstr; i++) { int n = rd_i32(r); memcpy(w, r->p, n); w[n] = 0; m->strs[i] = w; w += n + 1; r->p += n + 1; }
     }
+    m->info = vm_str_at(m, infoIdx);
     m->types = (VmT **)vm_zalloc(sizeof(VmT *) * (m->ntypes + 1));
     for (int i = 0; i < m->ntypes; i++) { m->types[i] = (VmT *)vm_zalloc(sizeof(VmT)); m->types[i]->mod = m; }
     m->methods = (VmMethod **)vm_zalloc(sizeof(VmMethod *) * (m->nmethods + 1));
@@ -1005,7 +1014,8 @@ static const char *vm_opname[] = {
 static int vm_trace_ops = -1;
 static void vm_report_exception(const char *when)
 {
-    fprintf(stderr, "[vmint] %s: exception kind=%d msg=%s", when, DIGITOYENGINE_ex_kind, DIGITOYENGINE_ex_msg);
+    fprintf(stderr, "[vmint] %s: exception kind=%d", when, DIGITOYENGINE_ex_kind);
+    if (DIGITOYENGINE_ex_kind != DIGITOYENGINE_EX_USER) fprintf(stderr, " msg=%s", DIGITOYENGINE_ex_msg);
     if (DIGITOYENGINE_ex_obj && DIGITOYENGINE_ex_obj->type && DIGITOYENGINE_ex_obj->type->name) { fputs(" tip=", stderr); vm_write_utf8_to(stderr, DIGITOYENGINE_ex_obj->type->name->data, DIGITOYENGINE_ex_obj->type->name->length); }
     fputc('\n', stderr);
     for (int i = DIGITOYENGINE_ex_trace_n - 1; i >= 0 && i >= DIGITOYENGINE_ex_trace_n - 12; i--)
@@ -1019,9 +1029,10 @@ static void vm_report_exception(const char *when)
 static void vm_exec_frame(VmMethod *m, DeSlot *args, DeSlot *ret)
 {
     if (m->mod->mod.state == 2) return; // unload edilmis modul: no-op (kalan delegate/sanal cagrilar)
-    if (m->stubReason) // cevrilemeyen govde (CTranspiler ile ayni sozlesme): sessiz sifir YASAK
+    if (m->stubReason) // cevrilemeyen govde (CTranspiler ile ayni sozlesme): sessiz sifir YASAK; frame trace'te gorunsun
     {
         char what[512]; snprintf(what, sizeof what, "AOT stub: %s -- %s", m->display ? m->display : m->name, m->stubReason);
+        DIGITOYENGINE_PUSH(&m->mi, 0);
         DIGITOYENGINE_throw_notimpl(what);
     }
     if (vm_trace_ops < 0) vm_trace_ops = getenv("VMINT_TRACE") != 0;
@@ -1305,12 +1316,39 @@ static void vm_exec_frame(VmMethod *m, DeSlot *args, DeSlot *ret)
 }
 
 // ================= HOST GIRISLERI =================
-// Her giris kendi boundary'sini kurar: sizan exception'da VM yigini geri alinir, yeniden firlatilir.
+// Her giris kendi boundary'sini kurar: sizan exception'da VM yigini geri alinir. Sonra:
+//  * host'ta bir handler VARSA (RtTry zinciri ya da coroutine __trypc frame'i) -> yeniden firlatilir (host karar verir;
+//    Task fault, SceneLoader try/catch gibi mesru yollar bozulmaz)
+//  * host'ta HICBIR handler yoksa (alternatif: surecin cokmesi) -> rapor + modul FAULT (no-op'a alinir, host Unload eder),
+//    cagri varsayilan donusle biter. Mod oyunu cokertmez.
+static int vm_host_has_handler(void)
+{
+    if (DIGITOYENGINE_try_top) return 1;
+    for (int i = DIGITOYENGINE_sp - 1; i >= 0; i--)
+    {
+        RtFrame *fr = &DIGITOYENGINE_stack[i];
+        if (fr->frame && fr->mi && fr->mi->trypc_off >= 0 && *(int *)((char *)fr->frame + fr->mi->trypc_off) != 0) return 1;
+    }
+    return 0;
+}
+static void vm_fault(VmModule *m, const char *where)
+{
+    fprintf(stderr, "[vmint] [mod:%s] FAULT: yakalanmamis exception (%s); modul devre disi birakildi\n", m->name ? m->name : "?", where);
+    vm_report_exception("modul");
+    m->faulted = 1; m->mod.state = 2;
+    DIGITOYENGINE_ex_obj = 0; DIGITOYENGINE_ex_kind = 0; // bekleyen exception temizlendi
+}
 static void vm_enter(VmMethod *m, DeSlot *a, DeSlot *r)
 {
     char *volatile top = vm_top;
     RtTry t; t.sp = DIGITOYENGINE_sp; t.boundary = 0; t.prev = DIGITOYENGINE_try_top; DIGITOYENGINE_try_top = &t;
-    if (setjmp(t.buf)) { vm_top = top; DIGITOYENGINE_rethrow(); }
+    if (setjmp(t.buf))
+    {
+        vm_top = top;
+        if (vm_host_has_handler()) DIGITOYENGINE_rethrow();
+        vm_fault(m->mod, m->name);
+        return; // r: cagiran sifirladi (varsayilan donus)
+    }
     vm_exec_frame(m, a, r);
     DIGITOYENGINE_try_top = t.prev;
 }
@@ -1357,10 +1395,11 @@ static void vm_run_cctor(VmModule *m, VmT *t, unsigned char *state /* 0 yok 1 su
     DeSlot rr; rr.l = 0; vm_exec_frame(cc, 0, &rr);
     state[ti] = 2;
 }
-VmModule *vmint_load(const unsigned char *data, int len, char *err, int errcap)
+VmModule *vmint_load(const unsigned char *data, int len, const char *name, char *err, int errcap)
 {
     if (!vm_base) { vm_base = (char *)malloc(VM_STACK_BYTES); vm_top = vm_base; vm_end = vm_base + VM_STACK_BYTES; }
-    VmModule *m = (VmModule *)vm_zalloc(sizeof(VmModule)); m->mod.state = 0; m->name = "module";
+    VmModule *m = (VmModule *)vm_zalloc(sizeof(VmModule)); m->mod.state = 0;
+    vmint_set_name(m, name && *name ? name : "module");
     LoadCtx L = { m, err, errcap, 0 };
     Rd r = { data, data + len, 0 };
     m->next = vm_modules; vm_modules = m; // vm_prim_type vb. icin erken kayit
@@ -1413,5 +1452,6 @@ int vmint_call_obj(VmModule *m, const char *encodedName, void *arg0)
     return vmint_call(m, encodedName, a, &r);
 }
 void vmint_set_name(VmModule *m, const char *name) { if (m && name) { char *c = (char *)malloc(strlen(name) + 1); strcpy(c, name); m->name = c; } }
+int vmint_faulted(VmModule *m) { return m ? m->faulted : 0; }
 int vmint_live(VmModule *m) { return m ? m->mod.live : 0; }
 const char *vmint_name(VmModule *m) { return m ? m->name : ""; }

@@ -1,0 +1,9 @@
+# generated/ her build silinip yeniden yazilir; app/ ve kok Gradle dosyalari size aittir.
+generated/
+.gradle/
+build/
+app/build/
+.idea/
+local.properties
+*.iml
+.cxx/

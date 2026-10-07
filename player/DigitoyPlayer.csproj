@@ -1,9 +1,10 @@
-<Project Sdk="Microsoft.NET.Sdk">
+﻿<Project Sdk="Microsoft.NET.Sdk">
 
-  <!-- DigitoyPlayer: standalone runtime host (release yolu). Editor YOK: proje
-       kokunden project.yaml + Build/game.pak (yoksa loose Assets/ fallback) +
-       Library/Build'deki Game.dll & Digitoy.Registry.dll (editorun urettigi
-       katalog kaydi) ile sahneyi acar ve kosar. -->
+  <!-- DigitoyPlayer: .NET DEV HOST (docs/platform-hosts.md). GLFW pencere acar, DigitoyEngine.GameHost'u
+       surer; editorsuz hizli test. Proje kokunden Build/game.pak (yoksa Debug'da loose Assets/) +
+       Library/Build'deki <Ad>.Game.dll & Digitoy.Registry.dll ile sahneyi acar.
+       RELEASE/AOT URUNU BU PROJEDEN CIKMAZ: aotcompiler 'player' modu engine + oyun kodunu Roslyn ile
+       derleyip C'ye cevirir, c_runtime/host_desktop.c ile linkler. -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
     <TargetFramework>net9.0</TargetFramework>
@@ -22,42 +23,13 @@
     <DefineConstants Condition="'$(Renderer)' == 'OpenGL'">$(DefineConstants);DE_RENDERER_OPENGL</DefineConstants>
   </PropertyGroup>
 
-  <!-- Dev (Debug): engine ile ayni DE_EDITOR — loose Assets/ + YAML sahne yolu acik.
-       Release'te yalniz pak + baked + async yol derlenir. -->
+  <!-- Debug: engine ile ayni DE_EDITOR - loose Assets/ + YAML sahne yolu acik. -->
   <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
     <DefineConstants>$(DefineConstants);DE_EDITOR</DefineConstants>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\engine\managed\DigitoyEngine.csproj" />
-  </ItemGroup>
-
-  <!-- AOT/release: -p:GameProject=<proje koku> verilince uretilmis registry
-       (Library/Build/Registry.g.cs) + oyun scriptleri (Assets/Scripts) bu assembly'ye
-       GOMULUR ve DE_AOT tanimlanir: Assembly.LoadFrom yok, katalog dogrudan
-       Registry.RegisterAll ile kurulur. aotcompiler 'player' modu bu DLL'i C'ye cevirir. -->
-  <PropertyGroup Condition="'$(GameProject)' != ''">
-    <DefineConstants>$(DefineConstants);DE_AOT</DefineConstants>
-  </PropertyGroup>
-  <!-- AOT: BCL = Digitoy.CoreLib (NoStdLib) — bkz. DigitoyEngine.csproj. Eksik API = derleme hatasi. -->
-  <PropertyGroup Condition="'$(GameProject)' != '' AND '$(AotCoreLib)' != 'false'">
-    <NoStdLib>true</NoStdLib>
-    <NoCompilerStandardLib>true</NoCompilerStandardLib>
-    <DisableImplicitFrameworkReferences>true</DisableImplicitFrameworkReferences>
-    <RuntimeMetadataVersion>v4.0.30319</RuntimeMetadataVersion>
-    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
-    <GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
-    <NoWarn>$(NoWarn);CS0626</NoWarn>
-  </PropertyGroup>
-  <ItemGroup Condition="'$(GameProject)' != '' AND '$(AotCoreLib)' != 'false'">
-    <Reference Include="Digitoy.CoreLib">
-      <HintPath>..\aotcompiler\corelib\bin\Digitoy.CoreLib.dll</HintPath>
-      <Private>false</Private>
-    </Reference>
-  </ItemGroup>
-  <ItemGroup Condition="'$(GameProject)' != ''">
-    <Compile Include="$(GameProject)\Library\Build\Registry.g.cs" Link="Game\Registry.g.cs" />
-    <Compile Include="$(GameProject)\Assets\Scripts\**\*.cs" Link="Game\%(RecursiveDir)%(Filename)%(Extension)" />
   </ItemGroup>
 
   <ItemGroup Condition="'$([System.Runtime.InteropServices.RuntimeInformation]::IsOSPlatform($([System.Runtime.InteropServices.OSPlatform]::Windows)))' == 'true'">
