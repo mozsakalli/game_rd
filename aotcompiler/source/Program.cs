@@ -25,6 +25,10 @@ public static class Program
     {
         try
         {
+            // Modul host export tablolari (docs/modules.md): player her zaman host'tur; diger modlar
+            // AOT_MODULES=1 ile acar (selftest --interp yolu corelib host'u ister).
+            CTranspiler.EmitModuleExports = (args.Length > 0 && args[0] == "player") || Environment.GetEnvironmentVariable("AOT_MODULES") == "1";
+
             // 'engine' modu: desktop engine exe'sini uret (kendi native host + sokol).
             if (args.Length > 0 && args[0] == "engine")
                 return RunEngineBuild();
@@ -32,6 +36,10 @@ public static class Program
             // 'player <proje koku>' modu: oyunu tek native exe'ye derle (release urunu).
             if (args.Length > 0 && args[0] == "player")
                 return RunPlayerBuild(args.Length > 1 ? args[1] : Path.Combine(RepoRoot, "Projects", "Sandbox"));
+
+            // 'module <cikti.dmod> --bundled a.dll;b.dll [--provided c.dll;d.dll]' modu: dinamik modul IR'i (docs/modules.md Faz B).
+            if (args.Length > 0 && args[0] == "module")
+                return RunModuleBuild(args);
 
             // Varsayilan: CIL frontend selftest'i (derlenmis DLL -> IR). Tek frontend CIL'dir; corelib de
             // Roslyn ile derlenip ayni yoldan yuklenir (MiniCs kaynak frontend'i silindi).
@@ -165,7 +173,7 @@ public static class Program
             var (nexit, nout) = RunProcess("cmd.exe", $"/c \"{Path.Combine(native, "build_native_static.cmd")}\"");
             if (nexit != 0) throw new Exception($"native statik lib derlemesi basarisiz:\n{nout}");
         }
-        var cFiles = new List<string> { generated, "c_runtime/vmrt.c", "c_runtime/corelib.c" };
+        var cFiles = new List<string> { generated, "c_runtime/vmrt.c", "c_runtime/corelib.c", "c_runtime/vmint.c" };
         var defines = "-DSOKOL_GLCORE" + (Environment.GetEnvironmentVariable("AOT_GCPOISON") == "1" ? " -DDIGITOYENGINE_GC_POISON" : "");
         var libs = "-lopengl32 -lgdi32 -luser32 -lkernel32 -lshell32 -lole32 -loleaut32 -lmfplat -lmfuuid";
         Directory.CreateDirectory(Path.GetDirectoryName(outExe));
@@ -218,6 +226,7 @@ public static class Program
             EngineGeneratedC,
             "c_runtime/vmrt.c",
             "c_runtime/corelib.c",
+            "c_runtime/vmint.c",
             "engine/native/sokol_impl.c",
             "engine/native/sokol_shim.c",
             "engine/native/host_win32.c",
@@ -231,6 +240,76 @@ public static class Program
         Console.WriteLine($"clang derleme ok -> {Path.GetFullPath(EngineOutBin)}");
         Console.WriteLine("Calistirmak icin: " + Quote(Path.GetFullPath(EngineOutBin)));
         return 0;
+    }
+
+    // Dinamik modul derlemesi: corelib + provided + bundled assembly'ler tek Context'te cozulur/monomorfize edilir,
+    // ModuleWriter bundled olanlari (ve provided generic somutlamalarini gomulu olarak) .dmod'a yazar.
+    // Komut: module <cikti.dmod> --bundled a.dll;b.dll [--provided c.dll;d.dll]
+    static int RunModuleBuild(string[] args)
+    {
+        if (args.Length < 2) throw new Exception("kullanim: module <cikti.dmod> --bundled a.dll;b.dll [--provided c.dll;d.dll]");
+        string output = args[1];
+        var bundled = new List<string>();
+        var provided = new List<string>();
+        for (int i = 2; i < args.Length; i++)
+        {
+            if (args[i] == "--bundled" && i + 1 < args.Length) bundled.AddRange(args[++i].Split(';', StringSplitOptions.RemoveEmptyEntries));
+            else if (args[i] == "--provided" && i + 1 < args.Length) provided.AddRange(args[++i].Split(';', StringSplitOptions.RemoveEmptyEntries));
+            else throw new Exception("bilinmeyen arguman: " + args[i]);
+        }
+        if (bundled.Count == 0) throw new Exception("en az bir --bundled assembly gerekli");
+        // Engine her zaman host'tadir: provided listesinde DigitoyEngine yoksa AOT engine DLL'i (player Release) eklenir.
+        if (!provided.Any(p => Path.GetFileNameWithoutExtension(p).Equals("DigitoyEngine", StringComparison.OrdinalIgnoreCase)))
+        {
+            var engine = Path.Combine(RepoRoot, "player", "bin", "Release", "net9.0", "DigitoyEngine.dll");
+            if (!File.Exists(engine)) throw new Exception("AOT engine DLL yok (once player build alin): " + engine);
+            provided.Insert(0, engine);
+        }
+        var ctx = new Context();
+        var allCodes = new List<Code>(LoadCoreLib(ctx));
+        var diag = new List<string>();
+        var bundledNames = new List<string>();
+        foreach (var dll in provided.Concat(bundled))
+        {
+            if (!File.Exists(dll)) throw new Exception("assembly bulunamadi: " + dll);
+            allCodes.AddRange(CilFrontend.Compile(ctx, dll, out _));
+            diag.AddRange(CilFrontend.LastDiagnostics.Select(d => $"[{Path.GetFileName(dll)}] " + d));
+            if (bundled.Contains(dll)) bundledNames.Add(AssemblyNameOf(dll));
+        }
+        Resolver.ResolveAll(ctx, allCodes);
+        var bytes = ModuleWriter.Write(ctx, bundledNames, null, out var report);
+        if (report.ReachableStubs.Count > 0)
+        {
+            Console.WriteLine($"[HATA] modulden erisilebilen {report.ReachableStubs.Count} AOT stub:");
+            foreach (var (code, via) in report.ReachableStubs)
+                Console.WriteLine($"  {code.Owner?.Name}.{code.DisplayName}\n      neden: {code.UntranslatableReason}\n      yol:   {via}");
+            throw new Exception("modul stub kapisi: eksik corelib/frontend destegi");
+        }
+        Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(output)));
+        File.WriteAllBytes(output, bytes);
+        File.WriteAllLines(Path.ChangeExtension(output, ".report.txt"), ModuleReportLines(report, diag));
+        Console.WriteLine($"module -> {output}: {report}");
+        return 0;
+    }
+
+    static string AssemblyNameOf(string dll)
+    {
+        using var pe = new System.Reflection.PortableExecutable.PEReader(File.OpenRead(dll));
+        var md = System.Reflection.Metadata.PEReaderExtensions.GetMetadataReader(pe);
+        return md.GetString(md.GetAssemblyDefinition().Name);
+    }
+
+    static IEnumerable<string> ModuleReportLines(ModuleWriter.Report r, List<string> diag)
+    {
+        yield return r.ToString();
+        yield return "";
+        yield return "[yerel tipler]"; foreach (var s in r.LocalTypes) yield return "  " + s;
+        yield return "[gomulu tipler (preferHost)]"; foreach (var s in r.EmbeddedTypes) yield return "  " + s;
+        yield return "[dis tipler]"; foreach (var s in r.ExternTypes) yield return "  " + s;
+        yield return "[yerel metotlar]"; foreach (var s in r.LocalMethods) yield return "  " + s;
+        yield return "[gomulu metotlar (preferHost)]"; foreach (var s in r.EmbeddedMethods) yield return "  " + s;
+        yield return "[dis metotlar]"; foreach (var s in r.ExternMethods) yield return "  " + s;
+        yield return "[CIL tani]"; foreach (var s in diag) yield return "  " + s;
     }
 
     // Engine managed projesini derler ve uretilen DLL yolunu doner.
@@ -270,6 +349,17 @@ public static class Program
             allCodes.AddRange(cil);
             Resolver.ResolveAll(ctx, allCodes);
 
+            // AOT_MODULES=1: selftest'i modul olarak da yaz (ModuleWriter dogrulamasi; Faz C'de --interp bunu yorumlar)
+            if (CTranspiler.EmitModuleExports)
+            {
+                Directory.CreateDirectory(WorkDir);
+                var dmod = Path.Combine(WorkDir, "selftest.dmod");
+                var bytes = ModuleWriter.Write(ctx, new[] { AssemblyNameOf(dll) }, entry, out var report);
+                File.WriteAllBytes(dmod, bytes);
+                File.WriteAllLines(Path.ChangeExtension(dmod, ".report.txt"), ModuleReportLines(report, CilFrontend.LastDiagnostics));
+                Console.WriteLine($"module -> {dmod}: {report}");
+            }
+
             // 3) C transpile + main sarmalayici
             var cSource = CTranspiler.TranspileProgram(ctx);
             var entrySym = CTranspiler.CName(entry.EncodeName());
@@ -279,7 +369,7 @@ public static class Program
             Console.WriteLine($"transpile -> {GeneratedC} ({cSource.Length} karakter, giris {entrySym})");
 
             // 4) clang derle
-            var cFiles = new[] { GeneratedC, "c_runtime/vmrt.c", "c_runtime/corelib.c" };
+            var cFiles = new[] { GeneratedC, "c_runtime/vmrt.c", "c_runtime/corelib.c", "c_runtime/vmint.c" };
             var poison = Environment.GetEnvironmentVariable("AOT_GCPOISON") == "1" ? " -DDIGITOYENGINE_GC_POISON" : "";
             var compileArgs = $"-O1 -w{poison} -Ic_runtime {string.Join(" ", cFiles.Select(Quote))} -o {Quote(OutBin)}";
             var (ccExit, ccOut) = RunProcess(ClangPath(), compileArgs);
@@ -289,7 +379,42 @@ public static class Program
             // 5) calistir + karsilastir
             var actual = RunProcess(Path.GetFullPath(OutBin), "").output;
             var actualMap = ParseResults(actual);
-            return Diff(baseMap, actualMap);
+            int aotResult = Diff(baseMap, actualMap);
+            if (!CTranspiler.EmitModuleExports) return aotResult;
+
+            // 6) INTERP yolu (docs/modules.md Faz C): yalniz corelib'den AOT host + vmint.c; selftest.dmod yorumlanir, ayni baseline.
+            Console.WriteLine("\n=== interp: corelib host + vmint (selftest.dmod) ===");
+            var hctx = new Context();
+            var hcodes = LoadCoreLib(hctx);
+            Resolver.ResolveAll(hctx, hcodes);
+            var hostSrc = CTranspiler.TranspileProgram(hctx);
+            hostSrc += "\n#include \"vmint.h\"\n" +
+                "int main(int argc, char **argv) {\n" +
+                "    if (argc < 2) { fprintf(stderr, \"kullanim: host <modul.dmod>\\n\"); return 2; }\n" +
+                "    digitoyengine_init();\n" +
+                "    FILE *f = fopen(argv[1], \"rb\"); if (!f) { fprintf(stderr, \"[interp] dosya acilamadi\\n\"); return 2; }\n" +
+                "    fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET);\n" +
+                "    unsigned char *buf = (unsigned char *)malloc(n); fread(buf, 1, n, f); fclose(f);\n" +
+                "    char err[512]; VmModule *m = vmint_load(buf, (int)n, err, sizeof err);\n" +
+                "    if (!m) { fprintf(stderr, \"[interp] yukleme hatasi: %s\\n\", err); return 3; }\n" +
+                "    fprintf(stderr, \"[interp] yuklendi; entry kosuyor\\n\");\n" +
+                "    vmint_run_entry(m);\n" +
+                "    vmint_unload(m); gc_major(); gc_major(); /* ilk dongu surmekte olabilir (yeni nesneler siyah dogar) */\n" +
+                "    fprintf(stderr, \"[interp] unload: live=%d, collect=%d\\n\", vmint_live(m), vmint_collect());\n" +
+                "    return 0;\n}\n";
+            var hostC = Path.Combine(WorkDir, "interp_host.c");
+            var hostBin = Path.Combine(WorkDir, "interp_host");
+            File.WriteAllText(hostC, hostSrc);
+            var hFiles = new[] { hostC, "c_runtime/vmrt.c", "c_runtime/corelib.c", "c_runtime/vmint.c" };
+            var hArgs = $"-O1 -w{poison} -Ic_runtime {string.Join(" ", hFiles.Select(Quote))} -o {Quote(hostBin)}";
+            var (hExit, hOut) = RunProcess(ClangPath(), hArgs);
+            if (hExit != 0) throw new Exception($"interp host clang hatasi (exit {hExit}):\n{hOut}");
+            Console.WriteLine("interp host clang ok");
+            var interp = RunProcess(Path.GetFullPath(hostBin), Quote(Path.GetFullPath(Path.Combine(WorkDir, "selftest.dmod"))));
+            var tail = interp.output.Split('\n').Where(l => l.StartsWith("[interp]") || l.StartsWith("[vmint]")).ToList();
+            foreach (var l in tail) Console.WriteLine(l.Trim());
+            int interpResult = Diff(baseMap, ParseResults(interp.output));
+            return aotResult != 0 ? aotResult : interpResult;
         }
     }
 

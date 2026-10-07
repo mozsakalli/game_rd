@@ -269,6 +269,9 @@ public sealed class PakSource : AssetSource
     }
 
     public override IEnumerable<string> Keys => _entries.Keys;
+    // Girisin bagimlilik kenarlari (index'ten); yoksa null. Pak'i yeniden paketleyen araclar (modul testi) icin.
+    public string[] DepsOf(string key) => _entries.TryGetValue(key, out var e) ? e.Deps : null;
+    public string GuidOf(string key) => _entries.TryGetValue(key, out var e) ? e.Guid : null;
 
     public override void FillGuidTable(
         Dictionary<string, string> guidToPath, Dictionary<string, string> pathToGuid)

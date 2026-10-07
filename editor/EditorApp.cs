@@ -316,6 +316,7 @@ public unsafe class App
     // Paneller katalog/asset'lere buradan erisir (statik tip cache degil: proje verisi).
     internal static TypeCatalog Catalog => _catalog;
     internal static AssetDatabase Assets => _assets;
+    internal static System.Reflection.Assembly GameAssembly => _gameCode?.GameAssembly; // ModuleBuilder: modul tipleri = bu assembly
 
     static void DrawUi()
     {

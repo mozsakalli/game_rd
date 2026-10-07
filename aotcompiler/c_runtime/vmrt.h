@@ -76,6 +76,8 @@ struct Type
     const Type *const *generic_args; // kapali generic type arguman descriptor'lari
     unsigned short ngeneric_args;
     EnumParseFn enum_parse; // enum adi -> underlying int; enum disinda 0
+    struct DeModule *module; // dinamik modul tipi ise sahibi (canli nesne sayaci); host/AOT tipleri icin 0
+    GCHeader *dyn_wrapper;   // modul tipleri (tindex=0) icin lazy System.Type wrapper (kok); host tipleri wrapper tablosunu kullanir
 };
 // nesne header'i artik sadece: type ptr + next + version + age + idhash  (padding'e sigar, 24 byte)
 struct GCHeader
@@ -200,9 +202,11 @@ void DIGITOYENGINE_dump_steps(FILE *f);
 #if defined(__GNUC__) || defined(__clang__)
 #define DIGITOYENGINE_UNLIKELY(x) __builtin_expect(!!(x), 0)
 #define DIGITOYENGINE_NORETURN __attribute__((noreturn, cold))
+#define DIGITOYENGINE_WEAK __attribute__((weak)) // modul export: host'un cagirmadigi extern'ler tanimsizsa 0'a cozulur (link kirilmaz)
 #else
 #define DIGITOYENGINE_UNLIKELY(x) (x)
 #define DIGITOYENGINE_NORETURN
+#define DIGITOYENGINE_WEAK
 #endif
 // ---- M8b-2 exception: setjmp try'da (nadir), throw'da longjmp + shadow-stack restore ----
 typedef struct RtTry
@@ -265,6 +269,89 @@ void gc_add_root(GCHeader *o);
 void gc_remove_root(GCHeader *o);
 void gc_add_frame_root(void *f, FrameTrace t);
 // ---- reflection cekirdegi: Type descriptor -> System.Type wrapper (lazy, immortal-koklu, kimlik esitligi)
+// ---- Dinamik modul (docs/modules.md) host export tablolari: "parent classloader" ----
+// Uretilen kod (CTranspiler.Exports.cs, EmitModuleExports acikken) host'taki TUM tipleri/alanlari/metotlari
+// isim-hash'iyle disa verir; modul yukleyici (vmint.c) dis referanslari bunlara load zamaninda baglar.
+// Hash: FNV-1a 64 (UTF-8). Adlar IR adlaridir (Primitive.Name / Code.EncodeName) - iki taraf da ayni frontend'den.
+typedef union DeSlot // interpreter deger yuvasi: thunk/trampoline sinirinda C ABI <-> yuva
+{
+    cil_int i;
+    cil_uint u;
+    cil_long l;
+    cil_ulong q;
+    cil_float f;
+    cil_double d;
+    void *p; // referans, ham pointer, ref/out parametre, struct-by-value icin blob adresi
+} DeSlot;
+// imza-sekli thunk'i: fn'i gercek C imzasiyla cagirir; args[i] yuvalardan, donus ret'e (struct: *ret->p'ye kopya)
+typedef void (*DeThunk)(const void *fn, DeSlot *args, DeSlot *ret);
+// alan/arguman tip etiketi (DeFieldExport.tag, sekil metni): i u l q h H b z c B f d = skalerler (DbgTag ile ayni),
+// o = GC referansi (class/string/array/delegate/iface), v = struct by-value (type -> descriptor; size struct boyutu),
+// p = ham pointer / fixed dizi / ref-out parametre, V = void
+typedef struct DeFieldExport
+{
+    unsigned long long hash; // FNV64("Owner$Name")
+    const char *name;
+    const Type *type;      // alan tipi descriptor'i (yoksa 0: array/pointer)
+    void *addr;            // static alan: depo adresi; instance: 0
+    unsigned short offset; // instance alan: struct icindeki offset (GCHeader dahil)
+    unsigned short size;   // alanin bayt boyutu
+    unsigned char tag;
+    unsigned char isStatic;
+} DeFieldExport;
+typedef struct DeSlotExport // vtable/itable slotu: slot'taki metodun adi (en tureyen impl degil, SLOT KIMLIGI icin kok bildiren)
+{
+    unsigned long long hash; // FNV64(Code.EncodeName) - vtable[slot]'taki Code (bu tipte gecerli impl)
+    const char *name;
+    unsigned short slot;
+} DeSlotExport;
+typedef struct DeTypeExport
+{
+    unsigned long long hash; // FNV64(Primitive.Name)
+    const char *name;
+    const Type *type; // descriptor (struct icin kutulama descriptor'i; yoksa 0)
+    const DeFieldExport *fields;
+    const DeSlotExport *vslots; // class: vtable; interface: iface slot sirasi
+    unsigned short nfields;
+    unsigned short nvslots;
+    unsigned short size; // class: nesne boyutu (header dahil); struct: sizeof(struct)
+    unsigned char isStruct, isInterface, isDelegate, isEnum;
+} DeTypeExport;
+typedef struct DeMethodExport
+{
+    unsigned long long hash; // FNV64(Code.EncodeName)
+    const char *name;
+    const void *fn; // cagrilabilir C sembolu (P/Invoke marshal sarmalayicisi dahil)
+    unsigned short shape; // de_host_thunks indeksi
+    unsigned char isStatic, isVirtual;
+} DeMethodExport;
+extern const DeTypeExport de_host_types[];
+extern const int de_host_ntypes;
+extern const DeMethodExport de_host_methods[];
+extern const int de_host_nmethods;
+extern const DeFieldExport de_host_statics[];
+extern const int de_host_nstatics;
+extern const DeThunk de_host_thunks[];
+extern const char *const de_host_shapes[]; // shape -> imza metni (tani)
+extern const int de_host_nthunks;
+// host -> modul trampoline'leri: sanal kok metot (hash=EncodeName) ve delegate tipi (hash=tip adi) basina gercek C imzali fn
+extern const DeMethodExport de_host_vtramps[];
+extern const int de_host_nvtramps;
+extern const DeMethodExport de_host_dtramps[];
+extern const int de_host_ndtramps;
+unsigned long long de_hash64(const char *s);
+unsigned long long de_hash64_n(const char *s, int n);
+const DeTypeExport *de_host_find_type(unsigned long long hash);
+const DeTypeExport *de_host_type_of(const Type *t); // descriptor -> export (base zinciri yurumek icin)
+const DeMethodExport *de_host_find_method(unsigned long long hash);
+const DeFieldExport *de_host_find_static(unsigned long long hash);
+// Modul sahipligi: tipler bir DeModule'e isaret eder; gc_alloc/sweep canli sayaci gunceller.
+// vmint.c bu yapiyi ILK uye olarak gomer (DeModule* <-> VmModule* cast).
+typedef struct DeModule
+{
+    int live;  // canli nesne sayisi (gc_alloc ++, sweep --)
+    int state; // 0 = yukleniyor, 1 = aktif, 2 = unload edildi (trampoline'ler no-op; live 0 olunca free)
+} DeModule;
 void digitoyengine_reflect_init(const Type *typeType, const Type *fieldInfoType, const Type *propertyInfoType, int nwrappers); // digitoyengine_init cagirir
 GCHeader *digitoyengine_type_wrapper(const Type *t);                                                                           // tindex 0 ise 0 doner (dizi tipleri vb.)
 GCHeader *digitoyengine_member_lookup(const Type *t, const struct VmString *name, int kind);

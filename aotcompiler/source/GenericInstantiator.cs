@@ -94,6 +94,7 @@ namespace DigitoyEngine.Language
                 var instance = new Primitive
                 {
                     Name = name,
+                    Assembly = template.Assembly,
                     DisplayName = baseDisp + "<" + string.Join(", ", typeArgs.Select(Primitive.CsDisplay)) + ">",
                     Type = template.Type,
                     IsStruct = template.IsStruct,
@@ -190,6 +191,8 @@ namespace DigitoyEngine.Language
             {
                 Owner = newOwner,
                 Name = newName,
+                Assembly = template.Assembly,
+                Template = template,
                 DisplayName = template.DisplayName,
                 SourceFile = template.SourceFile,
                 IsStatic = template.IsStatic,

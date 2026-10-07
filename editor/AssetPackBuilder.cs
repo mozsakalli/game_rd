@@ -31,13 +31,16 @@ static class AssetPackBuilder
     internal static void BuildMenu() => Build();
 
     // Donus: pak yazildi ve dogrulandi. Hata/iptal loglanir (PlayerBuilder bunu kapi olarak kullanir).
-    internal static bool Build()
+    internal static bool Build() => Build(null, null);
+
+    // outPath: null = <proje>/Build/game.pak. extra: pak'a eklenecek ham girdiler (modul kodu gibi; sikistirilir, bagimliliksiz).
+    internal static bool Build(string outPath, IReadOnlyList<(string Key, byte[] Data)> extra)
     {
         var assets = App.Assets;
         var catalog = App.Catalog;
         var project = App.Project;
         string root = assets.Root;
-        string outPath = Path.Combine(project.Root, "Build", "game.pak");
+        outPath ??= Path.Combine(project.Root, "Build", "game.pak");
 
         // Kokler: Scenes In Build (+ startScene). Eksik kok = build iptal (sessiz bos pak yok).
         var roots = project.Player.BuildScenes();
@@ -207,6 +210,9 @@ static class AssetPackBuilder
 
         // Proje ayarlari: runtime project.yaml okumaz; pismis kayit pak'ta (sahne listesi dahil).
         items.Add((ProjectBinary.PakKey, "", ProjectBinary.Write(project.Name, project.StartScene, roots)));
+        if (extra != null)
+            foreach (var (key, data) in extra)
+                items.Add((key, "", data));
 
         var (rawTotal, pakSize) = PakWriter.Write(outPath, items,
             // Stream tipli ses: native player dosyadan offset'le okur -> zlib OLAMAZ.

@@ -61797,6 +61797,13 @@ static DigitoyEngineMember Demo8_NumBox_1_Int__members[] = {
     { &k_str385, &Demo8_NumBox_1_Int__type, &vmint32_type, digitoyengine_refget_Demo8_NumBox_1_Int__0, digitoyengine_refset_Demo8_NumBox_1_Int__0, 0, DIGITOYENGINE_MEMBER_FIELD, 0, 0 }
 };
 
+// modul export tablolari kapali (CTranspiler.EmitModuleExports=false)
+const DeTypeExport de_host_types[1] = { {0} }; const int de_host_ntypes = 0;
+const DeMethodExport de_host_methods[1] = { {0} }; const int de_host_nmethods = 0;
+const DeFieldExport de_host_statics[1] = { {0} }; const int de_host_nstatics = 0;
+const DeThunk de_host_thunks[1] = { 0 }; const char *const de_host_shapes[1] = { 0 }; const int de_host_nthunks = 0;
+const DeMethodExport de_host_vtramps[1] = { {0} }; const int de_host_nvtramps = 0;
+const DeMethodExport de_host_dtramps[1] = { {0} }; const int de_host_ndtramps = 0;
 static void digitoyengine_statics_trace(void* _) {
     gc_shade((GCHeader*)System_Console_s_error);
     gc_shade((GCHeader*)System_StringComparer_s_ordinal);

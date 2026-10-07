@@ -113,6 +113,8 @@ namespace DigitoyEngine.Language
         public bool Unresolved;
         public Primitive Owner;
         public string Name;
+        public string Assembly; // tanimlayan assembly adi (CilFrontend; generic klonlar sablonunkini tasir)
+        public Code Template; // generic METHOD somutlamasi ise kaynagi (GenericInstantiator); modul yazici "gomulu generic" karari
         public bool IsExternal;
         public List<Op> Operations = new List<Op>();
         public bool Inline;

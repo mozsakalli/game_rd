@@ -149,6 +149,8 @@ void *gc_alloc(const Type *t)
     o->age = 0;
     o->next = gc_objects;
     gc_objects = o;
+    if (t->module)
+        t->module->live++; // dinamik modul tipi: unload sonrasi free karari bu sayaca bakar
     return o;
 }
 #ifdef DIGITOYENGINE_GC_POISON
@@ -252,6 +254,8 @@ static void gc_finalize_free(GCHeader *o)
 #endif
     if (o->type->finalize)
         o->type->finalize(o);
+    if (o->type->module)
+        o->type->module->live--;
     gc_heap_bytes -= o->type->size;
     block_free(o, o->type->size);
 }
@@ -353,6 +357,87 @@ int gc_hashcode(GCHeader *o)
     if (!o->idhash)
         o->idhash = ++gc_next_id; // saf kimlik: benzersiz, stabil (icerik hash'i corelib override'inin isi)
     return o->idhash;
+}
+
+// ---- Modul host export tablolari: arama (vmrt.h; tablolar uretilen kodda, kapaliysa bos) ----
+// Index ilk aramada kurulur (acik adresleme, 2x kapasite). Tablolar const -> index yalniz pointer tutar.
+unsigned long long de_hash64_n(const char *s, int n)
+{
+    unsigned long long h = 1469598103934665603ull;
+    for (int i = 0; i < n; i++)
+    {
+        h ^= (unsigned char)s[i];
+        h *= 1099511628211ull;
+    }
+    return h;
+}
+unsigned long long de_hash64(const char *s) { return de_hash64_n(s, (int)strlen(s)); }
+typedef struct DeIndex
+{
+    const void **slots;
+    unsigned mask;
+    int built;
+} DeIndex;
+static DeIndex de_idx_types, de_idx_methods, de_idx_statics;
+static void de_index_build(DeIndex *ix, const void *table, int n, size_t stride)
+{
+    unsigned cap = 16;
+    while (cap < (unsigned)n * 2)
+        cap <<= 1;
+    ix->slots = (const void **)calloc(cap, sizeof(void *));
+    ix->mask = cap - 1;
+    for (int i = 0; i < n; i++)
+    {
+        const char *e = (const char *)table + (size_t)i * stride;
+        unsigned long long h = *(const unsigned long long *)e; // hash her export yapisinin ILK alani
+        unsigned k = (unsigned)h & ix->mask;
+        while (ix->slots[k])
+            k = (k + 1) & ix->mask;
+        ix->slots[k] = e;
+    }
+    ix->built = 1;
+}
+static const void *de_index_find(DeIndex *ix, unsigned long long h)
+{
+    if (!ix->built || !ix->slots)
+        return 0;
+    unsigned k = (unsigned)h & ix->mask;
+    while (ix->slots[k])
+    {
+        if (*(const unsigned long long *)ix->slots[k] == h)
+            return ix->slots[k];
+        k = (k + 1) & ix->mask;
+    }
+    return 0;
+}
+const DeTypeExport *de_host_find_type(unsigned long long hash)
+{
+    if (!de_idx_types.built)
+        de_index_build(&de_idx_types, de_host_types, de_host_ntypes, sizeof(DeTypeExport));
+    return (const DeTypeExport *)de_index_find(&de_idx_types, hash);
+}
+const DeMethodExport *de_host_find_method(unsigned long long hash)
+{
+    if (!de_idx_methods.built)
+        de_index_build(&de_idx_methods, de_host_methods, de_host_nmethods, sizeof(DeMethodExport));
+    return (const DeMethodExport *)de_index_find(&de_idx_methods, hash);
+}
+const DeFieldExport *de_host_find_static(unsigned long long hash)
+{
+    if (!de_idx_statics.built)
+        de_index_build(&de_idx_statics, de_host_statics, de_host_nstatics, sizeof(DeFieldExport));
+    return (const DeFieldExport *)de_index_find(&de_idx_statics, hash);
+}
+// descriptor -> export: base zinciri yurumek icin (Type'ta geri pointer yok; tablo kucuk, lineer + tek girisli cache)
+const DeTypeExport *de_host_type_of(const Type *t)
+{
+    static const DeTypeExport *last = 0;
+    if (last && last->type == t)
+        return last;
+    for (int i = 0; i < de_host_ntypes; i++)
+        if (de_host_types[i].type == t)
+            return last = &de_host_types[i];
+    return 0;
 }
 
 // ---- Array ----
@@ -544,7 +629,21 @@ void digitoyengine_reflect_init(const Type *typeType, const Type *fieldInfoType,
 }
 GCHeader *digitoyengine_type_wrapper(const Type *t)
 {
-    if (!t || !digitoyengine_type_type || t->tindex == 0 || t->tindex >= digitoyengine_nwrappers)
+    if (!t || !digitoyengine_type_type)
+        return 0;
+    if (t->tindex == 0 && t->module) // dinamik modul tipi: wrapper descriptor'in kendisinde (malloc'lu Type, const degil)
+    {
+        Type *mt = (Type *)t;
+        if (!mt->dyn_wrapper)
+        {
+            GCHeader *w = (GCHeader *)gc_alloc(digitoyengine_type_type);
+            *(long long *)((char *)w + sizeof(GCHeader)) = (long long)(size_t)t;
+            gc_add_root(w);
+            mt->dyn_wrapper = w;
+        }
+        return mt->dyn_wrapper;
+    }
+    if (t->tindex == 0 || t->tindex >= digitoyengine_nwrappers)
         return 0;
     GCHeader **slot = &digitoyengine_wrappers[t->tindex];
     if (!*slot)

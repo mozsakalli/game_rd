@@ -1,0 +1,54 @@
+1	69
+2	27
+3	61
+4	80
+5	158
+6	142
+7	2152
+8	895
+9	483
+10	EXCEPTION	NotImplementedException: AOT stub: Demo10.App10.ByteFormat() -- CIL: bilinmeyen TypeDef: .<>y__InlineArray4`1
+11	11
+12	42
+13	32
+14	383
+15	182
+16	1377
+17	127
+18	4368
+19	247
+20	290
+21	0
+22	65535
+23	32255
+24	1023
+25	119
+26	127
+27	63
+28	2047
+29	511
+30	16383
+31	57343
+32	EXCEPTION	NullReferenceException: Object reference not set to an instance of an object.
+33	155
+34	42
+35	24
+36	22
+37	26
+38	43
+39	7
+40	14
+41	41
+42	13
+43	3
+44	9
+45	1
+46	EXCEPTION	NotImplementedException: AOT stub: Demo46.App46.TestDelegates() -- CIL: corelib yuzeyinde olmayan uye: System.Delegate.Combine(System.Delegate,System.Delegate) (gerekiyorsa corelib'e ekleyelim)   denenen anahtarlar: Combine_System_Delegate_System_Delegate   yakin aday yok: 'Combine' adinda uye System.Delegate zincirinde tanimli degil
+47	EXCEPTION	NotImplementedException: AOT stub: Demo47.App47.Run() -- CIL: corelib yuzeyinde olmayan tip: System.StringSplitOptions (gerekiyorsa corelib'e ekleyelim)
+48	63
+49	15
+50	0
+51	153470
+52	170881646
+53	4995
+54	1023

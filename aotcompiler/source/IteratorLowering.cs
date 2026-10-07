@@ -23,7 +23,7 @@ namespace DigitoyEngine.Language
 
             string baseName = iterator.EncodeName().Replace('$', '_');
 
-            var frame = new Primitive { Name = baseName + "_Frame", Type = PrimitiveType.Model };
+            var frame = new Primitive { Name = baseName + "_Frame", Type = PrimitiveType.Model, Assembly = iterator.Assembly };
             frame.AddField(new PrimitiveField { Name = "pc", Type = Primitive.Int });
             frame.AddField(new PrimitiveField { Name = "current", Type = elementType });
             for (int i = 0; i < iterator.Arguments.Count; i++)
@@ -36,7 +36,7 @@ namespace DigitoyEngine.Language
             PrimitiveField LocalField(int i) => frame.Fields[2 + iterator.Arguments.Count + i];
 
             // --- MoveNext ---
-            var moveNext = new Code { Name = baseName + "_MoveNext", ReturnType = Primitive.Int };
+            var moveNext = new Code { Name = baseName + "_MoveNext", ReturnType = Primitive.Int, Assembly = iterator.Assembly };
             moveNext.Arguments.Add(new Argument { Name = "frame", Type = frame });
             var ops = moveNext.Operations;
 
@@ -129,7 +129,7 @@ namespace DigitoyEngine.Language
             EmitYieldBreak(); // govde sonundan dusme = iterasyon bitti
 
             // --- Create ---
-            var create = new Code { Name = baseName + "_Create", ReturnType = frame };
+            var create = new Code { Name = baseName + "_Create", ReturnType = frame, Assembly = iterator.Assembly };
             foreach (var a in iterator.Arguments)
                 create.Arguments.Add(new Argument { Name = a.Name, Type = a.Type });
             var cops = create.Operations;

@@ -72,6 +72,7 @@ namespace DigitoyEngine.Cil
             public MetadataReader md;
             public MetadataReader pdb;
             public bool isCoreLib;
+            public string assemblyName => md.GetString(md.GetAssemblyDefinition().Name);
             // corelib modu: runtime singleton'ina baglanan TypeDef'ler (Object/String/skalerler) — base/iface islenmez
             public readonly HashSet<TypeDefinitionHandle> boundRoots = new HashSet<TypeDefinitionHandle>();
             public readonly Dictionary<TypeDefinitionHandle, Primitive> prims = new Dictionary<TypeDefinitionHandle, Primitive>();
@@ -241,6 +242,7 @@ namespace DigitoyEngine.Cil
                     }
                     foreach (var gph in td.GetGenericParameters()) // generic tip parametreleri (Box<T> -> [T]); imza decode'u referans verir
                         p.GenericParameters.Add(new Primitive { Name = md.GetString(md.GetGenericParameter(gph).Name), Type = PrimitiveType.Model, IsGenericParameter = true });
+                    p.Assembly = assemblyName;
                     prims[h] = p;
                     ctx.RegisterPrimitive(p);
                 }
@@ -408,6 +410,7 @@ namespace DigitoyEngine.Cil
                         var code = new Code
                         {
                             Owner = p,
+                            Assembly = assemblyName,
                             Name = expl.iface != null
                                 ? "__iface_" + expl.iface.Name.Replace('.', '_') + "__" + MangleParams(expl.simple)
                                 : MangleParams(simple),

@@ -1,0 +1,14 @@
+C:\Work\digitoygames\game_rd\aotcompiler\obj\module-test\bin\Sandbox.Module.deps.json
+C:\Work\digitoygames\game_rd\aotcompiler\obj\module-test\bin\Sandbox.Module.dll
+C:\Work\digitoygames\game_rd\aotcompiler\obj\module-test\bin\Sandbox.Module.pdb
+C:\Work\digitoygames\game_rd\aotcompiler\obj\module-test\bin\Digitoy.CoreLib.dll
+C:\Work\digitoygames\game_rd\aotcompiler\obj\module-test\bin\DigitoyEngine.dll
+C:\Work\digitoygames\game_rd\aotcompiler\obj\module-test\bin\Digitoy.CoreLib.pdb
+C:\Work\digitoygames\game_rd\aotcompiler\obj\module-test\bin\DigitoyEngine.pdb
+C:\Work\digitoygames\game_rd\aotcompiler\obj\module-test\obj\Debug\Sandbox.Module.csproj.AssemblyReference.cache
+C:\Work\digitoygames\game_rd\aotcompiler\obj\module-test\obj\Debug\Sandbox.Module.GeneratedMSBuildEditorConfig.editorconfig
+C:\Work\digitoygames\game_rd\aotcompiler\obj\module-test\obj\Debug\Sandbox.Module.csproj.CoreCompileInputs.cache
+C:\Work\digitoygames\game_rd\aotcompiler\obj\module-test\obj\Debug\Sandbox.Module.sourcelink.json
+C:\Work\digitoygames\game_rd\aotcompiler\obj\module-test\obj\Debug\Sandbox..F07A5388.Up2Date
+C:\Work\digitoygames\game_rd\aotcompiler\obj\module-test\obj\Debug\Sandbox.Module.dll
+C:\Work\digitoygames\game_rd\aotcompiler\obj\module-test\obj\Debug\Sandbox.Module.pdb

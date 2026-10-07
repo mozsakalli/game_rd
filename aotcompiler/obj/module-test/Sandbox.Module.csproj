@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <AssemblyName>Sandbox.Module</AssemblyName>
+    <NoStdLib>true</NoStdLib>
+    <NoCompilerStandardLib>true</NoCompilerStandardLib>
+    <DisableImplicitFrameworkReferences>true</DisableImplicitFrameworkReferences>
+    <RuntimeMetadataVersion>v4.0.30319</RuntimeMetadataVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
+    <ProduceReferenceAssembly>false</ProduceReferenceAssembly>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <OutputPath>bin</OutputPath>
+    <DefineConstants>$(DefineConstants);DE_AOT;DE_MODULE</DefineConstants>
+    <NoWarn>$(NoWarn);CS0626;CS0649;CS0169;CS0414;CS0108</NoWarn>
+  </PropertyGroup>
+  <ItemGroup>
+    <Reference Include="Digitoy.CoreLib"><HintPath>..\..\corelib\bin\Digitoy.CoreLib.dll</HintPath></Reference>
+    <Reference Include="DigitoyEngine"><HintPath>..\..\..\player\bin\Release\net9.0\DigitoyEngine.dll</HintPath></Reference>
+    <Compile Include="..\..\..\Projects\Sandbox\Assets\Scripts\**\*.cs" />
+    <Compile Include="Registry.g.cs" />
+  </ItemGroup>
+</Project>

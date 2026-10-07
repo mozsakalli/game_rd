@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("aotcompiler")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+c5d641e3365bed1ab1d7d8ffbc9527b5a5a83a39")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+31dc40cc2315d25761d7b320f12a60d91d284c7b")]
 [assembly: System.Reflection.AssemblyProductAttribute("aotcompiler")]
 [assembly: System.Reflection.AssemblyTitleAttribute("aotcompiler")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

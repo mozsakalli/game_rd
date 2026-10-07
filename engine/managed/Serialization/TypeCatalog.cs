@@ -35,6 +35,24 @@ public sealed class TypeCatalog
     readonly Dictionary<Type, Entry> _byType = new();
     readonly Dictionary<string, string> _aliases = new(); // eski ad -> yeni ad (rename migrasyonu)
 
+    // Dinamik modul kataloglari (docs/modules.md): modul kendi tiplerini CHILD kataloga kaydeder; sahnesi
+    // child ile okunur (ad: once modul, sonra host). Host'un Type ile aramalari (Instantiate/CopyTo) child'lara
+    // da iner. Unload = child'i zincirden cikarmak; host tablosuna hic yazilmaz, ad cakismasi yok.
+    public TypeCatalog Parent { get; }
+    readonly List<TypeCatalog> _children = new();
+
+    public TypeCatalog() { }
+    public TypeCatalog(TypeCatalog parent)
+    {
+        Parent = parent;
+        parent?._children.Add(this);
+    }
+
+    public void Detach()
+    {
+        Parent?._children.Remove(this);
+    }
+
     public Entry Find(string name)
     {
         for (int hop = 0; hop < 8 && name != null; hop++)
@@ -42,12 +60,22 @@ public sealed class TypeCatalog
             if (_byName.TryGetValue(name, out var e))
                 return e;
             if (!_aliases.TryGetValue(name, out name))
-                return null;
+                return Parent?.Find(name);
         }
-        return null;
+        return Parent?.Find(name);
     }
 
-    public Entry Find(Type type) => _byType.GetValueOrDefault(type);
+    public Entry Find(Type type)
+    {
+        if (_byType.TryGetValue(type, out var e))
+            return e;
+        if (Parent != null)
+            return Parent.Find(type);
+        for (int i = 0; i < _children.Count; i++)
+            if (_children[i]._byType.TryGetValue(type, out e))
+                return e;
+        return null;
+    }
 
     public void RegisterAlias(string oldName, string newName) => _aliases[oldName] = newName;
 

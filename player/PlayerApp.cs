@@ -105,6 +105,7 @@ public class PlayerApp
             _assets.Tick(); // job pompasi + biten texture'lari butceli bagla
         else
             AsyncJobs.Pump();
+        Module.TickAll(); // dinamik modullerin asset job'lari + unload edilmis modul bellegi
         // Async Boot'un hatasi Task'ta kalir (state machine yakalar); burada gozlenir: orijinal
         // firlatma yeri + trace raporlanir, sonra yeniden firlatilir (sessiz kalma yok).
         if (_bootTask != null && _bootTask.IsFaulted)
@@ -237,6 +238,15 @@ public class PlayerApp
                 if (op.Failed)
                     throw new Exception(op.Error);
                 Console.WriteLine("[player] sahne hazir: " + startScene);
+
+                // Dev/test kancasi (docs/modules.md dikey dilim): Build/autoload.module.pak varsa dinamik modul olarak yukle.
+                string autoload = root + "/Build/autoload.module.pak";
+                var probe = await PakSource.OpenAsync(autoload);
+                if (probe != null)
+                {
+                    var mod = await Module.LoadAsync(autoload);
+                    Console.WriteLine(mod.IsLoaded ? "[player] autoload modul yuklendi: " + mod.Name : "[player] autoload modul HATA: " + mod.Error);
+                }
             }
 #if DE_EDITOR
             else

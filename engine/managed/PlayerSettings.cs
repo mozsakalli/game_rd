@@ -32,6 +32,11 @@ public class PlayerSettings
     // 0 = platform varsayilani (vsync).
     public int targetFrameRate;
 
+    // Dinamik modul (Build > Module): bu proje bir host oyuna karsi modul olarak publish ediliyorsa, host'un AOT
+    // player assembly'si (player/bin/Release/net9.0/DigitoyPlayer.dll gibi) — host tipleri "provided" sayilir,
+    // modul kodu onlara isimle baglanir. Bos = yalniz engine API'si.
+    public string moduleHostDll = "";
+
     // Build kokleri: scenes + startScene (tekil, sira korunur, startScene listede yoksa basa).
     public List<string> BuildScenes()
     {

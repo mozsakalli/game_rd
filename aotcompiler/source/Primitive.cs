@@ -130,6 +130,7 @@ namespace DigitoyEngine.Language
         public static Primitive DoubleArray = ArrayOf(Double);
         public static Primitive LongArray = ArrayOf(Long);
         public string Name;
+        public string Assembly; // tanimlayan assembly adi (CilFrontend; generic klonlar sablonunkini tasir). Modul publish kapsam karari (docs/modules.md)
         public string DisplayName; // C# sozdizimli gosterim (generic instance: "Box<int>"); null = Name
         public string Display => DisplayName ?? Name;
         public bool IsStruct;

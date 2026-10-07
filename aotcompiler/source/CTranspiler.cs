@@ -9,7 +9,7 @@ namespace DigitoyEngine.Language
     // PlainEmitter/CVal fikrinden ilham). VM.Run ile AYNI switch iskeleti; fark: deger yerine C metni tasinir.
     // Kapsam: Model (struct), FixedArray alan, GetIndex/SetIndex, New, Call, Label/Br/Brtrue/Brfalse, Ceq/Cgt/Clt,
     // aritmetik. Generic template'ler ve Unresolved kayitlar atlanir (yalniz somut/concrete emit edilir).
-    public static class CTranspiler
+    public static partial class CTranspiler
     {
         class CVal
         {
@@ -42,6 +42,7 @@ namespace DigitoyEngine.Language
             typeIndex.Clear();
             reflectedArrays.Clear();
             reflectedValueStructs.Clear();
+            structArrayTypes.Clear(); // ayni surecte ikinci TranspileProgram (interp host) onceki programin dizi tiplerini gormesin
             nextTypeIndex = 19; // 0=yok, 1=object, 2=string, 3=ValueType, 4..15=primitive, 16=Enum, 17=Delegate, 18=MulticastDelegate (vmrt.c)
             foreach (var c in ctx.AllCodes)
                 if (IsEmittableCode(c) && c.NativeBody == null)
@@ -339,13 +340,19 @@ namespace DigitoyEngine.Language
                     foreach (var f in p.StaticFields)
                         sb.Append($"static {CType(f.Type)} {StaticSym(f)};\n");
             sb.Append("\n");
+            var hostReferenced = EmitModuleExports ? ComputeReferenced(ctx) : null;
             foreach (var c in ctx.AllCodes) // prototipler Type/vtable'lardan ONCE (vtable fonksiyon adresi icerir)
                 if (IsEmittableCode(c))
                 {
                     if (c.IsExternal && NeedsPInvokeMarshal(c))
                         sb.Append(EmitPInvokeWrapper(c)); // string <-> const char* (LPUTF8Str) sarmalayici
                     else
-                        sb.Append((c.IsExternal ? "extern " : "") + Prototype(c) + ";\n");
+                    {
+                        // modul export acikken host'un hic cagirmadigi extern'ler ZAYIF: tanimi yoksa adres 0 (modul load'da "uygulanmamis");
+                        // host'un cagirdiklari guclu kalir -> eksik tanim hala link hatasi.
+                        var linkage = !c.IsExternal ? "" : (hostReferenced != null && !hostReferenced.Contains(c)) ? "extern DIGITOYENGINE_WEAK " : "extern ";
+                        sb.Append(linkage + Prototype(c) + ";\n");
+                    }
                 }
             sb.Append("\n");
             foreach (var p in ctx.AllPrimitives)
@@ -397,6 +404,7 @@ namespace DigitoyEngine.Language
             foreach (var p in ctx.AllPrimitives)
                 if (IsEmittableModel(p) && !p.IsStruct && ReflectionMemberCount(p) > 0)
                     sb.Append(EmitReflectionMembers(p));
+            sb.Append(EmitExports(ctx)); // modul host export tablolari (bayrak kapaliysa bos tablolar; vmrt.c extern'leri linklenir)
             sb.Append(EmitInit(ctx));
             return sb.ToString();
         }
