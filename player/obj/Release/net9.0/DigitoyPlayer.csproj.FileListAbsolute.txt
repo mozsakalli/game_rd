@@ -1,7 +1,5 @@
 C:\Work\digitoygames\game_rd\player\obj\Release\net9.0\DigitoyPlayer.csproj.AssemblyReference.cache
 C:\Work\digitoygames\game_rd\player\obj\Release\net9.0\DigitoyPlayer.GeneratedMSBuildEditorConfig.editorconfig
-C:\Work\digitoygames\game_rd\player\obj\Release\net9.0\DigitoyPlayer.AssemblyInfoInputs.cache
-C:\Work\digitoygames\game_rd\player\obj\Release\net9.0\DigitoyPlayer.AssemblyInfo.cs
 C:\Work\digitoygames\game_rd\player\obj\Release\net9.0\DigitoyPlayer.csproj.CoreCompileInputs.cache
 C:\Work\digitoygames\game_rd\player\obj\Release\net9.0\DigitoyPlayer.sourcelink.json
 C:\Work\digitoygames\game_rd\player\bin\Release\net9.0\digitoyengine_native.dll

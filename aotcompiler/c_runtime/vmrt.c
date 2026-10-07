@@ -512,7 +512,7 @@ const Type vmint16_type = {0, 0, sizeof(GCHeader) + 2, 1, &vmvaluetype_type, &i1
 const Type vmuint16_type = {0, 0, sizeof(GCHeader) + 2, 1, &vmvaluetype_type, &u16_name, vmuint16_vtable, 3, 0, 0, 9};
 const Type vmsbyte_type = {0, 0, sizeof(GCHeader) + 1, 1, &vmvaluetype_type, &sb_name, vmsbyte_vtable, 3, 0, 0, 10};
 const Type vmbyte_type = {0, 0, sizeof(GCHeader) + 1, 1, &vmvaluetype_type, &by_name, vmbyte_vtable, 3, 0, 0, 11};
-const Type vmchar_type = {0, 0, sizeof(GCHeader) + 1, 1, &vmvaluetype_type, &ch_name, vmchar_vtable, 3, 0, 0, 12};
+const Type vmchar_type = {0, 0, sizeof(GCHeader) + 2, 1, &vmvaluetype_type, &ch_name, vmchar_vtable, 3, 0, 0, 12}; // UTF-16 kod birimi
 const Type vmbool_type = {0, 0, sizeof(GCHeader) + 4, 1, &vmvaluetype_type, &bo_name, vmbool_vtable, 3, 0, 0, 13};
 const Type vmsingle_type = {0, 0, sizeof(GCHeader) + 4, 1, &vmvaluetype_type, &sg_name, vmsingle_vtable, 3, 0, 0, 14};
 const Type vmdouble_type = {0, 0, sizeof(GCHeader) + 8, 1, &vmvaluetype_type, &db_name, vmdouble_vtable, 3, 0, 0, 15};
@@ -711,6 +711,125 @@ void DIGITOYENGINE_dump_stack(void)
     for (int i = DIGITOYENGINE_sp - 1; i >= 0; i--)
         DIGITOYENGINE_put_frame(stderr, DIGITOYENGINE_stack[i].mi, DIGITOYENGINE_stack[i].line);
 }
+
+#ifdef DIGITOYENGINE_DEBUG
+#if defined(_WIN32)
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h> // VirtualQuery (dump_ref: cop pointer deref etmeden once)
+#endif
+RtFrame DIGITOYENGINE_step_ring[DIGITOYENGINE_STEP_RING];
+unsigned DIGITOYENGINE_step_n = 0;
+
+// Adres okunabilir mi? (crash handler icinde cop pointer'i deref etmeden once)
+static int DIGITOYENGINE_mem_readable(const void *p, size_t n)
+{
+    if (!p)
+        return 0;
+#if defined(_WIN32)
+    MEMORY_BASIC_INFORMATION mbi;
+    if (!VirtualQuery(p, &mbi, sizeof mbi))
+        return 0;
+    if (mbi.State != MEM_COMMIT || (mbi.Protect & (PAGE_NOACCESS | PAGE_GUARD)))
+        return 0;
+    return (const char *)p + n <= (const char *)mbi.BaseAddress + mbi.RegionSize;
+#else
+    (void)n;
+    return 1; // POSIX: en iyi caba (gc_objects listesi zaten canli nesneyi ayirt eder)
+#endif
+}
+// Referansin durumu: canli heap nesnesi (gc_objects listesinde) / serbest (poison) / heap disi.
+static int DIGITOYENGINE_heap_live(const GCHeader *p)
+{
+    for (const GCHeader *o = gc_objects; o; o = o->next)
+        if (o == p)
+            return 1;
+    return 0;
+}
+static void DIGITOYENGINE_dump_ref(FILE *f, const GCHeader *o)
+{
+    if (!o) { fputs("null", f); return; }
+    fprintf(f, "%p", (const void *)o);
+    if (DIGITOYENGINE_heap_live(o))
+        fputs(" [canli", f);
+#ifdef DIGITOYENGINE_GC_POISON
+    else if (gc_is_freed((void *)o))
+    { fputs(" [SERBEST BIRAKILMIS (dangling)]", f); return; }
+#endif
+    else if (DIGITOYENGINE_mem_readable(o, sizeof(GCHeader)) && o->age == GC_IMMORTAL)
+        fputs(" [immortal", f);
+    else
+    { fputs(" [HEAP DISI / nesne degil]", f); return; }
+    const Type *t = DIGITOYENGINE_mem_readable(o, sizeof(GCHeader)) ? o->type : 0;
+    if (t && DIGITOYENGINE_mem_readable(t, sizeof(Type)) && t->name && DIGITOYENGINE_mem_readable(t->name, sizeof(VmString)))
+    {
+        fputs(" ", f);
+        DIGITOYENGINE_put_name(f, t->name);
+        if (t == &vmstring_type)
+        {
+            const VmString *s = (const VmString *)o;
+            fputs(" \"", f);
+            vm_write_utf8_to(f, s->data, s->length < 80 ? s->length : 80);
+            fputs(s->length > 80 ? "...\"" : "\"", f);
+        }
+    }
+    else
+        fputs(" tip=?", f);
+    fputs("]", f);
+}
+static void DIGITOYENGINE_dump_local(FILE *f, const RtLocal *l)
+{
+    fprintf(f, "      %s = ", l->name);
+    if (!DIGITOYENGINE_mem_readable(l->addr, 8)) { fputs("<adres okunamiyor>\n", f); return; }
+    switch (l->tag)
+    {
+    case 'i': fprintf(f, "%d", *(const int *)l->addr); break;
+    case 'u': fprintf(f, "%u", *(const unsigned *)l->addr); break;
+    case 'f': fprintf(f, "%g", *(const float *)l->addr); break;
+    case 'd': fprintf(f, "%g", *(const double *)l->addr); break;
+    case 'l': fprintf(f, "%lld", *(const long long *)l->addr); break;
+    case 'q': fprintf(f, "%llu", *(const unsigned long long *)l->addr); break;
+    case 'c': fprintf(f, "'%c' (%d)", *(const cil_char *)l->addr < 127 ? (char)*(const cil_char *)l->addr : '?', *(const cil_char *)l->addr); break;
+    case 'h': fprintf(f, "%d", *(const short *)l->addr); break;
+    case 'H': fprintf(f, "%u", *(const unsigned short *)l->addr); break;
+    case 'b': fprintf(f, "%u", *(const unsigned char *)l->addr); break;
+    case 'z': fprintf(f, "%d", *(const signed char *)l->addr); break;
+    case 'B': fputs(*(const int *)l->addr ? "true" : "false", f); break;
+    case 'o': DIGITOYENGINE_dump_ref(f, *(GCHeader *const *)l->addr); break;
+    case 'r': fprintf(f, "ref -> %p", *(void *const *)l->addr); break;
+    case 'v': fprintf(f, "struct @%p", l->addr); break;
+    default: fprintf(f, "? @%p (=%p)", l->addr, *(void *const *)l->addr); break; // pointer tipli arg (ref struct vb.)
+    }
+    fputc('\n', f);
+}
+void DIGITOYENGINE_dump_locals(FILE *f)
+{
+    int lo = DIGITOYENGINE_sp - 12 > 0 ? DIGITOYENGINE_sp - 12 : 0;
+    fprintf(f, "[locals] en ustteki %d frame:\n", DIGITOYENGINE_sp - lo);
+    for (int i = DIGITOYENGINE_sp - 1; i >= lo; i--)
+    {
+        const RtFrame *fr = &DIGITOYENGINE_stack[i];
+        fputs("  ", f);
+        DIGITOYENGINE_put_frame(f, fr->mi, fr->line);
+        if (!fr->dbg_locals)
+        { fputs("      (local tablosu yok)\n", f); continue; }
+        for (int k = 0; k < fr->dbg_nlocals; k++)
+            DIGITOYENGINE_dump_local(f, &fr->dbg_locals[k]);
+    }
+}
+void DIGITOYENGINE_dump_steps(FILE *f)
+{
+    unsigned n = DIGITOYENGINE_step_n < DIGITOYENGINE_STEP_RING ? DIGITOYENGINE_step_n : DIGITOYENGINE_STEP_RING;
+    fprintf(f, "[steps] son %u adim (eski -> yeni):\n", n);
+    for (unsigned k = 0; k < n; k++)
+    {
+        const RtFrame *r = &DIGITOYENGINE_step_ring[(DIGITOYENGINE_step_n - n + k) & (DIGITOYENGINE_STEP_RING - 1)];
+        if (r->mi)
+            DIGITOYENGINE_put_frame(f, r->mi, r->line);
+    }
+}
+#endif
 
 // ================= crash dump (tum platformlar, benzersiz dosya) =================
 // Host baslangicta yazilabilir dizini verir. Benzersiz yol BiR KEZ hesaplanir (time+pid ->
@@ -987,6 +1106,13 @@ static void DIGITOYENGINE_dispatch(void)
     fputc('\n', stderr);
     for (int i = DIGITOYENGINE_ex_trace_n - 1; i >= 0; i--)
         DIGITOYENGINE_put_frame(stderr, DIGITOYENGINE_ex_trace[i].mi, DIGITOYENGINE_ex_trace[i].line);
+#ifdef DIGITOYENGINE_DEBUG
+    if (DIGITOYENGINE_sp > 0) // canli frame'ler (try'siz firlatma: C stack'i hala ayakta)
+    {
+        DIGITOYENGINE_dump_locals(stderr);
+        DIGITOYENGINE_dump_steps(stderr);
+    }
+#endif
     // benzersiz crash dosyasina da yaz (mobilde disk kuyruguna girer, sonraki acilista gonderilir)
     char DIGITOYENGINE_reason[128];
     if (DIGITOYENGINE_ex_kind == DIGITOYENGINE_EX_USER)
@@ -1092,6 +1218,10 @@ static LONG WINAPI DIGITOYENGINE_veh(EXCEPTION_POINTERS *ep)
 #ifdef DIGITOYENGINE_GC_POISON
         gc_dump_recent_freed(stderr);
 #endif
+#ifdef DIGITOYENGINE_DEBUG
+        DIGITOYENGINE_dump_locals(stderr);
+        DIGITOYENGINE_dump_steps(stderr);
+#endif
         fflush(stderr);
         DIGITOYENGINE_crash_dump("native fault (access violation)", DIGITOYENGINE_stack, DIGITOYENGINE_sp);
     }
@@ -1131,6 +1261,13 @@ static void DIGITOYENGINE_sig(int sig, siginfo_t *si, void *uctx)
 #endif
     }
     signal(sig, SIG_DFL); // bizim degil: varsayilan isleyiciyle gercek crash
+#ifdef DIGITOYENGINE_DEBUG
+    // debug build: zaten cokuyoruz, stdio riski kabul -> local/adim dokumu (release'te signal-safe yol korunur)
+    DIGITOYENGINE_dump_stack();
+    DIGITOYENGINE_dump_locals(stderr);
+    DIGITOYENGINE_dump_steps(stderr);
+    fflush(stderr);
+#endif
     // gercek native fault: cikmadan once crash'i benzersiz dosyaya yaz (signal-safe open/write)
     DIGITOYENGINE_crash_dump("native fault (signal)", DIGITOYENGINE_stack, DIGITOYENGINE_sp);
     raise(sig);

@@ -3,26 +3,26 @@
 // System.Console.Out'a yazar - test SetOut ile yakalayabilir).
 namespace System
 {
-    class Console
+    public class Console
     {
         static IO.TextWriter error = new IO.TextWriter();
-        static IO.TextWriter Error { get { return error; } }
-        extern static void Write(string value);
-        extern static void Write(int value);
-        extern static void WriteLine(string value);
-        extern static void WriteLine(int value);
-        extern static void WriteLine();
+        public static IO.TextWriter Error { get { return error; } }
+        public extern static void Write(string value);
+        public extern static void Write(int value);
+        public extern static void WriteLine(string value);
+        public extern static void WriteLine(int value);
+        public extern static void WriteLine();
         // boxed deger dahil her nesne (dotnet: null -> bos satir, degilse ToString)
-        static void WriteLine(object value)
+        public static void WriteLine(object value)
         {
             if (value == null) { WriteLine(""); return; }
             WriteLine(value.ToString());
         }
     }
     // GC yuzeyi: Collect deterministik tam toplama yapar (finalizer'lar kosulur).
-    class GC
+    public class GC
     {
-        extern static void Collect();
-        extern static void Collect(int generation); // 0 = yalniz genc nesil (gc_minor); diger = tam
+        public extern static void Collect();
+        public extern static void Collect(int generation); // 0 = yalniz genc nesil (gc_minor); diger = tam
     }
 }

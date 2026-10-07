@@ -1,10 +1,11 @@
 namespace System
 {
-    static class Enum
+    // .NET sekli: enum tipleri bundan turer (Roslyn zorunlu). Statik yuzey (TryParse) ayni.
+    public abstract class Enum : ValueType
     {
         public static extern object ToObject(Type enumType, object value);
 
-        static extern bool TryParse(string value, Type enumType, out object result);
+        public static extern bool TryParse(string value, Type enumType, out object result);
 
         public static bool TryParse<TEnum>(string value, out TEnum result)
         {

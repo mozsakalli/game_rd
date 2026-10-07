@@ -1,0 +1,8 @@
+C:\Work\digitoygames\game_rd\aotcompiler\corelib\obj\Debug\Digitoy.CoreLib.GeneratedMSBuildEditorConfig.editorconfig
+C:\Work\digitoygames\game_rd\aotcompiler\corelib\obj\Debug\Digitoy.CoreLib.csproj.CoreCompileInputs.cache
+C:\Work\digitoygames\game_rd\aotcompiler\corelib\obj\Debug\Digitoy.CoreLib.sourcelink.json
+C:\Work\digitoygames\game_rd\aotcompiler\corelib\bin\Digitoy.CoreLib.deps.json
+C:\Work\digitoygames\game_rd\aotcompiler\corelib\bin\Digitoy.CoreLib.dll
+C:\Work\digitoygames\game_rd\aotcompiler\corelib\bin\Digitoy.CoreLib.pdb
+C:\Work\digitoygames\game_rd\aotcompiler\corelib\obj\Debug\Digitoy.CoreLib.dll
+C:\Work\digitoygames\game_rd\aotcompiler\corelib\obj\Debug\Digitoy.CoreLib.pdb

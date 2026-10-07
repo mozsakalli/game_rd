@@ -5,14 +5,14 @@
 // artifact'ler release'te bu okuyucuyla acilir.
 namespace System.IO
 {
-    enum SeekOrigin { Begin = 0, Current = 1, End = 2 }
+    public enum SeekOrigin { Begin = 0, Current = 1, End = 2 }
 
-    class EndOfStreamException : Exception
+    public class EndOfStreamException : Exception
     {
         public EndOfStreamException() : base("Unable to read beyond the end of the stream.") { }
     }
 
-    class Stream : IDisposable
+    public class Stream : IDisposable
     {
         public virtual bool CanRead { get { return false; } }
         public virtual bool CanWrite { get { return false; } }
@@ -36,12 +36,12 @@ namespace System.IO
         }
     }
 
-    class MemoryStream : Stream
+    public class MemoryStream : Stream
     {
-        byte[] buffer;
-        int position;
-        int length;
-        bool expandable;
+        public byte[] buffer;
+        public int position;
+        public int length;
+        public bool expandable;
 
         public MemoryStream() { buffer = new byte[256]; expandable = true; }
         public MemoryStream(int capacity) { buffer = new byte[capacity < 16 ? 16 : capacity]; expandable = true; }
@@ -65,7 +65,7 @@ namespace System.IO
         }
         public int Capacity { get { return buffer.Length; } }
 
-        void EnsureCapacity(int needed)
+        public void EnsureCapacity(int needed)
         {
             if (needed <= buffer.Length) return;
             if (!expandable) throw new NotSupportedException();
@@ -125,15 +125,15 @@ namespace System.IO
         public byte[] GetBuffer() { return buffer; }
     }
 
-    class BinaryReader : IDisposable
+    public class BinaryReader : IDisposable
     {
-        Stream stream;
+        public Stream stream;
         public BinaryReader(Stream input) { stream = input; }
         public Stream BaseStream { get { return stream; } }
         public void Dispose() { stream.Close(); }
         public void Close() { stream.Close(); }
 
-        int Next()
+        public int Next()
         {
             int b = stream.ReadByte();
             if (b < 0) throw new EndOfStreamException();
@@ -191,9 +191,9 @@ namespace System.IO
         }
     }
 
-    class BinaryWriter : IDisposable
+    public class BinaryWriter : IDisposable
     {
-        Stream stream;
+        public Stream stream;
         public BinaryWriter(Stream output) { stream = output; }
         public Stream BaseStream { get { return stream; } }
         public void Flush() { stream.Flush(); }

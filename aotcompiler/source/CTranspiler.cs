@@ -248,22 +248,23 @@ namespace DigitoyEngine.Language
             return names;
         }
 
+        // CIL skaler -> C: vmrt.h'deki cil_* typedef'leri (eslesme TEK yerde; ham C tipi uretilmez).
         static string ScalarCType(Primitive t)
         {
             switch (t.Type)
             {
-                case PrimitiveType.Int: return "int";
-                case PrimitiveType.UInt: return "unsigned int";
-                case PrimitiveType.Byte: return "unsigned char";
-                case PrimitiveType.SByte: return "signed char";
-                case PrimitiveType.Short: return "short";
-                case PrimitiveType.UShort: return "unsigned short";
-                case PrimitiveType.Char: return "char";
-                case PrimitiveType.Float: return "float";
-                case PrimitiveType.Double: return "double";
-                case PrimitiveType.Long: return "long long";
-                case PrimitiveType.ULong: return "unsigned long long";
-                case PrimitiveType.Bool: return "int";
+                case PrimitiveType.Int: return "cil_int";
+                case PrimitiveType.UInt: return "cil_uint";
+                case PrimitiveType.Byte: return "cil_byte";
+                case PrimitiveType.SByte: return "cil_sbyte";
+                case PrimitiveType.Short: return "cil_short";
+                case PrimitiveType.UShort: return "cil_ushort";
+                case PrimitiveType.Char: return "cil_char";
+                case PrimitiveType.Float: return "cil_float";
+                case PrimitiveType.Double: return "cil_double";
+                case PrimitiveType.Long: return "cil_long";
+                case PrimitiveType.ULong: return "cil_ulong";
+                case PrimitiveType.Bool: return "cil_bool";
                 case PrimitiveType.Void: return "void";
                 default: throw new Exception($"skaler olmayan tip: {t.Type}");
             }
@@ -646,9 +647,50 @@ namespace DigitoyEngine.Language
                     if (ctx.TryGetCode(kt.Name + "$ctor", out var kctor)) // kind ctor'u C# default mesajini atar
                         sb.Append($"    DIGITOYENGINE_ex_kind_ctor[{k}] = (void (*)(GCHeader*))&{CName(kctor.EncodeName())};\n");
                 }
-            foreach (var c in ctx.AllCodes)
-                if (IsEmittableCode(c) && !c.IsExternal && c.Name == "cctor")
-                    sb.Append($"    {CName(c.EncodeName())}();\n");
+            // cctor sirasi: .NET'te beforefieldinit statik alan erisiminde tetiklenir; burada hepsi eager
+            // kosar. Bir cctor baska tipin statik alanini okuyorsa (dogrudan ya da cagirdigi statik
+            // metodlar uzerinden) o tipin cctor'u ONCE kosmali — ornegin AnimRegistry..cctor lambdalari
+            // <>c.<>9 singleton'u uzerinden delegate yapar; <>9 null kalirsa delegate target'siz dogar
+            // ve cagri ABI'si kayar (crash). Dongu -> kayit sirasi korunur.
+            var cctors = ctx.AllCodes.Where(c => IsEmittableCode(c) && !c.IsExternal && c.Name == "cctor").ToList();
+            var cctorOf = new Dictionary<Primitive, Code>();
+            foreach (var cc in cctors)
+                cctorOf[cc.Owner] = cc;
+            HashSet<Primitive> StaticDeps(Code root)
+            {
+                var owners = new HashSet<Primitive>();
+                var seen = new HashSet<Code>();
+                var stack = new Stack<Code>();
+                stack.Push(root);
+                while (stack.Count > 0)
+                {
+                    var c = stack.Pop();
+                    if (!seen.Add(c)) continue;
+                    foreach (var op in c.Operations)
+                    {
+                        if (op.Field != null && (op.Type == OpType.GetStatic || op.Type == OpType.SetStatic || op.Type == OpType.AddrStatic)
+                            && op.Field.Owner != null && op.Field.Owner != root.Owner)
+                            owners.Add(op.Field.Owner);
+                        if (op.Code != null && op.Code.IsStatic && op.Code.Name != "cctor" && !op.Code.IsExternal)
+                            stack.Push(op.Code);
+                    }
+                }
+                return owners;
+            }
+            var emitted = new HashSet<Code>();
+            var visiting = new HashSet<Code>();
+            void EmitCctor(Code cc)
+            {
+                if (emitted.Contains(cc) || !visiting.Add(cc)) return;
+                foreach (var owner in StaticDeps(cc))
+                    if (cctorOf.TryGetValue(owner, out var dep) && dep != cc)
+                        EmitCctor(dep);
+                visiting.Remove(cc);
+                emitted.Add(cc);
+                sb.Append($"    {CName(cc.EncodeName())}();\n");
+            }
+            foreach (var cc in cctors)
+                EmitCctor(cc);
             sb.Append("}\n");
             return sb.ToString();
         }
@@ -1020,7 +1062,7 @@ namespace DigitoyEngine.Language
             if (value is ushort us) return new CVal(us.ToString(), Primitive.UShort);
             if (value is sbyte sb2) return new CVal(sb2.ToString(), Primitive.SByte);
             if (value is byte by) return new CVal(by.ToString(), Primitive.Byte);
-            if (value is char c) return new CVal($"'{c}'", Primitive.Char);
+            if (value is char c) return new CVal($"((cil_char){(int)c})", Primitive.Char); // sayisal: non-ASCII C literal'i bozulur
             throw new Exception($"transpiler icin desteklenmeyen literal tipi: {value.GetType().Name}");
         }
 
@@ -1755,6 +1797,12 @@ namespace DigitoyEngine.Language
                             // GetHashCode/Equals boxing'siz inline; digerleri (ToString) box'lanip normal dispatch.
                             var vArgc = op.Code.Arguments.Count;
                             var vRecv = stack[stack.Count - vArgc];
+                            // constrained. callvirt: alici yonetilen pointer (ldloca/ldelema/ldarga) gelir -> deref (deger ya da referans).
+                            if (vRecv.Type?.Type == PrimitiveType.Pointer && vRecv.Type.ElementType != null)
+                            {
+                                vRecv = new CVal($"(*({vRecv.Expr}))", vRecv.Type.ElementType);
+                                stack[stack.Count - vArgc] = vRecv;
+                            }
                             if (vRecv.Type != null && (IsNumericVal(vRecv.Type) || vRecv.Type.Type == PrimitiveType.Bool) && op.Code.Owner == Primitive.Object)
                             {
                                 if (op.Code.Name == "GetHashCode" && vArgc == 1)
@@ -1855,9 +1903,26 @@ namespace DigitoyEngine.Language
                             sb.Append($"    GCHeader* {e}h = DIGITOYENGINE_ex_current();\n");
                             sb.Append($"    if (!{e}h || !{TypeTest(op.PrimitiveRef, $"{e}h->type")}) DIGITOYENGINE_rethrow();\n"); // uymayan tip: dis try'a devret
                             sb.Append($"    {CType(op.PrimitiveRef)} {e} = ({CType(op.PrimitiveRef)})(void*){e}h;\n");
-                            var traceField = Hierarchy.AllFields(op.PrimitiveRef).FirstOrDefault(f => f.Name == "traceMi");
-                            if (traceField != null) // Exception turevi: ILK firlatma trace'i gomulu tampona; yeniden firlatma (throw ex / Task fault) orijini SILMEZ
-                                sb.Append($"    if ({e}->traceCount == 0) DIGITOYENGINE_bind_trace({e}->traceMi, {e}->traceLine, &{e}->traceCount, {traceField.Type.FixedSize});\n");
+                            // Exception turevi: ILK firlatma trace'i gomulu tampona (ExceptionTrace struct: mi[24]/line[24]);
+                            // yeniden firlatma (throw ex / Task fault) orijini SILMEZ. Roslyn fixed buffer = tek alanli
+                            // `<mi>e__FixedBuffer` struct'i -> dizi alanina (FixedElementField) inilir.
+                            var traceField = Hierarchy.AllFields(op.PrimitiveRef).FirstOrDefault(f => f.Name == "trace");
+                            var miField = traceField?.Type.Type == PrimitiveType.Model ? Hierarchy.AllFields(traceField.Type).FirstOrDefault(f => f.Name == "mi") : null;
+                            var lineField = traceField?.Type.Type == PrimitiveType.Model ? Hierarchy.AllFields(traceField.Type).FirstOrDefault(f => f.Name == "line") : null;
+                            if (miField != null && lineField != null)
+                            {
+                                string FixedPath(PrimitiveField f, out int cap)
+                                {
+                                    if (f.Type.Type == PrimitiveType.FixedArray) { cap = f.Type.FixedSize; return $"{e}->trace.{CName(f.Name)}"; }
+                                    var inner = Hierarchy.AllFields(f.Type).FirstOrDefault(x => x.Type.Type == PrimitiveType.FixedArray);
+                                    cap = inner?.Type.FixedSize ?? 0;
+                                    return inner != null ? $"{e}->trace.{CName(f.Name)}.{CName(inner.Name)}" : null;
+                                }
+                                var miPath = FixedPath(miField, out int cap);
+                                var linePath = FixedPath(lineField, out _);
+                                if (miPath != null && linePath != null)
+                                    sb.Append($"    if ({e}->traceCount == 0) DIGITOYENGINE_bind_trace({miPath}, {linePath}, &{e}->traceCount, {cap});\n");
+                            }
                             Push(new CVal(e, op.PrimitiveRef));
                             break;
                         }

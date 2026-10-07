@@ -3,44 +3,44 @@
 // reflection bilincli olarak kapsam disidir.
 namespace System.Reflection
 {
-    class MemberInfo
+    public class MemberInfo
     {
-        long handle;
-        extern virtual string Name { get; }
-        extern Type DeclaringType { get; }
+        public long handle;
+        public extern virtual string Name { get; }
+        public extern Type DeclaringType { get; }
     }
 
-    class FieldInfo : MemberInfo
+    public class FieldInfo : MemberInfo
     {
-        extern Type FieldType { get; }
-        extern bool IsStatic { get; }
-        extern bool IsInitOnly { get; }
-        extern object GetValue(object target);
-        extern void SetValue(object target, object value);
+        public extern Type FieldType { get; }
+        public extern bool IsStatic { get; }
+        public extern bool IsInitOnly { get; }
+        public extern object GetValue(object target);
+        public extern void SetValue(object target, object value);
     }
 
-    class MethodInfo : MethodBase
+    public class MethodInfo : MethodBase
     {
-        bool isStatic;
+        public bool isStatic;
         public MethodInfo(bool isStatic) { this.isStatic = isStatic; }
         public override bool IsStatic { get { return isStatic; } }
     }
 
-    class MethodBase : MemberInfo
+    public class MethodBase : MemberInfo
     {
         public virtual bool IsStatic { get { return false; } }
     }
 
-    class PropertyInfo : MemberInfo
+    public class PropertyInfo : MemberInfo
     {
-        extern Type PropertyType { get; }
+        public extern Type PropertyType { get; }
         // Compatibility surface for existing Digiplay code. CLR exposes this through GetMethod.
-        extern bool IsStatic { get; }
-        extern bool CanRead { get; }
-        extern bool CanWrite { get; }
+        public extern bool IsStatic { get; }
+        public extern bool CanRead { get; }
+        public extern bool CanWrite { get; }
         public MethodInfo GetMethod { get { return CanRead ? new MethodInfo(IsStatic) : null; } }
         public MethodInfo SetMethod { get { return CanWrite ? new MethodInfo(IsStatic) : null; } }
-        extern object GetValue(object target);
-        extern void SetValue(object target, object value);
+        public extern object GetValue(object target);
+        public extern void SetValue(object target, object value);
     }
 }

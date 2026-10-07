@@ -147,7 +147,7 @@ public static class AnimRegistry
         if (e == null)
             return Array.Empty<AnimProperty>();
 #if DE_AOT
-        return e.Anim ?? Array.Empty<AnimProperty>(); // TODO: CatalogWriter Entry.Anim uretimi (su an uretilmiyor)
+        return e.Anim ?? Array.Empty<AnimProperty>(); // CatalogWriter uretir; RegisterReflective girisinde bos
 #else
         return e.Anim ??= BuildReflective(type, e.Schema);
 #endif

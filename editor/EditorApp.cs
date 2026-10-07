@@ -478,6 +478,8 @@ public unsafe class App
         _gameCode.LoadCompiled(_project, _assets, job);
         RebuildCatalog();
         _editScene.Instantiate(_catalog, _assets); // bellekteki doc'tan (kaydedilmemis duzenlemeler korunur)
+        // AOT uyumluluk: scriptler corelib'e karsi ikinci kez derlenir (bilgi amacli; editor play'ini etkilemez).
+        AotCompatCheck.Check(job.Scripts, null);
     }
 
     internal static Project Project => _project;

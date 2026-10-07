@@ -428,32 +428,9 @@ objects:
                 Ease: Linear
                 Value: 1 1 1 0
                 Ref: ''
-          - Target: '21:Transform:0'
-            Path: Rotation
-            Mask: 15
-            Keys:
-              - Frame: 0
-                Mode: Tween
-                Ease: Linear
-                Value: 0 0 0 0
-                Ref: ''
-              - Frame: 4
-                Mode: Tween
-                Ease: Linear
-                Value: 0 0 0 0
-                Ref: ''
-              - Frame: 7
-                Mode: Tween
-                Ease: Linear
-                Value: 0 -7 0 0
-                Ref: ''
-              - Frame: 13
-                Mode: Tween
-                Ease: Linear
-                Value: 0 0 0 0
-                Ref: ''
         Labels: ''
         Actions: ''
+      - type: Draggable
   - id: 11
     parent: 4
     name: GameObject (1)
@@ -646,7 +623,7 @@ objects:
             Keys:
               - Frame: 0
                 Mode: Tween
-                Ease: InQuad
+                Ease: Linear
                 Value: 0 0.10000001 0.39999998 -0.1
                 Ref: ''
               - Frame: 10
@@ -654,8 +631,8 @@ objects:
                 Ease: Linear
                 Value: 1 0.10000001 0.39999998 -0.1
                 Ref: ''
-        Labels:
-        Actions:
+        Labels: ''
+        Actions: ''
   - id: 24
     parent: 21
     name: GameObject (8)

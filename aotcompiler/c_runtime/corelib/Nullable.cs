@@ -1,9 +1,13 @@
+// corelib: System.Nullable<T> — yerlesim SOZLESMESI: {hasValue, value} (CTranspiler NullableValueType
+// `(struct X){1, v}` ile dogrudan kurar; alan sirasi DEGISMEZ). .NET yuzeyi: ctor, HasValue/Value,
+// GetValueOrDefault, T <-> T? donusum operatorleri (Roslyn lifted operator/?. lowering bunlari cagirir).
 namespace System
 {
-    struct Nullable<T>
+    public struct Nullable<T> where T : struct
     {
-        bool hasValue;
-        T value;
+        public bool hasValue;
+        public T value;
+        public Nullable(T value) { hasValue = true; this.value = value; }
         public bool HasValue { get { return hasValue; } }
         public T Value
         {
@@ -13,5 +17,9 @@ namespace System
                 return value;
             }
         }
+        public T GetValueOrDefault() { return value; }
+        public T GetValueOrDefault(T defaultValue) { return hasValue ? value : defaultValue; }
+        public static implicit operator Nullable<T>(T value) { return new Nullable<T>(value); }
+        public static explicit operator T(Nullable<T> value) { return value.Value; }
     }
 }

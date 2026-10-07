@@ -4,24 +4,25 @@
 // SLOT SOZLESMESI (vmrt.h vmobject_vtable): 0=GetHashCode, 1=Equals, 2=ToString - sira DEGISMEZ.
 namespace System
 {
-    interface IDisposable
+    public interface IDisposable
     {
-        void Dispose();
+        public void Dispose();
     }
 
     // Tek is parcacigi modeli: yonetilen thread kimligi sabit (Roslyn iterator GetEnumerator kontrolu icin yeter).
-    static class Environment
+    public static class Environment
     {
         public static int CurrentManagedThreadId { get { return 1; } }
-        extern public static int TickCount { get; } // ms, monoton
+        public extern static int TickCount { get; } // ms, monoton
     }
 
-    class Object
+    public class Object
     {
         public static bool Equals(object a, object b) { return a == null ? b == null : a.Equals(b); }
-        extern virtual int GetHashCode();
-        extern virtual bool Equals(object other);
-        extern virtual string ToString();
-        extern Type GetType(); // non-virtual (C# gibi); wrapper kimligi: ayni tip = ayni Type nesnesi
+        public static bool ReferenceEquals(object a, object b) { return a == b; }
+        public extern virtual int GetHashCode();
+        public extern virtual bool Equals(object other);
+        public extern virtual string ToString();
+        public extern Type GetType(); // non-virtual (C# gibi); wrapper kimligi: ayni tip = ayni Type nesnesi
     }
 }

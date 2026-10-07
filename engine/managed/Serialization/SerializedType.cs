@@ -43,41 +43,11 @@ public static class SerializedType
         public Func<object> NewList;       // List<T> kurucusu (Kind.List, dizi degil)
         public Func<int, object> NewArray; // T[] kurucusu
         public Func<object> NewElement;    // nested nesne / value-type liste elemani
-
-        // Tiplendirilmis erisimciler (tween/binding/inspector sicak yollari — boxing yok).
-        // Editorde expression-compile ile TEMBEL doldurulur; release/AOT'de source
-        // generator ayni slotlara duz kod basar.
-        public Func<Component, float> GetFloat;
-        public Action<Component, float> SetFloat;
+        // Tipli (boxing'siz) sicak-yol erisimcileri burada DEGIL: TypeCatalog.Entry.Anim
+        // (AnimRegistry) — tween/MovieClip/inspector hepsi o tablodan gecer.
     }
 
-#if !DE_AOT // reflection/expression yolu: editor + .NET player. AOT: uretilmis Registry doldurur.
-    // Float/Int alan icin erisimcileri kurar (alan basina BIR KEZ; cagri ~2-3ns).
-    public static void EnsureFloatAccessors(FieldSchema f)
-    {
-        if (f.SetFloat != null)
-            return;
-        var comp = System.Linq.Expressions.Expression.Parameter(typeof(Component));
-        var val = System.Linq.Expressions.Expression.Parameter(typeof(float));
-        var fld = System.Linq.Expressions.Expression.Field(
-            System.Linq.Expressions.Expression.Convert(comp, f.Info.DeclaringType), f.Info);
-        if (f.Kind == Kind.Int)
-        {
-            f.SetFloat = System.Linq.Expressions.Expression.Lambda<Action<Component, float>>(
-                System.Linq.Expressions.Expression.Assign(fld,
-                    System.Linq.Expressions.Expression.Convert(val, typeof(int))), comp, val).Compile();
-            f.GetFloat = System.Linq.Expressions.Expression.Lambda<Func<Component, float>>(
-                System.Linq.Expressions.Expression.Convert(fld, typeof(float)), comp).Compile();
-        }
-        else
-        {
-            f.SetFloat = System.Linq.Expressions.Expression.Lambda<Action<Component, float>>(
-                System.Linq.Expressions.Expression.Assign(fld, val), comp, val).Compile();
-            f.GetFloat = System.Linq.Expressions.Expression.Lambda<Func<Component, float>>(
-                fld, comp).Compile();
-        }
-    }
-
+#if !DE_AOT // reflection yolu: editor + .NET player. AOT: uretilmis Registry doldurur.
     const int MaxDepth = 7;
 
     // Cache YOK: sonucu TypeCatalog sahiplenir (reload'da katalogla birlikte olur).

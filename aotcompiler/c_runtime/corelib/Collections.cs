@@ -7,7 +7,7 @@
 // EqualityComparer yok (GetHashCode/Equals dogrudan).
 namespace System.Collections.Generic
 {
-    class KeyNotFoundException : Exception
+    public class KeyNotFoundException : Exception
     {
         public KeyNotFoundException() : base("The given key was not present in the dictionary.") { }
         public KeyNotFoundException(string message) : base(message) { }
@@ -15,64 +15,64 @@ namespace System.Collections.Generic
 
     // .NET hiyerarsisi: IDictionary<K,V> : ICollection<KeyValuePair<K,V>> : IEnumerable<KeyValuePair<K,V>>.
     // Count/foreach ICollection<KVP> uzerinden dispatch edilir (Roslyn boyle uretir).
-    interface IDictionary<K, V> : ICollection<KeyValuePair<K, V>>
+    public interface IDictionary<K, V> : ICollection<KeyValuePair<K, V>>
     {
-        bool TryGetValue(K key, out V value);
-        bool ContainsKey(K key);
-        bool Remove(K key);
-        DictionaryKeyCollection<K, V> Keys { get; }
-        DictionaryValueCollection<K, V> Values { get; }
-        V this[K key] { get; set; }
+        public bool TryGetValue(K key, out V value);
+        public bool ContainsKey(K key);
+        public bool Remove(K key);
+        public Dictionary<K, V>.KeyCollection Keys { get; }
+        public Dictionary<K, V>.ValueCollection Values { get; }
+        public V this[K key] { get; set; }
     }
 
-    interface IComparer<T>
+    public interface IComparer<T>
     {
-        int Compare(T x, T y);
+        public int Compare(T x, T y);
     }
 
-    interface IEnumerator<T> : System.Collections.IEnumerator, System.IDisposable
+    public interface IEnumerator<T> : System.Collections.IEnumerator, System.IDisposable
     {
         new T Current { get; }
     }
 
-    interface IEnumerable<T>
+    public interface IEnumerable<T>
     {
-        IEnumerator<T> GetEnumerator();
+        public IEnumerator<T> GetEnumerator();
     }
 
-    interface ICollection<T> : IEnumerable<T>
+    public interface ICollection<T> : IEnumerable<T>
     {
-        int Count { get; }
-        void Add(T item);
+        public int Count { get; }
+        public void Add(T item);
     }
 
-    interface IList<T> : ICollection<T>
+    public interface IList<T> : ICollection<T>
     {
-        T this[int index] { get; set; }
+        public T this[int index] { get; set; }
     }
 
     // Salt-okunur gorunumler (.NET: IReadOnlyCollection<T> : IEnumerable<T>). List/Dictionary bunlari
     // ayni public uyelerle saglar; CollectionExtensions.GetValueOrDefault bu arayuz uzerinden gelir.
-    interface IReadOnlyCollection<T> : IEnumerable<T>
+    public interface IReadOnlyCollection<T> : IEnumerable<T>
     {
-        int Count { get; }
+        public int Count { get; }
     }
 
-    interface IReadOnlyList<T> : IReadOnlyCollection<T>
+    public interface IReadOnlyList<T> : IReadOnlyCollection<T>
     {
-        T this[int index] { get; }
+        public T this[int index] { get; }
     }
 
-    interface IReadOnlyDictionary<K, V> : IReadOnlyCollection<KeyValuePair<K, V>>
+    public interface IReadOnlyDictionary<K, V> : IReadOnlyCollection<KeyValuePair<K, V>>
     {
-        bool TryGetValue(K key, out V value);
-        bool ContainsKey(K key);
-        DictionaryKeyCollection<K, V> Keys { get; }
-        DictionaryValueCollection<K, V> Values { get; }
-        V this[K key] { get; }
+        public bool TryGetValue(K key, out V value);
+        public bool ContainsKey(K key);
+        public Dictionary<K, V>.KeyCollection Keys { get; }
+        public Dictionary<K, V>.ValueCollection Values { get; }
+        public V this[K key] { get; }
     }
 
-    static class CollectionExtensions
+    public static class CollectionExtensions
     {
         public static V GetValueOrDefault<K, V>(this IReadOnlyDictionary<K, V> dictionary, K key)
         {
@@ -86,25 +86,10 @@ namespace System.Collections.Generic
         }
     }
 
-    struct ListEnumerator<T>
+    public class ListInterfaceEnumerator<T> : IEnumerator<T>, System.Collections.IEnumerator, System.IDisposable
     {
-        List<T> list;
-        int index;
-        public bool MoveNext()
-        {
-            int next = index + 1;
-            if (next >= list.size) { return false; }
-            index = next;
-            return true;
-        }
-        public T Current { get { return list.items[index]; } }
-        public void Dispose() { } // foreach finally: List enumerator'unde serbest birakilacak kaynak yok
-    }
-
-    class ListInterfaceEnumerator<T> : IEnumerator<T>, System.Collections.IEnumerator, System.IDisposable
-    {
-        ListEnumerator<T> enumerator;
-        public ListInterfaceEnumerator(ListEnumerator<T> enumerator) { this.enumerator = enumerator; }
+        public List<T>.Enumerator enumerator;
+        public ListInterfaceEnumerator(List<T>.Enumerator enumerator) { this.enumerator = enumerator; }
         public bool MoveNext() { return enumerator.MoveNext(); }
         public T Current { get { return enumerator.Current; } }
         object System.Collections.IEnumerator.Current { get { return Current; } }
@@ -112,10 +97,24 @@ namespace System.Collections.Generic
         public void Dispose() { }
     }
 
-    class List<T> : IList<T>, IReadOnlyList<T>
+    public class List<T> : IList<T>, IReadOnlyList<T>, System.Collections.IEnumerable
     {
-        T[] items;
-        int size;
+        public struct Enumerator
+        {
+            public List<T> list;
+            public int index;
+            public bool MoveNext()
+            {
+                int next = index + 1;
+                if (next >= list.size) { return false; }
+                index = next;
+                return true;
+            }
+            public T Current { get { return list.items[index]; } }
+            public void Dispose() { } // foreach finally: List enumerator'unde serbest birakilacak kaynak yok
+        }
+        public T[] items;
+        public int size;
         public List() { items = new T[4]; size = 0; }
         public List(int capacity) { items = new T[capacity < 4 ? 4 : capacity]; size = 0; }
         public int Count { get { return size; } }
@@ -143,9 +142,10 @@ namespace System.Collections.Generic
             int count = collection.size;
             for (int i = 0; i < count; i++) { Add(collection.items[i]); }
         }
-        public ListEnumerator<T> GetEnumerator() { return new ListEnumerator<T> { list = this, index = -1 }; }
+        public List<T>.Enumerator GetEnumerator() { return new List<T>.Enumerator { list = this, index = -1 }; }
         IEnumerator<T> IEnumerable<T>.GetEnumerator() { return new ListInterfaceEnumerator<T>(GetEnumerator()); }
-        void Grow()
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() { return new ListInterfaceEnumerator<T>(GetEnumerator()); } // koleksiyon baslaticisi (new List<T>{...}) bunu ister
+        public void Grow()
         {
             T[] buyuk = new T[items.Length * 2];
             for (int i = 0; i < size; i++) { buyuk[i] = items[i]; }
@@ -257,24 +257,10 @@ namespace System.Collections.Generic
         }
     }
 
-    struct HashSetEnumerator<T>
+    public class HashSetInterfaceEnumerator<T> : IEnumerator<T>, System.Collections.IEnumerator, System.IDisposable
     {
-        HashSet<T> set;
-        int index;
-        public bool MoveNext()
-        {
-            while (++index < set.size)
-                if (set.hashes[index] >= 0) return true;
-            return false;
-        }
-        public T Current { get { return set.items[index]; } }
-        public void Dispose() { }
-    }
-
-    class HashSetInterfaceEnumerator<T> : IEnumerator<T>, System.Collections.IEnumerator, System.IDisposable
-    {
-        HashSetEnumerator<T> enumerator;
-        public HashSetInterfaceEnumerator(HashSetEnumerator<T> enumerator) { this.enumerator = enumerator; }
+        public HashSet<T>.Enumerator enumerator;
+        public HashSetInterfaceEnumerator(HashSet<T>.Enumerator enumerator) { this.enumerator = enumerator; }
         public bool MoveNext() { return enumerator.MoveNext(); }
         public T Current { get { return enumerator.Current; } }
         object System.Collections.IEnumerator.Current { get { return Current; } }
@@ -282,14 +268,27 @@ namespace System.Collections.Generic
         public void Dispose() { }
     }
 
-    class HashSet<T> : IEnumerable<T>
+    public class HashSet<T> : IEnumerable<T>, System.Collections.IEnumerable
     {
-        int[] buckets; // 1-tabanli slot, 0 = bos
-        int[] hashes;  // -1 = silinmis slot
-        int[] nexts;
-        T[] items;
-        int size;
-        int count;
+        public struct Enumerator
+        {
+            public HashSet<T> set;
+            public int index;
+            public bool MoveNext()
+            {
+                while (++index < set.size)
+                    if (set.hashes[index] >= 0) return true;
+                return false;
+            }
+            public T Current { get { return set.items[index]; } }
+            public void Dispose() { }
+        }
+        public int[] buckets; // 1-tabanli slot, 0 = bos
+        public int[] hashes;  // -1 = silinmis slot
+        public int[] nexts;
+        public T[] items;
+        public int size;
+        public int count;
 
         public HashSet()
         {
@@ -302,10 +301,11 @@ namespace System.Collections.Generic
         }
 
         public int Count { get { return count; } }
-        public HashSetEnumerator<T> GetEnumerator() { return new HashSetEnumerator<T> { set = this, index = -1 }; }
+        public HashSet<T>.Enumerator GetEnumerator() { return new HashSet<T>.Enumerator { set = this, index = -1 }; }
         IEnumerator<T> IEnumerable<T>.GetEnumerator() { return new HashSetInterfaceEnumerator<T>(GetEnumerator()); }
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() { return new HashSetInterfaceEnumerator<T>(GetEnumerator()); }
 
-        int Find(T item)
+        public int Find(T item)
         {
             int hash = item.GetHashCode() & 0x7FFFFFFF;
             int index = buckets[hash & (buckets.Length - 1)] - 1;
@@ -365,7 +365,7 @@ namespace System.Collections.Generic
             count = 0;
         }
 
-        void Grow()
+        public void Grow()
         {
             int capacity = items.Length * 2;
             int[] newBuckets = new int[capacity];
@@ -391,46 +391,19 @@ namespace System.Collections.Generic
         }
     }
 
-    struct KeyValuePair<K, V>
+    public struct KeyValuePair<K, V>
     {
-        K key;
-        V value;
+        public K key;
+        public V value;
         public KeyValuePair(K key, V value) { this.key = key; this.value = value; }
         public K Key { get { return key; } }
         public V Value { get { return value; } }
     }
 
-    struct DictionaryEnumerator<K, V>
+    public class DictionaryKeyInterfaceEnumerator<K, V> : IEnumerator<K>, System.Collections.IEnumerator, System.IDisposable
     {
-        Dictionary<K, V> dictionary;
-        int index;
-        public bool MoveNext() { index++; return index < dictionary.size; }
-        public KeyValuePair<K, V> Current { get { return new KeyValuePair<K, V>(dictionary.keys[index], dictionary.values[index]); } }
-        public void Dispose() { } // foreach lowering struct enumerator'da Dispose cagirir
-    }
-
-    struct DictionaryKeyEnumerator<K, V>
-    {
-        Dictionary<K, V> dictionary;
-        int index;
-        public bool MoveNext() { index++; return index < dictionary.size; }
-        public K Current { get { return dictionary.keys[index]; } }
-        public void Dispose() { } // foreach lowering struct enumerator'da Dispose cagirir
-    }
-
-    struct DictionaryValueEnumerator<K, V>
-    {
-        Dictionary<K, V> dictionary;
-        int index;
-        public bool MoveNext() { index++; return index < dictionary.size; }
-        public V Current { get { return dictionary.values[index]; } }
-        public void Dispose() { } // foreach lowering struct enumerator'da Dispose cagirir
-    }
-
-    class DictionaryKeyInterfaceEnumerator<K, V> : IEnumerator<K>, System.Collections.IEnumerator, System.IDisposable
-    {
-        DictionaryKeyEnumerator<K, V> enumerator;
-        public DictionaryKeyInterfaceEnumerator(DictionaryKeyEnumerator<K, V> enumerator) { this.enumerator = enumerator; }
+        public Dictionary<K, V>.KeyCollection.Enumerator enumerator;
+        public DictionaryKeyInterfaceEnumerator(Dictionary<K, V>.KeyCollection.Enumerator enumerator) { this.enumerator = enumerator; }
         public bool MoveNext() { return enumerator.MoveNext(); }
         public K Current { get { return enumerator.Current; } }
         object System.Collections.IEnumerator.Current { get { return Current; } }
@@ -438,10 +411,10 @@ namespace System.Collections.Generic
         public void Dispose() { }
     }
 
-    class DictionaryValueInterfaceEnumerator<K, V> : IEnumerator<V>, System.Collections.IEnumerator, System.IDisposable
+    public class DictionaryValueInterfaceEnumerator<K, V> : IEnumerator<V>, System.Collections.IEnumerator, System.IDisposable
     {
-        DictionaryValueEnumerator<K, V> enumerator;
-        public DictionaryValueInterfaceEnumerator(DictionaryValueEnumerator<K, V> enumerator) { this.enumerator = enumerator; }
+        public Dictionary<K, V>.ValueCollection.Enumerator enumerator;
+        public DictionaryValueInterfaceEnumerator(Dictionary<K, V>.ValueCollection.Enumerator enumerator) { this.enumerator = enumerator; }
         public bool MoveNext() { return enumerator.MoveNext(); }
         public V Current { get { return enumerator.Current; } }
         object System.Collections.IEnumerator.Current { get { return Current; } }
@@ -449,10 +422,10 @@ namespace System.Collections.Generic
         public void Dispose() { }
     }
 
-    class DictionaryInterfaceEnumerator<K, V> : IEnumerator<KeyValuePair<K, V>>, System.Collections.IEnumerator, System.IDisposable
+    public class DictionaryInterfaceEnumerator<K, V> : IEnumerator<KeyValuePair<K, V>>, System.Collections.IEnumerator, System.IDisposable
     {
-        DictionaryEnumerator<K, V> enumerator;
-        public DictionaryInterfaceEnumerator(DictionaryEnumerator<K, V> enumerator) { this.enumerator = enumerator; }
+        public Dictionary<K, V>.Enumerator enumerator;
+        public DictionaryInterfaceEnumerator(Dictionary<K, V>.Enumerator enumerator) { this.enumerator = enumerator; }
         public bool MoveNext() { return enumerator.MoveNext(); }
         public KeyValuePair<K, V> Current { get { return enumerator.Current; } }
         object System.Collections.IEnumerator.Current { get { throw new NotSupportedException(); } } // KVP struct kutulama (Dilim D) yok; jenerik yol kullanilir
@@ -460,32 +433,62 @@ namespace System.Collections.Generic
         public void Dispose() { }
     }
 
-    class DictionaryKeyCollection<K, V> : System.Collections.ICollection, ICollection<K>, IEnumerable<K>
+    public class Dictionary<K, V> : IDictionary<K, V>, IReadOnlyDictionary<K, V>, System.Collections.IEnumerable
     {
-        Dictionary<K, V> dictionary;
-        public int Count { get { return dictionary.Count; } }
-        public void Add(K item) { throw new NotSupportedException(); } // C#: KeyCollection salt-okunur
-        public DictionaryKeyEnumerator<K, V> GetEnumerator() { return new DictionaryKeyEnumerator<K, V> { dictionary = dictionary, index = -1 }; }
-        IEnumerator<K> IEnumerable<K>.GetEnumerator() { return new DictionaryKeyInterfaceEnumerator<K, V>(GetEnumerator()); }
-    }
-
-    class DictionaryValueCollection<K, V> : System.Collections.ICollection, ICollection<V>, IEnumerable<V>
-    {
-        Dictionary<K, V> dictionary;
-        public int Count { get { return dictionary.Count; } }
-        public void Add(V item) { throw new NotSupportedException(); } // C#: ValueCollection salt-okunur
-        public DictionaryValueEnumerator<K, V> GetEnumerator() { return new DictionaryValueEnumerator<K, V> { dictionary = dictionary, index = -1 }; }
-        IEnumerator<V> IEnumerable<V>.GetEnumerator() { return new DictionaryValueInterfaceEnumerator<K, V>(GetEnumerator()); }
-    }
-
-    class Dictionary<K, V> : IDictionary<K, V>, IReadOnlyDictionary<K, V>
-    {
-        int[] buckets; // 1-tabanli slot indeksi; 0 = bos
-        int[] hashes;  // cache'li hash: buyumede rehash Equals'siz
-        int[] nexts;   // zincir: 1-tabanli, 0 = son
-        K[] keys;
-        V[] values;
-        int size;
+        public struct Enumerator
+        {
+            public Dictionary<K, V> dictionary;
+            public int index;
+            public bool MoveNext() { index++; return index < dictionary.size; }
+            public KeyValuePair<K, V> Current { get { return new KeyValuePair<K, V>(dictionary.keys[index], dictionary.values[index]); } }
+            public void Dispose() { } // foreach lowering struct enumerator'da Dispose cagirir
+        }
+        public sealed class KeyCollection : System.Collections.ICollection, ICollection<K>, IEnumerable<K>
+        {
+            public struct Enumerator
+            {
+                public Dictionary<K, V> dictionary;
+                public int index;
+                public bool MoveNext() { index++; return index < dictionary.size; }
+                public K Current { get { return dictionary.keys[index]; } }
+                public void Dispose() { } // foreach lowering struct enumerator'da Dispose cagirir
+            }
+            public Dictionary<K, V> dictionary;
+            public int Count { get { return dictionary.Count; } }
+            public void Add(K item) { throw new NotSupportedException(); } // C#: KeyCollection salt-okunur
+            public bool IsSynchronized { get { return false; } }
+            public object SyncRoot { get { return this; } }
+            public void CopyTo(Array array, int index) { throw new NotSupportedException(); }
+            System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() { return new DictionaryKeyInterfaceEnumerator<K, V>(GetEnumerator()); }
+            public Dictionary<K, V>.KeyCollection.Enumerator GetEnumerator() { return new Dictionary<K, V>.KeyCollection.Enumerator { dictionary = dictionary, index = -1 }; }
+            IEnumerator<K> IEnumerable<K>.GetEnumerator() { return new DictionaryKeyInterfaceEnumerator<K, V>(GetEnumerator()); }
+        }
+        public sealed class ValueCollection : System.Collections.ICollection, ICollection<V>, IEnumerable<V>
+        {
+            public struct Enumerator
+            {
+                public Dictionary<K, V> dictionary;
+                public int index;
+                public bool MoveNext() { index++; return index < dictionary.size; }
+                public V Current { get { return dictionary.values[index]; } }
+                public void Dispose() { } // foreach lowering struct enumerator'da Dispose cagirir
+            }
+            public Dictionary<K, V> dictionary;
+            public int Count { get { return dictionary.Count; } }
+            public void Add(V item) { throw new NotSupportedException(); } // C#: ValueCollection salt-okunur
+            public bool IsSynchronized { get { return false; } }
+            public object SyncRoot { get { return this; } }
+            public void CopyTo(Array array, int index) { throw new NotSupportedException(); }
+            System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() { return new DictionaryValueInterfaceEnumerator<K, V>(GetEnumerator()); }
+            public Dictionary<K, V>.ValueCollection.Enumerator GetEnumerator() { return new Dictionary<K, V>.ValueCollection.Enumerator { dictionary = dictionary, index = -1 }; }
+            IEnumerator<V> IEnumerable<V>.GetEnumerator() { return new DictionaryValueInterfaceEnumerator<K, V>(GetEnumerator()); }
+        }
+        public int[] buckets; // 1-tabanli slot indeksi; 0 = bos
+        public int[] hashes;  // cache'li hash: buyumede rehash Equals'siz
+        public int[] nexts;   // zincir: 1-tabanli, 0 = son
+        public K[] keys;
+        public V[] values;
+        public int size;
         public Dictionary(int capacity) : this() { } // kapasite ipucu: buyume zaten dinamik
         public Dictionary()
         {
@@ -497,13 +500,14 @@ namespace System.Collections.Generic
             size = 0;
         }
         public int Count { get { return size; } }
-        public DictionaryKeyCollection<K, V> Keys { get { return new DictionaryKeyCollection<K, V> { dictionary = this }; } }
-        public DictionaryValueCollection<K, V> Values { get { return new DictionaryValueCollection<K, V> { dictionary = this }; } }
-        public DictionaryEnumerator<K, V> GetEnumerator() { return new DictionaryEnumerator<K, V> { dictionary = this, index = -1 }; }
+        public Dictionary<K, V>.KeyCollection Keys { get { return new Dictionary<K, V>.KeyCollection { dictionary = this }; } }
+        public Dictionary<K, V>.ValueCollection Values { get { return new Dictionary<K, V>.ValueCollection { dictionary = this }; } }
+        public Dictionary<K, V>.Enumerator GetEnumerator() { return new Dictionary<K, V>.Enumerator { dictionary = this, index = -1 }; }
         // ICollection<KeyValuePair<K,V>> / IEnumerable<KeyValuePair<K,V>> (IDictionary tabani)
         IEnumerator<KeyValuePair<K, V>> IEnumerable<KeyValuePair<K, V>>.GetEnumerator() { return new DictionaryInterfaceEnumerator<K, V>(GetEnumerator()); }
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() { return new DictionaryInterfaceEnumerator<K, V>(GetEnumerator()); }
         void ICollection<KeyValuePair<K, V>>.Add(KeyValuePair<K, V> item) { this[item.Key] = item.Value; }
-        int Find(K key)
+        public int Find(K key)
         {
             int h = key.GetHashCode() & 0x7FFFFFFF;
             int i = buckets[h & (buckets.Length - 1)] - 1;
@@ -604,7 +608,7 @@ namespace System.Collections.Generic
             values = new V[cap];
             size = 0;
         }
-        void Grow()
+        public void Grow()
         {
             int cap = keys.Length * 2;
             int[] nb = new int[cap];

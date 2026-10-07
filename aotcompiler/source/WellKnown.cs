@@ -30,11 +30,17 @@ namespace DigitoyEngine.Language
             fullName == String ? Primitive.String :
             fullName == ValueType ? Primitive.ValueType :
             fullName == "System.Boolean" ? Primitive.Bool :
+            fullName == "System.Void" ? Primitive.Void :
+            fullName == "System.Char" ? Primitive.Char :
+            fullName == "System.Byte" ? Primitive.Byte :
+            fullName == "System.SByte" ? Primitive.SByte :
             fullName == "System.Int16" ? Primitive.Short :
+            fullName == "System.UInt16" ? Primitive.UShort :
             fullName == "System.Int32" ? Primitive.Int :
             fullName == "System.UInt32" ? Primitive.UInt :
             fullName == "System.Int64" ? Primitive.Long :
             fullName == "System.IntPtr" ? Primitive.Long :
+            fullName == "System.UIntPtr" ? Primitive.ULong :
             fullName == "System.UInt64" ? Primitive.ULong :
             fullName == "System.Single" ? Primitive.Float :
             fullName == "System.Double" ? Primitive.Double :

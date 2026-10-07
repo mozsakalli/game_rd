@@ -2,15 +2,15 @@
 // time when AES is used; there is no managed fallback or no-op implementation.
 namespace System.Security.Cryptography
 {
-    enum CipherMode { CBC = 1 }
-    enum PaddingMode { PKCS7 = 2 }
+    public enum CipherMode { CBC = 1 }
+    public enum PaddingMode { PKCS7 = 2 }
 
-    interface ICryptoTransform
+    public interface ICryptoTransform
     {
-        byte[] TransformFinalBlock(byte[] inputBuffer, int inputOffset, int inputCount);
+        public byte[] TransformFinalBlock(byte[] inputBuffer, int inputOffset, int inputCount);
     }
 
-    class RijndaelManaged
+    public class RijndaelManaged
     {
         public CipherMode Mode { get; set; }
         public PaddingMode Padding { get; set; }
@@ -19,7 +19,7 @@ namespace System.Security.Cryptography
         public byte[] Key { get; set; }
         public byte[] IV { get; set; }
 
-        extern public ICryptoTransform CreateEncryptor();
-        extern public ICryptoTransform CreateDecryptor();
+        public extern ICryptoTransform CreateEncryptor();
+        public extern ICryptoTransform CreateDecryptor();
     }
 }

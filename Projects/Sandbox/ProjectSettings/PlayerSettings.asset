@@ -4,7 +4,10 @@ fields:
   productName: Sandbox
   version: 0.1.0
   bundleIdentifier: com.defaultcompany.game
-  startScene: Scenes/Main.scene
+  scenes:
+    - Scenes/Login.scene
+    - Scenes/Main.scene
+  startScene: Scenes/Login.scene
   defaultWidth: 1280
   defaultHeight: 720
   fullscreen: false

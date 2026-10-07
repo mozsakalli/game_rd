@@ -3,20 +3,20 @@
 // cozumu icin vardir (yoksa frontend "skip base" dusurur, diag kirlenir).
 namespace System
 {
-    class Attribute
+    public class Attribute
     {
         public Attribute() { }
     }
 
     // Platform sorgulari: derleme zamani sabitleri C tarafinda (#ifdef); oyun kodu
     // `if (OperatingSystem.IsIOS())` yazabilir, AOT'de dal sabit katlanir.
-    static class OperatingSystem
+    public static class OperatingSystem
     {
-        extern public static bool IsWindows();
-        extern public static bool IsMacOS();
-        extern public static bool IsIOS();
-        extern public static bool IsAndroid();
-        extern public static bool IsLinux();
-        extern public static bool IsBrowser();
+        public extern static bool IsWindows();
+        public extern static bool IsMacOS();
+        public extern static bool IsIOS();
+        public extern static bool IsAndroid();
+        public extern static bool IsLinux();
+        public extern static bool IsBrowser();
     }
 }

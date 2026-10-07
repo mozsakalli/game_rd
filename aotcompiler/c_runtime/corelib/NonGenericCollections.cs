@@ -1,54 +1,77 @@
-// Corelib: legacy System.Collections API surface. These interfaces are intentionally
-// separate from generic List/Dictionary; a boxing adapter for List<T> -> IList is TODO.
+// Corelib: legacy System.Collections yuzeyi — .NET sekliyle BIREBIR (arayuzler artik tam modellenir:
+// bir sinif IList implement ediyorsa Hierarchy tum uyeleri ister; eksik/uyumsuz imza = hata).
+// List<T> -> IList kutulama adaptoru yok (bilincli sinir).
 namespace System.Collections
 {
-    interface IEnumerator
+    public interface IEnumerator
     {
         bool MoveNext();
         object Current { get; }
         void Reset();
     }
-    interface IDictionaryEnumerator { }
-    interface ICollection { }
 
-    interface IEnumerable
+    public interface IEnumerable
     {
         IEnumerator GetEnumerator();
     }
 
-    interface IList : IEnumerable
+    public interface ICollection : IEnumerable
     {
         int Count { get; }
-        object this[int index] { get; }
-        IEnumerator GetEnumerator();
-        void Add(object value);
+        bool IsSynchronized { get; }
+        object SyncRoot { get; }
+        void CopyTo(Array array, int index);
     }
 
-    interface IDictionary
+    public interface IList : ICollection, IEnumerable
     {
-        bool Contains(object key);
+        object this[int index] { get; set; }
+        bool IsFixedSize { get; }
+        bool IsReadOnly { get; }
+        int Add(object value);
+        void Clear();
+        bool Contains(object value);
+        int IndexOf(object value);
+        void Insert(int index, object value);
+        void Remove(object value);
+        void RemoveAt(int index);
+    }
+
+    public interface IDictionaryEnumerator : IEnumerator
+    {
+        DictionaryEntry Entry { get; }
+        object Key { get; }
+        object Value { get; }
+    }
+
+    public struct DictionaryEntry
+    {
+        public object Key;
+        public object Value;
+        public DictionaryEntry(object key, object value) { Key = key; Value = value; }
+    }
+
+    public interface IDictionary : ICollection, IEnumerable
+    {
         object this[object key] { get; set; }
         ICollection Keys { get; }
         ICollection Values { get; }
         bool IsReadOnly { get; }
         bool IsFixedSize { get; }
-        int Count { get; }
-        object SyncRoot { get; }
-        bool IsSynchronized { get; }
+        bool Contains(object key);
         void Add(object key, object value);
         void Clear();
-        void CopyTo(Array array, int index);
-        IDictionaryEnumerator GetEnumerator();
+        new IDictionaryEnumerator GetEnumerator();
         void Remove(object key);
     }
 }
-
 namespace System
 {
     // Array runtime operations remain VmArray intrinsics; this class supplies the common
     // reference type used by legacy collection signatures such as ICollection.CopyTo.
-    class Array
+    public class Array
     {
+        public extern int Length { get; } // ldlen: frontend intrinsic (VmArray.len)
         public static extern int IndexOf(string[] array, string value);
         public static extern void Copy(byte[] sourceArray, byte[] destinationArray, int length);
         public static extern void Copy(byte[] sourceArray, int sourceIndex, byte[] destinationArray, int destinationIndex, int length);

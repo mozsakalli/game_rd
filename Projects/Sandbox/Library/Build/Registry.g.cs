@@ -31,6 +31,9 @@ public static class Registry
     static void Reg_0(global::DigitoyEngine.TypeCatalog cat)
     {
         var s = new global::DigitoyEngine.SerializedType.FieldSchema[0];
+        var a = new global::DigitoyEngine.AnimProperty[]
+        {
+        };
         cat.Register(new global::DigitoyEngine.TypeCatalog.Entry
         {
             Type = typeof(global::ApplePlatformOnly),
@@ -43,6 +46,7 @@ public static class Registry
             Flags = (global::DigitoyEngine.LifecycleFlags)1,
             Schema = s,
             Previewable = false,
+            Anim = a,
             ReadBaked = Read_0,
         });
     }
@@ -72,8 +76,6 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.CameraComponent)o).depth,
             Set = (o, v) => ((global::DigitoyEngine.CameraComponent)o).depth = (global::System.Int32)v,
 #endif
-            GetFloat = c => (float)((global::DigitoyEngine.CameraComponent)c).depth,
-            SetFloat = (c, v) => ((global::DigitoyEngine.CameraComponent)c).depth = (int)v,
         };
         s[1] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -96,8 +98,6 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.CameraComponent)o).cullingMask,
             Set = (o, v) => ((global::DigitoyEngine.CameraComponent)o).cullingMask = (global::System.Int32)v,
 #endif
-            GetFloat = c => (float)((global::DigitoyEngine.CameraComponent)c).cullingMask,
-            SetFloat = (c, v) => ((global::DigitoyEngine.CameraComponent)c).cullingMask = (int)v,
         };
         s[3] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -131,8 +131,6 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.CameraComponent)o).orthoSize,
             Set = (o, v) => ((global::DigitoyEngine.CameraComponent)o).orthoSize = (global::System.Single)v,
 #endif
-            GetFloat = c => ((global::DigitoyEngine.CameraComponent)c).orthoSize,
-            SetFloat = (c, v) => ((global::DigitoyEngine.CameraComponent)c).orthoSize = v,
         };
         s[6] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -144,8 +142,6 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.CameraComponent)o).fov,
             Set = (o, v) => ((global::DigitoyEngine.CameraComponent)o).fov = (global::System.Single)v,
 #endif
-            GetFloat = c => ((global::DigitoyEngine.CameraComponent)c).fov,
-            SetFloat = (c, v) => ((global::DigitoyEngine.CameraComponent)c).fov = v,
         };
         s[7] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -157,8 +153,6 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.CameraComponent)o).nearClip,
             Set = (o, v) => ((global::DigitoyEngine.CameraComponent)o).nearClip = (global::System.Single)v,
 #endif
-            GetFloat = c => ((global::DigitoyEngine.CameraComponent)c).nearClip,
-            SetFloat = (c, v) => ((global::DigitoyEngine.CameraComponent)c).nearClip = v,
         };
         s[8] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -170,8 +164,6 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.CameraComponent)o).farClip,
             Set = (o, v) => ((global::DigitoyEngine.CameraComponent)o).farClip = (global::System.Single)v,
 #endif
-            GetFloat = c => ((global::DigitoyEngine.CameraComponent)c).farClip,
-            SetFloat = (c, v) => ((global::DigitoyEngine.CameraComponent)c).farClip = v,
         };
         s[5].ShowIf = s[4];
         s[5].ShowIfScalar = "Orthographic";
@@ -181,6 +173,18 @@ public static class Registry
         s[7].ShowIfScalar = "Perspective";
         s[8].ShowIf = s[4];
         s[8].ShowIfScalar = "Perspective";
+        var a = new global::DigitoyEngine.AnimProperty[]
+        {
+            new global::DigitoyEngine.AnimProperty { Path = "depth", Kind = global::DigitoyEngine.AnimKind.Int, OwnerType = typeof(global::DigitoyEngine.CameraComponent), ValueType = typeof(global::System.Int32), Get = c => global::DigitoyEngine.AnimValue.FromInt(((global::DigitoyEngine.CameraComponent)c).depth), Set = (c, v) => ((global::DigitoyEngine.CameraComponent)c).depth = v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "background", Kind = global::DigitoyEngine.AnimKind.Color, OwnerType = typeof(global::DigitoyEngine.CameraComponent), ValueType = typeof(global::DigitoyEngine.Color), Get = c => global::DigitoyEngine.AnimValue.FromColor(((global::DigitoyEngine.CameraComponent)c).background), Set = (c, v) => ((global::DigitoyEngine.CameraComponent)c).background = v.ToColor() },
+            new global::DigitoyEngine.AnimProperty { Path = "cullingMask", Kind = global::DigitoyEngine.AnimKind.Int, OwnerType = typeof(global::DigitoyEngine.CameraComponent), ValueType = typeof(global::System.Int32), Get = c => global::DigitoyEngine.AnimValue.FromInt(((global::DigitoyEngine.CameraComponent)c).cullingMask), Set = (c, v) => ((global::DigitoyEngine.CameraComponent)c).cullingMask = v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "clearFlags", Kind = global::DigitoyEngine.AnimKind.Enum, OwnerType = typeof(global::DigitoyEngine.CameraComponent), ValueType = typeof(global::DigitoyEngine.CameraClearFlags), Get = c => global::DigitoyEngine.AnimValue.FromInt((int)((global::DigitoyEngine.CameraComponent)c).clearFlags), Set = (c, v) => ((global::DigitoyEngine.CameraComponent)c).clearFlags = (global::DigitoyEngine.CameraClearFlags)v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "projection", Kind = global::DigitoyEngine.AnimKind.Enum, OwnerType = typeof(global::DigitoyEngine.CameraComponent), ValueType = typeof(global::DigitoyEngine.CameraProjection), Get = c => global::DigitoyEngine.AnimValue.FromInt((int)((global::DigitoyEngine.CameraComponent)c).projection), Set = (c, v) => ((global::DigitoyEngine.CameraComponent)c).projection = (global::DigitoyEngine.CameraProjection)v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "orthoSize", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.CameraComponent), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.CameraComponent)c).orthoSize), Set = (c, v) => ((global::DigitoyEngine.CameraComponent)c).orthoSize = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "fov", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.CameraComponent), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.CameraComponent)c).fov), Set = (c, v) => ((global::DigitoyEngine.CameraComponent)c).fov = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "nearClip", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.CameraComponent), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.CameraComponent)c).nearClip), Set = (c, v) => ((global::DigitoyEngine.CameraComponent)c).nearClip = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "farClip", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.CameraComponent), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.CameraComponent)c).farClip), Set = (c, v) => ((global::DigitoyEngine.CameraComponent)c).farClip = v.ToFloat() },
+        };
         cat.Register(new global::DigitoyEngine.TypeCatalog.Entry
         {
             Type = typeof(global::DigitoyEngine.CameraComponent),
@@ -202,6 +206,7 @@ public static class Registry
             Flags = (global::DigitoyEngine.LifecycleFlags)34,
             Schema = s,
             Previewable = false,
+            Anim = a,
             ReadBaked = Read_1,
         });
     }
@@ -472,8 +477,6 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.Renderer)o).SortingOrder,
             Set = (o, v) => ((global::DigitoyEngine.Renderer)o).SortingOrder = (global::System.Int32)v,
 #endif
-            GetFloat = c => (float)((global::DigitoyEngine.Renderer)c).SortingOrder,
-            SetFloat = (c, v) => ((global::DigitoyEngine.Renderer)c).SortingOrder = (int)v,
         };
         s[1] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -552,8 +555,6 @@ public static class Registry
             Get = o => F2_1((global::DigitoyEngine.LayoutBox)o),
             Set = (o, v) => F2_1((global::DigitoyEngine.LayoutBox)o) = (global::System.Single)v,
 #endif
-            GetFloat = c => F2_2((global::DigitoyEngine.LayoutBox)c),
-            SetFloat = (c, v) => F2_2((global::DigitoyEngine.LayoutBox)c) = v,
         };
         s[8] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -562,11 +563,9 @@ public static class Registry
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
 #if !DE_AOT
-            Get = o => F2_3((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_3((global::DigitoyEngine.LayoutBox)o) = (global::System.Single)v,
+            Get = o => F2_2((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_2((global::DigitoyEngine.LayoutBox)o) = (global::System.Single)v,
 #endif
-            GetFloat = c => F2_4((global::DigitoyEngine.LayoutBox)c),
-            SetFloat = (c, v) => F2_4((global::DigitoyEngine.LayoutBox)c) = v,
         };
         s[9] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -575,8 +574,8 @@ public static class Registry
             FieldType = typeof(global::DigitoyEngine.Vec2),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
 #if !DE_AOT
-            Get = o => F2_5((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_5((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Vec2)v,
+            Get = o => F2_3((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_3((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Vec2)v,
 #endif
         };
         s[10] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -586,8 +585,8 @@ public static class Registry
             FieldType = typeof(global::DigitoyEngine.Vec2),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
 #if !DE_AOT
-            Get = o => F2_6((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_6((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Vec2)v,
+            Get = o => F2_4((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_4((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Vec2)v,
 #endif
         };
         s[11] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -597,8 +596,8 @@ public static class Registry
             FieldType = typeof(global::DigitoyEngine.Vec2),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
 #if !DE_AOT
-            Get = o => F2_7((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_7((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Vec2)v,
+            Get = o => F2_5((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_5((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Vec2)v,
 #endif
         };
         s[12] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -608,8 +607,8 @@ public static class Registry
             FieldType = typeof(global::DigitoyEngine.Vec2),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
 #if !DE_AOT
-            Get = o => F2_8((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_8((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Vec2)v,
+            Get = o => F2_6((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_6((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Vec2)v,
 #endif
         };
         s[13] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -619,11 +618,9 @@ public static class Registry
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
 #if !DE_AOT
-            Get = o => F2_9((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_9((global::DigitoyEngine.LayoutBox)o) = (global::System.Single)v,
+            Get = o => F2_7((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_7((global::DigitoyEngine.LayoutBox)o) = (global::System.Single)v,
 #endif
-            GetFloat = c => F2_10((global::DigitoyEngine.LayoutBox)c),
-            SetFloat = (c, v) => F2_10((global::DigitoyEngine.LayoutBox)c) = v,
         };
         s[14] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -632,8 +629,8 @@ public static class Registry
             FieldType = typeof(global::System.Boolean),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
 #if !DE_AOT
-            Get = o => F2_11((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_11((global::DigitoyEngine.LayoutBox)o) = (global::System.Boolean)v,
+            Get = o => F2_8((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_8((global::DigitoyEngine.LayoutBox)o) = (global::System.Boolean)v,
 #endif
         };
         s[15] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -643,8 +640,8 @@ public static class Registry
             FieldType = typeof(global::DigitoyEngine.LayoutMode),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
 #if !DE_AOT
-            Get = o => F2_12((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_12((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.LayoutMode)v,
+            Get = o => F2_9((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_9((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.LayoutMode)v,
 #endif
         };
         s[16] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -654,11 +651,9 @@ public static class Registry
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
 #if !DE_AOT
-            Get = o => F2_13((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_13((global::DigitoyEngine.LayoutBox)o) = (global::System.Single)v,
+            Get = o => F2_10((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_10((global::DigitoyEngine.LayoutBox)o) = (global::System.Single)v,
 #endif
-            GetFloat = c => F2_14((global::DigitoyEngine.LayoutBox)c),
-            SetFloat = (c, v) => F2_14((global::DigitoyEngine.LayoutBox)c) = v,
         };
         s[17] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -667,8 +662,8 @@ public static class Registry
             FieldType = typeof(global::DigitoyEngine.Vec4),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
 #if !DE_AOT
-            Get = o => F2_15((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_15((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Vec4)v,
+            Get = o => F2_11((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_11((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Vec4)v,
 #endif
         };
         s[18] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -678,8 +673,8 @@ public static class Registry
             FieldType = typeof(global::DigitoyEngine.LayoutAlign),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
 #if !DE_AOT
-            Get = o => F2_16((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_16((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.LayoutAlign)v,
+            Get = o => F2_12((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_12((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.LayoutAlign)v,
 #endif
         };
         s[19] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -689,8 +684,8 @@ public static class Registry
             FieldType = typeof(global::DigitoyEngine.LayoutJustify),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
 #if !DE_AOT
-            Get = o => F2_17((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_17((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.LayoutJustify)v,
+            Get = o => F2_13((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_13((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.LayoutJustify)v,
 #endif
         };
         s[20] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -700,8 +695,8 @@ public static class Registry
             FieldType = typeof(global::System.Boolean),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
 #if !DE_AOT
-            Get = o => F2_18((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_18((global::DigitoyEngine.LayoutBox)o) = (global::System.Boolean)v,
+            Get = o => F2_14((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_14((global::DigitoyEngine.LayoutBox)o) = (global::System.Boolean)v,
 #endif
         };
         s[21] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -711,8 +706,8 @@ public static class Registry
             FieldType = typeof(global::DigitoyEngine.OverflowMode),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
 #if !DE_AOT
-            Get = o => F2_19((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_19((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.OverflowMode)v,
+            Get = o => F2_15((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_15((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.OverflowMode)v,
 #endif
         };
         s[22] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -722,8 +717,8 @@ public static class Registry
             FieldType = typeof(global::DigitoyEngine.OverflowMode),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
 #if !DE_AOT
-            Get = o => F2_20((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_20((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.OverflowMode)v,
+            Get = o => F2_16((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_16((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.OverflowMode)v,
 #endif
         };
         s[23] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -735,8 +730,8 @@ public static class Registry
             FieldType = typeof(global::DigitoyEngine.Gradient),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
 #if !DE_AOT
-            Get = o => F2_21((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_21((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Gradient)v,
+            Get = o => F2_17((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_17((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Gradient)v,
 #endif
 #if !DE_AOT
             NewElement = () => (object)default(global::DigitoyEngine.Gradient),
@@ -749,8 +744,8 @@ public static class Registry
             FieldType = typeof(global::DigitoyEngine.Vec4),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
 #if !DE_AOT
-            Get = o => F2_22((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_22((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Vec4)v,
+            Get = o => F2_18((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_18((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Vec4)v,
 #endif
         };
         s[25] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -762,8 +757,8 @@ public static class Registry
             FieldType = typeof(global::DigitoyEngine.Gradient),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
 #if !DE_AOT
-            Get = o => F2_23((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_23((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Gradient)v,
+            Get = o => F2_19((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_19((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Gradient)v,
 #endif
 #if !DE_AOT
             NewElement = () => (object)default(global::DigitoyEngine.Gradient),
@@ -776,8 +771,8 @@ public static class Registry
             FieldType = typeof(global::DigitoyEngine.Vec4),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
 #if !DE_AOT
-            Get = o => F2_24((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_24((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Vec4)v,
+            Get = o => F2_20((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_20((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Vec4)v,
 #endif
         };
         s[27] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -786,8 +781,8 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Asset,
             FieldType = typeof(global::DigitoyEngine.Sprite),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
-            Get = o => F2_25((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_25((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Sprite)v,
+            Get = o => F2_21((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_21((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Sprite)v,
         };
         s[28] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -796,8 +791,8 @@ public static class Registry
             FieldType = typeof(global::DigitoyEngine.Vec4),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
 #if !DE_AOT
-            Get = o => F2_26((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_26((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Vec4)v,
+            Get = o => F2_22((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_22((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Vec4)v,
 #endif
         };
         s[29] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -807,8 +802,8 @@ public static class Registry
             FieldType = typeof(global::DigitoyEngine.Color),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
 #if !DE_AOT
-            Get = o => F2_27((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_27((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Color)v,
+            Get = o => F2_23((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_23((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Color)v,
 #endif
         };
         s[30] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -818,8 +813,8 @@ public static class Registry
             FieldType = typeof(global::DigitoyEngine.Vec2),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
 #if !DE_AOT
-            Get = o => F2_28((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_28((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Vec2)v,
+            Get = o => F2_24((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_24((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Vec2)v,
 #endif
         };
         s[31] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -829,11 +824,9 @@ public static class Registry
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
 #if !DE_AOT
-            Get = o => F2_29((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_29((global::DigitoyEngine.LayoutBox)o) = (global::System.Single)v,
+            Get = o => F2_25((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_25((global::DigitoyEngine.LayoutBox)o) = (global::System.Single)v,
 #endif
-            GetFloat = c => F2_30((global::DigitoyEngine.LayoutBox)c),
-            SetFloat = (c, v) => F2_30((global::DigitoyEngine.LayoutBox)c) = v,
         };
         s[32] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -842,11 +835,9 @@ public static class Registry
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
 #if !DE_AOT
-            Get = o => F2_31((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_31((global::DigitoyEngine.LayoutBox)o) = (global::System.Single)v,
+            Get = o => F2_26((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_26((global::DigitoyEngine.LayoutBox)o) = (global::System.Single)v,
 #endif
-            GetFloat = c => F2_32((global::DigitoyEngine.LayoutBox)c),
-            SetFloat = (c, v) => F2_32((global::DigitoyEngine.LayoutBox)c) = v,
         };
         s[33] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -854,8 +845,8 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.Asset,
             FieldType = typeof(global::DigitoyEngine.Font),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
-            Get = o => F2_33((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_33((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Font)v,
+            Get = o => F2_27((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_27((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Font)v,
         };
         s[34] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -863,8 +854,8 @@ public static class Registry
             Kind = global::DigitoyEngine.SerializedType.Kind.String,
             FieldType = typeof(global::System.String),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
-            Get = o => F2_34((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_34((global::DigitoyEngine.LayoutBox)o) = (global::System.String)v,
+            Get = o => F2_28((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_28((global::DigitoyEngine.LayoutBox)o) = (global::System.String)v,
         };
         s[35] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -873,11 +864,9 @@ public static class Registry
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
 #if !DE_AOT
-            Get = o => F2_35((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_35((global::DigitoyEngine.LayoutBox)o) = (global::System.Single)v,
+            Get = o => F2_29((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_29((global::DigitoyEngine.LayoutBox)o) = (global::System.Single)v,
 #endif
-            GetFloat = c => F2_36((global::DigitoyEngine.LayoutBox)c),
-            SetFloat = (c, v) => F2_36((global::DigitoyEngine.LayoutBox)c) = v,
         };
         s[36] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -886,8 +875,8 @@ public static class Registry
             FieldType = typeof(global::DigitoyEngine.TextAlign),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
 #if !DE_AOT
-            Get = o => F2_37((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_37((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.TextAlign)v,
+            Get = o => F2_30((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_30((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.TextAlign)v,
 #endif
         };
         s[37] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -897,8 +886,8 @@ public static class Registry
             FieldType = typeof(global::DigitoyEngine.LayoutAlign),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
 #if !DE_AOT
-            Get = o => F2_38((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_38((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.LayoutAlign)v,
+            Get = o => F2_31((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_31((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.LayoutAlign)v,
 #endif
         };
         s[38] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -908,8 +897,8 @@ public static class Registry
             FieldType = typeof(global::System.Boolean),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
 #if !DE_AOT
-            Get = o => F2_39((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_39((global::DigitoyEngine.LayoutBox)o) = (global::System.Boolean)v,
+            Get = o => F2_32((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_32((global::DigitoyEngine.LayoutBox)o) = (global::System.Boolean)v,
 #endif
         };
         s[39] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -919,8 +908,8 @@ public static class Registry
             FieldType = typeof(global::System.Boolean),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
 #if !DE_AOT
-            Get = o => F2_40((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_40((global::DigitoyEngine.LayoutBox)o) = (global::System.Boolean)v,
+            Get = o => F2_33((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_33((global::DigitoyEngine.LayoutBox)o) = (global::System.Boolean)v,
 #endif
         };
         s[40] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -930,11 +919,9 @@ public static class Registry
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
 #if !DE_AOT
-            Get = o => F2_41((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_41((global::DigitoyEngine.LayoutBox)o) = (global::System.Single)v,
+            Get = o => F2_34((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_34((global::DigitoyEngine.LayoutBox)o) = (global::System.Single)v,
 #endif
-            GetFloat = c => F2_42((global::DigitoyEngine.LayoutBox)c),
-            SetFloat = (c, v) => F2_42((global::DigitoyEngine.LayoutBox)c) = v,
         };
         s[41] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -943,11 +930,9 @@ public static class Registry
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
 #if !DE_AOT
-            Get = o => F2_43((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_43((global::DigitoyEngine.LayoutBox)o) = (global::System.Single)v,
+            Get = o => F2_35((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_35((global::DigitoyEngine.LayoutBox)o) = (global::System.Single)v,
 #endif
-            GetFloat = c => F2_44((global::DigitoyEngine.LayoutBox)c),
-            SetFloat = (c, v) => F2_44((global::DigitoyEngine.LayoutBox)c) = v,
         };
         s[42] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -956,11 +941,9 @@ public static class Registry
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
 #if !DE_AOT
-            Get = o => F2_45((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_45((global::DigitoyEngine.LayoutBox)o) = (global::System.Single)v,
+            Get = o => F2_36((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_36((global::DigitoyEngine.LayoutBox)o) = (global::System.Single)v,
 #endif
-            GetFloat = c => F2_46((global::DigitoyEngine.LayoutBox)c),
-            SetFloat = (c, v) => F2_46((global::DigitoyEngine.LayoutBox)c) = v,
         };
         s[43] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -971,8 +954,8 @@ public static class Registry
             FieldType = typeof(global::DigitoyEngine.Gradient),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
 #if !DE_AOT
-            Get = o => F2_47((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_47((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Gradient)v,
+            Get = o => F2_37((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_37((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Gradient)v,
 #endif
 #if !DE_AOT
             NewElement = () => (object)default(global::DigitoyEngine.Gradient),
@@ -985,11 +968,9 @@ public static class Registry
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
 #if !DE_AOT
-            Get = o => F2_48((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_48((global::DigitoyEngine.LayoutBox)o) = (global::System.Single)v,
+            Get = o => F2_38((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_38((global::DigitoyEngine.LayoutBox)o) = (global::System.Single)v,
 #endif
-            GetFloat = c => F2_49((global::DigitoyEngine.LayoutBox)c),
-            SetFloat = (c, v) => F2_49((global::DigitoyEngine.LayoutBox)c) = v,
         };
         s[45] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -1000,8 +981,8 @@ public static class Registry
             FieldType = typeof(global::DigitoyEngine.Gradient),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
 #if !DE_AOT
-            Get = o => F2_50((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_50((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Gradient)v,
+            Get = o => F2_39((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_39((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Gradient)v,
 #endif
 #if !DE_AOT
             NewElement = () => (object)default(global::DigitoyEngine.Gradient),
@@ -1014,8 +995,8 @@ public static class Registry
             FieldType = typeof(global::DigitoyEngine.Color),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
 #if !DE_AOT
-            Get = o => F2_51((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_51((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Color)v,
+            Get = o => F2_40((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_40((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Color)v,
 #endif
         };
         s[47] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -1025,8 +1006,8 @@ public static class Registry
             FieldType = typeof(global::DigitoyEngine.Vec2),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
 #if !DE_AOT
-            Get = o => F2_52((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_52((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Vec2)v,
+            Get = o => F2_41((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_41((global::DigitoyEngine.LayoutBox)o) = (global::DigitoyEngine.Vec2)v,
 #endif
         };
         s[48] = new global::DigitoyEngine.SerializedType.FieldSchema
@@ -1036,11 +1017,9 @@ public static class Registry
             FieldType = typeof(global::System.Single),
             DeclaringType = typeof(global::DigitoyEngine.LayoutBox),
 #if !DE_AOT
-            Get = o => F2_53((global::DigitoyEngine.LayoutBox)o),
-            Set = (o, v) => F2_53((global::DigitoyEngine.LayoutBox)o) = (global::System.Single)v,
+            Get = o => F2_42((global::DigitoyEngine.LayoutBox)o),
+            Set = (o, v) => F2_42((global::DigitoyEngine.LayoutBox)o) = (global::System.Single)v,
 #endif
-            GetFloat = c => F2_54((global::DigitoyEngine.LayoutBox)c),
-            SetFloat = (c, v) => F2_54((global::DigitoyEngine.LayoutBox)c) = v,
         };
         s[34].ShowIf = s[33];
         s[35].ShowIf = s[33];
@@ -1057,6 +1036,68 @@ public static class Registry
         s[46].ShowIf = s[33];
         s[47].ShowIf = s[33];
         s[48].ShowIf = s[33];
+        var a = new global::DigitoyEngine.AnimProperty[]
+        {
+            new global::DigitoyEngine.AnimProperty { Path = "SortingOrder", Kind = global::DigitoyEngine.AnimKind.Int, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::System.Int32), Get = c => global::DigitoyEngine.AnimValue.FromInt(((global::DigitoyEngine.LayoutBox)c).SortingOrder), Set = (c, v) => ((global::DigitoyEngine.LayoutBox)c).SortingOrder = v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "SortingSpace", Kind = global::DigitoyEngine.AnimKind.Enum, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::DigitoyEngine.SortingSpace), Get = c => global::DigitoyEngine.AnimValue.FromInt((int)((global::DigitoyEngine.LayoutBox)c).SortingSpace), Set = (c, v) => ((global::DigitoyEngine.LayoutBox)c).SortingSpace = (global::DigitoyEngine.SortingSpace)v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "BlendMode", Kind = global::DigitoyEngine.AnimKind.Enum, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::DigitoyEngine.BlendMode), Get = c => global::DigitoyEngine.AnimValue.FromInt((int)((global::DigitoyEngine.LayoutBox)c).BlendMode), Set = (c, v) => ((global::DigitoyEngine.LayoutBox)c).BlendMode = (global::DigitoyEngine.BlendMode)v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "FxParams", Kind = global::DigitoyEngine.AnimKind.Vec4, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::DigitoyEngine.Vec4), Get = c => global::DigitoyEngine.AnimValue.FromVec4(((global::DigitoyEngine.LayoutBox)c).FxParams), Set = (c, v) => ((global::DigitoyEngine.LayoutBox)c).FxParams = v.ToVec4() },
+            new global::DigitoyEngine.AnimProperty { Path = "BlocksRaycast", Kind = global::DigitoyEngine.AnimKind.Bool, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::System.Boolean), Get = c => global::DigitoyEngine.AnimValue.FromBool(((global::DigitoyEngine.LayoutBox)c).BlocksRaycast), Set = (c, v) => ((global::DigitoyEngine.LayoutBox)c).BlocksRaycast = v.ToBool() },
+            new global::DigitoyEngine.AnimProperty { Path = "fitScreen", Kind = global::DigitoyEngine.AnimKind.Bool, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::System.Boolean), Get = c => global::DigitoyEngine.AnimValue.FromBool(F2_43(((global::DigitoyEngine.LayoutBox)c))), Set = (c, v) => F2_43(((global::DigitoyEngine.LayoutBox)c)) = v.ToBool() },
+            new global::DigitoyEngine.AnimProperty { Path = "width", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(F2_44(((global::DigitoyEngine.LayoutBox)c))), Set = (c, v) => F2_44(((global::DigitoyEngine.LayoutBox)c)) = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "height", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(F2_45(((global::DigitoyEngine.LayoutBox)c))), Set = (c, v) => F2_45(((global::DigitoyEngine.LayoutBox)c)) = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "pivot", Kind = global::DigitoyEngine.AnimKind.Vec2, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::DigitoyEngine.Vec2), Get = c => global::DigitoyEngine.AnimValue.FromVec2(F2_46(((global::DigitoyEngine.LayoutBox)c))), Set = (c, v) => F2_46(((global::DigitoyEngine.LayoutBox)c)) = v.ToVec2() },
+            new global::DigitoyEngine.AnimProperty { Path = "anchorMin", Kind = global::DigitoyEngine.AnimKind.Vec2, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::DigitoyEngine.Vec2), Get = c => global::DigitoyEngine.AnimValue.FromVec2(F2_47(((global::DigitoyEngine.LayoutBox)c))), Set = (c, v) => F2_47(((global::DigitoyEngine.LayoutBox)c)) = v.ToVec2() },
+            new global::DigitoyEngine.AnimProperty { Path = "anchorMax", Kind = global::DigitoyEngine.AnimKind.Vec2, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::DigitoyEngine.Vec2), Get = c => global::DigitoyEngine.AnimValue.FromVec2(F2_48(((global::DigitoyEngine.LayoutBox)c))), Set = (c, v) => F2_48(((global::DigitoyEngine.LayoutBox)c)) = v.ToVec2() },
+            new global::DigitoyEngine.AnimProperty { Path = "anchoredPos", Kind = global::DigitoyEngine.AnimKind.Vec2, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::DigitoyEngine.Vec2), Get = c => global::DigitoyEngine.AnimValue.FromVec2(F2_49(((global::DigitoyEngine.LayoutBox)c))), Set = (c, v) => F2_49(((global::DigitoyEngine.LayoutBox)c)) = v.ToVec2() },
+            new global::DigitoyEngine.AnimProperty { Path = "grow", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(F2_50(((global::DigitoyEngine.LayoutBox)c))), Set = (c, v) => F2_50(((global::DigitoyEngine.LayoutBox)c)) = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "ignoreLayout", Kind = global::DigitoyEngine.AnimKind.Bool, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::System.Boolean), Get = c => global::DigitoyEngine.AnimValue.FromBool(F2_51(((global::DigitoyEngine.LayoutBox)c))), Set = (c, v) => F2_51(((global::DigitoyEngine.LayoutBox)c)) = v.ToBool() },
+            new global::DigitoyEngine.AnimProperty { Path = "layout", Kind = global::DigitoyEngine.AnimKind.Enum, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::DigitoyEngine.LayoutMode), Get = c => global::DigitoyEngine.AnimValue.FromInt((int)F2_52(((global::DigitoyEngine.LayoutBox)c))), Set = (c, v) => F2_52(((global::DigitoyEngine.LayoutBox)c)) = (global::DigitoyEngine.LayoutMode)v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "spacing", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(F2_53(((global::DigitoyEngine.LayoutBox)c))), Set = (c, v) => F2_53(((global::DigitoyEngine.LayoutBox)c)) = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "padding", Kind = global::DigitoyEngine.AnimKind.Vec4, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::DigitoyEngine.Vec4), Get = c => global::DigitoyEngine.AnimValue.FromVec4(F2_54(((global::DigitoyEngine.LayoutBox)c))), Set = (c, v) => F2_54(((global::DigitoyEngine.LayoutBox)c)) = v.ToVec4() },
+            new global::DigitoyEngine.AnimProperty { Path = "alignChildren", Kind = global::DigitoyEngine.AnimKind.Enum, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::DigitoyEngine.LayoutAlign), Get = c => global::DigitoyEngine.AnimValue.FromInt((int)F2_55(((global::DigitoyEngine.LayoutBox)c))), Set = (c, v) => F2_55(((global::DigitoyEngine.LayoutBox)c)) = (global::DigitoyEngine.LayoutAlign)v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "justifyChildren", Kind = global::DigitoyEngine.AnimKind.Enum, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::DigitoyEngine.LayoutJustify), Get = c => global::DigitoyEngine.AnimValue.FromInt((int)F2_56(((global::DigitoyEngine.LayoutBox)c))), Set = (c, v) => F2_56(((global::DigitoyEngine.LayoutBox)c)) = (global::DigitoyEngine.LayoutJustify)v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "reverse", Kind = global::DigitoyEngine.AnimKind.Bool, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::System.Boolean), Get = c => global::DigitoyEngine.AnimValue.FromBool(F2_57(((global::DigitoyEngine.LayoutBox)c))), Set = (c, v) => F2_57(((global::DigitoyEngine.LayoutBox)c)) = v.ToBool() },
+            new global::DigitoyEngine.AnimProperty { Path = "overflowX", Kind = global::DigitoyEngine.AnimKind.Enum, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::DigitoyEngine.OverflowMode), Get = c => global::DigitoyEngine.AnimValue.FromInt((int)F2_58(((global::DigitoyEngine.LayoutBox)c))), Set = (c, v) => F2_58(((global::DigitoyEngine.LayoutBox)c)) = (global::DigitoyEngine.OverflowMode)v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "overflowY", Kind = global::DigitoyEngine.AnimKind.Enum, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::DigitoyEngine.OverflowMode), Get = c => global::DigitoyEngine.AnimValue.FromInt((int)F2_59(((global::DigitoyEngine.LayoutBox)c))), Set = (c, v) => F2_59(((global::DigitoyEngine.LayoutBox)c)) = (global::DigitoyEngine.OverflowMode)v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "fill.type", Kind = global::DigitoyEngine.AnimKind.Enum, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::DigitoyEngine.GradientType), Get = c => global::DigitoyEngine.AnimValue.FromInt((int)F2_60(((global::DigitoyEngine.LayoutBox)c)).type), Set = (c, v) => F2_60(((global::DigitoyEngine.LayoutBox)c)).type = (global::DigitoyEngine.GradientType)v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "fill.direction", Kind = global::DigitoyEngine.AnimKind.Enum, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::DigitoyEngine.GradientDirection), Get = c => global::DigitoyEngine.AnimValue.FromInt((int)F2_60(((global::DigitoyEngine.LayoutBox)c)).direction), Set = (c, v) => F2_60(((global::DigitoyEngine.LayoutBox)c)).direction = (global::DigitoyEngine.GradientDirection)v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "fill.color", Kind = global::DigitoyEngine.AnimKind.Color, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::DigitoyEngine.Color), Get = c => global::DigitoyEngine.AnimValue.FromColor(F2_60(((global::DigitoyEngine.LayoutBox)c)).color), Set = (c, v) => F2_60(((global::DigitoyEngine.LayoutBox)c)).color = v.ToColor() },
+            new global::DigitoyEngine.AnimProperty { Path = "fill.color2", Kind = global::DigitoyEngine.AnimKind.Color, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::DigitoyEngine.Color), Get = c => global::DigitoyEngine.AnimValue.FromColor(F2_60(((global::DigitoyEngine.LayoutBox)c)).color2), Set = (c, v) => F2_60(((global::DigitoyEngine.LayoutBox)c)).color2 = v.ToColor() },
+            new global::DigitoyEngine.AnimProperty { Path = "border", Kind = global::DigitoyEngine.AnimKind.Vec4, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::DigitoyEngine.Vec4), Get = c => global::DigitoyEngine.AnimValue.FromVec4(F2_61(((global::DigitoyEngine.LayoutBox)c))), Set = (c, v) => F2_61(((global::DigitoyEngine.LayoutBox)c)) = v.ToVec4() },
+            new global::DigitoyEngine.AnimProperty { Path = "borderFill.type", Kind = global::DigitoyEngine.AnimKind.Enum, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::DigitoyEngine.GradientType), Get = c => global::DigitoyEngine.AnimValue.FromInt((int)F2_62(((global::DigitoyEngine.LayoutBox)c)).type), Set = (c, v) => F2_62(((global::DigitoyEngine.LayoutBox)c)).type = (global::DigitoyEngine.GradientType)v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "borderFill.direction", Kind = global::DigitoyEngine.AnimKind.Enum, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::DigitoyEngine.GradientDirection), Get = c => global::DigitoyEngine.AnimValue.FromInt((int)F2_62(((global::DigitoyEngine.LayoutBox)c)).direction), Set = (c, v) => F2_62(((global::DigitoyEngine.LayoutBox)c)).direction = (global::DigitoyEngine.GradientDirection)v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "borderFill.color", Kind = global::DigitoyEngine.AnimKind.Color, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::DigitoyEngine.Color), Get = c => global::DigitoyEngine.AnimValue.FromColor(F2_62(((global::DigitoyEngine.LayoutBox)c)).color), Set = (c, v) => F2_62(((global::DigitoyEngine.LayoutBox)c)).color = v.ToColor() },
+            new global::DigitoyEngine.AnimProperty { Path = "borderFill.color2", Kind = global::DigitoyEngine.AnimKind.Color, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::DigitoyEngine.Color), Get = c => global::DigitoyEngine.AnimValue.FromColor(F2_62(((global::DigitoyEngine.LayoutBox)c)).color2), Set = (c, v) => F2_62(((global::DigitoyEngine.LayoutBox)c)).color2 = v.ToColor() },
+            new global::DigitoyEngine.AnimProperty { Path = "radius", Kind = global::DigitoyEngine.AnimKind.Vec4, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::DigitoyEngine.Vec4), Get = c => global::DigitoyEngine.AnimValue.FromVec4(F2_63(((global::DigitoyEngine.LayoutBox)c))), Set = (c, v) => F2_63(((global::DigitoyEngine.LayoutBox)c)) = v.ToVec4() },
+            new global::DigitoyEngine.AnimProperty { Path = "sprite", Kind = global::DigitoyEngine.AnimKind.Ref, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::DigitoyEngine.Sprite), Get = c => global::DigitoyEngine.AnimValue.FromRef((object)F2_64(((global::DigitoyEngine.LayoutBox)c))), Set = (c, v) => F2_64(((global::DigitoyEngine.LayoutBox)c)) = (global::DigitoyEngine.Sprite)v.Ref },
+            new global::DigitoyEngine.AnimProperty { Path = "slice9", Kind = global::DigitoyEngine.AnimKind.Vec4, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::DigitoyEngine.Vec4), Get = c => global::DigitoyEngine.AnimValue.FromVec4(F2_65(((global::DigitoyEngine.LayoutBox)c))), Set = (c, v) => F2_65(((global::DigitoyEngine.LayoutBox)c)) = v.ToVec4() },
+            new global::DigitoyEngine.AnimProperty { Path = "shadowColor", Kind = global::DigitoyEngine.AnimKind.Color, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::DigitoyEngine.Color), Get = c => global::DigitoyEngine.AnimValue.FromColor(F2_66(((global::DigitoyEngine.LayoutBox)c))), Set = (c, v) => F2_66(((global::DigitoyEngine.LayoutBox)c)) = v.ToColor() },
+            new global::DigitoyEngine.AnimProperty { Path = "shadowOffset", Kind = global::DigitoyEngine.AnimKind.Vec2, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::DigitoyEngine.Vec2), Get = c => global::DigitoyEngine.AnimValue.FromVec2(F2_67(((global::DigitoyEngine.LayoutBox)c))), Set = (c, v) => F2_67(((global::DigitoyEngine.LayoutBox)c)) = v.ToVec2() },
+            new global::DigitoyEngine.AnimProperty { Path = "shadowBlur", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(F2_68(((global::DigitoyEngine.LayoutBox)c))), Set = (c, v) => F2_68(((global::DigitoyEngine.LayoutBox)c)) = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "shadowGrow", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(F2_69(((global::DigitoyEngine.LayoutBox)c))), Set = (c, v) => F2_69(((global::DigitoyEngine.LayoutBox)c)) = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "font", Kind = global::DigitoyEngine.AnimKind.Ref, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::DigitoyEngine.Font), Get = c => global::DigitoyEngine.AnimValue.FromRef((object)F2_70(((global::DigitoyEngine.LayoutBox)c))), Set = (c, v) => F2_70(((global::DigitoyEngine.LayoutBox)c)) = (global::DigitoyEngine.Font)v.Ref },
+            new global::DigitoyEngine.AnimProperty { Path = "textSize", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(F2_72(((global::DigitoyEngine.LayoutBox)c))), Set = (c, v) => F2_72(((global::DigitoyEngine.LayoutBox)c)) = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "textAlign", Kind = global::DigitoyEngine.AnimKind.Enum, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::DigitoyEngine.TextAlign), Get = c => global::DigitoyEngine.AnimValue.FromInt((int)F2_73(((global::DigitoyEngine.LayoutBox)c))), Set = (c, v) => F2_73(((global::DigitoyEngine.LayoutBox)c)) = (global::DigitoyEngine.TextAlign)v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "textAlignV", Kind = global::DigitoyEngine.AnimKind.Enum, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::DigitoyEngine.LayoutAlign), Get = c => global::DigitoyEngine.AnimValue.FromInt((int)F2_74(((global::DigitoyEngine.LayoutBox)c))), Set = (c, v) => F2_74(((global::DigitoyEngine.LayoutBox)c)) = (global::DigitoyEngine.LayoutAlign)v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "textWrap", Kind = global::DigitoyEngine.AnimKind.Bool, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::System.Boolean), Get = c => global::DigitoyEngine.AnimValue.FromBool(F2_75(((global::DigitoyEngine.LayoutBox)c))), Set = (c, v) => F2_75(((global::DigitoyEngine.LayoutBox)c)) = v.ToBool() },
+            new global::DigitoyEngine.AnimProperty { Path = "textEllipsis", Kind = global::DigitoyEngine.AnimKind.Bool, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::System.Boolean), Get = c => global::DigitoyEngine.AnimValue.FromBool(F2_76(((global::DigitoyEngine.LayoutBox)c))), Set = (c, v) => F2_76(((global::DigitoyEngine.LayoutBox)c)) = v.ToBool() },
+            new global::DigitoyEngine.AnimProperty { Path = "textWeight", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(F2_77(((global::DigitoyEngine.LayoutBox)c))), Set = (c, v) => F2_77(((global::DigitoyEngine.LayoutBox)c)) = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "textSkew", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(F2_78(((global::DigitoyEngine.LayoutBox)c))), Set = (c, v) => F2_78(((global::DigitoyEngine.LayoutBox)c)) = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "textSpacing", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(F2_79(((global::DigitoyEngine.LayoutBox)c))), Set = (c, v) => F2_79(((global::DigitoyEngine.LayoutBox)c)) = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "textFill.type", Kind = global::DigitoyEngine.AnimKind.Enum, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::DigitoyEngine.GradientType), Get = c => global::DigitoyEngine.AnimValue.FromInt((int)F2_80(((global::DigitoyEngine.LayoutBox)c)).type), Set = (c, v) => F2_80(((global::DigitoyEngine.LayoutBox)c)).type = (global::DigitoyEngine.GradientType)v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "textFill.direction", Kind = global::DigitoyEngine.AnimKind.Enum, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::DigitoyEngine.GradientDirection), Get = c => global::DigitoyEngine.AnimValue.FromInt((int)F2_80(((global::DigitoyEngine.LayoutBox)c)).direction), Set = (c, v) => F2_80(((global::DigitoyEngine.LayoutBox)c)).direction = (global::DigitoyEngine.GradientDirection)v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "textFill.color", Kind = global::DigitoyEngine.AnimKind.Color, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::DigitoyEngine.Color), Get = c => global::DigitoyEngine.AnimValue.FromColor(F2_80(((global::DigitoyEngine.LayoutBox)c)).color), Set = (c, v) => F2_80(((global::DigitoyEngine.LayoutBox)c)).color = v.ToColor() },
+            new global::DigitoyEngine.AnimProperty { Path = "textFill.color2", Kind = global::DigitoyEngine.AnimKind.Color, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::DigitoyEngine.Color), Get = c => global::DigitoyEngine.AnimValue.FromColor(F2_80(((global::DigitoyEngine.LayoutBox)c)).color2), Set = (c, v) => F2_80(((global::DigitoyEngine.LayoutBox)c)).color2 = v.ToColor() },
+            new global::DigitoyEngine.AnimProperty { Path = "textOutlineWidth", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(F2_81(((global::DigitoyEngine.LayoutBox)c))), Set = (c, v) => F2_81(((global::DigitoyEngine.LayoutBox)c)) = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "textOutline.type", Kind = global::DigitoyEngine.AnimKind.Enum, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::DigitoyEngine.GradientType), Get = c => global::DigitoyEngine.AnimValue.FromInt((int)F2_82(((global::DigitoyEngine.LayoutBox)c)).type), Set = (c, v) => F2_82(((global::DigitoyEngine.LayoutBox)c)).type = (global::DigitoyEngine.GradientType)v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "textOutline.direction", Kind = global::DigitoyEngine.AnimKind.Enum, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::DigitoyEngine.GradientDirection), Get = c => global::DigitoyEngine.AnimValue.FromInt((int)F2_82(((global::DigitoyEngine.LayoutBox)c)).direction), Set = (c, v) => F2_82(((global::DigitoyEngine.LayoutBox)c)).direction = (global::DigitoyEngine.GradientDirection)v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "textOutline.color", Kind = global::DigitoyEngine.AnimKind.Color, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::DigitoyEngine.Color), Get = c => global::DigitoyEngine.AnimValue.FromColor(F2_82(((global::DigitoyEngine.LayoutBox)c)).color), Set = (c, v) => F2_82(((global::DigitoyEngine.LayoutBox)c)).color = v.ToColor() },
+            new global::DigitoyEngine.AnimProperty { Path = "textOutline.color2", Kind = global::DigitoyEngine.AnimKind.Color, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::DigitoyEngine.Color), Get = c => global::DigitoyEngine.AnimValue.FromColor(F2_82(((global::DigitoyEngine.LayoutBox)c)).color2), Set = (c, v) => F2_82(((global::DigitoyEngine.LayoutBox)c)).color2 = v.ToColor() },
+            new global::DigitoyEngine.AnimProperty { Path = "textShadowColor", Kind = global::DigitoyEngine.AnimKind.Color, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::DigitoyEngine.Color), Get = c => global::DigitoyEngine.AnimValue.FromColor(F2_83(((global::DigitoyEngine.LayoutBox)c))), Set = (c, v) => F2_83(((global::DigitoyEngine.LayoutBox)c)) = v.ToColor() },
+            new global::DigitoyEngine.AnimProperty { Path = "textShadowOffset", Kind = global::DigitoyEngine.AnimKind.Vec2, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::DigitoyEngine.Vec2), Get = c => global::DigitoyEngine.AnimValue.FromVec2(F2_84(((global::DigitoyEngine.LayoutBox)c))), Set = (c, v) => F2_84(((global::DigitoyEngine.LayoutBox)c)) = v.ToVec2() },
+            new global::DigitoyEngine.AnimProperty { Path = "textShadowBlur", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.LayoutBox), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(F2_85(((global::DigitoyEngine.LayoutBox)c))), Set = (c, v) => F2_85(((global::DigitoyEngine.LayoutBox)c)) = v.ToFloat() },
+        };
         cat.Register(new global::DigitoyEngine.TypeCatalog.Entry
         {
             Type = typeof(global::DigitoyEngine.LayoutBox),
@@ -1065,37 +1106,6 @@ public static class Registry
             CopyTo = (s0, d0) =>
             {
                 var s1 = (global::DigitoyEngine.LayoutBox)s0; var d1 = (global::DigitoyEngine.LayoutBox)d0;
-                F2_55(d1) = F2_55(s1);
-                F2_56(d1) = F2_56(s1);
-                F2_57(d1) = F2_57(s1);
-                F2_58(d1) = F2_58(s1);
-                F2_59(d1) = F2_59(s1);
-                F2_60(d1) = F2_60(s1);
-                F2_61(d1) = F2_61(s1);
-                F2_62(d1) = F2_62(s1);
-                F2_63(d1) = F2_63(s1);
-                F2_64(d1) = F2_64(s1);
-                F2_65(d1) = F2_65(s1);
-                F2_66(d1) = F2_66(s1);
-                F2_67(d1) = F2_67(s1);
-                F2_68(d1) = F2_68(s1);
-                F2_69(d1) = F2_69(s1);
-                F2_70(d1) = F2_70(s1);
-                F2_71(d1) = F2_71(s1);
-                F2_72(d1) = F2_72(s1);
-                F2_73(d1) = F2_73(s1);
-                F2_74(d1) = F2_74(s1);
-                F2_75(d1) = F2_75(s1);
-                F2_76(d1) = F2_76(s1);
-                F2_77(d1) = F2_77(s1);
-                F2_78(d1) = F2_78(s1);
-                F2_79(d1) = F2_79(s1);
-                F2_80(d1) = F2_80(s1);
-                F2_81(d1) = F2_81(s1);
-                F2_82(d1) = F2_82(s1);
-                F2_83(d1) = F2_83(s1);
-                F2_84(d1) = F2_84(s1);
-                F2_85(d1) = F2_85(s1);
                 F2_86(d1) = F2_86(s1);
                 F2_87(d1) = F2_87(s1);
                 F2_88(d1) = F2_88(s1);
@@ -1108,6 +1118,37 @@ public static class Registry
                 F2_95(d1) = F2_95(s1);
                 F2_96(d1) = F2_96(s1);
                 F2_97(d1) = F2_97(s1);
+                F2_98(d1) = F2_98(s1);
+                F2_99(d1) = F2_99(s1);
+                F2_100(d1) = F2_100(s1);
+                F2_101(d1) = F2_101(s1);
+                F2_102(d1) = F2_102(s1);
+                F2_103(d1) = F2_103(s1);
+                F2_104(d1) = F2_104(s1);
+                F2_105(d1) = F2_105(s1);
+                F2_106(d1) = F2_106(s1);
+                F2_107(d1) = F2_107(s1);
+                F2_108(d1) = F2_108(s1);
+                F2_109(d1) = F2_109(s1);
+                F2_110(d1) = F2_110(s1);
+                F2_111(d1) = F2_111(s1);
+                F2_112(d1) = F2_112(s1);
+                F2_113(d1) = F2_113(s1);
+                F2_114(d1) = F2_114(s1);
+                F2_115(d1) = F2_115(s1);
+                F2_116(d1) = F2_116(s1);
+                F2_117(d1) = F2_117(s1);
+                F2_118(d1) = F2_118(s1);
+                F2_119(d1) = F2_119(s1);
+                F2_120(d1) = F2_120(s1);
+                F2_121(d1) = F2_121(s1);
+                F2_122(d1) = F2_122(s1);
+                F2_123(d1) = F2_123(s1);
+                F2_124(d1) = F2_124(s1);
+                F2_125(d1) = F2_125(s1);
+                F2_126(d1) = F2_126(s1);
+                F2_127(d1) = F2_127(s1);
+                F2_128(d1) = F2_128(s1);
                 d1.SortingOrder = s1.SortingOrder;
                 d1.SortingSpace = s1.SortingSpace;
                 d1.BlendMode = s1.BlendMode;
@@ -1118,6 +1159,7 @@ public static class Registry
             Flags = (global::DigitoyEngine.LifecycleFlags)418,
             Schema = s,
             Previewable = false,
+            Anim = a,
             ReadBaked = Read_2,
         });
     }
@@ -1171,217 +1213,217 @@ public static class Registry
                 }
                 case 6:
                 {
-                    F2_98(c) = r.Bool();
+                    F2_129(c) = r.Bool();
                     break;
                 }
                 case 7:
                 {
-                    F2_99(c) = r.F32();
+                    F2_130(c) = r.F32();
                     break;
                 }
                 case 8:
                 {
-                    F2_100(c) = r.F32();
+                    F2_131(c) = r.F32();
                     break;
                 }
                 case 9:
                 {
-                    F2_101(c) = r.V2();
+                    F2_132(c) = r.V2();
                     break;
                 }
                 case 10:
                 {
-                    F2_102(c) = r.V2();
+                    F2_133(c) = r.V2();
                     break;
                 }
                 case 11:
                 {
-                    F2_103(c) = r.V2();
+                    F2_134(c) = r.V2();
                     break;
                 }
                 case 12:
                 {
-                    F2_104(c) = r.V2();
+                    F2_135(c) = r.V2();
                     break;
                 }
                 case 13:
                 {
-                    F2_105(c) = r.F32();
+                    F2_136(c) = r.F32();
                     break;
                 }
                 case 14:
                 {
-                    F2_106(c) = r.Bool();
+                    F2_137(c) = r.Bool();
                     break;
                 }
                 case 15:
                 {
-                    F2_107(c) = (global::DigitoyEngine.LayoutMode)r.I32();
+                    F2_138(c) = (global::DigitoyEngine.LayoutMode)r.I32();
                     break;
                 }
                 case 16:
                 {
-                    F2_108(c) = r.F32();
+                    F2_139(c) = r.F32();
                     break;
                 }
                 case 17:
                 {
-                    F2_109(c) = r.V4();
+                    F2_140(c) = r.V4();
                     break;
                 }
                 case 18:
                 {
-                    F2_110(c) = (global::DigitoyEngine.LayoutAlign)r.I32();
+                    F2_141(c) = (global::DigitoyEngine.LayoutAlign)r.I32();
                     break;
                 }
                 case 19:
                 {
-                    F2_111(c) = (global::DigitoyEngine.LayoutJustify)r.I32();
+                    F2_142(c) = (global::DigitoyEngine.LayoutJustify)r.I32();
                     break;
                 }
                 case 20:
                 {
-                    F2_112(c) = r.Bool();
+                    F2_143(c) = r.Bool();
                     break;
                 }
                 case 21:
                 {
-                    F2_113(c) = (global::DigitoyEngine.OverflowMode)r.I32();
+                    F2_144(c) = (global::DigitoyEngine.OverflowMode)r.I32();
                     break;
                 }
                 case 22:
                 {
-                    F2_114(c) = (global::DigitoyEngine.OverflowMode)r.I32();
+                    F2_145(c) = (global::DigitoyEngine.OverflowMode)r.I32();
                     break;
                 }
                 case 23:
                 {
-                    if (r.U8() != 0) Read_2_n0(ref F2_115(c), r);
+                    if (r.U8() != 0) Read_2_n0(ref F2_146(c), r);
                     break;
                 }
                 case 24:
                 {
-                    F2_116(c) = r.V4();
+                    F2_147(c) = r.V4();
                     break;
                 }
                 case 25:
                 {
-                    if (r.U8() != 0) Read_2_n1(ref F2_117(c), r);
+                    if (r.U8() != 0) Read_2_n1(ref F2_148(c), r);
                     break;
                 }
                 case 26:
                 {
-                    F2_118(c) = r.V4();
+                    F2_149(c) = r.V4();
                     break;
                 }
                 case 27:
                 {
-                    F2_119(c) = (global::DigitoyEngine.Sprite)r.Asset(typeof(global::DigitoyEngine.Sprite));
+                    F2_150(c) = (global::DigitoyEngine.Sprite)r.Asset(typeof(global::DigitoyEngine.Sprite));
                     break;
                 }
                 case 28:
                 {
-                    F2_120(c) = r.V4();
+                    F2_151(c) = r.V4();
                     break;
                 }
                 case 29:
                 {
-                    F2_121(c) = r.Col();
+                    F2_152(c) = r.Col();
                     break;
                 }
                 case 30:
                 {
-                    F2_122(c) = r.V2();
+                    F2_153(c) = r.V2();
                     break;
                 }
                 case 31:
                 {
-                    F2_123(c) = r.F32();
+                    F2_154(c) = r.F32();
                     break;
                 }
                 case 32:
                 {
-                    F2_124(c) = r.F32();
+                    F2_155(c) = r.F32();
                     break;
                 }
                 case 33:
                 {
-                    F2_125(c) = (global::DigitoyEngine.Font)r.Asset(typeof(global::DigitoyEngine.Font));
+                    F2_156(c) = (global::DigitoyEngine.Font)r.Asset(typeof(global::DigitoyEngine.Font));
                     break;
                 }
                 case 34:
                 {
-                    F2_126(c) = r.String();
+                    F2_157(c) = r.String();
                     break;
                 }
                 case 35:
                 {
-                    F2_127(c) = r.F32();
+                    F2_158(c) = r.F32();
                     break;
                 }
                 case 36:
                 {
-                    F2_128(c) = (global::DigitoyEngine.TextAlign)r.I32();
+                    F2_159(c) = (global::DigitoyEngine.TextAlign)r.I32();
                     break;
                 }
                 case 37:
                 {
-                    F2_129(c) = (global::DigitoyEngine.LayoutAlign)r.I32();
+                    F2_160(c) = (global::DigitoyEngine.LayoutAlign)r.I32();
                     break;
                 }
                 case 38:
                 {
-                    F2_130(c) = r.Bool();
+                    F2_161(c) = r.Bool();
                     break;
                 }
                 case 39:
                 {
-                    F2_131(c) = r.Bool();
+                    F2_162(c) = r.Bool();
                     break;
                 }
                 case 40:
                 {
-                    F2_132(c) = r.F32();
+                    F2_163(c) = r.F32();
                     break;
                 }
                 case 41:
                 {
-                    F2_133(c) = r.F32();
+                    F2_164(c) = r.F32();
                     break;
                 }
                 case 42:
                 {
-                    F2_134(c) = r.F32();
+                    F2_165(c) = r.F32();
                     break;
                 }
                 case 43:
                 {
-                    if (r.U8() != 0) Read_2_n2(ref F2_135(c), r);
+                    if (r.U8() != 0) Read_2_n2(ref F2_166(c), r);
                     break;
                 }
                 case 44:
                 {
-                    F2_136(c) = r.F32();
+                    F2_167(c) = r.F32();
                     break;
                 }
                 case 45:
                 {
-                    if (r.U8() != 0) Read_2_n3(ref F2_137(c), r);
+                    if (r.U8() != 0) Read_2_n3(ref F2_168(c), r);
                     break;
                 }
                 case 46:
                 {
-                    F2_138(c) = r.Col();
+                    F2_169(c) = r.Col();
                     break;
                 }
                 case 47:
                 {
-                    F2_139(c) = r.V2();
+                    F2_170(c) = r.V2();
                     break;
                 }
                 case 48:
                 {
-                    F2_140(c) = r.F32();
+                    F2_171(c) = r.F32();
                     break;
                 }
             }
@@ -1518,422 +1560,515 @@ public static class Registry
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "width")]
     static extern ref global::System.Single F2_1(global::DigitoyEngine.LayoutBox o);
 
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "width")]
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "height")]
     static extern ref global::System.Single F2_2(global::DigitoyEngine.LayoutBox o);
 
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "height")]
-    static extern ref global::System.Single F2_3(global::DigitoyEngine.LayoutBox o);
-
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "height")]
-    static extern ref global::System.Single F2_4(global::DigitoyEngine.LayoutBox o);
-
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "pivot")]
+    static extern ref global::DigitoyEngine.Vec2 F2_3(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "anchorMin")]
+    static extern ref global::DigitoyEngine.Vec2 F2_4(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "anchorMax")]
     static extern ref global::DigitoyEngine.Vec2 F2_5(global::DigitoyEngine.LayoutBox o);
 
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "anchorMin")]
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "anchoredPos")]
     static extern ref global::DigitoyEngine.Vec2 F2_6(global::DigitoyEngine.LayoutBox o);
 
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "anchorMax")]
-    static extern ref global::DigitoyEngine.Vec2 F2_7(global::DigitoyEngine.LayoutBox o);
-
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "anchoredPos")]
-    static extern ref global::DigitoyEngine.Vec2 F2_8(global::DigitoyEngine.LayoutBox o);
-
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "grow")]
-    static extern ref global::System.Single F2_9(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::System.Single F2_7(global::DigitoyEngine.LayoutBox o);
 
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "grow")]
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "ignoreLayout")]
+    static extern ref global::System.Boolean F2_8(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "layout")]
+    static extern ref global::DigitoyEngine.LayoutMode F2_9(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "spacing")]
     static extern ref global::System.Single F2_10(global::DigitoyEngine.LayoutBox o);
 
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "ignoreLayout")]
-    static extern ref global::System.Boolean F2_11(global::DigitoyEngine.LayoutBox o);
-
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "layout")]
-    static extern ref global::DigitoyEngine.LayoutMode F2_12(global::DigitoyEngine.LayoutBox o);
-
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "spacing")]
-    static extern ref global::System.Single F2_13(global::DigitoyEngine.LayoutBox o);
-
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "spacing")]
-    static extern ref global::System.Single F2_14(global::DigitoyEngine.LayoutBox o);
-
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "padding")]
-    static extern ref global::DigitoyEngine.Vec4 F2_15(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.Vec4 F2_11(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "alignChildren")]
-    static extern ref global::DigitoyEngine.LayoutAlign F2_16(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.LayoutAlign F2_12(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "justifyChildren")]
-    static extern ref global::DigitoyEngine.LayoutJustify F2_17(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.LayoutJustify F2_13(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "reverse")]
-    static extern ref global::System.Boolean F2_18(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::System.Boolean F2_14(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "overflowX")]
-    static extern ref global::DigitoyEngine.OverflowMode F2_19(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.OverflowMode F2_15(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "overflowY")]
-    static extern ref global::DigitoyEngine.OverflowMode F2_20(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.OverflowMode F2_16(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "fill")]
-    static extern ref global::DigitoyEngine.Gradient F2_21(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.Gradient F2_17(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "border")]
+    static extern ref global::DigitoyEngine.Vec4 F2_18(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "borderFill")]
+    static extern ref global::DigitoyEngine.Gradient F2_19(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "radius")]
+    static extern ref global::DigitoyEngine.Vec4 F2_20(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "sprite")]
+    static extern ref global::DigitoyEngine.Sprite F2_21(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "slice9")]
     static extern ref global::DigitoyEngine.Vec4 F2_22(global::DigitoyEngine.LayoutBox o);
 
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "borderFill")]
-    static extern ref global::DigitoyEngine.Gradient F2_23(global::DigitoyEngine.LayoutBox o);
-
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "radius")]
-    static extern ref global::DigitoyEngine.Vec4 F2_24(global::DigitoyEngine.LayoutBox o);
-
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "sprite")]
-    static extern ref global::DigitoyEngine.Sprite F2_25(global::DigitoyEngine.LayoutBox o);
-
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "slice9")]
-    static extern ref global::DigitoyEngine.Vec4 F2_26(global::DigitoyEngine.LayoutBox o);
-
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "shadowColor")]
-    static extern ref global::DigitoyEngine.Color F2_27(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.Color F2_23(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "shadowOffset")]
-    static extern ref global::DigitoyEngine.Vec2 F2_28(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.Vec2 F2_24(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "shadowBlur")]
+    static extern ref global::System.Single F2_25(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "shadowGrow")]
+    static extern ref global::System.Single F2_26(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "font")]
+    static extern ref global::DigitoyEngine.Font F2_27(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "text")]
+    static extern ref global::System.String F2_28(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textSize")]
     static extern ref global::System.Single F2_29(global::DigitoyEngine.LayoutBox o);
 
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "shadowBlur")]
-    static extern ref global::System.Single F2_30(global::DigitoyEngine.LayoutBox o);
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textAlign")]
+    static extern ref global::DigitoyEngine.TextAlign F2_30(global::DigitoyEngine.LayoutBox o);
 
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "shadowGrow")]
-    static extern ref global::System.Single F2_31(global::DigitoyEngine.LayoutBox o);
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textAlignV")]
+    static extern ref global::DigitoyEngine.LayoutAlign F2_31(global::DigitoyEngine.LayoutBox o);
 
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "shadowGrow")]
-    static extern ref global::System.Single F2_32(global::DigitoyEngine.LayoutBox o);
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textWrap")]
+    static extern ref global::System.Boolean F2_32(global::DigitoyEngine.LayoutBox o);
 
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "font")]
-    static extern ref global::DigitoyEngine.Font F2_33(global::DigitoyEngine.LayoutBox o);
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textEllipsis")]
+    static extern ref global::System.Boolean F2_33(global::DigitoyEngine.LayoutBox o);
 
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "text")]
-    static extern ref global::System.String F2_34(global::DigitoyEngine.LayoutBox o);
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textWeight")]
+    static extern ref global::System.Single F2_34(global::DigitoyEngine.LayoutBox o);
 
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textSize")]
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textSkew")]
     static extern ref global::System.Single F2_35(global::DigitoyEngine.LayoutBox o);
 
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textSize")]
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textSpacing")]
     static extern ref global::System.Single F2_36(global::DigitoyEngine.LayoutBox o);
 
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textAlign")]
-    static extern ref global::DigitoyEngine.TextAlign F2_37(global::DigitoyEngine.LayoutBox o);
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textFill")]
+    static extern ref global::DigitoyEngine.Gradient F2_37(global::DigitoyEngine.LayoutBox o);
 
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textAlignV")]
-    static extern ref global::DigitoyEngine.LayoutAlign F2_38(global::DigitoyEngine.LayoutBox o);
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textOutlineWidth")]
+    static extern ref global::System.Single F2_38(global::DigitoyEngine.LayoutBox o);
 
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textWrap")]
-    static extern ref global::System.Boolean F2_39(global::DigitoyEngine.LayoutBox o);
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textOutline")]
+    static extern ref global::DigitoyEngine.Gradient F2_39(global::DigitoyEngine.LayoutBox o);
 
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textEllipsis")]
-    static extern ref global::System.Boolean F2_40(global::DigitoyEngine.LayoutBox o);
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textShadowColor")]
+    static extern ref global::DigitoyEngine.Color F2_40(global::DigitoyEngine.LayoutBox o);
 
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textWeight")]
-    static extern ref global::System.Single F2_41(global::DigitoyEngine.LayoutBox o);
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textShadowOffset")]
+    static extern ref global::DigitoyEngine.Vec2 F2_41(global::DigitoyEngine.LayoutBox o);
 
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textWeight")]
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textShadowBlur")]
     static extern ref global::System.Single F2_42(global::DigitoyEngine.LayoutBox o);
 
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textSkew")]
-    static extern ref global::System.Single F2_43(global::DigitoyEngine.LayoutBox o);
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "fitScreen")]
+    static extern ref global::System.Boolean F2_43(global::DigitoyEngine.LayoutBox o);
 
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textSkew")]
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "width")]
     static extern ref global::System.Single F2_44(global::DigitoyEngine.LayoutBox o);
 
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textSpacing")]
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "height")]
     static extern ref global::System.Single F2_45(global::DigitoyEngine.LayoutBox o);
 
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textSpacing")]
-    static extern ref global::System.Single F2_46(global::DigitoyEngine.LayoutBox o);
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "pivot")]
+    static extern ref global::DigitoyEngine.Vec2 F2_46(global::DigitoyEngine.LayoutBox o);
 
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textFill")]
-    static extern ref global::DigitoyEngine.Gradient F2_47(global::DigitoyEngine.LayoutBox o);
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "anchorMin")]
+    static extern ref global::DigitoyEngine.Vec2 F2_47(global::DigitoyEngine.LayoutBox o);
 
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textOutlineWidth")]
-    static extern ref global::System.Single F2_48(global::DigitoyEngine.LayoutBox o);
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "anchorMax")]
+    static extern ref global::DigitoyEngine.Vec2 F2_48(global::DigitoyEngine.LayoutBox o);
 
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textOutlineWidth")]
-    static extern ref global::System.Single F2_49(global::DigitoyEngine.LayoutBox o);
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "anchoredPos")]
+    static extern ref global::DigitoyEngine.Vec2 F2_49(global::DigitoyEngine.LayoutBox o);
 
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textOutline")]
-    static extern ref global::DigitoyEngine.Gradient F2_50(global::DigitoyEngine.LayoutBox o);
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "grow")]
+    static extern ref global::System.Single F2_50(global::DigitoyEngine.LayoutBox o);
 
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textShadowColor")]
-    static extern ref global::DigitoyEngine.Color F2_51(global::DigitoyEngine.LayoutBox o);
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "ignoreLayout")]
+    static extern ref global::System.Boolean F2_51(global::DigitoyEngine.LayoutBox o);
 
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textShadowOffset")]
-    static extern ref global::DigitoyEngine.Vec2 F2_52(global::DigitoyEngine.LayoutBox o);
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "layout")]
+    static extern ref global::DigitoyEngine.LayoutMode F2_52(global::DigitoyEngine.LayoutBox o);
 
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textShadowBlur")]
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "spacing")]
     static extern ref global::System.Single F2_53(global::DigitoyEngine.LayoutBox o);
 
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textShadowBlur")]
-    static extern ref global::System.Single F2_54(global::DigitoyEngine.LayoutBox o);
-
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "fitScreen")]
-    static extern ref global::System.Boolean F2_55(global::DigitoyEngine.LayoutBox o);
-
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "width")]
-    static extern ref global::System.Single F2_56(global::DigitoyEngine.LayoutBox o);
-
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "height")]
-    static extern ref global::System.Single F2_57(global::DigitoyEngine.LayoutBox o);
-
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "pivot")]
-    static extern ref global::DigitoyEngine.Vec2 F2_58(global::DigitoyEngine.LayoutBox o);
-
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "anchorMin")]
-    static extern ref global::DigitoyEngine.Vec2 F2_59(global::DigitoyEngine.LayoutBox o);
-
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "anchorMax")]
-    static extern ref global::DigitoyEngine.Vec2 F2_60(global::DigitoyEngine.LayoutBox o);
-
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "anchoredPos")]
-    static extern ref global::DigitoyEngine.Vec2 F2_61(global::DigitoyEngine.LayoutBox o);
-
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "grow")]
-    static extern ref global::System.Single F2_62(global::DigitoyEngine.LayoutBox o);
-
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "ignoreLayout")]
-    static extern ref global::System.Boolean F2_63(global::DigitoyEngine.LayoutBox o);
-
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "layout")]
-    static extern ref global::DigitoyEngine.LayoutMode F2_64(global::DigitoyEngine.LayoutBox o);
-
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "spacing")]
-    static extern ref global::System.Single F2_65(global::DigitoyEngine.LayoutBox o);
-
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "padding")]
-    static extern ref global::DigitoyEngine.Vec4 F2_66(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.Vec4 F2_54(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "alignChildren")]
-    static extern ref global::DigitoyEngine.LayoutAlign F2_67(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.LayoutAlign F2_55(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "justifyChildren")]
-    static extern ref global::DigitoyEngine.LayoutJustify F2_68(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.LayoutJustify F2_56(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "reverse")]
-    static extern ref global::System.Boolean F2_69(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::System.Boolean F2_57(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "overflowX")]
-    static extern ref global::DigitoyEngine.OverflowMode F2_70(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.OverflowMode F2_58(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "overflowY")]
-    static extern ref global::DigitoyEngine.OverflowMode F2_71(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.OverflowMode F2_59(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "fill")]
-    static extern ref global::DigitoyEngine.Gradient F2_72(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.Gradient F2_60(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "border")]
-    static extern ref global::DigitoyEngine.Vec4 F2_73(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.Vec4 F2_61(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "borderFill")]
-    static extern ref global::DigitoyEngine.Gradient F2_74(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.Gradient F2_62(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "radius")]
-    static extern ref global::DigitoyEngine.Vec4 F2_75(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.Vec4 F2_63(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "sprite")]
-    static extern ref global::DigitoyEngine.Sprite F2_76(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.Sprite F2_64(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "slice9")]
-    static extern ref global::DigitoyEngine.Vec4 F2_77(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.Vec4 F2_65(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "shadowColor")]
-    static extern ref global::DigitoyEngine.Color F2_78(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.Color F2_66(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "shadowOffset")]
-    static extern ref global::DigitoyEngine.Vec2 F2_79(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.Vec2 F2_67(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "shadowBlur")]
-    static extern ref global::System.Single F2_80(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::System.Single F2_68(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "shadowGrow")]
+    static extern ref global::System.Single F2_69(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "font")]
+    static extern ref global::DigitoyEngine.Font F2_70(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "text")]
+    static extern ref global::System.String F2_71(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textSize")]
+    static extern ref global::System.Single F2_72(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textAlign")]
+    static extern ref global::DigitoyEngine.TextAlign F2_73(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textAlignV")]
+    static extern ref global::DigitoyEngine.LayoutAlign F2_74(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textWrap")]
+    static extern ref global::System.Boolean F2_75(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textEllipsis")]
+    static extern ref global::System.Boolean F2_76(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textWeight")]
+    static extern ref global::System.Single F2_77(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textSkew")]
+    static extern ref global::System.Single F2_78(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textSpacing")]
+    static extern ref global::System.Single F2_79(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textFill")]
+    static extern ref global::DigitoyEngine.Gradient F2_80(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textOutlineWidth")]
     static extern ref global::System.Single F2_81(global::DigitoyEngine.LayoutBox o);
 
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "font")]
-    static extern ref global::DigitoyEngine.Font F2_82(global::DigitoyEngine.LayoutBox o);
-
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "text")]
-    static extern ref global::System.String F2_83(global::DigitoyEngine.LayoutBox o);
-
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textSize")]
-    static extern ref global::System.Single F2_84(global::DigitoyEngine.LayoutBox o);
-
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textAlign")]
-    static extern ref global::DigitoyEngine.TextAlign F2_85(global::DigitoyEngine.LayoutBox o);
-
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textAlignV")]
-    static extern ref global::DigitoyEngine.LayoutAlign F2_86(global::DigitoyEngine.LayoutBox o);
-
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textWrap")]
-    static extern ref global::System.Boolean F2_87(global::DigitoyEngine.LayoutBox o);
-
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textEllipsis")]
-    static extern ref global::System.Boolean F2_88(global::DigitoyEngine.LayoutBox o);
-
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textWeight")]
-    static extern ref global::System.Single F2_89(global::DigitoyEngine.LayoutBox o);
-
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textSkew")]
-    static extern ref global::System.Single F2_90(global::DigitoyEngine.LayoutBox o);
-
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textSpacing")]
-    static extern ref global::System.Single F2_91(global::DigitoyEngine.LayoutBox o);
-
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textFill")]
-    static extern ref global::DigitoyEngine.Gradient F2_92(global::DigitoyEngine.LayoutBox o);
-
-    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textOutlineWidth")]
-    static extern ref global::System.Single F2_93(global::DigitoyEngine.LayoutBox o);
-
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textOutline")]
-    static extern ref global::DigitoyEngine.Gradient F2_94(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.Gradient F2_82(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textShadowColor")]
-    static extern ref global::DigitoyEngine.Color F2_95(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.Color F2_83(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textShadowOffset")]
-    static extern ref global::DigitoyEngine.Vec2 F2_96(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.Vec2 F2_84(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textShadowBlur")]
-    static extern ref global::System.Single F2_97(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::System.Single F2_85(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "fitScreen")]
-    static extern ref global::System.Boolean F2_98(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::System.Boolean F2_86(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "width")]
-    static extern ref global::System.Single F2_99(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::System.Single F2_87(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "height")]
-    static extern ref global::System.Single F2_100(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::System.Single F2_88(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "pivot")]
-    static extern ref global::DigitoyEngine.Vec2 F2_101(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.Vec2 F2_89(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "anchorMin")]
-    static extern ref global::DigitoyEngine.Vec2 F2_102(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.Vec2 F2_90(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "anchorMax")]
-    static extern ref global::DigitoyEngine.Vec2 F2_103(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.Vec2 F2_91(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "anchoredPos")]
-    static extern ref global::DigitoyEngine.Vec2 F2_104(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.Vec2 F2_92(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "grow")]
-    static extern ref global::System.Single F2_105(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::System.Single F2_93(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "ignoreLayout")]
-    static extern ref global::System.Boolean F2_106(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::System.Boolean F2_94(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "layout")]
-    static extern ref global::DigitoyEngine.LayoutMode F2_107(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.LayoutMode F2_95(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "spacing")]
-    static extern ref global::System.Single F2_108(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::System.Single F2_96(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "padding")]
-    static extern ref global::DigitoyEngine.Vec4 F2_109(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.Vec4 F2_97(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "alignChildren")]
-    static extern ref global::DigitoyEngine.LayoutAlign F2_110(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.LayoutAlign F2_98(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "justifyChildren")]
-    static extern ref global::DigitoyEngine.LayoutJustify F2_111(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.LayoutJustify F2_99(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "reverse")]
-    static extern ref global::System.Boolean F2_112(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::System.Boolean F2_100(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "overflowX")]
-    static extern ref global::DigitoyEngine.OverflowMode F2_113(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.OverflowMode F2_101(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "overflowY")]
-    static extern ref global::DigitoyEngine.OverflowMode F2_114(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.OverflowMode F2_102(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "fill")]
-    static extern ref global::DigitoyEngine.Gradient F2_115(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.Gradient F2_103(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "border")]
-    static extern ref global::DigitoyEngine.Vec4 F2_116(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.Vec4 F2_104(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "borderFill")]
-    static extern ref global::DigitoyEngine.Gradient F2_117(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.Gradient F2_105(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "radius")]
-    static extern ref global::DigitoyEngine.Vec4 F2_118(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.Vec4 F2_106(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "sprite")]
-    static extern ref global::DigitoyEngine.Sprite F2_119(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.Sprite F2_107(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "slice9")]
-    static extern ref global::DigitoyEngine.Vec4 F2_120(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.Vec4 F2_108(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "shadowColor")]
-    static extern ref global::DigitoyEngine.Color F2_121(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.Color F2_109(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "shadowOffset")]
-    static extern ref global::DigitoyEngine.Vec2 F2_122(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.Vec2 F2_110(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "shadowBlur")]
-    static extern ref global::System.Single F2_123(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::System.Single F2_111(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "shadowGrow")]
-    static extern ref global::System.Single F2_124(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::System.Single F2_112(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "font")]
-    static extern ref global::DigitoyEngine.Font F2_125(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.Font F2_113(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "text")]
-    static extern ref global::System.String F2_126(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::System.String F2_114(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textSize")]
-    static extern ref global::System.Single F2_127(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::System.Single F2_115(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textAlign")]
-    static extern ref global::DigitoyEngine.TextAlign F2_128(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.TextAlign F2_116(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textAlignV")]
-    static extern ref global::DigitoyEngine.LayoutAlign F2_129(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.LayoutAlign F2_117(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textWrap")]
-    static extern ref global::System.Boolean F2_130(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::System.Boolean F2_118(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textEllipsis")]
-    static extern ref global::System.Boolean F2_131(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::System.Boolean F2_119(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textWeight")]
-    static extern ref global::System.Single F2_132(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::System.Single F2_120(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textSkew")]
-    static extern ref global::System.Single F2_133(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::System.Single F2_121(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textSpacing")]
-    static extern ref global::System.Single F2_134(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::System.Single F2_122(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textFill")]
-    static extern ref global::DigitoyEngine.Gradient F2_135(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.Gradient F2_123(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textOutlineWidth")]
-    static extern ref global::System.Single F2_136(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::System.Single F2_124(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textOutline")]
-    static extern ref global::DigitoyEngine.Gradient F2_137(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.Gradient F2_125(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textShadowColor")]
-    static extern ref global::DigitoyEngine.Color F2_138(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.Color F2_126(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textShadowOffset")]
-    static extern ref global::DigitoyEngine.Vec2 F2_139(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::DigitoyEngine.Vec2 F2_127(global::DigitoyEngine.LayoutBox o);
 
     [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textShadowBlur")]
-    static extern ref global::System.Single F2_140(global::DigitoyEngine.LayoutBox o);
+    static extern ref global::System.Single F2_128(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "fitScreen")]
+    static extern ref global::System.Boolean F2_129(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "width")]
+    static extern ref global::System.Single F2_130(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "height")]
+    static extern ref global::System.Single F2_131(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "pivot")]
+    static extern ref global::DigitoyEngine.Vec2 F2_132(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "anchorMin")]
+    static extern ref global::DigitoyEngine.Vec2 F2_133(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "anchorMax")]
+    static extern ref global::DigitoyEngine.Vec2 F2_134(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "anchoredPos")]
+    static extern ref global::DigitoyEngine.Vec2 F2_135(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "grow")]
+    static extern ref global::System.Single F2_136(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "ignoreLayout")]
+    static extern ref global::System.Boolean F2_137(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "layout")]
+    static extern ref global::DigitoyEngine.LayoutMode F2_138(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "spacing")]
+    static extern ref global::System.Single F2_139(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "padding")]
+    static extern ref global::DigitoyEngine.Vec4 F2_140(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "alignChildren")]
+    static extern ref global::DigitoyEngine.LayoutAlign F2_141(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "justifyChildren")]
+    static extern ref global::DigitoyEngine.LayoutJustify F2_142(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "reverse")]
+    static extern ref global::System.Boolean F2_143(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "overflowX")]
+    static extern ref global::DigitoyEngine.OverflowMode F2_144(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "overflowY")]
+    static extern ref global::DigitoyEngine.OverflowMode F2_145(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "fill")]
+    static extern ref global::DigitoyEngine.Gradient F2_146(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "border")]
+    static extern ref global::DigitoyEngine.Vec4 F2_147(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "borderFill")]
+    static extern ref global::DigitoyEngine.Gradient F2_148(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "radius")]
+    static extern ref global::DigitoyEngine.Vec4 F2_149(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "sprite")]
+    static extern ref global::DigitoyEngine.Sprite F2_150(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "slice9")]
+    static extern ref global::DigitoyEngine.Vec4 F2_151(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "shadowColor")]
+    static extern ref global::DigitoyEngine.Color F2_152(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "shadowOffset")]
+    static extern ref global::DigitoyEngine.Vec2 F2_153(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "shadowBlur")]
+    static extern ref global::System.Single F2_154(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "shadowGrow")]
+    static extern ref global::System.Single F2_155(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "font")]
+    static extern ref global::DigitoyEngine.Font F2_156(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "text")]
+    static extern ref global::System.String F2_157(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textSize")]
+    static extern ref global::System.Single F2_158(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textAlign")]
+    static extern ref global::DigitoyEngine.TextAlign F2_159(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textAlignV")]
+    static extern ref global::DigitoyEngine.LayoutAlign F2_160(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textWrap")]
+    static extern ref global::System.Boolean F2_161(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textEllipsis")]
+    static extern ref global::System.Boolean F2_162(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textWeight")]
+    static extern ref global::System.Single F2_163(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textSkew")]
+    static extern ref global::System.Single F2_164(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textSpacing")]
+    static extern ref global::System.Single F2_165(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textFill")]
+    static extern ref global::DigitoyEngine.Gradient F2_166(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textOutlineWidth")]
+    static extern ref global::System.Single F2_167(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textOutline")]
+    static extern ref global::DigitoyEngine.Gradient F2_168(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textShadowColor")]
+    static extern ref global::DigitoyEngine.Color F2_169(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textShadowOffset")]
+    static extern ref global::DigitoyEngine.Vec2 F2_170(global::DigitoyEngine.LayoutBox o);
+
+    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Field, Name = "textShadowBlur")]
+    static extern ref global::System.Single F2_171(global::DigitoyEngine.LayoutBox o);
 
     static void Reg_3(global::DigitoyEngine.TypeCatalog cat)
     {
@@ -2110,8 +2245,6 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.MovieClip)o).Fps,
             Set = (o, v) => ((global::DigitoyEngine.MovieClip)o).Fps = (global::System.Int32)v,
 #endif
-            GetFloat = c => (float)((global::DigitoyEngine.MovieClip)c).Fps,
-            SetFloat = (c, v) => ((global::DigitoyEngine.MovieClip)c).Fps = (int)v,
         };
         s[1] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -2123,8 +2256,6 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.MovieClip)o).FrameCount,
             Set = (o, v) => ((global::DigitoyEngine.MovieClip)o).FrameCount = (global::System.Int32)v,
 #endif
-            GetFloat = c => (float)((global::DigitoyEngine.MovieClip)c).FrameCount,
-            SetFloat = (c, v) => ((global::DigitoyEngine.MovieClip)c).FrameCount = (int)v,
         };
         s[2] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -2169,8 +2300,6 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.MovieClip)o).Speed,
             Set = (o, v) => ((global::DigitoyEngine.MovieClip)o).Speed = (global::System.Single)v,
 #endif
-            GetFloat = c => ((global::DigitoyEngine.MovieClip)c).Speed,
-            SetFloat = (c, v) => ((global::DigitoyEngine.MovieClip)c).Speed = v,
         };
         s[6] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -2214,6 +2343,17 @@ public static class Registry
             NewList = () => new global::System.Collections.Generic.List<global::DigitoyEngine.ClipAction>(),
             NewElement = () => new global::DigitoyEngine.ClipAction(),
         };
+        var a = new global::DigitoyEngine.AnimProperty[]
+        {
+            new global::DigitoyEngine.AnimProperty { Path = "Fps", Kind = global::DigitoyEngine.AnimKind.Int, OwnerType = typeof(global::DigitoyEngine.MovieClip), ValueType = typeof(global::System.Int32), Get = c => global::DigitoyEngine.AnimValue.FromInt(((global::DigitoyEngine.MovieClip)c).Fps), Set = (c, v) => ((global::DigitoyEngine.MovieClip)c).Fps = v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "FrameCount", Kind = global::DigitoyEngine.AnimKind.Int, OwnerType = typeof(global::DigitoyEngine.MovieClip), ValueType = typeof(global::System.Int32), Get = c => global::DigitoyEngine.AnimValue.FromInt(((global::DigitoyEngine.MovieClip)c).FrameCount), Set = (c, v) => ((global::DigitoyEngine.MovieClip)c).FrameCount = v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "Loop", Kind = global::DigitoyEngine.AnimKind.Bool, OwnerType = typeof(global::DigitoyEngine.MovieClip), ValueType = typeof(global::System.Boolean), Get = c => global::DigitoyEngine.AnimValue.FromBool(((global::DigitoyEngine.MovieClip)c).Loop), Set = (c, v) => ((global::DigitoyEngine.MovieClip)c).Loop = v.ToBool() },
+            new global::DigitoyEngine.AnimProperty { Path = "PlayOnStart", Kind = global::DigitoyEngine.AnimKind.Bool, OwnerType = typeof(global::DigitoyEngine.MovieClip), ValueType = typeof(global::System.Boolean), Get = c => global::DigitoyEngine.AnimValue.FromBool(((global::DigitoyEngine.MovieClip)c).PlayOnStart), Set = (c, v) => ((global::DigitoyEngine.MovieClip)c).PlayOnStart = v.ToBool() },
+            new global::DigitoyEngine.AnimProperty { Path = "Interpolate", Kind = global::DigitoyEngine.AnimKind.Bool, OwnerType = typeof(global::DigitoyEngine.MovieClip), ValueType = typeof(global::System.Boolean), Get = c => global::DigitoyEngine.AnimValue.FromBool(((global::DigitoyEngine.MovieClip)c).Interpolate), Set = (c, v) => ((global::DigitoyEngine.MovieClip)c).Interpolate = v.ToBool() },
+            new global::DigitoyEngine.AnimProperty { Path = "Speed", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.MovieClip), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.MovieClip)c).Speed), Set = (c, v) => ((global::DigitoyEngine.MovieClip)c).Speed = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "Frame", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.MovieClip), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.MovieClip)c).Frame), Set = (c, v) => ((global::DigitoyEngine.MovieClip)c).Frame = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "Playing", Kind = global::DigitoyEngine.AnimKind.Bool, OwnerType = typeof(global::DigitoyEngine.MovieClip), ValueType = typeof(global::System.Boolean), Get = c => global::DigitoyEngine.AnimValue.FromBool(((global::DigitoyEngine.MovieClip)c).Playing), Set = (c, v) => ((global::DigitoyEngine.MovieClip)c).Playing = v.ToBool() },
+        };
         cat.Register(new global::DigitoyEngine.TypeCatalog.Entry
         {
             Type = typeof(global::DigitoyEngine.MovieClip),
@@ -2235,6 +2375,7 @@ public static class Registry
             Flags = (global::DigitoyEngine.LifecycleFlags)13,
             Schema = s,
             Previewable = true,
+            Anim = a,
             ReadBaked = Read_3,
         });
     }
@@ -4314,8 +4455,6 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.Renderer)o).SortingOrder,
             Set = (o, v) => ((global::DigitoyEngine.Renderer)o).SortingOrder = (global::System.Int32)v,
 #endif
-            GetFloat = c => (float)((global::DigitoyEngine.Renderer)c).SortingOrder,
-            SetFloat = (c, v) => ((global::DigitoyEngine.Renderer)c).SortingOrder = (int)v,
         };
         s[1] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -4383,8 +4522,6 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.ParticleSystem)o).duration,
             Set = (o, v) => ((global::DigitoyEngine.ParticleSystem)o).duration = (global::System.Single)v,
 #endif
-            GetFloat = c => ((global::DigitoyEngine.ParticleSystem)c).duration,
-            SetFloat = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).duration = v,
         };
         s[7] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -4418,8 +4555,6 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.ParticleSystem)o).startDelay,
             Set = (o, v) => ((global::DigitoyEngine.ParticleSystem)o).startDelay = (global::System.Single)v,
 #endif
-            GetFloat = c => ((global::DigitoyEngine.ParticleSystem)c).startDelay,
-            SetFloat = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).startDelay = v,
         };
         s[10] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -4442,8 +4577,6 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.ParticleSystem)o).simulationSpeed,
             Set = (o, v) => ((global::DigitoyEngine.ParticleSystem)o).simulationSpeed = (global::System.Single)v,
 #endif
-            GetFloat = c => ((global::DigitoyEngine.ParticleSystem)c).simulationSpeed,
-            SetFloat = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).simulationSpeed = v,
         };
         s[12] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -4466,8 +4599,6 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.ParticleSystem)o).maxParticles,
             Set = (o, v) => ((global::DigitoyEngine.ParticleSystem)o).maxParticles = (global::System.Int32)v,
 #endif
-            GetFloat = c => (float)((global::DigitoyEngine.ParticleSystem)c).maxParticles,
-            SetFloat = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).maxParticles = (int)v,
         };
         s[14] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -4479,8 +4610,6 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.ParticleSystem)o).randomSeed,
             Set = (o, v) => ((global::DigitoyEngine.ParticleSystem)o).randomSeed = (global::System.Int32)v,
 #endif
-            GetFloat = c => (float)((global::DigitoyEngine.ParticleSystem)c).randomSeed,
-            SetFloat = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).randomSeed = (int)v,
         };
         s[15] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -4578,8 +4707,6 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.ParticleSystem)o).aspect,
             Set = (o, v) => ((global::DigitoyEngine.ParticleSystem)o).aspect = (global::System.Single)v,
 #endif
-            GetFloat = c => ((global::DigitoyEngine.ParticleSystem)c).aspect,
-            SetFloat = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).aspect = v,
         };
         s[22] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -4646,8 +4773,6 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.ParticleSystem)o).lengthScale,
             Set = (o, v) => ((global::DigitoyEngine.ParticleSystem)o).lengthScale = (global::System.Single)v,
 #endif
-            GetFloat = c => ((global::DigitoyEngine.ParticleSystem)c).lengthScale,
-            SetFloat = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).lengthScale = v,
         };
         s[27] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -4659,8 +4784,6 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.ParticleSystem)o).speedScale,
             Set = (o, v) => ((global::DigitoyEngine.ParticleSystem)o).speedScale = (global::System.Single)v,
 #endif
-            GetFloat = c => ((global::DigitoyEngine.ParticleSystem)c).speedScale,
-            SetFloat = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).speedScale = v,
         };
         s[28] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -4793,10 +4916,110 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.ParticleSystem)o).subEmitterCount,
             Set = (o, v) => ((global::DigitoyEngine.ParticleSystem)o).subEmitterCount = (global::System.Int32)v,
 #endif
-            GetFloat = c => (float)((global::DigitoyEngine.ParticleSystem)c).subEmitterCount,
-            SetFloat = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).subEmitterCount = (int)v,
         };
         s[20].ShowIf = s[19];
+        var a = new global::DigitoyEngine.AnimProperty[]
+        {
+            new global::DigitoyEngine.AnimProperty { Path = "SortingOrder", Kind = global::DigitoyEngine.AnimKind.Int, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Int32), Get = c => global::DigitoyEngine.AnimValue.FromInt(((global::DigitoyEngine.ParticleSystem)c).SortingOrder), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).SortingOrder = v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "SortingSpace", Kind = global::DigitoyEngine.AnimKind.Enum, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::DigitoyEngine.SortingSpace), Get = c => global::DigitoyEngine.AnimValue.FromInt((int)((global::DigitoyEngine.ParticleSystem)c).SortingSpace), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).SortingSpace = (global::DigitoyEngine.SortingSpace)v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "BlendMode", Kind = global::DigitoyEngine.AnimKind.Enum, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::DigitoyEngine.BlendMode), Get = c => global::DigitoyEngine.AnimValue.FromInt((int)((global::DigitoyEngine.ParticleSystem)c).BlendMode), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).BlendMode = (global::DigitoyEngine.BlendMode)v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "FxParams", Kind = global::DigitoyEngine.AnimKind.Vec4, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::DigitoyEngine.Vec4), Get = c => global::DigitoyEngine.AnimValue.FromVec4(((global::DigitoyEngine.ParticleSystem)c).FxParams), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).FxParams = v.ToVec4() },
+            new global::DigitoyEngine.AnimProperty { Path = "BlocksRaycast", Kind = global::DigitoyEngine.AnimKind.Bool, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Boolean), Get = c => global::DigitoyEngine.AnimValue.FromBool(((global::DigitoyEngine.ParticleSystem)c).BlocksRaycast), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).BlocksRaycast = v.ToBool() },
+            new global::DigitoyEngine.AnimProperty { Path = "duration", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).duration), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).duration = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "looping", Kind = global::DigitoyEngine.AnimKind.Bool, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Boolean), Get = c => global::DigitoyEngine.AnimValue.FromBool(((global::DigitoyEngine.ParticleSystem)c).looping), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).looping = v.ToBool() },
+            new global::DigitoyEngine.AnimProperty { Path = "prewarm", Kind = global::DigitoyEngine.AnimKind.Bool, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Boolean), Get = c => global::DigitoyEngine.AnimValue.FromBool(((global::DigitoyEngine.ParticleSystem)c).prewarm), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).prewarm = v.ToBool() },
+            new global::DigitoyEngine.AnimProperty { Path = "startDelay", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).startDelay), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).startDelay = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "playOnAwake", Kind = global::DigitoyEngine.AnimKind.Bool, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Boolean), Get = c => global::DigitoyEngine.AnimValue.FromBool(((global::DigitoyEngine.ParticleSystem)c).playOnAwake), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).playOnAwake = v.ToBool() },
+            new global::DigitoyEngine.AnimProperty { Path = "simulationSpeed", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).simulationSpeed), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).simulationSpeed = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "simulationSpace", Kind = global::DigitoyEngine.AnimKind.Enum, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::DigitoyEngine.ParticleSpace), Get = c => global::DigitoyEngine.AnimValue.FromInt((int)((global::DigitoyEngine.ParticleSystem)c).simulationSpace), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).simulationSpace = (global::DigitoyEngine.ParticleSpace)v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "maxParticles", Kind = global::DigitoyEngine.AnimKind.Int, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Int32), Get = c => global::DigitoyEngine.AnimValue.FromInt(((global::DigitoyEngine.ParticleSystem)c).maxParticles), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).maxParticles = v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "randomSeed", Kind = global::DigitoyEngine.AnimKind.Int, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Int32), Get = c => global::DigitoyEngine.AnimValue.FromInt(((global::DigitoyEngine.ParticleSystem)c).randomSeed), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).randomSeed = v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "stopAction", Kind = global::DigitoyEngine.AnimKind.Enum, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::DigitoyEngine.ParticleStopAction), Get = c => global::DigitoyEngine.AnimValue.FromInt((int)((global::DigitoyEngine.ParticleSystem)c).stopAction), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).stopAction = (global::DigitoyEngine.ParticleStopAction)v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "lifetime.mode", Kind = global::DigitoyEngine.AnimKind.Enum, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::DigitoyEngine.ValueMode), Get = c => global::DigitoyEngine.AnimValue.FromInt((int)((global::DigitoyEngine.ParticleSystem)c).lifetime.mode), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).lifetime.mode = (global::DigitoyEngine.ValueMode)v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "lifetime.min", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).lifetime.min), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).lifetime.min = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "lifetime.max", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).lifetime.max), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).lifetime.max = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "lifetime.spread", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).lifetime.spread), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).lifetime.spread = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "speed.mode", Kind = global::DigitoyEngine.AnimKind.Enum, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::DigitoyEngine.ValueMode), Get = c => global::DigitoyEngine.AnimValue.FromInt((int)((global::DigitoyEngine.ParticleSystem)c).speed.mode), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).speed.mode = (global::DigitoyEngine.ValueMode)v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "speed.min", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).speed.min), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).speed.min = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "speed.max", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).speed.max), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).speed.max = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "speed.spread", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).speed.spread), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).speed.spread = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "size.mode", Kind = global::DigitoyEngine.AnimKind.Enum, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::DigitoyEngine.ValueMode), Get = c => global::DigitoyEngine.AnimValue.FromInt((int)((global::DigitoyEngine.ParticleSystem)c).size.mode), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).size.mode = (global::DigitoyEngine.ValueMode)v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "size.min", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).size.min), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).size.min = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "size.max", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).size.max), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).size.max = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "size.spread", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).size.spread), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).size.spread = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "separateAxes", Kind = global::DigitoyEngine.AnimKind.Bool, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Boolean), Get = c => global::DigitoyEngine.AnimValue.FromBool(((global::DigitoyEngine.ParticleSystem)c).separateAxes), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).separateAxes = v.ToBool() },
+            new global::DigitoyEngine.AnimProperty { Path = "sizeY.mode", Kind = global::DigitoyEngine.AnimKind.Enum, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::DigitoyEngine.ValueMode), Get = c => global::DigitoyEngine.AnimValue.FromInt((int)((global::DigitoyEngine.ParticleSystem)c).sizeY.mode), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).sizeY.mode = (global::DigitoyEngine.ValueMode)v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "sizeY.min", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).sizeY.min), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).sizeY.min = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "sizeY.max", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).sizeY.max), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).sizeY.max = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "sizeY.spread", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).sizeY.spread), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).sizeY.spread = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "aspect", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).aspect), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).aspect = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "alpha.mode", Kind = global::DigitoyEngine.AnimKind.Enum, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::DigitoyEngine.ValueMode), Get = c => global::DigitoyEngine.AnimValue.FromInt((int)((global::DigitoyEngine.ParticleSystem)c).alpha.mode), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).alpha.mode = (global::DigitoyEngine.ValueMode)v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "alpha.min", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).alpha.min), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).alpha.min = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "alpha.max", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).alpha.max), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).alpha.max = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "alpha.spread", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).alpha.spread), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).alpha.spread = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "color.mode", Kind = global::DigitoyEngine.AnimKind.Enum, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::DigitoyEngine.ColorMode), Get = c => global::DigitoyEngine.AnimValue.FromInt((int)((global::DigitoyEngine.ParticleSystem)c).color.mode), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).color.mode = (global::DigitoyEngine.ColorMode)v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "color.color", Kind = global::DigitoyEngine.AnimKind.Color, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::DigitoyEngine.Color), Get = c => global::DigitoyEngine.AnimValue.FromColor(((global::DigitoyEngine.ParticleSystem)c).color.color), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).color.color = v.ToColor() },
+            new global::DigitoyEngine.AnimProperty { Path = "color.color2", Kind = global::DigitoyEngine.AnimKind.Color, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::DigitoyEngine.Color), Get = c => global::DigitoyEngine.AnimValue.FromColor(((global::DigitoyEngine.ParticleSystem)c).color.color2), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).color.color2 = v.ToColor() },
+            new global::DigitoyEngine.AnimProperty { Path = "color.cycleSpeed.min", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).color.cycleSpeed.min), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).color.cycleSpeed.min = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "color.cycleSpeed.max", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).color.cycleSpeed.max), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).color.cycleSpeed.max = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "renderMode", Kind = global::DigitoyEngine.AnimKind.Enum, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::DigitoyEngine.ParticleRenderMode), Get = c => global::DigitoyEngine.AnimValue.FromInt((int)((global::DigitoyEngine.ParticleSystem)c).renderMode), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).renderMode = (global::DigitoyEngine.ParticleRenderMode)v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "lengthScale", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).lengthScale), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).lengthScale = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "speedScale", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).speedScale), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).speedScale = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "emission.rateOverTime", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).emission.rateOverTime), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).emission.rateOverTime = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "emission.rateOverDistance", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).emission.rateOverDistance), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).emission.rateOverDistance = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "shape.type", Kind = global::DigitoyEngine.AnimKind.Enum, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::DigitoyEngine.ParticleShapeType), Get = c => global::DigitoyEngine.AnimValue.FromInt((int)((global::DigitoyEngine.ParticleSystem)c).shape.type), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).shape.type = (global::DigitoyEngine.ParticleShapeType)v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "shape.radius", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).shape.radius), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).shape.radius = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "shape.radiusThickness", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).shape.radiusThickness), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).shape.radiusThickness = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "shape.arc", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).shape.arc), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).shape.arc = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "shape.boxSize", Kind = global::DigitoyEngine.AnimKind.Vec3, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::DigitoyEngine.Vec3), Get = c => global::DigitoyEngine.AnimValue.FromVec3(((global::DigitoyEngine.ParticleSystem)c).shape.boxSize), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).shape.boxSize = v.ToVec3() },
+            new global::DigitoyEngine.AnimProperty { Path = "shape.coneAngle", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).shape.coneAngle), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).shape.coneAngle = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "shape.coneLength", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).shape.coneLength), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).shape.coneLength = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "shape.offset", Kind = global::DigitoyEngine.AnimKind.Vec3, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::DigitoyEngine.Vec3), Get = c => global::DigitoyEngine.AnimValue.FromVec3(((global::DigitoyEngine.ParticleSystem)c).shape.offset), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).shape.offset = v.ToVec3() },
+            new global::DigitoyEngine.AnimProperty { Path = "shape.rotation", Kind = global::DigitoyEngine.AnimKind.Vec3, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::DigitoyEngine.Vec3), Get = c => global::DigitoyEngine.AnimValue.FromVec3(((global::DigitoyEngine.ParticleSystem)c).shape.rotation), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).shape.rotation = v.ToVec3() },
+            new global::DigitoyEngine.AnimProperty { Path = "shape.directionSpread", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).shape.directionSpread), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).shape.directionSpread = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "shape.randomDirection", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).shape.randomDirection), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).shape.randomDirection = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "shape.emit3D", Kind = global::DigitoyEngine.AnimKind.Bool, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Boolean), Get = c => global::DigitoyEngine.AnimValue.FromBool(((global::DigitoyEngine.ParticleSystem)c).shape.emit3D), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).shape.emit3D = v.ToBool() },
+            new global::DigitoyEngine.AnimProperty { Path = "shape.alignToDirection", Kind = global::DigitoyEngine.AnimKind.Bool, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Boolean), Get = c => global::DigitoyEngine.AnimValue.FromBool(((global::DigitoyEngine.ParticleSystem)c).shape.alignToDirection), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).shape.alignToDirection = v.ToBool() },
+            new global::DigitoyEngine.AnimProperty { Path = "velocity.gravity", Kind = global::DigitoyEngine.AnimKind.Vec3, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::DigitoyEngine.Vec3), Get = c => global::DigitoyEngine.AnimValue.FromVec3(((global::DigitoyEngine.ParticleSystem)c).velocity.gravity), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).velocity.gravity = v.ToVec3() },
+            new global::DigitoyEngine.AnimProperty { Path = "velocity.force", Kind = global::DigitoyEngine.AnimKind.Vec3, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::DigitoyEngine.Vec3), Get = c => global::DigitoyEngine.AnimValue.FromVec3(((global::DigitoyEngine.ParticleSystem)c).velocity.force), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).velocity.force = v.ToVec3() },
+            new global::DigitoyEngine.AnimProperty { Path = "velocity.drag", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).velocity.drag), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).velocity.drag = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "velocity.orbitalSpeed", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).velocity.orbitalSpeed), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).velocity.orbitalSpeed = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "velocity.radialSpeed", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).velocity.radialSpeed), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).velocity.radialSpeed = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "velocity.linear.min", Kind = global::DigitoyEngine.AnimKind.Vec3, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::DigitoyEngine.Vec3), Get = c => global::DigitoyEngine.AnimValue.FromVec3(((global::DigitoyEngine.ParticleSystem)c).velocity.linear.min), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).velocity.linear.min = v.ToVec3() },
+            new global::DigitoyEngine.AnimProperty { Path = "velocity.linear.max", Kind = global::DigitoyEngine.AnimKind.Vec3, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::DigitoyEngine.Vec3), Get = c => global::DigitoyEngine.AnimValue.FromVec3(((global::DigitoyEngine.ParticleSystem)c).velocity.linear.max), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).velocity.linear.max = v.ToVec3() },
+            new global::DigitoyEngine.AnimProperty { Path = "noise.strength", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).noise.strength), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).noise.strength = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "noise.frequency", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).noise.frequency), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).noise.frequency = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "noise.scrollSpeed", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).noise.scrollSpeed), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).noise.scrollSpeed = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "rotation.z.mode", Kind = global::DigitoyEngine.AnimKind.Enum, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::DigitoyEngine.ValueMode), Get = c => global::DigitoyEngine.AnimValue.FromInt((int)((global::DigitoyEngine.ParticleSystem)c).rotation.z.mode), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).rotation.z.mode = (global::DigitoyEngine.ValueMode)v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "rotation.z.min", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).rotation.z.min), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).rotation.z.min = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "rotation.z.max", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).rotation.z.max), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).rotation.z.max = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "rotation.z.spread", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).rotation.z.spread), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).rotation.z.spread = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "rotation.x.mode", Kind = global::DigitoyEngine.AnimKind.Enum, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::DigitoyEngine.ValueMode), Get = c => global::DigitoyEngine.AnimValue.FromInt((int)((global::DigitoyEngine.ParticleSystem)c).rotation.x.mode), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).rotation.x.mode = (global::DigitoyEngine.ValueMode)v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "rotation.x.min", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).rotation.x.min), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).rotation.x.min = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "rotation.x.max", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).rotation.x.max), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).rotation.x.max = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "rotation.x.spread", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).rotation.x.spread), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).rotation.x.spread = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "rotation.y.mode", Kind = global::DigitoyEngine.AnimKind.Enum, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::DigitoyEngine.ValueMode), Get = c => global::DigitoyEngine.AnimValue.FromInt((int)((global::DigitoyEngine.ParticleSystem)c).rotation.y.mode), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).rotation.y.mode = (global::DigitoyEngine.ValueMode)v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "rotation.y.min", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).rotation.y.min), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).rotation.y.min = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "rotation.y.max", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).rotation.y.max), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).rotation.y.max = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "rotation.y.spread", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).rotation.y.spread), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).rotation.y.spread = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "rotation.alignToVelocity", Kind = global::DigitoyEngine.AnimKind.Bool, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Boolean), Get = c => global::DigitoyEngine.AnimValue.FromBool(((global::DigitoyEngine.ParticleSystem)c).rotation.alignToVelocity), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).rotation.alignToVelocity = v.ToBool() },
+            new global::DigitoyEngine.AnimProperty { Path = "rotation.alignOffset", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).rotation.alignOffset), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).rotation.alignOffset = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "wave.amplitude.min", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).wave.amplitude.min), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).wave.amplitude.min = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "wave.amplitude.max", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).wave.amplitude.max), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).wave.amplitude.max = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "wave.frequency.min", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).wave.frequency.min), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).wave.frequency.min = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "wave.frequency.max", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).wave.frequency.max), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).wave.frequency.max = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "wave.direction.min", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).wave.direction.min), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).wave.direction.min = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "wave.direction.max", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).wave.direction.max), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).wave.direction.max = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "wave.phase.min", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).wave.phase.min), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).wave.phase.min = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "wave.phase.max", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).wave.phase.max), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).wave.phase.max = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "frames.mode", Kind = global::DigitoyEngine.AnimKind.Enum, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::DigitoyEngine.ParticleFrameMode), Get = c => global::DigitoyEngine.AnimValue.FromInt((int)((global::DigitoyEngine.ParticleSystem)c).frames.mode), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).frames.mode = (global::DigitoyEngine.ParticleFrameMode)v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "frames.cycles", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).frames.cycles), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).frames.cycles = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "frames.fps.min", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).frames.fps.min), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).frames.fps.min = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "frames.fps.max", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).frames.fps.max), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).frames.fps.max = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "frames.startFrame.min", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).frames.startFrame.min), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).frames.startFrame.min = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "frames.startFrame.max", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ParticleSystem)c).frames.startFrame.max), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).frames.startFrame.max = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "subEmitterCount", Kind = global::DigitoyEngine.AnimKind.Int, OwnerType = typeof(global::DigitoyEngine.ParticleSystem), ValueType = typeof(global::System.Int32), Get = c => global::DigitoyEngine.AnimValue.FromInt(((global::DigitoyEngine.ParticleSystem)c).subEmitterCount), Set = (c, v) => ((global::DigitoyEngine.ParticleSystem)c).subEmitterCount = v.ToInt() },
+        };
         cat.Register(new global::DigitoyEngine.TypeCatalog.Entry
         {
             Type = typeof(global::DigitoyEngine.ParticleSystem),
@@ -4847,6 +5070,7 @@ public static class Registry
             Flags = (global::DigitoyEngine.LifecycleFlags)46,
             Schema = s,
             Previewable = true,
+            Anim = a,
             ReadBaked = Read_4,
         });
     }
@@ -6559,8 +6783,6 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.Renderer)o).SortingOrder,
             Set = (o, v) => ((global::DigitoyEngine.Renderer)o).SortingOrder = (global::System.Int32)v,
 #endif
-            GetFloat = c => (float)((global::DigitoyEngine.Renderer)c).SortingOrder,
-            SetFloat = (c, v) => ((global::DigitoyEngine.Renderer)c).SortingOrder = (int)v,
         };
         s[1] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -6639,8 +6861,6 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.ProgressRenderer)o).Value,
             Set = (o, v) => ((global::DigitoyEngine.ProgressRenderer)o).Value = (global::System.Single)v,
 #endif
-            GetFloat = c => ((global::DigitoyEngine.ProgressRenderer)c).Value,
-            SetFloat = (c, v) => ((global::DigitoyEngine.ProgressRenderer)c).Value = v,
         };
         s[8] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -6652,8 +6872,6 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.ProgressRenderer)o).Width,
             Set = (o, v) => ((global::DigitoyEngine.ProgressRenderer)o).Width = (global::System.Single)v,
 #endif
-            GetFloat = c => ((global::DigitoyEngine.ProgressRenderer)c).Width,
-            SetFloat = (c, v) => ((global::DigitoyEngine.ProgressRenderer)c).Width = v,
         };
         s[9] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -6665,8 +6883,6 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.ProgressRenderer)o).Height,
             Set = (o, v) => ((global::DigitoyEngine.ProgressRenderer)o).Height = (global::System.Single)v,
 #endif
-            GetFloat = c => ((global::DigitoyEngine.ProgressRenderer)c).Height,
-            SetFloat = (c, v) => ((global::DigitoyEngine.ProgressRenderer)c).Height = v,
         };
         s[10] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -6689,8 +6905,6 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.ProgressRenderer)o).CornerRadius,
             Set = (o, v) => ((global::DigitoyEngine.ProgressRenderer)o).CornerRadius = (global::System.Single)v,
 #endif
-            GetFloat = c => ((global::DigitoyEngine.ProgressRenderer)c).CornerRadius,
-            SetFloat = (c, v) => ((global::DigitoyEngine.ProgressRenderer)c).CornerRadius = v,
         };
         s[12] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -6702,8 +6916,6 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.ProgressRenderer)o).Thickness,
             Set = (o, v) => ((global::DigitoyEngine.ProgressRenderer)o).Thickness = (global::System.Single)v,
 #endif
-            GetFloat = c => ((global::DigitoyEngine.ProgressRenderer)c).Thickness,
-            SetFloat = (c, v) => ((global::DigitoyEngine.ProgressRenderer)c).Thickness = v,
         };
         s[13] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -6715,8 +6927,6 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.ProgressRenderer)o).StartAngle,
             Set = (o, v) => ((global::DigitoyEngine.ProgressRenderer)o).StartAngle = (global::System.Single)v,
 #endif
-            GetFloat = c => ((global::DigitoyEngine.ProgressRenderer)c).StartAngle,
-            SetFloat = (c, v) => ((global::DigitoyEngine.ProgressRenderer)c).StartAngle = v,
         };
         s[14] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -6771,8 +6981,6 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.ProgressRenderer)o).Padding,
             Set = (o, v) => ((global::DigitoyEngine.ProgressRenderer)o).Padding = (global::System.Single)v,
 #endif
-            GetFloat = c => ((global::DigitoyEngine.ProgressRenderer)c).Padding,
-            SetFloat = (c, v) => ((global::DigitoyEngine.ProgressRenderer)c).Padding = v,
         };
         s[18] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -6784,8 +6992,6 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.ProgressRenderer)o).BorderWidth,
             Set = (o, v) => ((global::DigitoyEngine.ProgressRenderer)o).BorderWidth = (global::System.Single)v,
 #endif
-            GetFloat = c => ((global::DigitoyEngine.ProgressRenderer)c).BorderWidth,
-            SetFloat = (c, v) => ((global::DigitoyEngine.ProgressRenderer)c).BorderWidth = v,
         };
         s[19] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -6808,8 +7014,6 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.ProgressRenderer)o).Segments,
             Set = (o, v) => ((global::DigitoyEngine.ProgressRenderer)o).Segments = (global::System.Int32)v,
 #endif
-            GetFloat = c => (float)((global::DigitoyEngine.ProgressRenderer)c).Segments,
-            SetFloat = (c, v) => ((global::DigitoyEngine.ProgressRenderer)c).Segments = (int)v,
         };
         s[21] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -6821,8 +7025,6 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.ProgressRenderer)o).SegmentGap,
             Set = (o, v) => ((global::DigitoyEngine.ProgressRenderer)o).SegmentGap = (global::System.Single)v,
 #endif
-            GetFloat = c => ((global::DigitoyEngine.ProgressRenderer)c).SegmentGap,
-            SetFloat = (c, v) => ((global::DigitoyEngine.ProgressRenderer)c).SegmentGap = v,
         };
         s[22] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -6834,8 +7036,6 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.ProgressRenderer)o).GhostSpeed,
             Set = (o, v) => ((global::DigitoyEngine.ProgressRenderer)o).GhostSpeed = (global::System.Single)v,
 #endif
-            GetFloat = c => ((global::DigitoyEngine.ProgressRenderer)c).GhostSpeed,
-            SetFloat = (c, v) => ((global::DigitoyEngine.ProgressRenderer)c).GhostSpeed = v,
         };
         s[23] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -6858,8 +7058,6 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.ProgressRenderer)o).EdgeSize,
             Set = (o, v) => ((global::DigitoyEngine.ProgressRenderer)o).EdgeSize = (global::System.Single)v,
 #endif
-            GetFloat = c => ((global::DigitoyEngine.ProgressRenderer)c).EdgeSize,
-            SetFloat = (c, v) => ((global::DigitoyEngine.ProgressRenderer)c).EdgeSize = v,
         };
         s[25] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -6885,6 +7083,40 @@ public static class Registry
         s[21].ShowIf = s[20];
         s[23].ShowIf = s[22];
         s[25].ShowIf = s[24];
+        var a = new global::DigitoyEngine.AnimProperty[]
+        {
+            new global::DigitoyEngine.AnimProperty { Path = "SortingOrder", Kind = global::DigitoyEngine.AnimKind.Int, OwnerType = typeof(global::DigitoyEngine.ProgressRenderer), ValueType = typeof(global::System.Int32), Get = c => global::DigitoyEngine.AnimValue.FromInt(((global::DigitoyEngine.ProgressRenderer)c).SortingOrder), Set = (c, v) => ((global::DigitoyEngine.ProgressRenderer)c).SortingOrder = v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "SortingSpace", Kind = global::DigitoyEngine.AnimKind.Enum, OwnerType = typeof(global::DigitoyEngine.ProgressRenderer), ValueType = typeof(global::DigitoyEngine.SortingSpace), Get = c => global::DigitoyEngine.AnimValue.FromInt((int)((global::DigitoyEngine.ProgressRenderer)c).SortingSpace), Set = (c, v) => ((global::DigitoyEngine.ProgressRenderer)c).SortingSpace = (global::DigitoyEngine.SortingSpace)v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "BlendMode", Kind = global::DigitoyEngine.AnimKind.Enum, OwnerType = typeof(global::DigitoyEngine.ProgressRenderer), ValueType = typeof(global::DigitoyEngine.BlendMode), Get = c => global::DigitoyEngine.AnimValue.FromInt((int)((global::DigitoyEngine.ProgressRenderer)c).BlendMode), Set = (c, v) => ((global::DigitoyEngine.ProgressRenderer)c).BlendMode = (global::DigitoyEngine.BlendMode)v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "FxParams", Kind = global::DigitoyEngine.AnimKind.Vec4, OwnerType = typeof(global::DigitoyEngine.ProgressRenderer), ValueType = typeof(global::DigitoyEngine.Vec4), Get = c => global::DigitoyEngine.AnimValue.FromVec4(((global::DigitoyEngine.ProgressRenderer)c).FxParams), Set = (c, v) => ((global::DigitoyEngine.ProgressRenderer)c).FxParams = v.ToVec4() },
+            new global::DigitoyEngine.AnimProperty { Path = "BlocksRaycast", Kind = global::DigitoyEngine.AnimKind.Bool, OwnerType = typeof(global::DigitoyEngine.ProgressRenderer), ValueType = typeof(global::System.Boolean), Get = c => global::DigitoyEngine.AnimValue.FromBool(((global::DigitoyEngine.ProgressRenderer)c).BlocksRaycast), Set = (c, v) => ((global::DigitoyEngine.ProgressRenderer)c).BlocksRaycast = v.ToBool() },
+            new global::DigitoyEngine.AnimProperty { Path = "Shape", Kind = global::DigitoyEngine.AnimKind.Enum, OwnerType = typeof(global::DigitoyEngine.ProgressRenderer), ValueType = typeof(global::DigitoyEngine.ProgressShape), Get = c => global::DigitoyEngine.AnimValue.FromInt((int)((global::DigitoyEngine.ProgressRenderer)c).Shape), Set = (c, v) => ((global::DigitoyEngine.ProgressRenderer)c).Shape = (global::DigitoyEngine.ProgressShape)v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "Value", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ProgressRenderer), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ProgressRenderer)c).Value), Set = (c, v) => ((global::DigitoyEngine.ProgressRenderer)c).Value = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "Width", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ProgressRenderer), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ProgressRenderer)c).Width), Set = (c, v) => ((global::DigitoyEngine.ProgressRenderer)c).Width = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "Height", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ProgressRenderer), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ProgressRenderer)c).Height), Set = (c, v) => ((global::DigitoyEngine.ProgressRenderer)c).Height = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "Direction", Kind = global::DigitoyEngine.AnimKind.Enum, OwnerType = typeof(global::DigitoyEngine.ProgressRenderer), ValueType = typeof(global::DigitoyEngine.ProgressDirection), Get = c => global::DigitoyEngine.AnimValue.FromInt((int)((global::DigitoyEngine.ProgressRenderer)c).Direction), Set = (c, v) => ((global::DigitoyEngine.ProgressRenderer)c).Direction = (global::DigitoyEngine.ProgressDirection)v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "CornerRadius", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ProgressRenderer), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ProgressRenderer)c).CornerRadius), Set = (c, v) => ((global::DigitoyEngine.ProgressRenderer)c).CornerRadius = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "Thickness", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ProgressRenderer), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ProgressRenderer)c).Thickness), Set = (c, v) => ((global::DigitoyEngine.ProgressRenderer)c).Thickness = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "StartAngle", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ProgressRenderer), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ProgressRenderer)c).StartAngle), Set = (c, v) => ((global::DigitoyEngine.ProgressRenderer)c).StartAngle = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "Clockwise", Kind = global::DigitoyEngine.AnimKind.Bool, OwnerType = typeof(global::DigitoyEngine.ProgressRenderer), ValueType = typeof(global::System.Boolean), Get = c => global::DigitoyEngine.AnimValue.FromBool(((global::DigitoyEngine.ProgressRenderer)c).Clockwise), Set = (c, v) => ((global::DigitoyEngine.ProgressRenderer)c).Clockwise = v.ToBool() },
+            new global::DigitoyEngine.AnimProperty { Path = "Fill.type", Kind = global::DigitoyEngine.AnimKind.Enum, OwnerType = typeof(global::DigitoyEngine.ProgressRenderer), ValueType = typeof(global::DigitoyEngine.GradientType), Get = c => global::DigitoyEngine.AnimValue.FromInt((int)((global::DigitoyEngine.ProgressRenderer)c).Fill.type), Set = (c, v) => ((global::DigitoyEngine.ProgressRenderer)c).Fill.type = (global::DigitoyEngine.GradientType)v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "Fill.direction", Kind = global::DigitoyEngine.AnimKind.Enum, OwnerType = typeof(global::DigitoyEngine.ProgressRenderer), ValueType = typeof(global::DigitoyEngine.GradientDirection), Get = c => global::DigitoyEngine.AnimValue.FromInt((int)((global::DigitoyEngine.ProgressRenderer)c).Fill.direction), Set = (c, v) => ((global::DigitoyEngine.ProgressRenderer)c).Fill.direction = (global::DigitoyEngine.GradientDirection)v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "Fill.color", Kind = global::DigitoyEngine.AnimKind.Color, OwnerType = typeof(global::DigitoyEngine.ProgressRenderer), ValueType = typeof(global::DigitoyEngine.Color), Get = c => global::DigitoyEngine.AnimValue.FromColor(((global::DigitoyEngine.ProgressRenderer)c).Fill.color), Set = (c, v) => ((global::DigitoyEngine.ProgressRenderer)c).Fill.color = v.ToColor() },
+            new global::DigitoyEngine.AnimProperty { Path = "Fill.color2", Kind = global::DigitoyEngine.AnimKind.Color, OwnerType = typeof(global::DigitoyEngine.ProgressRenderer), ValueType = typeof(global::DigitoyEngine.Color), Get = c => global::DigitoyEngine.AnimValue.FromColor(((global::DigitoyEngine.ProgressRenderer)c).Fill.color2), Set = (c, v) => ((global::DigitoyEngine.ProgressRenderer)c).Fill.color2 = v.ToColor() },
+            new global::DigitoyEngine.AnimProperty { Path = "Track.type", Kind = global::DigitoyEngine.AnimKind.Enum, OwnerType = typeof(global::DigitoyEngine.ProgressRenderer), ValueType = typeof(global::DigitoyEngine.GradientType), Get = c => global::DigitoyEngine.AnimValue.FromInt((int)((global::DigitoyEngine.ProgressRenderer)c).Track.type), Set = (c, v) => ((global::DigitoyEngine.ProgressRenderer)c).Track.type = (global::DigitoyEngine.GradientType)v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "Track.direction", Kind = global::DigitoyEngine.AnimKind.Enum, OwnerType = typeof(global::DigitoyEngine.ProgressRenderer), ValueType = typeof(global::DigitoyEngine.GradientDirection), Get = c => global::DigitoyEngine.AnimValue.FromInt((int)((global::DigitoyEngine.ProgressRenderer)c).Track.direction), Set = (c, v) => ((global::DigitoyEngine.ProgressRenderer)c).Track.direction = (global::DigitoyEngine.GradientDirection)v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "Track.color", Kind = global::DigitoyEngine.AnimKind.Color, OwnerType = typeof(global::DigitoyEngine.ProgressRenderer), ValueType = typeof(global::DigitoyEngine.Color), Get = c => global::DigitoyEngine.AnimValue.FromColor(((global::DigitoyEngine.ProgressRenderer)c).Track.color), Set = (c, v) => ((global::DigitoyEngine.ProgressRenderer)c).Track.color = v.ToColor() },
+            new global::DigitoyEngine.AnimProperty { Path = "Track.color2", Kind = global::DigitoyEngine.AnimKind.Color, OwnerType = typeof(global::DigitoyEngine.ProgressRenderer), ValueType = typeof(global::DigitoyEngine.Color), Get = c => global::DigitoyEngine.AnimValue.FromColor(((global::DigitoyEngine.ProgressRenderer)c).Track.color2), Set = (c, v) => ((global::DigitoyEngine.ProgressRenderer)c).Track.color2 = v.ToColor() },
+            new global::DigitoyEngine.AnimProperty { Path = "Padding", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ProgressRenderer), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ProgressRenderer)c).Padding), Set = (c, v) => ((global::DigitoyEngine.ProgressRenderer)c).Padding = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "BorderWidth", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ProgressRenderer), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ProgressRenderer)c).BorderWidth), Set = (c, v) => ((global::DigitoyEngine.ProgressRenderer)c).BorderWidth = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "BorderColor", Kind = global::DigitoyEngine.AnimKind.Color, OwnerType = typeof(global::DigitoyEngine.ProgressRenderer), ValueType = typeof(global::DigitoyEngine.Color), Get = c => global::DigitoyEngine.AnimValue.FromColor(((global::DigitoyEngine.ProgressRenderer)c).BorderColor), Set = (c, v) => ((global::DigitoyEngine.ProgressRenderer)c).BorderColor = v.ToColor() },
+            new global::DigitoyEngine.AnimProperty { Path = "Segments", Kind = global::DigitoyEngine.AnimKind.Int, OwnerType = typeof(global::DigitoyEngine.ProgressRenderer), ValueType = typeof(global::System.Int32), Get = c => global::DigitoyEngine.AnimValue.FromInt(((global::DigitoyEngine.ProgressRenderer)c).Segments), Set = (c, v) => ((global::DigitoyEngine.ProgressRenderer)c).Segments = v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "SegmentGap", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ProgressRenderer), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ProgressRenderer)c).SegmentGap), Set = (c, v) => ((global::DigitoyEngine.ProgressRenderer)c).SegmentGap = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "GhostSpeed", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ProgressRenderer), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ProgressRenderer)c).GhostSpeed), Set = (c, v) => ((global::DigitoyEngine.ProgressRenderer)c).GhostSpeed = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "GhostColor", Kind = global::DigitoyEngine.AnimKind.Color, OwnerType = typeof(global::DigitoyEngine.ProgressRenderer), ValueType = typeof(global::DigitoyEngine.Color), Get = c => global::DigitoyEngine.AnimValue.FromColor(((global::DigitoyEngine.ProgressRenderer)c).GhostColor), Set = (c, v) => ((global::DigitoyEngine.ProgressRenderer)c).GhostColor = v.ToColor() },
+            new global::DigitoyEngine.AnimProperty { Path = "EdgeSize", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.ProgressRenderer), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.ProgressRenderer)c).EdgeSize), Set = (c, v) => ((global::DigitoyEngine.ProgressRenderer)c).EdgeSize = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "EdgeColor", Kind = global::DigitoyEngine.AnimKind.Color, OwnerType = typeof(global::DigitoyEngine.ProgressRenderer), ValueType = typeof(global::DigitoyEngine.Color), Get = c => global::DigitoyEngine.AnimValue.FromColor(((global::DigitoyEngine.ProgressRenderer)c).EdgeColor), Set = (c, v) => ((global::DigitoyEngine.ProgressRenderer)c).EdgeColor = v.ToColor() },
+        };
         cat.Register(new global::DigitoyEngine.TypeCatalog.Entry
         {
             Type = typeof(global::DigitoyEngine.ProgressRenderer),
@@ -6923,6 +7155,7 @@ public static class Registry
             Flags = (global::DigitoyEngine.LifecycleFlags)8,
             Schema = s,
             Previewable = false,
+            Anim = a,
             ReadBaked = Read_5,
         });
     }
@@ -7153,8 +7386,6 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.Renderer)o).SortingOrder,
             Set = (o, v) => ((global::DigitoyEngine.Renderer)o).SortingOrder = (global::System.Int32)v,
 #endif
-            GetFloat = c => (float)((global::DigitoyEngine.Renderer)c).SortingOrder,
-            SetFloat = (c, v) => ((global::DigitoyEngine.Renderer)c).SortingOrder = (int)v,
         };
         s[1] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -7242,8 +7473,6 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.SpriteRenderer)o).Width,
             Set = (o, v) => ((global::DigitoyEngine.SpriteRenderer)o).Width = (global::System.Single)v,
 #endif
-            GetFloat = c => ((global::DigitoyEngine.SpriteRenderer)c).Width,
-            SetFloat = (c, v) => ((global::DigitoyEngine.SpriteRenderer)c).Width = v,
         };
         s[9] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -7255,8 +7484,6 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.SpriteRenderer)o).Height,
             Set = (o, v) => ((global::DigitoyEngine.SpriteRenderer)o).Height = (global::System.Single)v,
 #endif
-            GetFloat = c => ((global::DigitoyEngine.SpriteRenderer)c).Height,
-            SetFloat = (c, v) => ((global::DigitoyEngine.SpriteRenderer)c).Height = v,
         };
         s[10] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -7268,8 +7495,6 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.SpriteRenderer)o).U0,
             Set = (o, v) => ((global::DigitoyEngine.SpriteRenderer)o).U0 = (global::System.Single)v,
 #endif
-            GetFloat = c => ((global::DigitoyEngine.SpriteRenderer)c).U0,
-            SetFloat = (c, v) => ((global::DigitoyEngine.SpriteRenderer)c).U0 = v,
         };
         s[11] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -7281,8 +7506,6 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.SpriteRenderer)o).V0,
             Set = (o, v) => ((global::DigitoyEngine.SpriteRenderer)o).V0 = (global::System.Single)v,
 #endif
-            GetFloat = c => ((global::DigitoyEngine.SpriteRenderer)c).V0,
-            SetFloat = (c, v) => ((global::DigitoyEngine.SpriteRenderer)c).V0 = v,
         };
         s[12] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -7294,8 +7517,6 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.SpriteRenderer)o).U1,
             Set = (o, v) => ((global::DigitoyEngine.SpriteRenderer)o).U1 = (global::System.Single)v,
 #endif
-            GetFloat = c => ((global::DigitoyEngine.SpriteRenderer)c).U1,
-            SetFloat = (c, v) => ((global::DigitoyEngine.SpriteRenderer)c).U1 = v,
         };
         s[13] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -7307,8 +7528,22 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.SpriteRenderer)o).V1,
             Set = (o, v) => ((global::DigitoyEngine.SpriteRenderer)o).V1 = (global::System.Single)v,
 #endif
-            GetFloat = c => ((global::DigitoyEngine.SpriteRenderer)c).V1,
-            SetFloat = (c, v) => ((global::DigitoyEngine.SpriteRenderer)c).V1 = v,
+        };
+        var a = new global::DigitoyEngine.AnimProperty[]
+        {
+            new global::DigitoyEngine.AnimProperty { Path = "SortingOrder", Kind = global::DigitoyEngine.AnimKind.Int, OwnerType = typeof(global::DigitoyEngine.SpriteRenderer), ValueType = typeof(global::System.Int32), Get = c => global::DigitoyEngine.AnimValue.FromInt(((global::DigitoyEngine.SpriteRenderer)c).SortingOrder), Set = (c, v) => ((global::DigitoyEngine.SpriteRenderer)c).SortingOrder = v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "SortingSpace", Kind = global::DigitoyEngine.AnimKind.Enum, OwnerType = typeof(global::DigitoyEngine.SpriteRenderer), ValueType = typeof(global::DigitoyEngine.SortingSpace), Get = c => global::DigitoyEngine.AnimValue.FromInt((int)((global::DigitoyEngine.SpriteRenderer)c).SortingSpace), Set = (c, v) => ((global::DigitoyEngine.SpriteRenderer)c).SortingSpace = (global::DigitoyEngine.SortingSpace)v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "BlendMode", Kind = global::DigitoyEngine.AnimKind.Enum, OwnerType = typeof(global::DigitoyEngine.SpriteRenderer), ValueType = typeof(global::DigitoyEngine.BlendMode), Get = c => global::DigitoyEngine.AnimValue.FromInt((int)((global::DigitoyEngine.SpriteRenderer)c).BlendMode), Set = (c, v) => ((global::DigitoyEngine.SpriteRenderer)c).BlendMode = (global::DigitoyEngine.BlendMode)v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "FxParams", Kind = global::DigitoyEngine.AnimKind.Vec4, OwnerType = typeof(global::DigitoyEngine.SpriteRenderer), ValueType = typeof(global::DigitoyEngine.Vec4), Get = c => global::DigitoyEngine.AnimValue.FromVec4(((global::DigitoyEngine.SpriteRenderer)c).FxParams), Set = (c, v) => ((global::DigitoyEngine.SpriteRenderer)c).FxParams = v.ToVec4() },
+            new global::DigitoyEngine.AnimProperty { Path = "BlocksRaycast", Kind = global::DigitoyEngine.AnimKind.Bool, OwnerType = typeof(global::DigitoyEngine.SpriteRenderer), ValueType = typeof(global::System.Boolean), Get = c => global::DigitoyEngine.AnimValue.FromBool(((global::DigitoyEngine.SpriteRenderer)c).BlocksRaycast), Set = (c, v) => ((global::DigitoyEngine.SpriteRenderer)c).BlocksRaycast = v.ToBool() },
+            new global::DigitoyEngine.AnimProperty { Path = "Sprite", Kind = global::DigitoyEngine.AnimKind.Ref, OwnerType = typeof(global::DigitoyEngine.SpriteRenderer), ValueType = typeof(global::DigitoyEngine.Sprite), Get = c => global::DigitoyEngine.AnimValue.FromRef((object)((global::DigitoyEngine.SpriteRenderer)c).Sprite), Set = (c, v) => ((global::DigitoyEngine.SpriteRenderer)c).Sprite = (global::DigitoyEngine.Sprite)v.Ref },
+            new global::DigitoyEngine.AnimProperty { Path = "Color", Kind = global::DigitoyEngine.AnimKind.Color, OwnerType = typeof(global::DigitoyEngine.SpriteRenderer), ValueType = typeof(global::DigitoyEngine.Color), Get = c => global::DigitoyEngine.AnimValue.FromColor(((global::DigitoyEngine.SpriteRenderer)c).Color), Set = (c, v) => ((global::DigitoyEngine.SpriteRenderer)c).Color = v.ToColor() },
+            new global::DigitoyEngine.AnimProperty { Path = "Width", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.SpriteRenderer), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.SpriteRenderer)c).Width), Set = (c, v) => ((global::DigitoyEngine.SpriteRenderer)c).Width = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "Height", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.SpriteRenderer), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.SpriteRenderer)c).Height), Set = (c, v) => ((global::DigitoyEngine.SpriteRenderer)c).Height = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "U0", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.SpriteRenderer), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.SpriteRenderer)c).U0), Set = (c, v) => ((global::DigitoyEngine.SpriteRenderer)c).U0 = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "V0", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.SpriteRenderer), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.SpriteRenderer)c).V0), Set = (c, v) => ((global::DigitoyEngine.SpriteRenderer)c).V0 = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "U1", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.SpriteRenderer), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.SpriteRenderer)c).U1), Set = (c, v) => ((global::DigitoyEngine.SpriteRenderer)c).U1 = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "V1", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.SpriteRenderer), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.SpriteRenderer)c).V1), Set = (c, v) => ((global::DigitoyEngine.SpriteRenderer)c).V1 = v.ToFloat() },
         };
         cat.Register(new global::DigitoyEngine.TypeCatalog.Entry
         {
@@ -7337,6 +7572,7 @@ public static class Registry
             Flags = (global::DigitoyEngine.LifecycleFlags)0,
             Schema = s,
             Previewable = false,
+            Anim = a,
             ReadBaked = Read_6,
         });
     }
@@ -7543,8 +7779,6 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.Renderer)o).SortingOrder,
             Set = (o, v) => ((global::DigitoyEngine.Renderer)o).SortingOrder = (global::System.Int32)v,
 #endif
-            GetFloat = c => (float)((global::DigitoyEngine.Renderer)c).SortingOrder,
-            SetFloat = (c, v) => ((global::DigitoyEngine.Renderer)c).SortingOrder = (int)v,
         };
         s[1] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -7630,8 +7864,6 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.TextSprite)o).Size,
             Set = (o, v) => ((global::DigitoyEngine.TextSprite)o).Size = (global::System.Single)v,
 #endif
-            GetFloat = c => ((global::DigitoyEngine.TextSprite)c).Size,
-            SetFloat = (c, v) => ((global::DigitoyEngine.TextSprite)c).Size = v,
         };
         s[9] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -7654,8 +7886,6 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.TextSprite)o).Weight,
             Set = (o, v) => ((global::DigitoyEngine.TextSprite)o).Weight = (global::System.Single)v,
 #endif
-            GetFloat = c => ((global::DigitoyEngine.TextSprite)c).Weight,
-            SetFloat = (c, v) => ((global::DigitoyEngine.TextSprite)c).Weight = v,
         };
         s[11] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -7667,8 +7897,6 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.TextSprite)o).Skew,
             Set = (o, v) => ((global::DigitoyEngine.TextSprite)o).Skew = (global::System.Single)v,
 #endif
-            GetFloat = c => ((global::DigitoyEngine.TextSprite)c).Skew,
-            SetFloat = (c, v) => ((global::DigitoyEngine.TextSprite)c).Skew = v,
         };
         s[12] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -7680,8 +7908,6 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.TextSprite)o).Spacing,
             Set = (o, v) => ((global::DigitoyEngine.TextSprite)o).Spacing = (global::System.Single)v,
 #endif
-            GetFloat = c => ((global::DigitoyEngine.TextSprite)c).Spacing,
-            SetFloat = (c, v) => ((global::DigitoyEngine.TextSprite)c).Spacing = v,
         };
         s[13] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -7709,8 +7935,6 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.TextSprite)o).OutlineWidth,
             Set = (o, v) => ((global::DigitoyEngine.TextSprite)o).OutlineWidth = (global::System.Single)v,
 #endif
-            GetFloat = c => ((global::DigitoyEngine.TextSprite)c).OutlineWidth,
-            SetFloat = (c, v) => ((global::DigitoyEngine.TextSprite)c).OutlineWidth = v,
         };
         s[15] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -7760,8 +7984,32 @@ public static class Registry
             Get = o => ((global::DigitoyEngine.TextSprite)o).ShadowBlur,
             Set = (o, v) => ((global::DigitoyEngine.TextSprite)o).ShadowBlur = (global::System.Single)v,
 #endif
-            GetFloat = c => ((global::DigitoyEngine.TextSprite)c).ShadowBlur,
-            SetFloat = (c, v) => ((global::DigitoyEngine.TextSprite)c).ShadowBlur = v,
+        };
+        var a = new global::DigitoyEngine.AnimProperty[]
+        {
+            new global::DigitoyEngine.AnimProperty { Path = "SortingOrder", Kind = global::DigitoyEngine.AnimKind.Int, OwnerType = typeof(global::DigitoyEngine.TextSprite), ValueType = typeof(global::System.Int32), Get = c => global::DigitoyEngine.AnimValue.FromInt(((global::DigitoyEngine.TextSprite)c).SortingOrder), Set = (c, v) => ((global::DigitoyEngine.TextSprite)c).SortingOrder = v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "SortingSpace", Kind = global::DigitoyEngine.AnimKind.Enum, OwnerType = typeof(global::DigitoyEngine.TextSprite), ValueType = typeof(global::DigitoyEngine.SortingSpace), Get = c => global::DigitoyEngine.AnimValue.FromInt((int)((global::DigitoyEngine.TextSprite)c).SortingSpace), Set = (c, v) => ((global::DigitoyEngine.TextSprite)c).SortingSpace = (global::DigitoyEngine.SortingSpace)v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "BlendMode", Kind = global::DigitoyEngine.AnimKind.Enum, OwnerType = typeof(global::DigitoyEngine.TextSprite), ValueType = typeof(global::DigitoyEngine.BlendMode), Get = c => global::DigitoyEngine.AnimValue.FromInt((int)((global::DigitoyEngine.TextSprite)c).BlendMode), Set = (c, v) => ((global::DigitoyEngine.TextSprite)c).BlendMode = (global::DigitoyEngine.BlendMode)v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "FxParams", Kind = global::DigitoyEngine.AnimKind.Vec4, OwnerType = typeof(global::DigitoyEngine.TextSprite), ValueType = typeof(global::DigitoyEngine.Vec4), Get = c => global::DigitoyEngine.AnimValue.FromVec4(((global::DigitoyEngine.TextSprite)c).FxParams), Set = (c, v) => ((global::DigitoyEngine.TextSprite)c).FxParams = v.ToVec4() },
+            new global::DigitoyEngine.AnimProperty { Path = "BlocksRaycast", Kind = global::DigitoyEngine.AnimKind.Bool, OwnerType = typeof(global::DigitoyEngine.TextSprite), ValueType = typeof(global::System.Boolean), Get = c => global::DigitoyEngine.AnimValue.FromBool(((global::DigitoyEngine.TextSprite)c).BlocksRaycast), Set = (c, v) => ((global::DigitoyEngine.TextSprite)c).BlocksRaycast = v.ToBool() },
+            new global::DigitoyEngine.AnimProperty { Path = "Font", Kind = global::DigitoyEngine.AnimKind.Ref, OwnerType = typeof(global::DigitoyEngine.TextSprite), ValueType = typeof(global::DigitoyEngine.Font), Get = c => global::DigitoyEngine.AnimValue.FromRef((object)((global::DigitoyEngine.TextSprite)c).Font), Set = (c, v) => ((global::DigitoyEngine.TextSprite)c).Font = (global::DigitoyEngine.Font)v.Ref },
+            new global::DigitoyEngine.AnimProperty { Path = "Size", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.TextSprite), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.TextSprite)c).Size), Set = (c, v) => ((global::DigitoyEngine.TextSprite)c).Size = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "Align", Kind = global::DigitoyEngine.AnimKind.Enum, OwnerType = typeof(global::DigitoyEngine.TextSprite), ValueType = typeof(global::DigitoyEngine.TextAlign), Get = c => global::DigitoyEngine.AnimValue.FromInt((int)((global::DigitoyEngine.TextSprite)c).Align), Set = (c, v) => ((global::DigitoyEngine.TextSprite)c).Align = (global::DigitoyEngine.TextAlign)v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "Weight", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.TextSprite), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.TextSprite)c).Weight), Set = (c, v) => ((global::DigitoyEngine.TextSprite)c).Weight = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "Skew", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.TextSprite), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.TextSprite)c).Skew), Set = (c, v) => ((global::DigitoyEngine.TextSprite)c).Skew = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "Spacing", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.TextSprite), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.TextSprite)c).Spacing), Set = (c, v) => ((global::DigitoyEngine.TextSprite)c).Spacing = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "Fill.type", Kind = global::DigitoyEngine.AnimKind.Enum, OwnerType = typeof(global::DigitoyEngine.TextSprite), ValueType = typeof(global::DigitoyEngine.GradientType), Get = c => global::DigitoyEngine.AnimValue.FromInt((int)((global::DigitoyEngine.TextSprite)c).Fill.type), Set = (c, v) => ((global::DigitoyEngine.TextSprite)c).Fill.type = (global::DigitoyEngine.GradientType)v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "Fill.direction", Kind = global::DigitoyEngine.AnimKind.Enum, OwnerType = typeof(global::DigitoyEngine.TextSprite), ValueType = typeof(global::DigitoyEngine.GradientDirection), Get = c => global::DigitoyEngine.AnimValue.FromInt((int)((global::DigitoyEngine.TextSprite)c).Fill.direction), Set = (c, v) => ((global::DigitoyEngine.TextSprite)c).Fill.direction = (global::DigitoyEngine.GradientDirection)v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "Fill.color", Kind = global::DigitoyEngine.AnimKind.Color, OwnerType = typeof(global::DigitoyEngine.TextSprite), ValueType = typeof(global::DigitoyEngine.Color), Get = c => global::DigitoyEngine.AnimValue.FromColor(((global::DigitoyEngine.TextSprite)c).Fill.color), Set = (c, v) => ((global::DigitoyEngine.TextSprite)c).Fill.color = v.ToColor() },
+            new global::DigitoyEngine.AnimProperty { Path = "Fill.color2", Kind = global::DigitoyEngine.AnimKind.Color, OwnerType = typeof(global::DigitoyEngine.TextSprite), ValueType = typeof(global::DigitoyEngine.Color), Get = c => global::DigitoyEngine.AnimValue.FromColor(((global::DigitoyEngine.TextSprite)c).Fill.color2), Set = (c, v) => ((global::DigitoyEngine.TextSprite)c).Fill.color2 = v.ToColor() },
+            new global::DigitoyEngine.AnimProperty { Path = "OutlineWidth", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.TextSprite), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.TextSprite)c).OutlineWidth), Set = (c, v) => ((global::DigitoyEngine.TextSprite)c).OutlineWidth = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "Outline.type", Kind = global::DigitoyEngine.AnimKind.Enum, OwnerType = typeof(global::DigitoyEngine.TextSprite), ValueType = typeof(global::DigitoyEngine.GradientType), Get = c => global::DigitoyEngine.AnimValue.FromInt((int)((global::DigitoyEngine.TextSprite)c).Outline.type), Set = (c, v) => ((global::DigitoyEngine.TextSprite)c).Outline.type = (global::DigitoyEngine.GradientType)v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "Outline.direction", Kind = global::DigitoyEngine.AnimKind.Enum, OwnerType = typeof(global::DigitoyEngine.TextSprite), ValueType = typeof(global::DigitoyEngine.GradientDirection), Get = c => global::DigitoyEngine.AnimValue.FromInt((int)((global::DigitoyEngine.TextSprite)c).Outline.direction), Set = (c, v) => ((global::DigitoyEngine.TextSprite)c).Outline.direction = (global::DigitoyEngine.GradientDirection)v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "Outline.color", Kind = global::DigitoyEngine.AnimKind.Color, OwnerType = typeof(global::DigitoyEngine.TextSprite), ValueType = typeof(global::DigitoyEngine.Color), Get = c => global::DigitoyEngine.AnimValue.FromColor(((global::DigitoyEngine.TextSprite)c).Outline.color), Set = (c, v) => ((global::DigitoyEngine.TextSprite)c).Outline.color = v.ToColor() },
+            new global::DigitoyEngine.AnimProperty { Path = "Outline.color2", Kind = global::DigitoyEngine.AnimKind.Color, OwnerType = typeof(global::DigitoyEngine.TextSprite), ValueType = typeof(global::DigitoyEngine.Color), Get = c => global::DigitoyEngine.AnimValue.FromColor(((global::DigitoyEngine.TextSprite)c).Outline.color2), Set = (c, v) => ((global::DigitoyEngine.TextSprite)c).Outline.color2 = v.ToColor() },
+            new global::DigitoyEngine.AnimProperty { Path = "ShadowColor", Kind = global::DigitoyEngine.AnimKind.Color, OwnerType = typeof(global::DigitoyEngine.TextSprite), ValueType = typeof(global::DigitoyEngine.Color), Get = c => global::DigitoyEngine.AnimValue.FromColor(((global::DigitoyEngine.TextSprite)c).ShadowColor), Set = (c, v) => ((global::DigitoyEngine.TextSprite)c).ShadowColor = v.ToColor() },
+            new global::DigitoyEngine.AnimProperty { Path = "ShadowOffset", Kind = global::DigitoyEngine.AnimKind.Vec2, OwnerType = typeof(global::DigitoyEngine.TextSprite), ValueType = typeof(global::DigitoyEngine.Vec2), Get = c => global::DigitoyEngine.AnimValue.FromVec2(((global::DigitoyEngine.TextSprite)c).ShadowOffset), Set = (c, v) => ((global::DigitoyEngine.TextSprite)c).ShadowOffset = v.ToVec2() },
+            new global::DigitoyEngine.AnimProperty { Path = "ShadowBlur", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::DigitoyEngine.TextSprite), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::DigitoyEngine.TextSprite)c).ShadowBlur), Set = (c, v) => ((global::DigitoyEngine.TextSprite)c).ShadowBlur = v.ToFloat() },
         };
         cat.Register(new global::DigitoyEngine.TypeCatalog.Entry
         {
@@ -7794,6 +8042,7 @@ public static class Registry
             Flags = (global::DigitoyEngine.LifecycleFlags)0,
             Schema = s,
             Previewable = false,
+            Anim = a,
             ReadBaked = Read_7,
         });
     }
@@ -7990,6 +8239,10 @@ public static class Registry
             Set = (o, v) => ((global::Draggable)o).tintWhileDragging = (global::System.Boolean)v,
 #endif
         };
+        var a = new global::DigitoyEngine.AnimProperty[]
+        {
+            new global::DigitoyEngine.AnimProperty { Path = "tintWhileDragging", Kind = global::DigitoyEngine.AnimKind.Bool, OwnerType = typeof(global::Draggable), ValueType = typeof(global::System.Boolean), Get = c => global::DigitoyEngine.AnimValue.FromBool(((global::Draggable)c).tintWhileDragging), Set = (c, v) => ((global::Draggable)c).tintWhileDragging = v.ToBool() },
+        };
         cat.Register(new global::DigitoyEngine.TypeCatalog.Entry
         {
             Type = typeof(global::Draggable),
@@ -8003,6 +8256,7 @@ public static class Registry
             Flags = (global::DigitoyEngine.LifecycleFlags)15361,
             Schema = s,
             Previewable = false,
+            Anim = a,
             ReadBaked = Read_8,
         });
     }
@@ -8048,8 +8302,6 @@ public static class Registry
             Get = o => ((global::ProgressDemo)o).Speed,
             Set = (o, v) => ((global::ProgressDemo)o).Speed = (global::System.Single)v,
 #endif
-            GetFloat = c => ((global::ProgressDemo)c).Speed,
-            SetFloat = (c, v) => ((global::ProgressDemo)c).Speed = v,
         };
         s[2] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -8061,8 +8313,12 @@ public static class Registry
             Get = o => ((global::ProgressDemo)o).Phase,
             Set = (o, v) => ((global::ProgressDemo)o).Phase = (global::System.Single)v,
 #endif
-            GetFloat = c => ((global::ProgressDemo)c).Phase,
-            SetFloat = (c, v) => ((global::ProgressDemo)c).Phase = v,
+        };
+        var a = new global::DigitoyEngine.AnimProperty[]
+        {
+            new global::DigitoyEngine.AnimProperty { Path = "Animation", Kind = global::DigitoyEngine.AnimKind.Enum, OwnerType = typeof(global::ProgressDemo), ValueType = typeof(global::ProgressDemo.Mode), Get = c => global::DigitoyEngine.AnimValue.FromInt((int)((global::ProgressDemo)c).Animation), Set = (c, v) => ((global::ProgressDemo)c).Animation = (global::ProgressDemo.Mode)v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "Speed", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::ProgressDemo), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::ProgressDemo)c).Speed), Set = (c, v) => ((global::ProgressDemo)c).Speed = v.ToFloat() },
+            new global::DigitoyEngine.AnimProperty { Path = "Phase", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::ProgressDemo), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::ProgressDemo)c).Phase), Set = (c, v) => ((global::ProgressDemo)c).Phase = v.ToFloat() },
         };
         cat.Register(new global::DigitoyEngine.TypeCatalog.Entry
         {
@@ -8079,6 +8335,7 @@ public static class Registry
             Flags = (global::DigitoyEngine.LifecycleFlags)9,
             Schema = s,
             Previewable = false,
+            Anim = a,
             ReadBaked = Read_9,
         });
     }
@@ -8123,8 +8380,6 @@ public static class Registry
             Get = o => ((global::Spinner)o).Index,
             Set = (o, v) => ((global::Spinner)o).Index = (global::System.Int32)v,
 #endif
-            GetFloat = c => (float)((global::Spinner)c).Index,
-            SetFloat = (c, v) => ((global::Spinner)c).Index = (int)v,
         };
         s[1] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -8136,8 +8391,6 @@ public static class Registry
             Get = o => ((global::Spinner)o).Speed,
             Set = (o, v) => ((global::Spinner)o).Speed = (global::System.Single)v,
 #endif
-            GetFloat = c => ((global::Spinner)c).Speed,
-            SetFloat = (c, v) => ((global::Spinner)c).Speed = v,
         };
         s[2] = new global::DigitoyEngine.SerializedType.FieldSchema
         {
@@ -8147,6 +8400,11 @@ public static class Registry
             DeclaringType = typeof(global::Spinner),
             Get = o => ((global::Spinner)o).Target,
             Set = (o, v) => ((global::Spinner)o).Target = (global::DigitoyEngine.SpriteRenderer)v,
+        };
+        var a = new global::DigitoyEngine.AnimProperty[]
+        {
+            new global::DigitoyEngine.AnimProperty { Path = "Index", Kind = global::DigitoyEngine.AnimKind.Int, OwnerType = typeof(global::Spinner), ValueType = typeof(global::System.Int32), Get = c => global::DigitoyEngine.AnimValue.FromInt(((global::Spinner)c).Index), Set = (c, v) => ((global::Spinner)c).Index = v.ToInt() },
+            new global::DigitoyEngine.AnimProperty { Path = "Speed", Kind = global::DigitoyEngine.AnimKind.Float, OwnerType = typeof(global::Spinner), ValueType = typeof(global::System.Single), Get = c => global::DigitoyEngine.AnimValue.FromFloat(((global::Spinner)c).Speed), Set = (c, v) => ((global::Spinner)c).Speed = v.ToFloat() },
         };
         cat.Register(new global::DigitoyEngine.TypeCatalog.Entry
         {
@@ -8163,6 +8421,7 @@ public static class Registry
             Flags = (global::DigitoyEngine.LifecycleFlags)9,
             Schema = s,
             Previewable = true,
+            Anim = a,
             ReadBaked = Read_10,
         });
     }
@@ -8207,8 +8466,10 @@ public static class Registry
             Get = o => ((global::StressOrb)o).Seed,
             Set = (o, v) => ((global::StressOrb)o).Seed = (global::System.Int32)v,
 #endif
-            GetFloat = c => (float)((global::StressOrb)c).Seed,
-            SetFloat = (c, v) => ((global::StressOrb)c).Seed = (int)v,
+        };
+        var a = new global::DigitoyEngine.AnimProperty[]
+        {
+            new global::DigitoyEngine.AnimProperty { Path = "Seed", Kind = global::DigitoyEngine.AnimKind.Int, OwnerType = typeof(global::StressOrb), ValueType = typeof(global::System.Int32), Get = c => global::DigitoyEngine.AnimValue.FromInt(((global::StressOrb)c).Seed), Set = (c, v) => ((global::StressOrb)c).Seed = v.ToInt() },
         };
         cat.Register(new global::DigitoyEngine.TypeCatalog.Entry
         {
@@ -8223,6 +8484,7 @@ public static class Registry
             Flags = (global::DigitoyEngine.LifecycleFlags)8,
             Schema = s,
             Previewable = false,
+            Anim = a,
             ReadBaked = Read_11,
         });
     }

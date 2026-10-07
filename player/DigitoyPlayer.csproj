@@ -39,6 +39,22 @@
   <PropertyGroup Condition="'$(GameProject)' != ''">
     <DefineConstants>$(DefineConstants);DE_AOT</DefineConstants>
   </PropertyGroup>
+  <!-- AOT: BCL = Digitoy.CoreLib (NoStdLib) — bkz. DigitoyEngine.csproj. Eksik API = derleme hatasi. -->
+  <PropertyGroup Condition="'$(GameProject)' != '' AND '$(AotCoreLib)' != 'false'">
+    <NoStdLib>true</NoStdLib>
+    <NoCompilerStandardLib>true</NoCompilerStandardLib>
+    <DisableImplicitFrameworkReferences>true</DisableImplicitFrameworkReferences>
+    <RuntimeMetadataVersion>v4.0.30319</RuntimeMetadataVersion>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
+    <NoWarn>$(NoWarn);CS0626</NoWarn>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(GameProject)' != '' AND '$(AotCoreLib)' != 'false'">
+    <Reference Include="Digitoy.CoreLib">
+      <HintPath>..\aotcompiler\corelib\bin\Digitoy.CoreLib.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
   <ItemGroup Condition="'$(GameProject)' != ''">
     <Compile Include="$(GameProject)\Library\Build\Registry.g.cs" Link="Game\Registry.g.cs" />
     <Compile Include="$(GameProject)\Assets\Scripts\**\*.cs" Link="Game\%(RecursiveDir)%(Filename)%(Extension)" />

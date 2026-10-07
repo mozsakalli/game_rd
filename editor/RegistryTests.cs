@@ -5,11 +5,11 @@ namespace DigitoyEditor;
 
 // Uretilmis katalog (CatalogWriter -> RegistryCompiler) dogrulamasi.
 // CatalogsEqual her RebuildCatalog'da paranoid diff olarak kosar;
-// Run acilista fonksiyonel smoke (Create/CopyTo/GetFloat/SetFloat/ShowIf).
+// Run acilista fonksiyonel smoke (Create/CopyTo/Anim Get-Set/ShowIf).
 public static class RegistryTests
 {
-    // Yapisal kiyas: entry kumesi + Flags/Previewable/Type + sema derin esitligi + alias'lar.
-    // GetFloat/SetFloat kiyaslanmaz (reflection katalogda TEMBEL doldurulur — null olabilir).
+    // Yapisal kiyas: entry kumesi + Flags/Previewable/Type + sema derin esitligi
+    // + Anim tablosu (yol/kind/tip; reflection tarafi tembel kurulur) + alias'lar.
     public static bool CatalogsEqual(TypeCatalog a, TypeCatalog b, out string diff)
     {
         foreach (var ea in a.Entries)
@@ -20,6 +20,7 @@ public static class RegistryTests
             if (ea.Flags != eb.Flags) { diff = ea.Name + ": Flags " + ea.Flags + " != " + eb.Flags; return false; }
             if (ea.Previewable != eb.Previewable) { diff = ea.Name + ": Previewable farki"; return false; }
             if (!SchemaEqual(ea.Schema, eb.Schema, ea.Name, out diff)) return false;
+            if (!AnimEqual(AnimRegistry.PropsOf(a, ea.Type), AnimRegistry.PropsOf(b, eb.Type), ea.Name, out diff)) return false;
         }
         int ca = 0, cb = 0;
         foreach (var _ in a.Entries) ca++;
@@ -65,6 +66,23 @@ public static class RegistryTests
         return true;
     }
 
+    static bool AnimEqual(AnimProperty[] a, AnimProperty[] b, string owner, out string diff)
+    {
+        if (a.Length != b.Length)
+        { diff = owner + ": anim sayisi " + a.Length + " != " + b.Length; return false; }
+        for (int i = 0; i < a.Length; i++)
+        {
+            var pa = a[i]; var pb = b[i];
+            string at = owner + ".anim[" + pa.Path + "]";
+            if (pa.Path != pb.Path || pa.Kind != pb.Kind || pa.ValueType != pb.ValueType || pa.OwnerType != pb.OwnerType)
+            { diff = at + ": yol/kind/tip farki (" + pb + ")"; return false; }
+            if (pb.Set == null || (pb.Kind != AnimKind.Trigger && pb.Get == null))
+            { diff = at + ": Get/Set eksik"; return false; }
+        }
+        diff = null;
+        return true;
+    }
+
     // --- acilis fonksiyonel smoke ---
 
     static int _pass, _fail;
@@ -89,14 +107,15 @@ public static class RegistryTests
             var inst = e.Create();
             Check(inst is SpriteRenderer, "Create dogru tip");
 
-            // GetFloat/SetFloat uretilmis lambda'lar (public float alan)
+            // Anim Get/Set uretilmis lambda'lar (public float alan)
             var wf = SerializedType.Find(e.Schema, "Width");
             Check(wf != null && wf.Kind == SerializedType.Kind.Float, "Width semasi Float");
-            if (wf != null && inst is SpriteRenderer sr)
+            var wa = AnimRegistry.Find(cat, typeof(SpriteRenderer), "Width");
+            Check(wa != null && wa.Kind == AnimKind.Float && wa.Get != null && wa.Set != null, "Width anim girisi dolu");
+            if (wf != null && wa != null && inst is SpriteRenderer sr)
             {
-                Check(wf.SetFloat != null && wf.GetFloat != null, "float erisimciler onceden dolu");
-                wf.SetFloat(sr, 123.5f);
-                Check(sr.Width == 123.5f && wf.GetFloat(sr) == 123.5f, "SetFloat/GetFloat calisir");
+                wa.Set(sr, AnimValue.FromFloat(123.5f));
+                Check(sr.Width == 123.5f && wa.Get(sr).ToFloat() == 123.5f, "anim Set/Get calisir");
 
                 // CopyTo uretilmis duz atamalar
                 var dst = (SpriteRenderer)e.Create();
@@ -117,13 +136,15 @@ public static class RegistryTests
         {
             var wf = SerializedType.Find(lb.Schema, "width");
             Check(wf != null && wf.Kind == SerializedType.Kind.Float, "LayoutBox.width semasi");
+            var wa = AnimRegistry.Find(cat, lb.Type, "width");
+            Check(wa != null, "LayoutBox.width anim girisi (private alan thunk)");
             var src = lb.Create();
             var dst = lb.Create();
-            if (wf != null)
+            if (wa != null)
             {
-                wf.SetFloat(src, 77f);
+                wa.Set(src, AnimValue.FromFloat(77f));
                 lb.CopyTo(src, dst);
-                Check(wf.GetFloat(dst) == 77f, "private alan CopyTo + thunk erisimcileri");
+                Check(wa.Get(dst).ToFloat() == 77f, "private alan CopyTo + thunk erisimcileri");
             }
             // ShowIf cozumu uretilmis kodda korunur (LayoutBox.Text: text* alanlari font'a bagli)
             var tf = SerializedType.Find(lb.Schema, "text");

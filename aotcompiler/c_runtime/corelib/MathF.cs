@@ -2,22 +2,22 @@
 // when a compiled program uses them; declarations keep the Core API source-compatible.
 namespace System
 {
-    class MathF
+    public class MathF
     {
         public const float PI = 3.14159274f;
-        extern public static float Abs(float value);
-        extern public static float Asin(float value);
-        extern public static float Atan2(float y, float x);
-        extern public static float Ceiling(float value);
-        extern public static float Cos(float value);
-        extern public static float Exp(float value);
-        extern public static float Floor(float value);
-        extern public static float Min(float x, float y);
-        extern public static float Max(float x, float y);
-        extern public static float Pow(float x, float y);
-        extern public static float Round(float value);
-        extern public static float Sin(float value);
-        extern public static float Sqrt(float value);
-        extern public static float Tan(float value);
+        public extern static float Abs(float value);
+        public extern static float Asin(float value);
+        public extern static float Atan2(float y, float x);
+        public extern static float Ceiling(float value);
+        public extern static float Cos(float value);
+        public extern static float Exp(float value);
+        public extern static float Floor(float value);
+        public extern static float Min(float x, float y);
+        public extern static float Max(float x, float y);
+        public extern static float Pow(float x, float y);
+        public extern static float Round(float value);
+        public extern static float Sin(float value);
+        public extern static float Sqrt(float value);
+        public extern static float Tan(float value);
     }
 }

@@ -1,8 +1,8 @@
 namespace System.Runtime.Remoting
 {
-    class ObjectHandle
+    public class ObjectHandle
     {
-        object value;
+        public object value;
 
         public ObjectHandle(object value)
         {

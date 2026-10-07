@@ -1,6 +1,6 @@
 namespace System.Globalization
 {
-    enum NumberStyles
+    public enum NumberStyles
     {
         HexNumber = 515
     }

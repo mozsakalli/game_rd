@@ -22,6 +22,23 @@
   <PropertyGroup Condition="'$(GameProject)' != ''">
     <DefineConstants>$(DefineConstants);DE_AOT</DefineConstants>
   </PropertyGroup>
+  <!-- AOT derlemesinde BCL = Digitoy.CoreLib (aotcompiler/corelib, NoStdLib). Corelib'de olmayan bir API
+       burada DERLEME HATASI olur (runtime stub yok). -p:AotCoreLib=false ile eski (tam .NET BCL) yola donulur. -->
+  <PropertyGroup Condition="'$(GameProject)' != '' AND '$(AotCoreLib)' != 'false'">
+    <NoStdLib>true</NoStdLib>
+    <NoCompilerStandardLib>true</NoCompilerStandardLib>
+    <DisableImplicitFrameworkReferences>true</DisableImplicitFrameworkReferences>
+    <RuntimeMetadataVersion>v4.0.30319</RuntimeMetadataVersion>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
+    <NoWarn>$(NoWarn);CS0626</NoWarn>
+  </PropertyGroup>
+  <ItemGroup Condition="'$(GameProject)' != '' AND '$(AotCoreLib)' != 'false'">
+    <Reference Include="Digitoy.CoreLib">
+      <HintPath>..\..\aotcompiler\corelib\bin\Digitoy.CoreLib.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
 
   <!-- Grafik backend'i DERLEME zamani secilir (runtime degil). Varsayilan:
        macOS=Metal, diger=OpenGL. Override: dotnet build -p:Renderer=OpenGL

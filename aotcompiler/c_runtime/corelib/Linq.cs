@@ -2,7 +2,7 @@ using System.Collections.Generic;
 
 namespace System.Linq
 {
-    static class Enumerable
+    public static class Enumerable
     {
         public static T FirstOrDefault<T>(this IEnumerable<T> source, Func<T, bool> predicate)
         {

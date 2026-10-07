@@ -8,6 +8,20 @@
 #include <stddef.h>
 #include <limits.h>
 #include <math.h> // uretilen kod: float % -> fmodf/fmod
+// ---- CIL skaler tipleri -> C: TEK eslesme noktasi. Uretilen kod (CTranspiler.ScalarCType) ve corelib.c
+// bu adlari kullanir; ham C tipi yazilmaz. (Ders: System.Char 'char' = 8-bit signed eslenmisti, 'ö' -10 oldu.)
+typedef int cil_int;
+typedef unsigned int cil_uint;
+typedef long long cil_long;
+typedef unsigned long long cil_ulong;
+typedef short cil_short;
+typedef unsigned short cil_ushort;
+typedef signed char cil_sbyte;
+typedef unsigned char cil_byte;
+typedef unsigned short cil_char; // UTF-16 kod birimi (VmString.data ile ayni)
+typedef int cil_bool;            // CIL eval stack'te int32; alanlarda da int (layout sozlesmesi)
+typedef float cil_float;
+typedef double cil_double;
 typedef struct GCHeader GCHeader;
 typedef struct Type Type;
 typedef struct DigitoyEngineMember DigitoyEngineMember;
@@ -155,10 +169,24 @@ void DIGITOYENGINE_dump_stack(void);
 // debug build: her statement'ta durma noktasi + local tablosu. Release ciktisi TEK kaynak,
 // bu makrolar orada bosa acilir (eski derleyicinin cift codegen'i YOK).
 extern void (*DIGITOYENGINE_dbg_step)(int line); // debugger kancasi (0 = takili degil)
+// Son N adim halkasi (mi+satir): crash raporunda "buraya nasil gelindi" — debugger takili olmasa da.
+#define DIGITOYENGINE_STEP_RING 64
+extern RtFrame DIGITOYENGINE_step_ring[DIGITOYENGINE_STEP_RING];
+extern unsigned DIGITOYENGINE_step_n;
+static inline void DIGITOYENGINE_step_record(int line)
+{
+    RtFrame *r = &DIGITOYENGINE_step_ring[DIGITOYENGINE_step_n++ & (DIGITOYENGINE_STEP_RING - 1)];
+    r->mi = DIGITOYENGINE_stack[DIGITOYENGINE_sp - 1].mi;
+    r->line = line;
+}
+// Crash/unhandled raporu: canli shadow frame'lerin local/arg degerleri (referanslar heap'te dogrulanir:
+// canli nesne -> tip adi; serbest/heap-disi -> isaretlenir) + son adimlar. Yalniz debug build.
+void DIGITOYENGINE_dump_locals(FILE *f);
+void DIGITOYENGINE_dump_steps(FILE *f);
 #define DIGITOYENGINE_PUSH(m, fr) (DIGITOYENGINE_UNLIKELY(DIGITOYENGINE_sp >= DIGITOYENGINE_STACK_MAX) ? DIGITOYENGINE_stack_overflow() : (void)(DIGITOYENGINE_stack[DIGITOYENGINE_sp].mi = (m), DIGITOYENGINE_stack[DIGITOYENGINE_sp].line = 0, DIGITOYENGINE_stack[DIGITOYENGINE_sp].frame = (fr), DIGITOYENGINE_stack[DIGITOYENGINE_sp].dbg_locals = 0, DIGITOYENGINE_stack[DIGITOYENGINE_sp].dbg_nlocals = 0, DIGITOYENGINE_sp++))
 #define DIGITOYENGINE_LINE(n) (DIGITOYENGINE_stack[DIGITOYENGINE_sp - 1].line = (n))
 #define DIGITOYENGINE_POP() (DIGITOYENGINE_sp--)
-#define DIGITOYENGINE_STEP(n) (DIGITOYENGINE_stack[DIGITOYENGINE_sp - 1].line = (n), DIGITOYENGINE_dbg_step ? DIGITOYENGINE_dbg_step(n) : (void)0)
+#define DIGITOYENGINE_STEP(n) (DIGITOYENGINE_stack[DIGITOYENGINE_sp - 1].line = (n), DIGITOYENGINE_step_record(n), DIGITOYENGINE_dbg_step ? DIGITOYENGINE_dbg_step(n) : (void)0)
 #define DIGITOYENGINE_DBG_LOCALS(t, n) (DIGITOYENGINE_stack[DIGITOYENGINE_sp - 1].dbg_locals = (t), DIGITOYENGINE_stack[DIGITOYENGINE_sp - 1].dbg_nlocals = (n))
 #else
 #define DIGITOYENGINE_PUSH(m, fr) (DIGITOYENGINE_UNLIKELY(DIGITOYENGINE_sp >= DIGITOYENGINE_STACK_MAX) ? DIGITOYENGINE_stack_overflow() : (void)(DIGITOYENGINE_stack[DIGITOYENGINE_sp].mi = (m), DIGITOYENGINE_stack[DIGITOYENGINE_sp].line = 0, DIGITOYENGINE_stack[DIGITOYENGINE_sp].frame = (fr), DIGITOYENGINE_sp++))
@@ -290,7 +318,7 @@ extern const void *vmint64_vtable[3], *vmuint64_vtable[3], *vmsingle_vtable[3], 
 // (SIFIR alloc; kimlik farki C#'a gore: ReferenceEquals((object)1,(object)1) bizde true - spec izinli).
 void digitoyengine_box_init(void); // cache blogu; digitoyengine_init cagirir
 VmObject *digitoyengine_box_bool(int v);
-VmObject *digitoyengine_box_char(char v);
+VmObject *digitoyengine_box_char(cil_char v);
 VmObject *digitoyengine_box_i8(signed char v);
 VmObject *digitoyengine_box_u8(unsigned char v);
 VmObject *digitoyengine_box_i16(short v);

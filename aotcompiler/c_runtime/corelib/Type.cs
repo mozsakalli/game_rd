@@ -5,7 +5,7 @@
 // AOT tablosundaki somut class'larin parametresiz olusturulmasini destekler.
 namespace System
 {
-    enum TypeCode
+    public enum TypeCode
     {
         Empty = 0,
         Object = 1,
@@ -24,19 +24,20 @@ namespace System
         String = 18
     }
 
-    class Type : Reflection.MemberInfo
+    public class Type : Reflection.MemberInfo
     {
-        extern override string Name { get; }
-        extern string FullName { get; }
-        extern Type BaseType { get; }
-        extern bool IsPrimitive { get; }
-        extern bool IsEnum { get; }
-        extern Type[] GetGenericArguments();
-        extern static TypeCode GetTypeCode(Type type);
-        extern Reflection.FieldInfo GetField(string name);
-        extern Reflection.FieldInfo[] GetFields();
-        extern Reflection.PropertyInfo GetProperty(string name);
-        extern bool IsAssignableFrom(Type type);
-        bool IsInstanceOfType(object o) { return o != null && IsAssignableFrom(o.GetType()); }
+        public extern static Type GetTypeFromHandle(RuntimeTypeHandle handle); // typeof(T) lowering (Roslyn well-known)
+        public extern override string Name { get; }
+        public extern string FullName { get; }
+        public extern Type BaseType { get; }
+        public extern bool IsPrimitive { get; }
+        public extern bool IsEnum { get; }
+        public extern Type[] GetGenericArguments();
+        public extern static TypeCode GetTypeCode(Type type);
+        public extern Reflection.FieldInfo GetField(string name);
+        public extern Reflection.FieldInfo[] GetFields();
+        public extern Reflection.PropertyInfo GetProperty(string name);
+        public extern bool IsAssignableFrom(Type type);
+        public bool IsInstanceOfType(object o) { return o != null && IsAssignableFrom(o.GetType()); }
     }
 }

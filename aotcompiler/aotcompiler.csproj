@@ -17,7 +17,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <!-- corelib MiniCs kaynagidir (bizim derleyici derler), dotnet'e girmez -->
+    <!-- corelib ayri projedir (corelib/Digitoy.CoreLib.csproj, NoStdLib); bu projeye girmez -->
     <Compile Remove="c_runtime\**\*.cs" />
     <!-- yardimci IL dump araci ayri projedir -->
     <Compile Remove="tools\**\*.cs" />

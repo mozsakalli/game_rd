@@ -1,6 +1,6 @@
 namespace System
 {
-    class Math
+    public class Math
     {
         public static extern int Min(int x, int y);
         public static extern int Max(int x, int y);

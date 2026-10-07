@@ -3,13 +3,13 @@
 // (Dictionary/HashSet comparer'siz: GetHashCode/Equals dogrudan) — bilincli sinir.
 namespace System
 {
-    class StringComparer : Collections.Generic.IComparer<string>
+    public class StringComparer : Collections.Generic.IComparer<string>
     {
-        static StringComparer ordinal = new StringComparer(false);
-        static StringComparer ordinalIgnoreCase = new StringComparer(true);
-        bool ignoreCase;
+        public static StringComparer ordinal = new StringComparer(false);
+        public static StringComparer ordinalIgnoreCase = new StringComparer(true);
+        public bool ignoreCase;
 
-        StringComparer(bool ignoreCase) { this.ignoreCase = ignoreCase; }
+        public StringComparer(bool ignoreCase) { this.ignoreCase = ignoreCase; }
 
         public static StringComparer Ordinal { get { return ordinal; } }
         public static StringComparer OrdinalIgnoreCase { get { return ordinalIgnoreCase; } }

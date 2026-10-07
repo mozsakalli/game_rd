@@ -2,7 +2,7 @@
 // not emit a second managed type.
 namespace System
 {
-    class ValueType
+    public class ValueType
     {
     }
 }

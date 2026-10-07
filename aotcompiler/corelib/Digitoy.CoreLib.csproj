@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Digitoy.CoreLib: AOT runtime'in BCL'si. c_runtime/corelib/*.cs Roslyn ile FRAMEWORKSUZ
+       derlenir (NoStdLib: System.Object dahil her tip burada tanimlidir). Cikti:
+         1) aotcompiler CIL frontend'ine girdi (engine/player ile ayni yol; MiniCs yok)
+         2) AOT konfigurasyonunda engine/player/oyun kodunun TEK BCL referansi
+       extern (govdesiz, DllImport'suz) metotlar = C govdesi c_runtime/corelib.c'de (CS0626 susturulur). -->
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <AssemblyName>Digitoy.CoreLib</AssemblyName>
+    <RootNamespace>System</RootNamespace>
+    <NoStdLib>true</NoStdLib>
+    <NoCompilerStandardLib>true</NoCompilerStandardLib>
+    <DisableImplicitFrameworkReferences>true</DisableImplicitFrameworkReferences>
+    <RuntimeMetadataVersion>v4.0.30319</RuntimeMetadataVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <GenerateTargetFrameworkAttribute>false</GenerateTargetFrameworkAttribute>
+    <GenerateDocumentationFile>false</GenerateDocumentationFile>
+    <ProduceReferenceAssembly>false</ProduceReferenceAssembly>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <OutputPath>bin</OutputPath>
+    <NoWarn>$(NoWarn);CS0626;CS0649;CS0169;CS0414;CS0108;CS0660;CS0661</NoWarn>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\c_runtime\corelib\**\*.cs" Link="%(Filename)%(Extension)" />
+  </ItemGroup>
+
+</Project>

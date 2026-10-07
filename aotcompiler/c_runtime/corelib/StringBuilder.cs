@@ -1,8 +1,8 @@
 namespace System.Text
 {
-    class StringBuilder
+    public class StringBuilder
     {
-        string value = "";
+        public string value = "";
 
         public StringBuilder() { }
         public StringBuilder(int capacity) { } // kapasite ipucu: bu basit gerceklemede anlamsiz

@@ -5,7 +5,6 @@ using System.IO;
 using System.Linq;
 using DigitoyEngine.Language;
 using DigitoyEngine.Cil;
-using DigitoyEngine.Frontend;
 
 // Selftest surucusu: dotnet-selftest.dll'i CIL frontend ile IR'a yukler, corelib ile C'ye
 // transpile eder, clang ile derler, calistirir ve ciktiyi .NET baseline'iyla (N<TAB>sonuc)
@@ -34,8 +33,8 @@ public static class Program
             if (args.Length > 0 && args[0] == "player")
                 return RunPlayerBuild(args.Length > 1 ? args[1] : Path.Combine(RepoRoot, "Projects", "Sandbox"));
 
-            // Varsayilan: CIL frontend selftest'i (derlenmis DLL -> IR). MiniCs source
-            // frontend'i deprecate edildi (kod source/frontend/ altinda duruyor ama yol KALDIRILDI).
+            // Varsayilan: CIL frontend selftest'i (derlenmis DLL -> IR). Tek frontend CIL'dir; corelib de
+            // Roslyn ile derlenip ayni yoldan yuklenir (MiniCs kaynak frontend'i silindi).
             return RunCilSelftest();
         }
         catch (Exception e)
@@ -49,6 +48,22 @@ public static class Program
 
     // Calisma dizini aotcompiler/ (c_runtime goreli yollari); repo koku bir ust.
     static string RepoRoot => Path.GetFullPath("..");
+
+    // corelib: c_runtime/corelib/*.cs Roslyn ile (NoStdLib) Digitoy.CoreLib.dll'e derlenir, CIL frontend
+    // engine/player ile AYNI yoldan yukler (isCoreLib: well-known binding + extern kurali). Tek frontend.
+    const string CoreLibProj = "corelib/Digitoy.CoreLib.csproj";
+    const string CoreLibDll = "corelib/bin/Digitoy.CoreLib.dll";
+
+    static List<Code> LoadCoreLib(Context ctx)
+    {
+        var (exit, output) = RunProcess("dotnet", $"build {Quote(CoreLibProj)} -v q --nologo");
+        if (exit != 0) throw new Exception($"corelib derlemesi basarisiz (Roslyn):\n{output}");
+        if (!File.Exists(CoreLibDll)) throw new Exception("corelib dll bulunamadi: " + CoreLibDll);
+        var codes = CilFrontend.Compile(ctx, CoreLibDll, out _, isCoreLib: true);
+        if (CilFrontend.LastDiagnostics.Count > 0)
+            Console.WriteLine($"[corelib] CIL tani: {CilFrontend.LastDiagnostics.Count} oge:\n  " + string.Join("\n  ", CilFrontend.LastDiagnostics));
+        return codes;
+    }
 
     // NIHAI URUN: DigitoyPlayer (engine + uretilmis registry + oyun scriptleri tek DLL,
     // DE_AOT) -> CIL -> IR -> C -> clang; native (sokol + glfw + ses) STATIK linklenir.
@@ -78,8 +93,8 @@ public static class Program
         // 2) CIL -> IR: corelib + engine + player (player engine tiplerini ctx'ten cozer)
         var ctx = new Context();
         var allCodes = new List<Code>();
-        allCodes.AddRange(Prelude.Compile(ctx));
-        Lap("corelib (MiniCs)");
+        allCodes.AddRange(LoadCoreLib(ctx));
+        Lap("corelib (Digitoy.CoreLib.dll, CIL)");
         var diag = new List<string>();
         allCodes.AddRange(CilFrontend.Compile(ctx, engineDll, out _));
         diag.AddRange(CilFrontend.LastDiagnostics.Select(d => "[engine] " + d));
@@ -154,7 +169,8 @@ public static class Program
         var defines = "-DSOKOL_GLCORE" + (Environment.GetEnvironmentVariable("AOT_GCPOISON") == "1" ? " -DDIGITOYENGINE_GC_POISON" : "");
         var libs = "-lopengl32 -lgdi32 -luser32 -lkernel32 -lshell32 -lole32 -loleaut32 -lmfplat -lmfuuid";
         Directory.CreateDirectory(Path.GetDirectoryName(outExe));
-        var dbg = Environment.GetEnvironmentVariable("AOT_DEBUG") == "1" ? "-O0 -g -gcodeview" : "-O1"; // AOT_DEBUG: native debugger (lldb) icin sembol
+        // AOT_DEBUG: -O0 + sembol (lldb) + DIGITOYENGINE_DEBUG (STEP/local tablolari -> crash'te degisken dokumu)
+        var dbg = Environment.GetEnvironmentVariable("AOT_DEBUG") == "1" ? "-O0 -g -gcodeview -DDIGITOYENGINE_DEBUG" : "-O1";
         var compileArgs = $"{dbg} -w {defines} -Ic_runtime -I{Quote(native)} " +
             $"{string.Join(" ", cFiles.Select(Quote))} {Quote(staticLib)} {libs} -o {Quote(outExe)}";
         var (ccExit, ccOut) = RunProcess(ClangPath(), compileArgs);
@@ -174,7 +190,7 @@ public static class Program
 
         // 1) CIL frontend -> IR (corelib + engine dll)
         var ctx = new Context();
-        var corelib = Prelude.Compile(ctx);
+        var corelib = LoadCoreLib(ctx);
         var cil = CilFrontend.Compile(ctx, dll, out var entry);
         if (entry == null) throw new Exception("engine dll giris noktasi (Main) bulunamadi");
         if (CilFrontend.LastDiagnostics.Count > 0)
@@ -240,7 +256,7 @@ public static class Program
 
             // 2) CIL frontend -> IR (corelib + dll)
             var ctx = new Context();
-            var corelib = Prelude.Compile(ctx);
+            var corelib = LoadCoreLib(ctx);
             var cil = CilFrontend.Compile(ctx, dll, out var entry);
             if (entry == null) throw new Exception("dll giris noktasi (Main) bulunamadi");
             if (CilFrontend.LastDiagnostics.Count > 0)

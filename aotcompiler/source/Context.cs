@@ -52,14 +52,9 @@ namespace DigitoyEngine.Language
 
         public bool TryGetPrimitive(string name, out Primitive primitive) => Primitives.TryGetValue(name, out primitive);
 
-        // runtime exception kind -> prelude sinifi (DIGITOYENGINE_EX_* indeksleri; Resolver.ResolveAll doldurur,
-        // prelude derlenmemisse null kalir - runtime kind'lar o programda yakalanamaz, rapor yolu calisir)
+        // runtime exception kind -> corelib sinifi (DIGITOYENGINE_EX_* indeksleri; Resolver.ResolveAll doldurur,
+        // corelib yuklenmemisse null kalir - runtime kind'lar o programda yakalanamaz, rapor yolu calisir)
         public Primitive[] ExceptionKindTypes = new Primitive[8];
-
-        // front-end'in derleme birimleri arasi tasidigi durum (orn. method cozum tablosu).
-        // Language katmani icerigini BILMEZ (opak); CsCompiler kurar/devralir.
-        public object FrontendState;
-        public object FrontendExtensions; // extension method kayitlari (opak, birimler-arasi)
 
         public bool TryGetCode(string encodedName, out Code code) => Codes.TryGetValue(encodedName, out code);
 

@@ -1,30 +1,30 @@
 namespace System.Text.RegularExpressions
 {
-    delegate string MatchEvaluator(Match match);
+    public delegate string MatchEvaluator(Match match);
 
-    class Group
+    public class Group
     {
-        string value;
+        public string value;
         public Group(string value) { this.value = value; }
         public string Value { get { return value; } }
     }
 
-    class GroupCollection
+    public class GroupCollection
     {
-        Group[] groups;
+        public Group[] groups;
         public GroupCollection(Group[] groups) { this.groups = groups; }
         public Group this[int index] { get { return groups[index]; } }
     }
 
-    class Match
+    public class Match
     {
-        string input;
-        string prefix;
-        string suffix;
-        int index;
-        int length;
-        bool success;
-        GroupCollection groups;
+        public string input;
+        public string prefix;
+        public string suffix;
+        public int index;
+        public int length;
+        public bool success;
+        public GroupCollection groups;
 
         public Match(string input, string prefix, string suffix, int start)
         {
@@ -61,9 +61,9 @@ namespace System.Text.RegularExpressions
         public Match NextMatch() { return success ? new Match(input, prefix, suffix, index + length) : this; }
     }
 
-    static class Regex
+    public static class Regex
     {
-        static string Prefix(string pattern)
+        public static string Prefix(string pattern)
         {
             if (pattern == "\\{locale:([^\\}]+)\\}")
                 return "{locale:";
@@ -72,7 +72,7 @@ namespace System.Text.RegularExpressions
             throw new NotImplementedException();
         }
 
-        static string Suffix(string pattern)
+        public static string Suffix(string pattern)
         {
             if (pattern == "\\{locale:([^\\}]+)\\}") return "}";
             if (pattern == "Texture_Pixel\\(([^\\)]+)\\)") return ")";

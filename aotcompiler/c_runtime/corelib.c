@@ -279,10 +279,10 @@ VmObject *digitoyengine_box_bool(int v)
     DIGITOYENGINE_BOXP(int, o) = v ? 1 : 0;
     return o;
 }
-VmObject *digitoyengine_box_char(char v)
+VmObject *digitoyengine_box_char(cil_char v)
 {
     VmObject *o = (VmObject *)gc_alloc(&vmchar_type);
-    DIGITOYENGINE_BOXP(char, o) = v;
+    DIGITOYENGINE_BOXP(cil_char, o) = v;
     return o;
 }
 VmObject *digitoyengine_box_i8(signed char v)
@@ -638,7 +638,7 @@ DIGITOYENGINE_BOX_HASH_ID(u32, unsigned int)
 DIGITOYENGINE_BOX_HASH_ID(bool, int)
 static int box_char_hash(VmObject *s) /* dotnet Char: v | v<<16 */
 {
-    int v = (int)(unsigned char)DIGITOYENGINE_BOXP(char, s);
+    int v = (int)DIGITOYENGINE_BOXP(cil_char, s);
     return v | (v << 16);
 }
 static int box_i64_hash(VmObject *s) /* dotnet Int64: alt ^ ust */
@@ -728,7 +728,7 @@ static VmString *box_bool_str(VmObject *s)
 static VmString *box_char_str(VmObject *s)
 {
     VmString *r = vmstring_alloc(1);
-    ((unsigned short *)r->data)[0] = (unsigned short)(unsigned char)DIGITOYENGINE_BOXP(char, s);
+    ((unsigned short *)r->data)[0] = DIGITOYENGINE_BOXP(cil_char, s);
     return r;
 }
 static VmString *box_f32_str(VmObject *s)
@@ -774,9 +774,9 @@ int System_String_get_Length(VmString *a0)
 {
     return vmstring_length(a0);
 }
-char System_String_get_Chars_Int(VmString *a0, int a1)
+cil_char System_String_get_Chars_Int(VmString *a0, int a1)
 {
-    return (char)vmstring_get(a0, a1);
+    return (cil_char)vmstring_get(a0, a1);
 }
 VmString *System_String_Substring_Int(VmString *a0, int a1)
 {
@@ -853,10 +853,10 @@ VmString *System_String_ToUpper(VmString *a0)
 VmArray *System_String_ToCharArray(VmString *a0)
 {
     DIGITOYENGINE_NULLCHECK(a0);
-    VmArray *result = vmarray_new(a0->length, sizeof(char), 0);
-    char *destination = (char *)result->data;
+    VmArray *result = vmarray_new(a0->length, sizeof(cil_char), 0);
+    cil_char *destination = (cil_char *)result->data;
     for (int i = 0; i < a0->length; i++)
-        destination[i] = (char)a0->data[i];
+        destination[i] = a0->data[i];
     return result;
 }
 static VmString *digitoyengine_format_bytes(VmString *format, const unsigned char *args, int count)
@@ -973,13 +973,13 @@ VmString *System_String_Replace_System_String_System_String(VmString *a0, VmStri
         memcpy(dst + dst_at, a0->data + src_at, (size_t)(n - src_at) * 2);
     return r;
 }
-VmString *System_String_Replace_Char_Char(VmString *a0, char a1, char a2)
+VmString *System_String_Replace_Char_Char(VmString *a0, cil_char a1, cil_char a2)
 {
     DIGITOYENGINE_NULLCHECK(a0);
     VmString *r = vmstring_alloc(a0->length);
     unsigned short *dst = (unsigned short *)r->data;
     for (int i = 0; i < a0->length; i++)
-        dst[i] = a0->data[i] == (unsigned char)a1 ? (unsigned char)a2 : a0->data[i];
+        dst[i] = a0->data[i] == a1 ? a2 : a0->data[i];
     return r;
 }
 static int digitoyengine_split_index(VmString *value, const unsigned short *separator, int separator_length, int start)
@@ -1034,7 +1034,7 @@ VmArray *System_String_Split_System_String_Int(VmString *a0, VmString *a1, int a
     DIGITOYENGINE_NULLCHECK(a1);
     return digitoyengine_split(a0, a1->data, a1->length, a2);
 }
-VmArray *System_String_Split_Char(VmString *a0, unsigned short a1)
+VmArray *System_String_Split_Char(VmString *a0, cil_char a1)
 {
     return digitoyengine_split(a0, &a1, 1, 0x7fffffff);
 }
@@ -1063,7 +1063,7 @@ int System_String_Contains_System_String(VmString *a0, VmString *a1)
     DIGITOYENGINE_NULLCHECK(a1);
     return digitoyengine_indexof(a0, a1, 0) >= 0;
 }
-int System_String_Contains_Char(VmString *a0, unsigned short a1)
+int System_String_Contains_Char(VmString *a0, cil_char a1)
 {
     DIGITOYENGINE_NULLCHECK(a0);
     for (int i = 0; i < a0->length; i++)
@@ -1084,7 +1084,7 @@ int System_String_StartsWith_System_String_System_StringComparison(VmString *a0,
     (void)a2;
     return System_String_StartsWith_System_String(a0, a1);
 }
-int System_String_StartsWith_Char(VmString *a0, unsigned short a1)
+int System_String_StartsWith_Char(VmString *a0, cil_char a1)
 {
     DIGITOYENGINE_NULLCHECK(a0);
     return a0->length > 0 && a0->data[0] == a1;
@@ -1148,7 +1148,7 @@ VmString *System_String_op_add_Int_System_String(int a0, VmString *a1)
     sb_str(a1);
     return sb_final();
 }
-VmString *System_String_op_add_System_String_Char(VmString *a0, char a1)
+VmString *System_String_op_add_System_String_Char(VmString *a0, cil_char a1)
 {
     sb_reset();
     sb_str(a0);
@@ -1432,8 +1432,7 @@ typedef struct DigitoyEngineException
 {
     GCHeader gc;
     VmString *message; /* null -> Message default metni uretir */
-    long long traceMi[24];
-    int traceLine[24];
+    struct { long long mi[24]; int line[24]; } trace; /* System.ExceptionTrace (bayt yerlesimi eski inline tamponlarla ayni) */
     int traceCount;
     GCHeader *innerException;
 } DigitoyEngineException;
@@ -1453,8 +1452,8 @@ VmString *System_Exception_get_StackTrace(DigitoyEngineException *a0)
     sb_reset();
     for (int i = a0->traceCount - 1; i >= 0; i--)
     {
-        const MethodInfo *mi = (const MethodInfo *)(size_t)a0->traceMi[i];
-        int l = a0->traceLine[i];
+        const MethodInfo *mi = (const MethodInfo *)(size_t)a0->trace.mi[i];
+        int l = a0->trace.line[i];
         sb_ascii("  at ");
         sb_utf16(mi->name->data, mi->name->length);
         if (mi->file && mi->file->length)
@@ -1486,8 +1485,8 @@ void System_Exception_Print(DigitoyEngineException *a0)
     fputc('\n', stderr);
     for (int i = a0->traceCount - 1; i >= 0; i--)
     {
-        const MethodInfo *mi = (const MethodInfo *)(size_t)a0->traceMi[i];
-        int l = a0->traceLine[i];
+        const MethodInfo *mi = (const MethodInfo *)(size_t)a0->trace.mi[i];
+        int l = a0->trace.line[i];
         fputs("  at ", stderr);
         vm_write_utf8_to(stderr, mi->name->data, mi->name->length);
         if (mi->file && mi->file->length)

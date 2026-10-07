@@ -1,8 +1,8 @@
 namespace System
 {
-    class Activator
+    public class Activator
     {
-        static extern object CreateInstanceByName(string typeName);
+        public static extern object CreateInstanceByName(string typeName);
 
         public static Runtime.Remoting.ObjectHandle CreateInstance(string assemblyName, string typeName)
         {

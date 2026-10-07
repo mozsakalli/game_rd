@@ -2,7 +2,7 @@
 // Span<byte> hedefli TryWriteBytes: Span intrinsic temsili {adres, uzunluk} -> SpanOps ham yazim.
 namespace System
 {
-    static class BitConverter
+    public static class BitConverter
     {
         public static bool IsLittleEndian { get { return true; } }
 
@@ -62,9 +62,9 @@ namespace System
         }
         public static bool TryWriteBytes(Span<byte> destination, float value) { return TryWriteBytes(destination, SingleToInt32Bits(value)); }
 
-        extern public static int SingleToInt32Bits(float value);
-        extern public static float Int32BitsToSingle(int value);
-        extern public static long DoubleToInt64Bits(double value);
-        extern public static double Int64BitsToDouble(long value);
+        public extern static int SingleToInt32Bits(float value);
+        public extern static float Int32BitsToSingle(int value);
+        public extern static long DoubleToInt64Bits(double value);
+        public extern static double Int64BitsToDouble(long value);
     }
 }

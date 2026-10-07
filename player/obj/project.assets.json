@@ -33,11 +33,11 @@
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "c:\\Work\\digitoygames\\game_rd\\player\\DigitoyPlayer.csproj",
+      "projectUniqueName": "C:\\Work\\digitoygames\\game_rd\\player\\DigitoyPlayer.csproj",
       "projectName": "DigitoyPlayer",
-      "projectPath": "c:\\Work\\digitoygames\\game_rd\\player\\DigitoyPlayer.csproj",
+      "projectPath": "C:\\Work\\digitoygames\\game_rd\\player\\DigitoyPlayer.csproj",
       "packagesPath": "C:\\Users\\ozsak\\.nuget\\packages\\",
-      "outputPath": "c:\\Work\\digitoygames\\game_rd\\player\\obj\\",
+      "outputPath": "C:\\Work\\digitoygames\\game_rd\\player\\obj\\",
       "projectStyle": "PackageReference",
       "fallbackFolders": [
         "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
@@ -91,29 +91,6 @@
         ],
         "assetTargetFallback": true,
         "warn": true,
-        "downloadDependencies": [
-          {
-            "name": "Microsoft.AspNetCore.App.Ref",
-            "version": "[9.0.15, 9.0.15]"
-          },
-          {
-            "name": "Microsoft.NETCore.App.Host.win-x64",
-            "version": "[9.0.15, 9.0.15]"
-          },
-          {
-            "name": "Microsoft.NETCore.App.Ref",
-            "version": "[9.0.15, 9.0.15]"
-          },
-          {
-            "name": "Microsoft.WindowsDesktop.App.Ref",
-            "version": "[9.0.15, 9.0.15]"
-          }
-        ],
-        "frameworkReferences": {
-          "Microsoft.NETCore.App": {
-            "privateAssets": "all"
-          }
-        },
         "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\10.0.203/PortableRuntimeIdentifierGraph.json"
       }
     }

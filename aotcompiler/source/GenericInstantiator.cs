@@ -60,9 +60,24 @@ namespace DigitoyEngine.Language
             return t; // generic parametresi de degil, uygulama da degil -> oldugu gibi kalir
         }
 
+        // Tip generic parametre iceriyor mu (T, List<T>, T[], T*): bu tiplerle SOMUT ornek uretilmez.
+        public static bool ContainsGenericParameter(Primitive t)
+        {
+            if (t == null) return false;
+            if (t.IsGenericParameter) return true;
+            if (t.ElementType != null && ContainsGenericParameter(t.ElementType)) return true;
+            foreach (var a in t.TypeArguments)
+                if (ContainsGenericParameter(a)) return true;
+            return false;
+        }
+
         public static Primitive InstantiatePrimitive(Context ctx, Primitive template, List<Primitive> typeArgs)
         {
             if (!template.IsGeneric) return template;
+            // Acik arguman (T, List<T>...): somut ornek degil uygulama ifadesi — klonlamada Substitute bunu
+            // gercek argumanlarla yeniden cozer. (Aksi halde "ListEnumerator<T>" adli sahte somut tip sizar.)
+            foreach (var a in typeArgs)
+                if (ContainsGenericParameter(a)) return Primitive.Apply(template, typeArgs.ToArray());
             var name = MangleName(template.Name, typeArgs);
             if (ctx.TryGetPrimitive(name, out var cached)) return cached;
             instantiationDepth++;
@@ -89,6 +104,8 @@ namespace DigitoyEngine.Language
                     ElementType = Substitute(ctx, template.ElementType, map)
                 };
                 instance.TypeArguments.AddRange(typeArgs);
+                // oz-tip: govdede sablonun KENDISI gorunurse (ldarg.0 `this` spill'i, `new List<T>()` icinde List`1) -> bu ornek
+                map[template] = instance;
                 ctx.RegisterPrimitive(instance); // once kaydet: self-referansli generic (Node<T>.next:Node<T>) icin dongu kirilir
                                                  // alanlari HEMEN ekle: ic ice somutlastirma (parent/iface/method klonu) bu tipin alanlarini sorabilir
                 foreach (var field in template.Fields)

@@ -22,14 +22,18 @@ namespace DigitoyEngine.Cil
         // Son Compile cagrisinin atladigi/stub'ladigi ogeler (desteklenmeyen ozellikler; surucu raporlar).
         public static List<string> LastDiagnostics = new List<string>();
 
-        public static List<Code> Compile(Context ctx, string dllPath, out Code entryPoint)
+        public static List<Code> Compile(Context ctx, string dllPath, out Code entryPoint) => Compile(ctx, dllPath, out entryPoint, isCoreLib: false);
+
+        // isCoreLib: Digitoy.CoreLib.dll — System.Object/String/Int32... TypeDef'leri yeni tip yaratmaz, runtime
+        // singleton'larina baglanir (uyeler onlara eklenir); govdesiz (RVA=0) metotlar extern = C govdesi corelib.c'de.
+        public static List<Code> Compile(Context ctx, string dllPath, out Code entryPoint, bool isCoreLib)
         {
             using var pe = new PEReader(File.OpenRead(dllPath));
             var md = pe.GetMetadataReader();
             var pdb = OpenPdb(pe, dllPath, out var pdbProvider);
             using var _pdbDispose = pdbProvider;
 
-            var t = new Loader { ctx = ctx, md = md, pdb = pdb, PE = pe };
+            var t = new Loader { ctx = ctx, md = md, pdb = pdb, PE = pe, isCoreLib = isCoreLib };
             t.LoadTypes();
             t.LoadMembers();
             var codes = t.LoadBodies();
@@ -67,6 +71,9 @@ namespace DigitoyEngine.Cil
             public Context ctx;
             public MetadataReader md;
             public MetadataReader pdb;
+            public bool isCoreLib;
+            // corelib modu: runtime singleton'ina baglanan TypeDef'ler (Object/String/skalerler) — base/iface islenmez
+            public readonly HashSet<TypeDefinitionHandle> boundRoots = new HashSet<TypeDefinitionHandle>();
             public readonly Dictionary<TypeDefinitionHandle, Primitive> prims = new Dictionary<TypeDefinitionHandle, Primitive>();
             public readonly Dictionary<FieldDefinitionHandle, PrimitiveField> fieldMap = new Dictionary<FieldDefinitionHandle, PrimitiveField>();
             public readonly Dictionary<MethodDefinitionHandle, Code> methodMap = new Dictionary<MethodDefinitionHandle, Code>();
@@ -87,8 +94,9 @@ namespace DigitoyEngine.Cil
                 return ns.Length > 0 ? ns + "." + nm : nm;
             }
 
-            static bool SkipType(string full) =>
-                full.StartsWith("<>y__InlineArray") || full.StartsWith("<Module>") || full.StartsWith("Microsoft.CodeAnalysis") || full.StartsWith("System.Runtime.CompilerServices");
+            bool SkipType(string full) =>
+                full.StartsWith("<>y__InlineArray") || full.StartsWith("<Module>") || full.StartsWith("Microsoft.CodeAnalysis")
+                || (!isCoreLib && full.StartsWith("System.Runtime.CompilerServices")); // corelib'in kendi Async builder'lari bu ad alaninda
 
             // TypeRef/TypeDef handle -> tam ad (base siniflandirmasi + corelib remap icin)
             public string RefName(EntityHandle h)
@@ -134,18 +142,9 @@ namespace DigitoyEngine.Cil
                 _ => 0
             };
 
-            // corelib'de modellenmis (whitelist) arayuzler: DLL tipleri bunlari implement edince itable kurulur
-            static readonly HashSet<string> ModeledIfaces = new HashSet<string>
-            {
-                "System.Collections.Generic.IEnumerable`1", "System.Collections.Generic.IEnumerator`1",
-                "System.Collections.Generic.ICollection`1", "System.Collections.Generic.IList`1",
-                "System.Collections.Generic.IDictionary`2",
-                "System.Collections.Generic.IReadOnlyCollection`1", "System.Collections.Generic.IReadOnlyList`1",
-                "System.Collections.Generic.IReadOnlyDictionary`2", "System.Collections.Generic.IComparer`1",
-                "System.Collections.IEnumerable", "System.Collections.IEnumerator", "System.IDisposable",
-                "System.Runtime.CompilerServices.IAsyncStateMachine",
-            };
-            static bool IsModeledInterface(Primitive tmpl) => tmpl != null && tmpl.IsInterface && ModeledIfaces.Contains(tmpl.Name);
+            // Arayuz modellemesi: ResolveName ile cozulen (DLL'de ya da corelib'de tanimli) her arayuz itable'a girer.
+            // (Eski whitelist MiniCs corelib'inin kismi yuzeyi icindi; corelib artik CIL'den tam yuklenir.)
+            static bool IsModeledInterface(Primitive tmpl) => tmpl != null && tmpl.IsInterface;
 
             // Class'a terfi ettirilen struct'lar (async SM): govde cevirisinde ldloca/initobj ozel islenir.
             public readonly HashSet<string> promotedStructs = new HashSet<string>();
@@ -181,15 +180,6 @@ namespace DigitoyEngine.Cil
                     case "System.Boolean": return Primitive.Bool;
                     case "System.Single": return Primitive.Float;
                     case "System.Double": return Primitive.Double;
-                    // .NET nested enumerator struct'lari -> bizim duzlestirilmis corelib tiplerimiz
-                    case "System.Collections.Generic.List`1/Enumerator": full = "System.Collections.Generic.ListEnumerator`1"; break;
-                    case "System.Collections.Generic.HashSet`1/Enumerator": full = "System.Collections.Generic.HashSetEnumerator`1"; break;
-                    case "System.Collections.Generic.Dictionary`2/Enumerator": full = "System.Collections.Generic.DictionaryEnumerator`2"; break;
-                    // .Keys/.Values gorunumleri ve enumerator'lari (foreach (var k in dict.Keys))
-                    case "System.Collections.Generic.Dictionary`2/KeyCollection": full = "System.Collections.Generic.DictionaryKeyCollection`2"; break;
-                    case "System.Collections.Generic.Dictionary`2/ValueCollection": full = "System.Collections.Generic.DictionaryValueCollection`2"; break;
-                    case "System.Collections.Generic.Dictionary`2/KeyCollection/Enumerator": full = "System.Collections.Generic.DictionaryKeyEnumerator`2"; break;
-                    case "System.Collections.Generic.Dictionary`2/ValueCollection/Enumerator": full = "System.Collections.Generic.DictionaryValueEnumerator`2"; break;
                 }
                 foreach (var kv in prims) // az tip: lineer arama yeterli
                     if (kv.Value.Name == full) return kv.Value;
@@ -206,6 +196,16 @@ namespace DigitoyEngine.Cil
                     var full = FullName(td);
                     if (SkipType(full)) continue;
                     Primitive p;
+                    // corelib: Object/String/ValueType/skalerler yeni tip DEGIL — uyeleri runtime singleton'ina eklenir
+                    // (MiniCs'teki well-known binding ile ayni kural; tek kaynak WellKnown.RuntimeRootFor).
+                    var root = isCoreLib ? WellKnown.RuntimeRootFor(full) : null;
+                    if (root != null)
+                    {
+                        prims[h] = root;
+                        boundRoots.Add(h);
+                        ctx.RegisterPrimitiveAlias(full, root);
+                        continue;
+                    }
                     try
                     {
                         // generic tip: base TypeSpec olabilir (Derived<T>:Base<T>) -> siniflandirmada Model say, base LoadMembers'da cozulur
@@ -252,7 +252,7 @@ namespace DigitoyEngine.Cil
                 {
                     var td = md.GetTypeDefinition(kv.Key);
                     var p = kv.Value;
-                    if (!p.IsEnum && !p.IsStruct && !p.IsInterface && !p.IsDelegate)
+                    if (!p.IsEnum && !p.IsStruct && !p.IsInterface && !p.IsDelegate && !boundRoots.Contains(kv.Key))
                     {
                         try
                         {
@@ -379,12 +379,38 @@ namespace DigitoyEngine.Cil
                         var simple = mname == ".ctor" ? "ctor" : mname == ".cctor" ? "cctor" : OperatorRemap(mname);
                         explicitImpls.TryGetValue(mh, out var expl);
                         var simpleDisp = expl.iface != null ? expl.simple : simple; // acik impl: gosterim/eslesme basit ad
+                        var paramNames = new Dictionary<int, string>();
+                        var paramOut = new HashSet<int>();
+                        foreach (var ph in m.GetParameters())
+                        {
+                            var pr = md.GetParameter(ph);
+                            if (pr.SequenceNumber > 0)
+                            {
+                                paramNames[pr.SequenceNumber - 1] = md.GetString(pr.Name);
+                                if ((pr.Attributes & ParameterAttributes.Out) != 0) paramOut.Add(pr.SequenceNumber - 1);
+                            }
+                        }
+                        // corelib: byref parametreler corelib.c sembol sozlesmesiyle (`out_Int`/`ref_Int`) mangle'lanir;
+                        // aramalar (FindCode -> MangleCandidates) her iki bicimi de dener.
+                        string MangleParams(string nm)
+                        {
+                            if (!isCoreLib) return Code.Mangle(nm, s.ParameterTypes);
+                            var sbm = new System.Text.StringBuilder(nm);
+                            for (int i = 0; i < s.ParameterTypes.Length; i++)
+                            {
+                                var t = s.ParameterTypes[i];
+                                sbm.Append('_');
+                                if (t.Type == PrimitiveType.Pointer) sbm.Append(paramOut.Contains(i) ? "out_" : "ref_").Append(t.ElementType.Name.Replace('.', '_'));
+                                else sbm.Append(t.Name.Replace('.', '_'));
+                            }
+                            return sbm.ToString();
+                        }
                         var code = new Code
                         {
                             Owner = p,
                             Name = expl.iface != null
-                                ? "__iface_" + expl.iface.Name.Replace('.', '_') + "__" + Code.Mangle(expl.simple, s.ParameterTypes)
-                                : Code.Mangle(simple, s.ParameterTypes),
+                                ? "__iface_" + expl.iface.Name.Replace('.', '_') + "__" + MangleParams(expl.simple)
+                                : MangleParams(simple),
                             IsStatic = isStatic,
                             ReturnType = s.ReturnType,
                             // iface uyeleri MiniCs'teki gibi ortuk virtual sayilir (itable dispatch)
@@ -397,12 +423,6 @@ namespace DigitoyEngine.Cil
                         if (!isStatic)
                             code.Arguments.Add(new Argument { Name = "this", Type = p, IsRef = p.IsStruct }); // struct this = managed pointer (mutasyon gorunur)
                         code.GenericParameters.AddRange(mgps); // generic method sablonu (Pick<T>) -> monomorfize edilir
-                        var paramNames = new Dictionary<int, string>();
-                        foreach (var ph in m.GetParameters())
-                        {
-                            var pr = md.GetParameter(ph);
-                            if (pr.SequenceNumber > 0) paramNames[pr.SequenceNumber - 1] = md.GetString(pr.Name);
-                        }
                         for (int i = 0; i < s.ParameterTypes.Length; i++)
                             code.Arguments.Add(new Argument { Name = paramNames.TryGetValue(i, out var pn) ? pn : $"a{i}", Type = s.ParameterTypes[i] });
                         // P/Invoke ([DllImport]): govde yok; C sembolu = EntryPoint (kutuphane adi AOT'ta yok sayilir,
@@ -413,6 +433,11 @@ namespace DigitoyEngine.Cil
                             code.IsExternal = true;
                             code.ExternalSymbol = imp.Name.IsNil ? simple : md.GetString(imp.Name);
                         }
+                        // corelib `extern` (DllImport'suz, RVA=0, abstract degil): C govdesi corelib.c'de, mangled adla
+                        // (ExternalSymbol yok -> CSym = CName(EncodeName())). Abstract/interface uyeleri govdesizdir ama extern degildir.
+                        else if (isCoreLib && m.RelativeVirtualAddress == 0 && (m.Attributes & MethodAttributes.Abstract) == 0
+                                 && !p.IsInterface && !p.IsDelegate)
+                            code.IsExternal = true;
                         ctx.RegisterCode(code);
                         methodMap[mh] = code;
                         methodDefs[mh] = m;
@@ -1481,6 +1506,54 @@ namespace DigitoyEngine.Cil
             }
             static bool IsUnsignedInt(Primitive t) => t != null &&
                 (t.Type == PrimitiveType.UInt || t.Type == PrimitiveType.UShort || t.Type == PrimitiveType.Byte);
+            static bool IsIntegral(Primitive t) => t != null && t.Type is PrimitiveType.Int or PrimitiveType.UInt
+                or PrimitiveType.Short or PrimitiveType.UShort or PrimitiveType.Byte or PrimitiveType.SByte
+                or PrimitiveType.Char or PrimitiveType.Bool or PrimitiveType.Long or PrimitiveType.ULong;
+            static bool IsFloating(Primitive t) => t != null && (t.Type == PrimitiveType.Float || t.Type == PrimitiveType.Double);
+            // *.un karsilastirma (cgt.un/clt.un/bXX.un): tamsayida UNSIGNED kiyas — Roslyn switch/aralik testleri
+            // `(uint)(x-k) <= n` seklinde ble.un uretir; isaretli yorumlanirsa negatifler araliga girer
+            // (AnimValue.Lerp: Vec3 "step" sanildi, interpolasyon yok). Kayan noktada "unordered-or":
+            // NaN'da true -> !(tersi sirali kiyas). Referans/isaretci: duz kiyas (adres zaten unsigned).
+            void CmpUn(OpType t)
+            {
+                if (stack.Count >= 2)
+                {
+                    var a = stack[stack.Count - 2];
+                    var b = stack[stack.Count - 1];
+                    if (IsIntegral(a) && IsIntegral(b))
+                    {
+                        bool wide = a.Type is PrimitiveType.Long or PrimitiveType.ULong || b.Type is PrimitiveType.Long or PrimitiveType.ULong;
+                        var ut = wide ? Primitive.ULong : Primitive.UInt;
+                        if (a != ut || b != ut)
+                        {
+                            int tmp = NewLocal(b);
+                            EmitOp(new Op { Type = OpType.SetLocal, Slot = tmp }); Pop();
+                            EmitConv(ut);
+                            EmitOp(new Op { Type = OpType.GetLocal, Slot = tmp }); Push(b);
+                            EmitConv(ut);
+                        }
+                        Cmp(t);
+                        return;
+                    }
+                    if (IsFloating(a) || IsFloating(b))
+                    {
+                        OpType? neg = t switch
+                        {
+                            OpType.Clt => OpType.Cge, OpType.Cle => OpType.Cgt,
+                            OpType.Cgt => OpType.Cle, OpType.Cge => OpType.Clt,
+                            _ => null,
+                        };
+                        if (neg != null)
+                        {
+                            Cmp(neg.Value);
+                            EmitOp(new Op { Type = OpType.Push, Value = 0 }); Push(Primitive.Int);
+                            Cmp(OpType.Ceq);
+                            return;
+                        }
+                    }
+                }
+                Cmp(t);
+            }
             // Type + Reflection member wrapper'lari kimlik-cache'li (ayni oge = ayni nesne); == / !=
             // MemberInfo operator'leri referans karsilastirmasiyla dogru sonuc verir.
             static bool IsIdentityRefType(string owner) =>
@@ -1693,8 +1766,10 @@ namespace DigitoyEngine.Cil
                     case ILOpCode.Not: Emit(OpType.Not); return p;
 
                     case ILOpCode.Ceq: Cmp(OpType.Ceq); return p;
-                    case ILOpCode.Cgt: case ILOpCode.Cgt_un: Cmp(OpType.Cgt); return p;
-                    case ILOpCode.Clt: case ILOpCode.Clt_un: Cmp(OpType.Clt); return p;
+                    case ILOpCode.Cgt: Cmp(OpType.Cgt); return p;
+                    case ILOpCode.Cgt_un: CmpUn(OpType.Cgt); return p;
+                    case ILOpCode.Clt: Cmp(OpType.Clt); return p;
+                    case ILOpCode.Clt_un: CmpUn(OpType.Clt); return p;
 
                     case ILOpCode.Br_s: { int t = p + 1 + (sbyte)il[p]; Branch(t); stack.Clear(); unreachable = true; return p + 1; }
                     case ILOpCode.Br: { int t = p + 4 + BitConverter.ToInt32(il, p); Branch(t); stack.Clear(); unreachable = true; return p + 4; }
@@ -1709,16 +1784,24 @@ namespace DigitoyEngine.Cil
 
                     case ILOpCode.Beq_s: return MacroBranch(OpType.Ceq, p + 1 + (sbyte)il[p], p + 1);
                     case ILOpCode.Beq: return MacroBranch(OpType.Ceq, p + 4 + BitConverter.ToInt32(il, p), p + 4);
-                    case ILOpCode.Bne_un_s: return MacroBranch(OpType.Cne, p + 1 + (sbyte)il[p], p + 1);
+                    case ILOpCode.Bne_un_s: return MacroBranch(OpType.Cne, p + 1 + (sbyte)il[p], p + 1); // != : isaret/NaN farki yok
                     case ILOpCode.Bne_un: return MacroBranch(OpType.Cne, p + 4 + BitConverter.ToInt32(il, p), p + 4);
-                    case ILOpCode.Bge_s: case ILOpCode.Bge_un_s: return MacroBranch(OpType.Cge, p + 1 + (sbyte)il[p], p + 1);
-                    case ILOpCode.Bge: case ILOpCode.Bge_un: return MacroBranch(OpType.Cge, p + 4 + BitConverter.ToInt32(il, p), p + 4);
-                    case ILOpCode.Bgt_s: case ILOpCode.Bgt_un_s: return MacroBranch(OpType.Cgt, p + 1 + (sbyte)il[p], p + 1);
-                    case ILOpCode.Bgt: case ILOpCode.Bgt_un: return MacroBranch(OpType.Cgt, p + 4 + BitConverter.ToInt32(il, p), p + 4);
-                    case ILOpCode.Ble_s: case ILOpCode.Ble_un_s: return MacroBranch(OpType.Cle, p + 1 + (sbyte)il[p], p + 1);
-                    case ILOpCode.Ble: case ILOpCode.Ble_un: return MacroBranch(OpType.Cle, p + 4 + BitConverter.ToInt32(il, p), p + 4);
-                    case ILOpCode.Blt_s: case ILOpCode.Blt_un_s: return MacroBranch(OpType.Clt, p + 1 + (sbyte)il[p], p + 1);
-                    case ILOpCode.Blt: case ILOpCode.Blt_un: return MacroBranch(OpType.Clt, p + 4 + BitConverter.ToInt32(il, p), p + 4);
+                    case ILOpCode.Bge_s: return MacroBranch(OpType.Cge, p + 1 + (sbyte)il[p], p + 1);
+                    case ILOpCode.Bge_un_s: return MacroBranchUn(OpType.Cge, p + 1 + (sbyte)il[p], p + 1);
+                    case ILOpCode.Bge: return MacroBranch(OpType.Cge, p + 4 + BitConverter.ToInt32(il, p), p + 4);
+                    case ILOpCode.Bge_un: return MacroBranchUn(OpType.Cge, p + 4 + BitConverter.ToInt32(il, p), p + 4);
+                    case ILOpCode.Bgt_s: return MacroBranch(OpType.Cgt, p + 1 + (sbyte)il[p], p + 1);
+                    case ILOpCode.Bgt_un_s: return MacroBranchUn(OpType.Cgt, p + 1 + (sbyte)il[p], p + 1);
+                    case ILOpCode.Bgt: return MacroBranch(OpType.Cgt, p + 4 + BitConverter.ToInt32(il, p), p + 4);
+                    case ILOpCode.Bgt_un: return MacroBranchUn(OpType.Cgt, p + 4 + BitConverter.ToInt32(il, p), p + 4);
+                    case ILOpCode.Ble_s: return MacroBranch(OpType.Cle, p + 1 + (sbyte)il[p], p + 1);
+                    case ILOpCode.Ble_un_s: return MacroBranchUn(OpType.Cle, p + 1 + (sbyte)il[p], p + 1);
+                    case ILOpCode.Ble: return MacroBranch(OpType.Cle, p + 4 + BitConverter.ToInt32(il, p), p + 4);
+                    case ILOpCode.Ble_un: return MacroBranchUn(OpType.Cle, p + 4 + BitConverter.ToInt32(il, p), p + 4);
+                    case ILOpCode.Blt_s: return MacroBranch(OpType.Clt, p + 1 + (sbyte)il[p], p + 1);
+                    case ILOpCode.Blt_un_s: return MacroBranchUn(OpType.Clt, p + 1 + (sbyte)il[p], p + 1);
+                    case ILOpCode.Blt: return MacroBranch(OpType.Clt, p + 4 + BitConverter.ToInt32(il, p), p + 4);
+                    case ILOpCode.Blt_un: return MacroBranchUn(OpType.Clt, p + 4 + BitConverter.ToInt32(il, p), p + 4);
 
                     case ILOpCode.Switch:
                         {
@@ -1754,6 +1837,10 @@ namespace DigitoyEngine.Cil
                     case ILOpCode.Constrained: // sonraki callvirt kisitli tipe gore dispatch eder
                         pendingConstrained = DecodeTypeTok(il, p);
                         return p + 4;
+                    // readonly./volatile./tail. on ekleri: C ciktisinda anlami yok (readonly. ldelema = tip denetimsiz eleman adresi;
+                    // volatile: tek is parcacigi; tail: cagri sekli ayni). Operand yok.
+                    case ILOpCode.Readonly: case ILOpCode.Volatile: case ILOpCode.Tail: return p;
+                    case ILOpCode.Unaligned: return p + 1;
 
                     case ILOpCode.Call:
                     case ILOpCode.Callvirt:
@@ -1761,11 +1848,23 @@ namespace DigitoyEngine.Cil
                             var h = Tok(il, p);
                             // constrained. + callvirt: deger tipinde (struct) uye dogrudan cagrilir (boxing yok);
                             // this = ldloca'dan gelen ptr. Referans tipinde deref + normal sanal dispatch.
-                            if (pendingConstrained != null && op == ILOpCode.Callvirt && h.Kind == HandleKind.MemberReference)
+                            if (pendingConstrained != null && op == ILOpCode.Callvirt
+                                && (h.Kind == HandleKind.MemberReference || h.Kind == HandleKind.MethodDefinition))
                             {
-                                var cmr = md.GetMemberReference((MemberReferenceHandle)h);
-                                var cname = md.GetString(cmr.Name);
-                                var csig = cmr.DecodeMethodSignature(loader.Sig, gc);
+                                // hedef ayni assembly'de (corelib icinde Object.GetHashCode) MethodDef gelir; MemberRef ile ayni yol.
+                                string cname; MethodSignature<Primitive> csig;
+                                if (h.Kind == HandleKind.MemberReference)
+                                {
+                                    var cmr = md.GetMemberReference((MemberReferenceHandle)h);
+                                    cname = md.GetString(cmr.Name);
+                                    csig = cmr.DecodeMethodSignature(loader.Sig, gc);
+                                }
+                                else
+                                {
+                                    var cmd = md.GetMethodDefinition((MethodDefinitionHandle)h);
+                                    cname = md.GetString(cmd.Name);
+                                    csig = cmd.DecodeSignature(loader.Sig, gc);
+                                }
                                 var ct = pendingConstrained;
                                 pendingConstrained = null;
                                 if (ct.IsStruct || ct.GenericTemplate?.IsStruct == true)
@@ -1780,9 +1879,21 @@ namespace DigitoyEngine.Cil
                                     if (cm.ReturnType != Primitive.Void) Push(loader.ConcreteType(cm, ctArgs, cm.ReturnType));
                                     return p + 4;
                                 }
-                                // referans tip: ptr'i deref et (ldloca ptr -> ref), sonra normal callvirt yoluna dus
-                                EmitOp(new Op { Type = OpType.LoadInd });
-                                var derefed = Pop(); Push(ct);
+                                // referans tip / generic parametre: alici ptr (ldloca/ldelema/ldarga) kalir; deref'i CTranspiler
+                                // CallVirtual'da yapar (alici slotunu bilir — argumanli cagrida stack tepesi alici DEGILDIR).
+                                int recvDepth = csig.ParameterTypes.Length; // alici = tepe - arg sayisi
+                                if (stack.Count > recvDepth)
+                                {
+                                    var rt = stack[stack.Count - 1 - recvDepth];
+                                    if (rt != null && rt.Type == PrimitiveType.Pointer) stack[stack.Count - 1 - recvDepth] = ct;
+                                }
+                            }
+                            // corelib icinde Type.GetTypeFromHandle ayni assembly'de (MethodDef): ldtoken zaten TypeOf uretti, cagri yutulur.
+                            if (h.Kind == HandleKind.MethodDefinition && loader.isCoreLib)
+                            {
+                                var dmd = md.GetMethodDefinition((MethodDefinitionHandle)h);
+                                if (md.GetString(dmd.Name) == "GetTypeFromHandle" && loader.RefName(dmd.GetDeclaringType()) == "System.Type")
+                                    return p + 4;
                             }
                             if (h.Kind == HandleKind.MemberReference)
                             {
@@ -2130,6 +2241,12 @@ namespace DigitoyEngine.Cil
                 CondBranch(target);
                 return next;
             }
+            int MacroBranchUn(OpType cmp, int target, int next)
+            {
+                CmpUn(cmp);
+                CondBranch(target);
+                return next;
+            }
 
             // ---- Span/ReadOnlySpan intrinsic'leri (corelib Span.cs: {long _ptr; int _len}) ----
             // MiniCs'te pointer/ref-donus yok; eleman adresi, dilimleme, kopyalama ve dizi/dizgi->span
@@ -2215,6 +2332,13 @@ namespace DigitoyEngine.Cil
                     var msp = md.GetMethodSpecification((MethodSpecificationHandle)h);
                     margs.AddRange(msp.DecodeSignature(loader.Sig, gc));
                     h = msp.Method;
+                }
+                if (h.Kind == HandleKind.MethodDefinition) // corelib icinde Span uyesine ic cagri (Enumerator.Current -> get_Item)
+                {
+                    var dmd = md.GetMethodDefinition((MethodDefinitionHandle)h);
+                    var owner = loader.prims.TryGetValue(dmd.GetDeclaringType(), out var op) ? op : null;
+                    var ds = dmd.DecodeSignature(loader.Sig, new GenCtx { TypeParams = owner?.GenericParameters, MethodParams = margs.Count > 0 ? margs : null });
+                    return (md.GetString(dmd.Name), ds.ParameterTypes, margs);
                 }
                 if (h.Kind != HandleKind.MemberReference) return (null, default, margs);
                 var mr = md.GetMemberReference((MemberReferenceHandle)h);

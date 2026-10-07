@@ -75,7 +75,8 @@ public static class CatalogWriter
         sb.Append("    static void Reg_").Append(idx).Append("(global::DigitoyEngine.TypeCatalog cat)\n    {\n");
 
         // Sema (nested diziler once, referans siralamasi icin).
-        EmitSchemaArray(sb, e.Schema, "s", e, idx, thunks, ref thunkN);
+        EmitSchemaArray(sb, e.Schema, "s", idx, thunks, ref thunkN);
+        EmitAnimArray(sb, e, idx, thunks, ref thunkN);
 
         sb.Append("        cat.Register(new global::DigitoyEngine.TypeCatalog.Entry\n        {\n");
         sb.Append("            Type = typeof(").Append(tn).Append("),\n");
@@ -85,6 +86,7 @@ public static class CatalogWriter
         sb.Append("            Flags = (global::DigitoyEngine.LifecycleFlags)").Append((ushort)e.Flags).Append(",\n");
         sb.Append("            Schema = s,\n");
         sb.Append("            Previewable = ").Append(e.Previewable ? "true" : "false").Append(",\n");
+        sb.Append("            Anim = a,\n");
         sb.Append("            ReadBaked = Read_").Append(idx).Append(",\n");
         sb.Append("        });\n    }\n\n");
         EmitBakedReader(sb, e, idx, thunks, ref thunkN);
@@ -300,12 +302,12 @@ public static class CatalogWriter
 
     // Sema dizisi (nested Object/List-of-Object icin ozyinelemeli alt diziler).
     static void EmitSchemaArray(StringBuilder sb, SerializedType.FieldSchema[] schema, string var,
-        TypeCatalog.Entry owner, int idx, StringBuilder thunks, ref int thunkN)
+        int idx, StringBuilder thunks, ref int thunkN)
     {
         // Once alt diziler (degisken bildirimi kullanim oncesi olsun).
         for (int i = 0; i < schema.Length; i++)
             if (schema[i].Nested != null)
-                EmitSchemaArray(sb, schema[i].Nested, var + "_" + i, null, idx, thunks, ref thunkN);
+                EmitSchemaArray(sb, schema[i].Nested, var + "_" + i, idx, thunks, ref thunkN);
 
         sb.Append("        var ").Append(var).Append(" = new global::DigitoyEngine.SerializedType.FieldSchema[").Append(schema.Length).Append("];\n");
         for (int i = 0; i < schema.Length; i++)
@@ -326,12 +328,6 @@ public static class CatalogWriter
             sb.Append("            DeclaringType = typeof(").Append(CsName(f.Info.DeclaringType)).Append("),\n");
             EmitBoxedAccessors(sb, f, idx, thunks, ref thunkN);
             EmitContainerCtors(sb, f);
-
-            // Tween/inspector sicak yolu: yalniz ust duzey component alanlari
-            // (EnsureFloatAccessors ile ayni kapsam; nested'ta cast gecersiz).
-            if (owner != null && (f.Kind == SerializedType.Kind.Float || f.Kind == SerializedType.Kind.Int))
-                EmitFloatAccessors(sb, f, owner, idx, thunks, ref thunkN);
-
             sb.Append("        };\n");
         }
         // ShowIf: cozulmus kardes referanslari indeksle geri baglanir.
@@ -403,24 +399,130 @@ public static class CatalogWriter
         }
     }
 
-    static void EmitFloatAccessors(StringBuilder sb, SerializedType.FieldSchema f,
-        TypeCatalog.Entry owner, int idx, StringBuilder thunks, ref int thunkN)
+    // --- Animatable tablosu: AnimRegistry.BuildReflective ile AYNI kume ve sira ---
+    // (sema yuruyusu ic ice yollarla, sonra [Animatable] property/alan/tetik).
+    // Her giris tipli Get/Set lambda: boxing yok, AOT'de reflection yok. Private
+    // uyeler UnsafeAccessor thunk'lariyla (alan: ref, property/metod: cagri).
+    static void EmitAnimArray(StringBuilder sb, TypeCatalog.Entry e, int idx, StringBuilder thunks, ref int thunkN)
     {
-        var fi = f.Info;
-        string decl = CsName(fi.DeclaringType);
-        bool isInt = f.Kind == SerializedType.Kind.Int;
-        string access;
-        if (fi.IsPublic && !fi.IsInitOnly)
+        var t = e.Type;
+        string tn = CsName(t);
+        string self = "((" + tn + ")c)";
+        var items = new List<string>();
+        var paths = new List<string>();
+
+        if (e.Schema != null)
+            WalkAnim(e.Schema, "", self, false, tn, idx, items, paths, thunks, ref thunkN, 0);
+
+        foreach (var pi in t.GetProperties(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
         {
-            access = "((" + decl + ")c)." + fi.Name;
+            if (!pi.IsDefined(typeof(AnimatableAttribute), false) || !AnimRegistry.TryKind(pi.PropertyType, out var k))
+                continue;
+            if (pi.GetMethod == null || pi.SetMethod == null)
+                continue;
+            string get, setFmt;
+            if (pi.GetMethod.IsPublic && pi.SetMethod.IsPublic)
+            {
+                get = self + "." + pi.Name;
+                setFmt = get + " = {0}";
+            }
+            else
+            {
+                get = EmitMethodThunk(thunks, pi.GetMethod, idx, ref thunkN) + "(" + self + ")";
+                setFmt = EmitMethodThunk(thunks, pi.SetMethod, idx, ref thunkN) + "(" + self + ", {0})";
+            }
+            items.Add(AnimItem(pi.Name, k, pi.PropertyType, tn, get, setFmt));
+            paths.Add(pi.Name);
         }
-        else
+        foreach (var fi in t.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
         {
-            string th = EmitFieldThunk(thunks, fi, idx, ref thunkN);
-            access = th + "((" + decl + ")c)";
+            if (!fi.IsDefined(typeof(AnimatableAttribute), false) || !AnimRegistry.TryKind(fi.FieldType, out var k))
+                continue;
+            if (paths.Contains(fi.Name))
+                continue; // serilesen alan zaten listede
+            string lv = FieldLValue(fi, self, false, idx, thunks, ref thunkN);
+            items.Add(AnimItem(fi.Name, k, fi.FieldType, tn, lv, lv + " = {0}"));
+            paths.Add(fi.Name);
         }
-        sb.Append("            GetFloat = c => ").Append(isInt ? "(float)" : "").Append(access).Append(",\n");
-        sb.Append("            SetFloat = (c, v) => ").Append(access).Append(" = ").Append(isInt ? "(int)v" : "v").Append(",\n");
+        foreach (var mi in t.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+        {
+            if (!mi.IsDefined(typeof(AnimatableAttribute), false) || mi.GetParameters().Length != 0 || mi.ReturnType != typeof(void))
+                continue;
+            string call = mi.IsPublic
+                ? self + "." + mi.Name + "()"
+                : EmitMethodThunk(thunks, mi, idx, ref thunkN) + "(" + self + ")";
+            items.Add("new global::DigitoyEngine.AnimProperty { Path = " + Quote(mi.Name)
+                + ", Kind = global::DigitoyEngine.AnimKind.Trigger, OwnerType = typeof(" + tn
+                + "), ValueType = typeof(void), Set = (c, v) => " + call + " },");
+        }
+
+        sb.Append("        var a = new global::DigitoyEngine.AnimProperty[]\n        {\n");
+        foreach (var it in items)
+            sb.Append("            ").Append(it).Append('\n');
+        sb.Append("        };\n");
+    }
+
+    static void WalkAnim(SerializedType.FieldSchema[] schema, string prefix, string owner, bool ownerIsStruct,
+        string ownerTn, int idx, List<string> items, List<string> paths, StringBuilder thunks, ref int thunkN, int depth)
+    {
+        foreach (var f in schema)
+        {
+            string path = prefix + f.Name;
+            var fi = f.Info;
+            if (fi == null)
+                continue;
+            string lv = FieldLValue(fi, owner, ownerIsStruct, idx, thunks, ref thunkN);
+            if (f.Kind == SerializedType.Kind.Object && f.Nested != null && depth < 6)
+            {
+                WalkAnim(f.Nested, path + ".", lv, f.ElementType.IsValueType, ownerTn, idx, items, paths, thunks, ref thunkN, depth + 1);
+                continue;
+            }
+            if (!AnimRegistry.TryKind(fi.FieldType, out var k))
+                continue;
+            items.Add(AnimItem(path, k, fi.FieldType, ownerTn, lv, lv + " = {0}"));
+            paths.Add(path);
+        }
+    }
+
+    // AnimValue donusumleri AnimRegistry.Add ile ayna. setFmt: {0} = v'den cozulmus deger.
+    static string AnimItem(string path, AnimKind kind, Type valueType, string ownerTn, string get, string setFmt)
+    {
+        string vt = CsName(valueType);
+        const string AV = "global::DigitoyEngine.AnimValue.";
+        string from, to;
+        switch (kind)
+        {
+            case AnimKind.Float: from = AV + "FromFloat(" + get + ")"; to = "v.ToFloat()"; break;
+            case AnimKind.Int: from = AV + "FromInt(" + get + ")"; to = "v.ToInt()"; break;
+            case AnimKind.Bool: from = AV + "FromBool(" + get + ")"; to = "v.ToBool()"; break;
+            case AnimKind.Enum: from = AV + "FromInt((int)" + get + ")"; to = "(" + vt + ")v.ToInt()"; break;
+            case AnimKind.Vec2: from = AV + "FromVec2(" + get + ")"; to = "v.ToVec2()"; break;
+            case AnimKind.Vec3: from = AV + "FromVec3(" + get + ")"; to = "v.ToVec3()"; break;
+            case AnimKind.Vec4: from = AV + "FromVec4(" + get + ")"; to = "v.ToVec4()"; break;
+            case AnimKind.Color: from = AV + "FromColor(" + get + ")"; to = "v.ToColor()"; break;
+            case AnimKind.Ref: from = AV + "FromRef((object)" + get + ")"; to = "(" + vt + ")v.Ref"; break;
+            default: throw new InvalidOperationException("anim emitter: beklenmeyen kind " + kind);
+        }
+        return "new global::DigitoyEngine.AnimProperty { Path = " + Quote(path)
+            + ", Kind = global::DigitoyEngine.AnimKind." + kind
+            + ", OwnerType = typeof(" + ownerTn + "), ValueType = typeof(" + vt + ")"
+            + ", Get = c => " + from
+            + ", Set = (c, v) => " + setFmt.Replace("{0}", to) + " },";
+    }
+
+    // Private property erisimcisi / tetik metodu: UnsafeAccessor cagri thunk'i.
+    static string EmitMethodThunk(StringBuilder thunks, MethodInfo mi, int idx, ref int thunkN)
+    {
+        string name = "M" + idx + "_" + thunkN++;
+        thunks.Append("    [global::System.Runtime.CompilerServices.UnsafeAccessor(global::System.Runtime.CompilerServices.UnsafeAccessorKind.Method, Name = ")
+              .Append(Quote(mi.Name)).Append(")]\n");
+        thunks.Append("    static extern ").Append(mi.ReturnType == typeof(void) ? "void" : CsName(mi.ReturnType))
+              .Append(' ').Append(name).Append('(').Append(CsName(mi.DeclaringType)).Append(" o");
+        var ps = mi.GetParameters();
+        for (int i = 0; i < ps.Length; i++)
+            thunks.Append(", ").Append(CsName(ps[i].ParameterType)).Append(" a").Append(i);
+        thunks.Append(");\n\n");
+        return name;
     }
 
     static string KindExpr(SerializedType.Kind k)
@@ -441,11 +543,19 @@ public static class CatalogWriter
         // typeof(FieldType) her serilesen alanin tipini kodda adlandirir).
         foreach (var fi in t.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
         {
-            if (fi.IsLiteral || (!fi.IsPublic && !fi.IsDefined(typeof(SerializeFieldAttribute), false)))
+            if (fi.IsLiteral || (!fi.IsPublic && !fi.IsDefined(typeof(SerializeFieldAttribute), false)
+                && !fi.IsDefined(typeof(AnimatableAttribute), false)))
                 continue;
             if (!Accessible(fi.DeclaringType) || !Accessible(fi.FieldType))
                 return false;
         }
+        // [Animatable] property/tetik: Anim tablosu tipleri + sahibi kodda adlandirir.
+        foreach (var pi in t.GetProperties(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+            if (pi.IsDefined(typeof(AnimatableAttribute), false) && (!Accessible(pi.DeclaringType) || !Accessible(pi.PropertyType)))
+                return false;
+        foreach (var mi in t.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+            if (mi.IsDefined(typeof(AnimatableAttribute), false) && !Accessible(mi.DeclaringType))
+                return false;
         return SchemaTypesAccessible(e.Schema);
     }
 

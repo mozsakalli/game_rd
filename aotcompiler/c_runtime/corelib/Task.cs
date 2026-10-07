@@ -4,11 +4,11 @@ using System.Collections.Generic;
 
 namespace System.Threading.Tasks
 {
-    class Task
+    public class Task
     {
-        bool completed;
-        Exception fault; // SetException ile dolar; Result/GetResult yeniden firlatir
-        List<Action> continuations = new List<Action>();
+        public bool completed;
+        public Exception fault; // SetException ile dolar; Result/GetResult yeniden firlatir
+        public List<Action> continuations = new List<Action>();
 
         public bool IsCompleted { get { return completed; } }
         public bool IsFaulted { get { return fault != null; } }
@@ -50,10 +50,10 @@ namespace System.Threading.Tasks
         }
     }
 
-    class Task<T> : Task
+    public class Task<T> : Task
     {
-        T result;
-        List<Action<Task<T>>> typedContinuations = new List<Action<Task<T>>>();
+        public T result;
+        public List<Action<Task<T>>> typedContinuations = new List<Action<Task<T>>>();
 
         public T Result
         {
@@ -89,9 +89,9 @@ namespace System.Threading.Tasks
 
     }
 
-    class TaskCompletionSource<T>
+    public class TaskCompletionSource<T>
     {
-        Task<T> task = new Task<T>();
+        public Task<T> task = new Task<T>();
         public Task<T> Task { get { return task; } }
         public bool TrySetResult(T value) { return task.TrySetResult(value); }
         public bool TrySetException(Exception cause) { return task.TrySetException(cause); }
