@@ -61,6 +61,12 @@ public static class PlayerBuilder
             return Fail("Registry.g.cs yok (katalog kurulmadi): " + registry);
         var ps = project.Player;
         string appArgs = $" --app-id \"{ps.bundleIdentifier}\" --app-name \"{ps.productName}\" --app-version \"{ps.version}\" --orientation {ps.orientation}";
+        if (target == "android")
+        {
+            // Android'e ozel her sey (versionCode, ABI, ikon, imza) tek props dosyasiyla gider; aotcompiler dogrular.
+            try { appArgs += $" --props \"{AndroidBuildProps.Write(project)}\""; }
+            catch (Exception e) { return Fail("android.properties yazilamadi: " + e.Message); }
+        }
         if (!SdkLayout.TryAotCommand($"player \"{project.Root}\" --target {target}{appArgs}", out string aotFile, out string aotArgs, out string aotErr))
             return Fail(aotErr);
 

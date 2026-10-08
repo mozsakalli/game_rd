@@ -6,7 +6,7 @@
 //
 //   Backend'ler (ayni sozlesme):
 //     desktop / iOS : stdio (fopen/fseek/fread)             [bu dosya]
-//     Android       : AAssetManager / fd+offset (pread)      [de_fs_android.c, ileride]
+//     Android       : stdio + APK assets/ icin fd+offset    [bu dosya, __ANDROID__: "asset:<ad>" yolu]
 //     web (wasm)    : fetch -> bellek, read = memcpy          [de_fs_web.c, ileride]
 //
 //   Is modeli: TUM IO ve decode worker'da, managed TEK thread. Her cagri aninda
@@ -30,7 +30,12 @@ extern "C" {
 #endif
 
 // Dosya acar -> job. poll: 1 -> *w = handle (>= 0); -1 -> acilamadi.
+// Android: "asset:<ad>" yolu APK assets/ icinden fd+offset ile acilir (kopya yok; asset SIKISTIRILMAMIS
+// olmali — Gradle `noCompress`). Oncesinde de_fs_set_asset_manager cagrilmis olmali.
 DE_FS_API int de_fs_open(const char *path);
+#if defined(__ANDROID__)
+DE_FS_API void de_fs_set_asset_manager(void *aassetManager); // AAssetManager* (host JNI'den)
+#endif
 DE_FS_API long long de_fs_size(int handle);
 DE_FS_API void de_fs_close(int handle);
 

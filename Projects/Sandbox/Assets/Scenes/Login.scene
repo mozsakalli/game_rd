@@ -349,13 +349,13 @@ objects:
             mode: Constant
             min: 0
             max: 0
-            shape:
+            shape: ''
             spread: 0
           y:
             mode: Constant
             min: 0
             max: 0
-            shape:
+            shape: ''
             spread: 0
         simulationSpace: World
         sprites:
@@ -393,8 +393,7 @@ objects:
   - id: 21
     parent: 0
     name: GameObject (5)
-    active: false
-    pos: 0 0 0
+    pos: 18.57779 1.4291037 0
     rot: 0 0 0
     scale: 1 1 1
     components:
@@ -418,7 +417,6 @@ objects:
         shadowOffset: 0 4
         shadowGrow: 5
         Effects:
-          - 024d1c3d0b9d4dcc8dbde2792d7664ab
       - type: MovieClip
         Fps: 30
         FrameCount: 15

@@ -40,6 +40,9 @@ public class PlayerSettings
     // modul kodu onlara isimle baglanir. Bos = yalniz engine API'si.
     public string moduleHostDll = "";
 
+    // Android'e ozel yayin ayarlari (Build Android Project -> generated/app.properties; kabuk Gradle her build okur).
+    public AndroidSettings android = new();
+
     // Build kokleri: scenes + startScene (tekil, sira korunur, startScene listede yoksa basa).
     public List<string> BuildScenes()
     {
@@ -51,4 +54,20 @@ public class PlayerSettings
                 list.Add(s.Trim());
         return list;
     }
+}
+
+// Android yayin ayarlari (PlayerSettings.android; git'e girer). SIFRELER BURADA DEGIL: keystore/key parolasi
+// editor UserSettings/AndroidSigning.asset'te (gitignore'lu) ya da DE_ANDROID_KEYSTORE_PASS / DE_ANDROID_KEY_PASS
+// ortam degiskenlerinde; build sirasinda Build/android/keystore.properties'e yazilir (Gradle konvansiyonu, gitignore'lu).
+[Serializable]
+public class AndroidSettings
+{
+    public string packageName = "";        // bos = bundleIdentifier (applicationId)
+    public int versionCode = 1;            // Play Store her yuklemede artis ister (versionName = PlayerSettings.version)
+    public int targetSdk = 35;
+    public bool includeX86_64 = true;      // emulator ABI'si; kapali = yalniz arm64-v8a (kucuk APK)
+    public string keystorePath = "";       // proje kokune goreli ya da mutlak .keystore/.jks; bos = debug imza
+    public string keyAlias = "";
+    public string iconForeground = "";     // Assets'e goreli PNG (adaptive icon on plani, 432x432 onerilir); bos = engine varsayilani
+    public string iconBackground = "#1E1E1E"; // "#RRGGBB" renk ya da Assets'e goreli PNG
 }

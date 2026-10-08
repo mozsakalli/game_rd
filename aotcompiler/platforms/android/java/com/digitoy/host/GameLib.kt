@@ -15,7 +15,7 @@ object GameLib {
     const val EV_FOCUS = 21
     const val EV_RESIZE = 22
 
-    @JvmStatic external fun init(dataRoot: String, writableRoot: String, fbw: Int, fbh: Int, scale: Float)
+    @JvmStatic external fun init(assets: android.content.res.AssetManager, writableRoot: String, fbw: Int, fbh: Int, scale: Float)
     @JvmStatic external fun frame(dt: Float, fbw: Int, fbh: Int, scale: Float): Int
     @JvmStatic external fun event(type: Int, id: Int, x: Float, y: Float, a: Int, b: Int)
     @JvmStatic external fun pause()

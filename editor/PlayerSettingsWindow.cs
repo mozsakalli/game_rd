@@ -21,10 +21,17 @@ public sealed class PlayerSettingsWindow : EditorWindow
     static readonly Color StartColor = new(120, 200, 140, 255);
 
     readonly ObjectDrawer _drawer = new() { KeyPrefix = "ps:" };
+    readonly ObjectDrawer _signDrawer = new() { KeyPrefix = "ps.sign:" };
     readonly List<string> _sceneRows = new();
     Vec2 _scroll;
 
-    public PlayerSettingsWindow() => Title = "Player Settings";
+    public PlayerSettingsWindow()
+    {
+        Title = "Player Settings";
+        Utility = true; // Unity gibi: dock'lanmaz, ayri pencere
+        UtilityWidth = 560;
+        UtilityHeight = 720;
+    }
 
     protected override void OnGui()
     {
@@ -37,15 +44,19 @@ public sealed class PlayerSettingsWindow : EditorWindow
         var ps = project.Player;
         if (!ReferenceEquals(_drawer.Target, ps))
             _drawer.Bind(ps);
+        if (!ReferenceEquals(_signDrawer.Target, project.AndroidSigning))
+            _signDrawer.Bind(project.AndroidSigning);
         CollectSceneRows(ps);
 
         var vis = GuiClip.VisibleRect;
         float scenesH = RowH * (Math.Max(1, _sceneRows.Count) + 1) + 4;
-        float contentHeight = 4 + HeaderH + 6 + _drawer.Measure() + 8 + HeaderH + 6 + scenesH + 8;
+        float contentHeight = 4 + HeaderH + 6 + _drawer.Measure() + 8 + HeaderH + 6 + scenesH + 8
+            + HeaderH + 6 + RowH + _signDrawer.Measure() + 8;
         _scroll = Gui.BeginScrollView(new Rect(0, 0, vis.width, vis.height), _scroll,
             new Rect(0, 0, vis.width - 20, contentHeight));
         float w = vis.width - 24;
         _drawer.LabelW = InspectorPanel.LabelWidthFor(w);
+        _signDrawer.LabelW = _drawer.LabelW;
         float y = 4;
         DrawHeader(ref y, w, "Player Settings");
         if (_drawer.Draw(ref y, w, Save))
@@ -54,6 +65,16 @@ public sealed class PlayerSettingsWindow : EditorWindow
         DrawHeader(ref y, w, "Scenes In Build");
         if (DrawScenes(ps, ref y, w))
             Save();
+        y += 8;
+        // Parolalar PlayerSettings.asset'e (git) DEGIL, UserSettings/AndroidSigning.asset'e yazilir.
+        DrawHeader(ref y, w, "Android Signing (local)");
+        if (Event.Current.Type == EventType.Repaint)
+            GuiRenderer.DrawTextIn(new Rect(12, y, w - 12, RowH),
+                "UserSettings/AndroidSigning.asset — git'e girmez. CI: DE_ANDROID_KEYSTORE_PASS / DE_ANDROID_KEY_PASS",
+                InspectorPanel.SmallFont, InspectorPanel.LabelDimColor);
+        y += RowH;
+        if (_signDrawer.Draw(ref y, w, SaveSigning))
+            SaveSigning();
         Gui.EndScrollView();
     }
 
@@ -164,4 +185,5 @@ public sealed class PlayerSettingsWindow : EditorWindow
     static string FirstOrEmpty(List<string> list) => list.Count > 0 ? list[0] : "";
 
     static void Save() => App.Project.SavePlayerSettings();
+    static void SaveSigning() => App.Project.SaveAndroidSigning();
 }

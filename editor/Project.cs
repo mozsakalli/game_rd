@@ -12,6 +12,7 @@ public sealed class Project
 {
     public string Root;
     public PlayerSettings Player = new();
+    public AndroidSigning AndroidSigning = new(); // UserSettings/AndroidSigning.asset (gitignore'lu; parolalar)
 
     public string Name => Player.productName;
     public string StartScene => Player.startScene; // Assets'e goreli
@@ -19,7 +20,9 @@ public sealed class Project
     public string AssetsPath => Path.Combine(Root, "Assets");
     public string LibraryPath => Path.Combine(Root, "Library");
     public string ProjectSettingsPath => Path.Combine(Root, "ProjectSettings");
+    public string UserSettingsPath => Path.Combine(Root, "UserSettings");
     public string PlayerSettingsPath => Path.Combine(ProjectSettingsPath, "PlayerSettings.asset");
+    public string AndroidSigningPath => Path.Combine(UserSettingsPath, "AndroidSigning.asset");
     public string StartScenePath => Path.Combine(AssetsPath, StartScene);
 
     public static Project Load(string root)
@@ -41,6 +44,11 @@ public sealed class Project
             }
             p.SavePlayerSettings(); // standart dosya ilk acilista olusur
         }
+        if (File.Exists(p.AndroidSigningPath))
+        {
+            try { p.AndroidSigning = ObjectSerializer.Load<AndroidSigning>(p.AndroidSigningPath); }
+            catch (System.Exception e) { EditorLog.Error("[project] AndroidSigning okunamadi: " + e.Message); }
+        }
         Directory.CreateDirectory(p.AssetsPath);
         Directory.CreateDirectory(p.LibraryPath);
         return p;
@@ -50,5 +58,11 @@ public sealed class Project
     {
         Directory.CreateDirectory(ProjectSettingsPath);
         ObjectSerializer.Save(Player, PlayerSettingsPath);
+    }
+
+    public void SaveAndroidSigning()
+    {
+        Directory.CreateDirectory(UserSettingsPath);
+        ObjectSerializer.Save(AndroidSigning, AndroidSigningPath);
     }
 }

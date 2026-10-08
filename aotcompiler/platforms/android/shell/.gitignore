@@ -1,5 +1,7 @@
 # generated/ her build silinip yeniden yazilir; app/ ve kok Gradle dosyalari size aittir.
 generated/
+# imza parolalari (editor her build yazar) — ASLA commit etmeyin
+keystore.properties
 .gradle/
 build/
 app/build/

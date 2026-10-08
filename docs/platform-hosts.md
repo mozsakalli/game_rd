@@ -140,13 +140,30 @@ Aynı kural `Build/ios/`, `Build/wasm/` için.
   --app-id/--app-name/--app-version/--orientation` (PlayerSettings'ten) → `<proje>/Build/android/`: `generated/` (cpp: generated.c + c_runtime + native +
   CMakeLists; java: `com.digitoy.host.{GameLib,GameActivity}`; assets: game.pak — her build yeniden) + kabuk (ilk kez: Gradle kts, manifest, strings;
   sonra kullanıcıya ait). Kotlin host: GLSurfaceView (EGL3, `preserveEGLContextOnPause`), Renderer → `GameLib.frame`, dokunma → `event` (kuyruk),
-  pause/resume, back → `EV_BACK` (`GameHost.BackRequested` yoksa Frame false → finish), `onDestroy` → süreç biter (runtime tek init'lik), pak assets →
-  filesDir kopyası. C: `host_android.c` (JNI + stdout/stderr→logcat). Engine: `DE_RENDERER_GLES3` (`#version 300 es`), `DE_DESKTOP` (GLFW.cs),
+  pause/resume, back → `EV_BACK` (`GameHost.BackRequested` yoksa Frame false → finish), `onDestroy` → süreç biter (runtime tek init'lik), pak APK
+  assets'ten fd+offset (H5.2; ilk dilimde filesDir kopyasıydı). C: `host_android.c` (JNI + stdout/stderr→logcat). Engine: `DE_RENDERER_GLES3` (`#version 300 es`), `DE_DESKTOP` (GLFW.cs),
   `NativeWindow.cs` tümü DE_EDITOR, `sokol_shim.c` Cocoa bloğu `__APPLE__`. Doğrulama (cihaz, arm64): NDK 27 libgame.so (strip 8.6 MB), Gradle 8.9
   headless debug+release APK (19 MB), logcat pak→registry→16 asset→`sahne hazir`, çizim OK (GLES3 shader), yatay yön, back→yeniden açılış temiz süreç,
   home→geri dönüş sorunsuz. Release = `assembleRelease` (NDK -O3, generated.c -O1, strip); debug varyantı da -O1 (CMake `$<CONFIG:Debug>`).
 - **Android kalanlar (sırayla)**: (1) multitouch → `Pointer` id'li; (2) `de_music_*` → MediaPlayer köprüsü (H3 mesaj kanalı/`de_host_*` ile);
-  (3) klavye/EV_TEXT → soft keyboard; (4) GL context kaybı → GPU kaynak yenileme (H7); (5) pak'ı kopyalamadan AAsset fd+offset ile okuma; (6) ikon/splash.
+  (3) klavye/EV_TEXT → soft keyboard; (4) GL context kaybı → GPU kaynak yenileme (H7); (5) splash;
+  (6) izin/manifest meta-data listesi (tek `main` manifest → H3 kancalarıyla manifest merge).
+- **H5.2 pak kopyasız okuma BİTTİ**: `PakInstaller` kalktı. Pak APK'da `assets/Build/game.pak` (sıkıştırılmadan, `noCompress "pak"`); Kotlin
+  `GameLib.init(assets: AssetManager, ...)` → `host_android.c` `AAssetManager_fromJava` (global ref) → `de_fs_set_asset_manager`; `dataRoot = "asset:"`
+  → GameHost `"asset:/Build/game.pak"` → `de_fs_open` `__ANDROID__` dalı: `AAssetManager_open` + `AAsset_openFileDescriptor64` (fd+start+len) →
+  `fdopen`; handle'a `base` offset eklendi, tüm okumalar `base + offset` (stdio backend aynı, ayrı dosya yok). Sıkıştırılmış asset (fd yok) → açılamadı.
+  `asset:` öneki olmayan yollar (modül pak'ları, writable) eskisi gibi `fopen`.
+- **H5.1 Android yayın ayarları BİTTİ (kabuk v2)**: `PlayerSettings.android` (`AndroidSettings`: packageName, versionCode, targetSdk, includeX86_64,
+  keystorePath, keyAlias, iconForeground/iconBackground — git'e girer). **Parolalar** `UserSettings/AndroidSigning.asset` (gitignore'lu; Player Settings
+  penceresi "Android Signing (local)") ya da CI için `DE_ANDROID_KEYSTORE_PASS` / `DE_ANDROID_KEY_PASS` (üstün gelir). Akış: editör `AndroidBuildProps.Write`
+  → `Library/Build/android.properties` → `aotcompiler player --target android --props <dosya>` → ön doğrulama (applicationId regex, versionCode>0,
+  targetSdk≥26, keystore/alias/parola bütünlüğü, ikon dosyaları; hata → generated/ silinmez) → `generated/app.properties` (applicationId, appName,
+  versionName/Code, targetSdk, abis, orientation), `generated/res/` (adaptive icon: `mipmap-anydpi-v26/ic_launcher*.xml` + foreground PNG ya da şablon
+  vektörü + arka plan renk/PNG; minSdk 26 → mipmap PNG seti gerekmez), `Build/android/keystore.properties` (imza varsa; yoksa silinir; kabuk .gitignore).
+  **Kabuk artık statik**: `app/build.gradle.kts` `../generated/app.properties`'i okur (`manifestPlaceholders` appName/orientation, `res.srcDirs`
+  generated/res, `signingConfigs.release` keystore.properties varsa, yoksa debug + uyarı); manifest `${appName}`/`${orientation}`/`@mipmap/ic_launcher`;
+  `strings.xml` kalktı; `{{APP_ID}}/{{APP_VERSION}}/{{ORIENTATION}}` şablon değişkenleri yok (yalnız `settings.gradle.kts` rootProject.name).
+  `Build/android/shell.version` (=2): eski kabukta build "kabuk eski, silip yeniden üretin" uyarısı verir, dosyalara dokunmaz.
 - **H4 (wasm) İLK DİLİM BİTTİ**: Editör `Project ▸ Build Web (wasm)` / RPC `player.build {target:"wasm"}` → `aotcompiler player --target wasm` →
   `<proje>/Build/wasm/`: `game.js + game.wasm + game.data` (her build; data = `--preload-file game.pak@/data/Build/game.pak`) + `index.html`
   (ilk kez `platforms/wasm/shell`'den, sonra kullanıcıya ait). **Toolchain**: `EmsdkToolchain.Ensure` (`Toolchain.cs`) — `emsdk` aracı/sistem Python'u

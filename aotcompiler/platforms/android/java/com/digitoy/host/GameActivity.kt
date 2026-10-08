@@ -11,7 +11,6 @@ import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.view.WindowManager
-import java.io.File
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 
@@ -135,8 +134,8 @@ class GameView(context: Context) : GLSurfaceView(context) {
         override fun onSurfaceChanged(gl: GL10?, width: Int, height: Int) {
             w = width; h = height
             if (!ready) {
-                val root = PakInstaller.ensure(context)
-                GameLib.init(root, context.filesDir.path, w, h, density)
+                // game.pak APK assets/Build/ icinde; native taraf AssetManager fd+offset ile dogrudan okur (kopya yok).
+                GameLib.init(context.assets, context.filesDir.path, w, h, density)
                 ready = true
             } else {
                 GameLib.event(GameLib.EV_RESIZE, 0, 0f, 0f, w, h)
@@ -157,21 +156,4 @@ class GameView(context: Context) : GLSurfaceView(context) {
     }
 
     companion object { const val TAG = "digitoy" }
-}
-
-// game.pak APK assets/ icinde (sikistirilmadan); runtime dosya yolu bekler -> ilk acilista (ya da boyut
-// degisince) filesDir/Build/game.pak'a kopyalanir. Donus: dataRoot (GameHost "<root>/Build/game.pak" acar).
-object PakInstaller {
-    fun ensure(context: Context): String {
-        val root = context.filesDir
-        val dst = File(root, "Build/game.pak")
-        context.assets.openFd("game.pak").use { afd ->
-            if (!dst.exists() || dst.length() != afd.length) {
-                dst.parentFile?.mkdirs()
-                afd.createInputStream().use { input -> dst.outputStream().use { out -> input.copyTo(out, 1 shl 20) } }
-                Log.i(GameView.TAG, "game.pak kopyalandi: ${dst.length()} bayt")
-            }
-        }
-        return root.path
-    }
 }

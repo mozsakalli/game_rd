@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- DigitoyEngine varsayilan launcher on plani (Player Settings > android.iconForeground bos ise). 108dp adaptive tuval,
+     guvenli alan ortadaki 66dp daire: basit "D" harfi. Kendi ikonunuz icin 432x432 PNG verin. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path android:fillColor="#F2F2F2"
+        android:pathData="M38,30 L54,30 C68,30 78,40 78,54 C78,68 68,78 54,78 L38,78 Z M48,39 L48,69 L54,69 C62,69 68,63 68,54 C68,45 62,39 54,39 Z" />
+</vector>

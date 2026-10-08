@@ -1,7 +1,7 @@
 type: PlayerSettings
 fields:
   companyName: DefaultCompany
-  productName: Sandbox
+  productName: Yuzbir Extra
   version: 0.1.0
   bundleIdentifier: com.defaultcompany.game
   scenes:
@@ -13,3 +13,5 @@ fields:
   fullscreen: false
   resizableWindow: true
   targetFrameRate: 0
+  orientation: landscape
+  moduleHostDll: ''

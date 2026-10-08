@@ -6,11 +6,13 @@
 // event UI thread'inden gelebilir (de_app_event kuyrugu thread-safe).
 #include <jni.h>
 #include <android/log.h>
+#include <android/asset_manager_jni.h>
 #include <pthread.h>
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
 #include "de_app.h"
+#include "de_fs.h"
 
 #define TAG "digitoy"
 
@@ -48,15 +50,23 @@ void de_host_log(int level, const char* utf8) { __android_log_write(level >= 2 ?
 
 #define JNI_FN(name) JNIEXPORT JNICALL Java_com_digitoy_host_GameLib_##name
 
-void JNI_FN(init)(JNIEnv* env, jclass cls, jstring dataRoot, jstring writableRoot, jint fbw, jint fbh, jfloat scale)
+// game.pak APK assets/Build/game.pak icinde (sikistirilmadan). dataRoot = "asset:" -> GameHost "asset:/Build/game.pak"
+// acar; de_fs bunu AAssetManager fd+offset ile okur (filesDir'e kopya yok). AssetManager global ref: AAssetManager*
+// Java nesnesi yasadikca gecerli; surec omurlu tutuyoruz (Activity yok olunca surec zaten biter).
+static jobject g_assets_ref;
+
+void JNI_FN(init)(JNIEnv* env, jclass cls, jobject assets, jstring writableRoot, jint fbw, jint fbh, jfloat scale)
 {
     (void)cls;
     redirect_stdio();
-    const char* d = (*env)->GetStringUTFChars(env, dataRoot, 0);
+    if (!g_assets_ref)
+    {
+        g_assets_ref = (*env)->NewGlobalRef(env, assets);
+        de_fs_set_asset_manager(AAssetManager_fromJava(env, g_assets_ref));
+    }
     const char* w = (*env)->GetStringUTFChars(env, writableRoot, 0);
-    __android_log_print(ANDROID_LOG_INFO, TAG, "init data=%s writable=%s %dx%d @%.2f", d, w, fbw, fbh, scale);
-    de_app_init(d, w, fbw, fbh, scale);
-    (*env)->ReleaseStringUTFChars(env, dataRoot, d);
+    __android_log_print(ANDROID_LOG_INFO, TAG, "init data=asset: writable=%s %dx%d @%.2f", w, fbw, fbh, scale);
+    de_app_init("asset:", w, fbw, fbh, scale);
     (*env)->ReleaseStringUTFChars(env, writableRoot, w);
 }
 

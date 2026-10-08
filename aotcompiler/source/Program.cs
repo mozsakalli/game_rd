@@ -46,6 +46,7 @@ public static class Program
                         case "--app-name": app.Name = args[++i]; break;
                         case "--app-version": app.Version = args[++i]; break;
                         case "--orientation": app.Orientation = args[++i]; break;
+                        case "--props": app.Props = ReadProps(args[++i]); break;
                     }
                 return RunPlayerBuild(args.Length > 1 && !args[1].StartsWith("--") ? args[1] : Path.Combine(RepoRoot, "Projects", "Sandbox"), target, app);
             }
@@ -180,11 +181,16 @@ public static class Program
     // NIHAI URUN: engine (DE_AOT) + oyun (Registry + scriptler) -> CIL -> IR -> C -> clang; platform host
     // (c_runtime/host_desktop.c) + native (sokol + glfw + ses) STATIK linklenir. DigitoyPlayer assembly'si YOK.
     // Cikti: <proje>/Build/<ProjeAdi>.exe, game.pak'in yanina. Exe ".." = proje koku kabul eder.
+    // Oyun ara urunleri PROJENIN icinde (Unity Library/ modeli; gitignore'lu, silinebilir): <proje>/Library/aot/<target>/
+    // generated.c, <Ad>.Game.dll, diag.txt, nesne/arsiv cache'leri. aotcompiler/obj yalniz motora ait cache (aot-il) + selftest.
+    // Teslim edilen urun yalniz <proje>/Build/ (exe, wasm/, android/).
+    static string ProjectAotDir(string projectRoot, string target) => Path.Combine(projectRoot, "Library", "aot", target);
+
     static int RunPlayerBuild(string projectRoot, string target, AppInfo app)
     {
         projectRoot = Path.GetFullPath(projectRoot);
         string projName = Path.GetFileName(projectRoot.TrimEnd('\\', '/'));
-        string workDir = Path.Combine("obj", "player-c");
+        string workDir = ProjectAotDir(projectRoot, target);
         string generated = Path.Combine(workDir, "generated.c");
         string outExe = Path.Combine(projectRoot, "Build", projName + ".exe");
 
@@ -281,7 +287,7 @@ public static class Program
         // 4) clang: uretilen C + runtime (vmrt/corelib/vmint) + platform host (de_app/host_desktop) + native
         //    (sokol+glfw+ses+de_fs) — hepsi KAYNAKTAN (prebuilt player native'i yok; docs/platform-hosts.md).
         //    Native kaynaklar obj/native-static/ altinda mtime cache'li arsive derlenir. DLL yok, P/Invoke yok.
-        var staticLib = BuildNativeStaticLib();
+        var staticLib = BuildNativeStaticLib(Path.Combine(workDir, "native-static"));
         var cFiles = new List<string> { generated };
         foreach (var n in new[] { "vmrt.c", "corelib.c", "vmint.c", "de_app.c", "host_desktop.c" })
             cFiles.Add(Path.Combine(CRuntimeDir, n));
@@ -301,12 +307,34 @@ public static class Program
 
     // ---- Android (docs/platform-hosts.md H5): Android Studio projesi, kaynak + CMake; kullanici derler ----
     // <proje>/Build/android/
-    //   generated/   HER build silinip yazilir: cpp/{generated.c, c_runtime/, native/, CMakeLists.txt}, java/com/digitoy/host/*.kt, assets/game.pak
-    //   app/, settings.gradle.kts, build.gradle.kts, gradle.properties, gradle/wrapper   ILK uretimde sablondan ({{APP_NAME}}/{{APP_ID}}), sonra DOKUNULMAZ
+    //   generated/   HER build silinip yazilir: cpp/{generated.c, c_runtime/, native/, CMakeLists.txt}, java/com/digitoy/host/*.kt, assets/game.pak,
+    //                app.properties (Player Settings -> Gradle), res/ (adaptive launcher icon)
+    //   keystore.properties   imza varsa her build (parola icerir; kabuk .gitignore'unda), yoksa silinir
+    //   app/, settings.gradle.kts, build.gradle.kts, gradle.properties, gradle/wrapper, shell.version   ILK uretimde sablondan, sonra DOKUNULMAZ
+    //                (kabuk statik: degisken her sey generated/app.properties'ten okunur)
     static string PlatformsDir => Installed ? Path.GetFullPath(Path.Combine(PrebuiltDir, "..", "platforms")) : "platforms";
 
     // Yayin kimligi (editor PlayerSettings'ten --app-* ile gelir; CLI'dan verilmezse proje adindan turetilir).
-    sealed class AppInfo { public string Id, Name, Version = "1.0", Orientation = "landscape"; }
+    // Props: Android'e ozel ayarlar (editor AndroidBuildProps.Write -> --props; key=value). null = CLI/varsayilan.
+    sealed class AppInfo { public string Id, Name, Version = "1.0", Orientation = "landscape"; public Dictionary<string, string> Props; }
+
+    static Dictionary<string, string> ReadProps(string path)
+    {
+        if (!File.Exists(path)) throw new Exception("props dosyasi yok: " + path);
+        var d = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var raw in File.ReadAllLines(path))
+        {
+            string line = raw.Trim();
+            if (line.Length == 0 || line[0] == '#') continue;
+            int eq = line.IndexOf('=');
+            if (eq <= 0) continue;
+            d[line[..eq].Trim()] = line[(eq + 1)..].Replace("\\n", "\n");
+        }
+        return d;
+    }
+
+    // Kabuk surumu: sablon degisince artar; eski kabuk tespit edilip kullanici uyarilir (dosyalarina dokunulmaz).
+    const int AndroidShellVersion = 2;
 
     static void EmitAndroidProject(string projectRoot, string projName, string generatedC, AppInfo app)
     {
@@ -314,6 +342,49 @@ public static class Program
         if (!Directory.Exists(tpl)) throw new Exception("android sablonu yok: " + tpl);
         string root = Path.Combine(projectRoot, "Build", "android");
         string gen = Path.Combine(root, "generated");
+
+        // Ayarlari onceden dogrula: hata varsa generated/ silinmeden cik (eski proje calisir kalir).
+        var props = app.Props ?? new Dictionary<string, string>();
+        string P(string k, string def = "") => props.TryGetValue(k, out var v) && !string.IsNullOrWhiteSpace(v) ? v.Trim() : def;
+        string appId = P("applicationId", app.Id);
+        if (string.IsNullOrWhiteSpace(appId) || appId == "com.defaultcompany.game")
+        {
+            appId = "com.digitoy." + new string(projName.ToLowerInvariant().Where(ch => char.IsLetterOrDigit(ch)).ToArray());
+            if (appId.EndsWith(".")) appId += "game";
+        }
+        if (!System.Text.RegularExpressions.Regex.IsMatch(appId, @"^[A-Za-z][A-Za-z0-9_]*(\.[A-Za-z][A-Za-z0-9_]*)+$"))
+            throw new Exception($"android: gecersiz applicationId '{appId}' (Player Settings > Bundle Identifier / android.packageName; ornek com.sirket.oyun)");
+        string appName = P("appName", app.Name);
+        if (string.IsNullOrWhiteSpace(appName) || appName == "Game") appName = projName;
+        string versionName = P("versionName", app.Version);
+        if (!int.TryParse(P("versionCode", "1"), out int versionCode) || versionCode <= 0)
+            throw new Exception("android: versionCode pozitif tam sayi olmali (Player Settings > android.versionCode)");
+        if (!int.TryParse(P("targetSdk", "35"), out int targetSdk) || targetSdk < 26)
+            throw new Exception("android: targetSdk >= 26 olmali (minSdk 26: AAudio)");
+        string abis = P("abis", "arm64-v8a,x86_64");
+        string orientation = P("orientation", app.Orientation) switch { "portrait" => "sensorPortrait", "auto" => "fullSensor", _ => "sensorLandscape" };
+
+        // Imza: hepsi ya da hicbiri. Parolalar: props (editor UserSettings) < ortam degiskeni (CI).
+        string storeFile = P("signing.storeFile");
+        string keyAlias = P("signing.keyAlias");
+        string storePass = Environment.GetEnvironmentVariable("DE_ANDROID_KEYSTORE_PASS") ?? P("signing.storePassword");
+        string keyPass = Environment.GetEnvironmentVariable("DE_ANDROID_KEY_PASS") ?? P("signing.keyPassword");
+        if (string.IsNullOrEmpty(keyPass)) keyPass = storePass;
+        bool signing = storeFile.Length > 0;
+        if (signing)
+        {
+            if (!File.Exists(storeFile)) throw new Exception("android: keystore dosyasi yok: " + storeFile + " (Player Settings > android.keystorePath)");
+            if (keyAlias.Length == 0) throw new Exception("android: keystore verildi ama keyAlias bos (Player Settings > android.keyAlias)");
+            if (string.IsNullOrEmpty(storePass)) throw new Exception("android: keystore parolasi yok (Player Settings > Android Signing ya da DE_ANDROID_KEYSTORE_PASS)");
+        }
+        string iconFg = P("iconForeground");
+        if (iconFg.Length > 0 && !File.Exists(iconFg)) throw new Exception("android: iconForeground dosyasi yok: " + iconFg);
+        string iconBg = P("iconBackground", "#1E1E1E");
+        bool bgIsColor = iconBg.StartsWith("#");
+        if (bgIsColor && !System.Text.RegularExpressions.Regex.IsMatch(iconBg, "^#([0-9A-Fa-f]{6}|[0-9A-Fa-f]{8})$"))
+            throw new Exception("android: iconBackground rengi #RRGGBB olmali: " + iconBg);
+        if (!bgIsColor && !File.Exists(iconBg)) throw new Exception("android: iconBackground dosyasi yok: " + iconBg);
+
         if (Directory.Exists(gen)) Directory.Delete(gen, true);
 
         // cpp: generated.c + runtime (host_desktop haric) + native shim'ler (glfw yok) + CMake
@@ -338,37 +409,83 @@ public static class Program
 
         // java: host (her build taze — engine'e ait), assets: game.pak
         CopyTree(Path.Combine(tpl, "java"), Path.Combine(gen, "java"));
+        // assets: game.pak -> assets/Build/game.pak (GameHost "<root>/Build/game.pak"; root = "asset:" -> AAssetManager fd+offset, kopya yok)
         string pak = Path.Combine(projectRoot, "Build", "game.pak");
         if (!File.Exists(pak)) throw new Exception("game.pak yok (once asset pack): " + pak);
-        Directory.CreateDirectory(Path.Combine(gen, "assets"));
-        File.Copy(pak, Path.Combine(gen, "assets", "game.pak"), true);
+        Directory.CreateDirectory(Path.Combine(gen, "assets", "Build"));
+        File.Copy(pak, Path.Combine(gen, "assets", "Build", "game.pak"), true);
+
+        // app.properties: kabuk Gradle her build okur (applicationId/versionCode/versionName/targetSdk/abis + manifest placeholder'lari).
+        File.WriteAllText(Path.Combine(gen, "app.properties"),
+            "# DigitoyEngine: her build yeniden yazilir (Player Settings). Elle duzenlemeyin; app/build.gradle.kts okur.\n" +
+            $"applicationId={appId}\nappName={PropEscape(appName)}\nversionName={PropEscape(versionName)}\nversionCode={versionCode}\n" +
+            $"targetSdk={targetSdk}\nabis={abis}\norientation={orientation}\n");
+
+        // res: adaptive launcher icon (minSdk 26 -> yalniz anydpi-v26; PNG yeniden boyutlandirma yok).
+        string res = Path.Combine(gen, "res");
+        Directory.CreateDirectory(Path.Combine(res, "mipmap-anydpi-v26"));
+        Directory.CreateDirectory(Path.Combine(res, "drawable"));
+        Directory.CreateDirectory(Path.Combine(res, "values"));
+        if (iconFg.Length > 0) File.Copy(iconFg, Path.Combine(res, "drawable", "ic_launcher_foreground.png"), true);
+        else File.Copy(Path.Combine(tpl, "res", "ic_launcher_foreground.xml"), Path.Combine(res, "drawable", "ic_launcher_foreground.xml"), true);
+        string bgRef;
+        if (bgIsColor)
+        {
+            File.WriteAllText(Path.Combine(res, "values", "ic_launcher_background.xml"),
+                $"<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<resources>\n    <color name=\"ic_launcher_background\">{iconBg}</color>\n</resources>\n");
+            bgRef = "@color/ic_launcher_background";
+        }
+        else
+        {
+            File.Copy(iconBg, Path.Combine(res, "drawable", "ic_launcher_background.png"), true);
+            bgRef = "@drawable/ic_launcher_background";
+        }
+        string iconXml = "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<adaptive-icon xmlns:android=\"http://schemas.android.com/apk/res/android\">\n" +
+            $"    <background android:drawable=\"{bgRef}\" />\n    <foreground android:drawable=\"@drawable/ic_launcher_foreground\" />\n</adaptive-icon>\n";
+        File.WriteAllText(Path.Combine(res, "mipmap-anydpi-v26", "ic_launcher.xml"), iconXml);
+        File.WriteAllText(Path.Combine(res, "mipmap-anydpi-v26", "ic_launcher_round.xml"), iconXml);
+
+        // keystore.properties: kabuk kokunde (Gradle konvansiyonu; kabuk .gitignore'unda). Imza yoksa eski dosya kalmasin.
+        string ksProps = Path.Combine(root, "keystore.properties");
+        if (signing)
+        {
+            Directory.CreateDirectory(root);
+            File.WriteAllText(ksProps,
+                "# DigitoyEngine: her build yeniden yazilir; PAROLA ICERIR, git'e girmez (.gitignore).\n" +
+                $"storeFile={PropEscape(storeFile)}\nstorePassword={PropEscape(storePass)}\nkeyAlias={PropEscape(keyAlias)}\nkeyPassword={PropEscape(keyPass)}\n");
+        }
+        else if (File.Exists(ksProps))
+            File.Delete(ksProps);
 
         // kabuk: yalniz yoksa (kullaniciya ait)
+        string shellVersionFile = Path.Combine(root, "shell.version");
         if (!File.Exists(Path.Combine(root, "settings.gradle.kts")))
         {
-            string appId = app.Id;
-            if (string.IsNullOrWhiteSpace(appId) || appId == "com.defaultcompany.game")
-            {
-                appId = "com.digitoy." + new string(projName.ToLowerInvariant().Where(ch => char.IsLetterOrDigit(ch)).ToArray());
-                if (appId.EndsWith(".")) appId += "game";
-            }
-            string appName = string.IsNullOrWhiteSpace(app.Name) || app.Name == "Game" ? projName : app.Name;
-            string orientation = app.Orientation switch { "portrait" => "sensorPortrait", "auto" => "fullSensor", _ => "sensorLandscape" };
             foreach (var f in Directory.GetFiles(Path.Combine(tpl, "shell"), "*", SearchOption.AllDirectories))
             {
                 string rel = Path.GetRelativePath(Path.Combine(tpl, "shell"), f);
                 string to = Path.Combine(root, rel);
                 Directory.CreateDirectory(Path.GetDirectoryName(to));
-                string text = File.ReadAllText(f).Replace("{{APP_NAME}}", appName).Replace("{{APP_ID}}", appId)
-                    .Replace("{{APP_VERSION}}", app.Version).Replace("{{ORIENTATION}}", orientation);
-                File.WriteAllText(to, text);
+                File.WriteAllText(to, File.ReadAllText(f).Replace("{{APP_NAME}}", appName));
             }
-            Console.WriteLine($"android kabugu olusturuldu: {root} (applicationId {appId}, {app.Orientation})");
+            File.WriteAllText(shellVersionFile, AndroidShellVersion.ToString());
+            Console.WriteLine($"android kabugu olusturuldu: {root}");
         }
         else
-            Console.WriteLine("android kabugu mevcut, dokunulmadi: " + root);
-        Console.WriteLine($"android projesi hazir -> {root}  (Android Studio: Open -> bu klasor -> Run)");
+        {
+            int have = File.Exists(shellVersionFile) && int.TryParse(File.ReadAllText(shellVersionFile).Trim(), out int v) ? v : 1;
+            if (have < AndroidShellVersion)
+                Console.WriteLine($"[uyari] android kabugu eski (v{have} < v{AndroidShellVersion}): generated/app.properties, keystore.properties ve ikon okunmaz. " +
+                    $"Ozel degisikliginiz yoksa {root} altindaki kabuk dosyalarini (generated/ haric) silip yeniden build edin.");
+            else
+                Console.WriteLine("android kabugu mevcut, dokunulmadi: " + root);
+        }
+        Console.WriteLine($"android projesi hazir -> {root}  (applicationId {appId}, v{versionName} ({versionCode}), {abis}, " +
+            (signing ? $"imza: {Path.GetFileName(storeFile)}/{keyAlias}" : "imza: debug") + ")  Android Studio: Open -> bu klasor -> Run");
     }
+
+    // java.util.Properties: '\' kacis karakteri -> yollar '/' ile; satir sonu kacislanir.
+    static string PropEscape(string v) => v.Replace("\\", "/").Replace("\r", "").Replace("\n", "\\n");
 
     static void CopyTree(string src, string dst)
     {
@@ -385,7 +502,7 @@ public static class Program
     // <proje>/Build/wasm/
     //   game.js + game.wasm + game.data   HER build (emcc; game.data = --preload-file game.pak)
     //   index.html                        ILK uretimde sablondan (platforms/wasm/shell), sonra DOKUNULMAZ (kullaniciya ait)
-    // Nesneler obj/wasm-c/ altinda: generated.c her build, runtime/shim'ler mtime cache. Tarayici file:// ile wasm yuklemez:
+    // Nesneler <proje>/Library/aot/wasm/obj/ altinda: generated.c her build, runtime/shim'ler mtime cache. Tarayici file:// ile wasm yuklemez:
     // Build/wasm/ bir HTTP sunucudan servis edilmeli (editor "Run in Browser" ya da `python -m http.server`).
     static void BuildWasm(string projectRoot, string projName, string generatedC, AppInfo app)
     {
@@ -395,7 +512,7 @@ public static class Program
         if (!Directory.Exists(tpl)) throw new Exception("wasm sablonu yok: " + tpl);
         string outDir = Path.Combine(projectRoot, "Build", "wasm");
         Directory.CreateDirectory(outDir);
-        string objDir = Path.Combine("obj", "wasm-c");
+        string objDir = Path.Combine(ProjectAotDir(projectRoot, "wasm"), "obj");
         Directory.CreateDirectory(objDir);
 
         DigitoyEngine.Build.EmsdkToolchain.Ensure(Console.WriteLine);
@@ -478,14 +595,13 @@ public static class Program
     static string NativeIncludes => $"-I{Quote(CRuntimeDir)} -I{Quote(EngineNativeDir)} -I{Quote(Path.Combine(EngineNativeDir, "glfw-master", "include"))}";
 
     // engine/native/build_native_static.cmd'nin esdegeri, aotcompiler icinde (cmd/sh bagimliligi yok; kurulu modda da calisir):
-    // sokol_shim + audio_shim + de_fs + GLFW (Win32) -> obj/native-static/digitoyengine_native_static.a. Kaynak/header degistiyse yeniden.
+    // sokol_shim + audio_shim + de_fs + GLFW (Win32) -> <outDir>/digitoyengine_native_static.a. Kaynak/header degistiyse yeniden.
     static readonly string[] GlfwWin32Sources = { "context", "init", "input", "monitor", "platform", "vulkan", "window", "win32_init", "win32_joystick",
         "win32_module", "win32_monitor", "win32_time", "win32_thread", "win32_window", "wgl_context", "egl_context", "osmesa_context",
         "null_init", "null_joystick", "null_monitor", "null_window" };
 
-    static string BuildNativeStaticLib()
+    static string BuildNativeStaticLib(string outDir)
     {
-        string outDir = Path.Combine("obj", "native-static");
         string lib = Path.Combine(outDir, "digitoyengine_native_static.a");
         string clang = ClangPath();
         // Cache anahtari: kaynak/header mtime'lari + TOOLCHAIN (MSVC-hedef clang ile mingw nesneleri karismasin: __chkstk/_fltused).

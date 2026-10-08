@@ -74,6 +74,7 @@ enum { KIND_OPEN = 0, KIND_READ = 1, KIND_DECODE = 2 };
 typedef struct
 {
     FILE *f;
+    long long base; // dosya icindeki baslangic (APK icine gomulu asset: fd+offset); normal dosyada 0
     long long size;
 } de_handle_t;
 
@@ -93,6 +94,41 @@ static de_handle_t de_handles[DE_MAX_HANDLES];
 static de_job_t de_jobs[DE_MAX_JOBS];
 static de_mutex_t de_lock;
 static int de_started;
+
+#if defined(__ANDROID__)
+// ---- APK assets/: AAssetManager -> fd + offset. Asset sikistirilmamissa (Gradle noCompress) APK'nin
+// kendisi bir dosya olarak acilir, asset o dosyanin [start, start+len) araligidir -> stdio ile ayni yol.
+#include <android/asset_manager.h>
+#include <unistd.h>
+static AAssetManager *de_android_assets;
+
+DE_FS_API void de_fs_set_asset_manager(void *aassetManager) { de_android_assets = (AAssetManager *)aassetManager; }
+
+static FILE *de_open_asset(const char *name, long long *base, long long *size)
+{
+    if (!de_android_assets)
+        return NULL;
+    while (*name == '/')
+        name++;
+    AAsset *a = AAssetManager_open(de_android_assets, name, AASSET_MODE_RANDOM);
+    if (!a)
+        return NULL;
+    off64_t start = 0, len = 0;
+    int fd = AAsset_openFileDescriptor64(a, &start, &len); // fd bize ait (dup'li)
+    AAsset_close(a);
+    if (fd < 0)
+        return NULL; // sikistirilmis asset: fd verilmez
+    FILE *f = fdopen(fd, "rb");
+    if (!f)
+    {
+        close(fd);
+        return NULL;
+    }
+    *base = start;
+    *size = len;
+    return f;
+}
+#endif
 
 // ---- DTEX: build'de cozulmus texture [magic][format][w][h][veri] ----
 static int de_paeth(int a, int b, int c)
@@ -168,8 +204,12 @@ static unsigned char *de_read_blob(de_job_t *job, long long *outLen)
 {
     FILE *f;
     int own = 0;
+    long long base = 0;
     if (job->handle >= 0)
+    {
         f = de_handles[job->handle].f;
+        base = de_handles[job->handle].base;
+    }
     else
     {
         f = fopen(job->path, "rb");
@@ -192,7 +232,7 @@ static unsigned char *de_read_blob(de_job_t *job, long long *outLen)
     }
     unsigned char *buf = (unsigned char *)malloc((size_t)(length > 0 ? length : 1));
     unsigned char *result = NULL;
-    if (buf && de_fseek64(f, job->offset) == 0 && fread(buf, 1, (size_t)length, f) == (size_t)length)
+    if (buf && de_fseek64(f, base + job->offset) == 0 && fread(buf, 1, (size_t)length, f) == (size_t)length)
     {
         if (job->rawLength != length)
         {
@@ -359,11 +399,28 @@ DE_FS_API int de_fs_open(const char *path)
     if (job < 0)
         return -1;
     de_job_t *j = &de_jobs[job];
-    FILE *f = h >= 0 ? fopen(path, "rb") : NULL;
+    FILE *f = NULL;
+    long long base = 0, size = 0;
+    if (h >= 0)
+    {
+#if defined(__ANDROID__)
+        if (strncmp(path, "asset:", 6) == 0)
+            f = de_open_asset(path + 6, &base, &size);
+        else
+#endif
+        {
+            f = fopen(path, "rb");
+            if (f)
+            {
+                fseek(f, 0, SEEK_END);
+                size = de_ftell64(f);
+            }
+        }
+    }
     if (f)
     {
-        fseek(f, 0, SEEK_END);
-        de_handles[h].size = de_ftell64(f);
+        de_handles[h].base = base;
+        de_handles[h].size = size;
         de_handles[h].f = f;
         j->w = h;
         de_atomic_store(&j->state, JOB_DONE);
@@ -384,6 +441,7 @@ DE_FS_API void de_fs_close(int handle)
         return;
     fclose(de_handles[handle].f);
     de_handles[handle].f = NULL;
+    de_handles[handle].base = 0;
     de_handles[handle].size = 0;
 }
 

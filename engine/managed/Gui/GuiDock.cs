@@ -25,6 +25,7 @@ public static class GuiDock
         public string Title;
         public PanelFunc Draw;
         public bool Used;
+        public bool Utility; // dock'lanamaz: her zaman kendi native penceresinde (Unity utility window); layout'a yazilmaz
         public Color TabColor;
     }
 
@@ -32,13 +33,14 @@ public static class GuiDock
     static readonly Panel[] _panels = new Panel[MaxPanels];
     static int _panelCount;
 
-    public static int RegisterPanel(string title, PanelFunc draw)
+    public static int RegisterPanel(string title, PanelFunc draw, bool utility = false)
     {
         int id = _panelCount++;
         ref Panel p = ref _panels[id];
         p.Title = title;
         p.Draw = draw;
         p.Used = true;
+        p.Utility = utility;
         // Text yokken tab'lari ayirt etmek icin panel-bazli renk.
         uint h = (uint)(id + 1) * 0x9E3779B9u;
         p.TabColor = new Color((byte)(90 + (h & 63)), (byte)(90 + ((h >> 8) & 63)), (byte)(110 + ((h >> 16) & 63)), 255);
@@ -68,6 +70,7 @@ public static class GuiDock
 
     // --- Coklu dock host: her detached native pencere kendi leaf'ini barindirir ---
     const int MaxWins = 16;
+    const int UtilityDefaultW = 520, UtilityDefaultH = 640; // FocusPanel ile acilan utility pencere boyutu (mantiksal)
     struct DockWin
     {
         public bool Used;
@@ -80,6 +83,51 @@ public static class GuiDock
 
     static int RootOf(int wi) => wi < 0 ? _root : _wins[wi].Root;
     static IntPtr HandleOf(int wi) => wi < 0 ? NativeWindow.MainWindow : _wins[wi].Win.Handle;
+
+    // Leaf bir utility panel barindiriyor mu (tek tab; baska tab kabul etmez, tab bar cizilmez).
+    static bool IsUtilityLeaf(int leaf)
+        => leaf >= 0 && _nodes[leaf].Used && _nodes[leaf].Type == TypeLeaf && _nodes[leaf].TabCount > 0
+           && _panels[_tabs[leaf * MaxTabsPerLeaf]].Utility;
+
+    static int WinOfPanel(int panelId)
+    {
+        for (int i = 0; i < _winCount; i++)
+            if (_wins[i].Used && _wins[i].Win != null && FindLeafWithPanel(_wins[i].Root, panelId) >= 0)
+                return i;
+        return -1;
+    }
+
+    // Utility paneli kendi native penceresinde acar (ana pencerenin ortasinda); aciksa one getirir.
+    // Dock agacina GIRMEZ; pencere X ile kapaninca panel dock'suz kalir, bir sonraki cagri yeniden acar.
+    // Agac mutasyonu degil (ana agaca dokunmaz) -> aninda uygulanabilir.
+    public static void OpenUtility(int panelId, int width, int height)
+    {
+        if (panelId < 0 || !_panels[panelId].Used)
+            return;
+        int existing = WinOfPanel(panelId);
+        if (existing >= 0)
+        {
+            GLFW.FocusWindow(_wins[existing].Win.Handle);
+            return;
+        }
+        if (FindLeafWithPanelAll(panelId) >= 0)
+            return; // (beklenmez) ana agacta: dokunma
+        int wi = AllocWin();
+        if (wi < 0)
+            return;
+        IntPtr main = NativeWindow.MainWindow;
+        float k = NativeWindow.ScreenScale(main);
+        GLFW.GetWindowPos(main, out int mx, out int my);
+        GLFW.GetWindowSize(main, out int mw, out int mh);
+        int sw = (int)(width * k), sh = (int)(height * k);
+        var win = NativeWindow.Open(_panels[panelId].Title, mx + (mw - sw) / 2, my + (mh - sh) / 2, sw, sh);
+        if (win == null)
+            return;
+        win.Camera.BackgroundColor = new Color(28, 30, 38, 255);
+        _wins[wi].Used = true;
+        _wins[wi].Win = win;
+        _wins[wi].Root = Leaf(stackalloc int[] { panelId });
+    }
 
     static int AllocWin()
     {
@@ -148,8 +196,8 @@ public static class GuiDock
         for (int i = 0; i < _winCount; i++)
         {
             ref DockWin w = ref _wins[i];
-            if (!w.Used || w.Win == null)
-                continue;
+            if (!w.Used || w.Win == null || IsUtilityLeaf(w.Root))
+                continue; // utility pencereler kalici degil (menuden tekrar acilir)
             GLFW.GetWindowPos(w.Win.Handle, out int wx, out int wy);
             // Boyut EKRAN biriminde yazilir (Open ayni birimi bekler); Width/Height
             // framebuffer px'tir — macOS retina'da her kayit/yukleme boyutu ikiye katlardi.
@@ -248,7 +296,7 @@ public static class GuiDock
         int first = FindFirstLeaf(_root);
         for (int p = 0; p < _panelCount; p++)
         {
-            if (!_panels[p].Used || FindLeafWithPanelAll(p) >= 0)
+            if (!_panels[p].Used || _panels[p].Utility || FindLeafWithPanelAll(p) >= 0)
                 continue;
             ref Node n = ref _nodes[first];
             if (n.TabCount < MaxTabsPerLeaf)
@@ -387,6 +435,11 @@ public static class GuiDock
     {
         if (panelId < 0 || _root < 0)
             return;
+        if (_panels[panelId].Utility)
+        {
+            OpenUtility(panelId, UtilityDefaultW, UtilityDefaultH);
+            return;
+        }
         int leaf = FindLeafWithPanelAll(panelId);
         if (leaf < 0)
         {
@@ -918,6 +971,18 @@ public static class GuiDock
         ref Node n = ref _nodes[ni];
         Event ev = Event.Current;
 
+        // Utility pencere: tab bar yok, surukleme yok; icerik tum alani kaplar.
+        if (IsUtilityLeaf(ni))
+        {
+            if (ev.Type == EventType.Repaint)
+                GuiRenderer.DrawRect(r, new Color(33, 35, 43, 245), 0);
+            int up = _tabs[ni * MaxTabsPerLeaf];
+            GuiLayoutUtility.BeginArea(new Rect(r.x + 4, r.y + 4, r.width - 8, r.height - 8));
+            _panels[up].Draw(up);
+            GuiLayoutUtility.EndArea();
+            return;
+        }
+
         var barRect = new Rect(r.x, r.y, r.width, TabH);
         if (ev.Type == EventType.Repaint)
             GuiRenderer.DrawRect(barRect, new Color(24, 26, 32, 255), 0);
@@ -971,7 +1036,9 @@ public static class GuiDock
                                 if (target < 0)
                                 {
                                     target = FindLeafAtScreen(screen, _ctxWin, out tlocal);
-                                    if (target < 0)
+                                    if (target >= 0 && IsUtilityLeaf(target))
+                                        target = -2; // utility pencereye birakilamaz: iptal
+                                    else if (target < 0)
                                     {
                                         // Hicbir dock alanina denk gelmedi: yeni pencereye detach.
                                         _pendingDetachPanel = panelId;
