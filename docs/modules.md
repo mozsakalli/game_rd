@@ -38,13 +38,18 @@ ModuleContext (child, vmint.c)              HostContext (parent, AOT C)
 - Async: state machine zaten class; `IAsyncStateMachine.MoveNext` için iface trampoline'i yeter.
 
 ## Fazlar
-### A — Host export tabloları ("parent loader") · vmrt.h / vmrt.c / CTranspiler
-- `Type`'a append-only `module` alanı.
-- `DeTypeExport` (hash, ad, Type*, alanlar: offset/tag/tip, vslot adları, struct boyutu, bayraklar),
-  `DeMethodExport` (hash, ad, fn, shape), `DeFieldExport` statikler için adres, `de_host_thunks[]`.
-- Tüm alanlar/metotlar (internal/private dahil). `CTranspiler.EmitModuleExports` bayrağı; player'da açık.
-- Thunk: `void thunk(const void* fn, DeSlot* args, DeSlot* ret)`; şekil = C imza metni.
-- Kabul: C testi `Component.Update` slotunu ve `GameObject._components` offset'ini tablodan bulur.
+### A — Host meta ("parent loader") · vmrt.h / vmrt.c / CTranspiler.Meta.cs
+- **Tek meta**: ayrı export tablosu YOK. .NET reflection descriptor'ları aynı zamanda modül bağlama verisidir:
+  - `Type` += `hash` (FNV64 IR adı), `methods[]/nmethods`, `flags` (struct/iface/delegate/enum/abstract), `delegate_tramp`;
+    global `digitoyengine_types[]`.
+  - `DigitoyEngineMember` (FieldInfo/PropertyInfo) += `tag, offset, size, addr, hash` → modül alanı doğrudan offset'le okur/yazar.
+  - `MethodInfo` (shadow-stack trace kaydı) = tek metot kaydı: `hash, fn, tramp, declaringType, returnType, param_types/tags,
+    shape, vslot, flags`; düz tablo `digitoyengine_methods[]`, her tipin `methods` buraya işaret eder. Aynı kayıt
+    `System.Reflection.MethodInfo/ConstructorInfo` handle'ı ve `Invoke`'un motorudur (`digitoyengine_thunks[shape]`).
+  - Lookup: `digitoyengine_find_type/method/field/vslot/shape` (lazy hash indeksleri).
+- Tüm alanlar/metotlar (internal/private dahil, struct'lar dahil, iface bildirimleri `fn=0 + ABSTRACT`). Her build'de açık; bayrak yok.
+- Thunk: `void thunk(const void* fn, DeSlot* args, DeSlot* ret)`; şekil = C imza metni (`void*` normalize).
+- Kabul: `tests/meta_check.c` — hash lookup, `Object$ToString` slotu, `List<Int>.size` offset'i, thunk çağrısı, `Invoke`.
 
 ### B — `.dmod` formatı + `aotcompiler module` modu · ModuleWriter.cs / Program.cs
 - Girdi: assembly listesi + kapsam. Kök: `Registry.RegisterAll` + bundled assembly tipleri.
@@ -57,7 +62,7 @@ ModuleContext (child, vmint.c)              HostContext (parent, AOT C)
 - Loader: parse → dış ref çöz (eager) → gömülü generic'leri host'la eşle → yerleşim → dinamik `Type`
   (generic trace, vtable = base kopyası + override trampoline'leri, itables) → statik depo + root.
 - Exec: computed-goto; frame = adreslenebilir slot dizisi + operand stack; struct değerler blob.
-- Çağrı: yerel → frame; dış → `de_host_thunks[shape]`; `CallVirtual` → `vtable[slot]`.
+- Çağrı: yerel → frame; dış → `digitoyengine_thunks[shape]`; `CallVirtual` → `vtable[slot]`.
 - Kabul: **selftest `--interp`**: corelib-only host + vmint, selftest `.dmod`'u .NET baseline ile birebir.
 
 ### D — Engine entegrasyonu · engine/managed/Module.cs, TypeCatalog, SceneLoader, editör
@@ -106,7 +111,18 @@ B ──┘
   **Ertelenen**: deny-list (güvenilmeyen remote modüller için pointer op / NativeFs / P-Invoke referansı reddi).
 - Registry filtresi: `ModuleBuilder` yalnız modül assembly'sinin tiplerini yazar (`t.Assembly == gameAsm`); `tools/modpak`
   test yolu tam Registry.g.cs kullandığı için orada engine tipleri de girer (yalnız test).
-- **Sırada**: editör menüsünden gerçek publish denemesi; Faz F (.NET/editörde ALC ile deneme); deny-list.
+- **Tek meta (export tabloları kaldırıldı)**: `DeTypeExport/DeFieldExport/DeSlotExport/DeMethodExport`, `de_host_*`,
+  `CTranspiler.EmitModuleExports`, üretilmiş Activator switch'i ve `tests/export_check.c` silindi. Aynı bilgi artık reflection
+  descriptor'larında (Faz A açıklaması). `CTranspiler.Exports.cs` → `CTranspiler.Meta.cs`. Reflection .NET yüzeyi tamamlandı:
+  `Type.GetType(string)/IsValueType/IsInterface/IsAbstract/GetFields/GetProperties/GetMethods/GetConstructors/GetMethod/GetConstructor`,
+  `MethodBase.Invoke` (sanal/iface dispatch, struct this + struct dönüş, enum kutulama), `ConstructorInfo.Invoke`, `GetParameters`,
+  `ReturnType`; Activator runtime'da tip tablosu + ctor kaydı üzerinden. Backing field adı `<X>k__BackingField`.
+  Doğrulama: `meta_check` PASS; selftest AOT 51/54 (yeni **Test55** metot reflection, .NET ile birebir; 3 eski stub hatası);
+  interp 50/54 (Test55 beklenen sınır: modülün **kendi** yerel tiplerinde reflection yok — `vmint` yerel `Type.methods` kurmaz);
+  Sandbox Windows exe + wasm derlendi (wasm 5.2 → 4.8 MB, UTF-8 isim dizgileri gitti). `AOT_MODULES=1` artık yalnız selftest'e
+  interp adımını ekler. Harness binary adları `.exe` uzantılı (uzantısız bayat dosya çalışmasın).
+- **Sırada**: editör menüsünden gerçek publish denemesi; Faz F (.NET/editörde ALC ile deneme); deny-list; modül yerel tipleri için
+  reflection (`vmint` → `Type.methods/members`).
 
 ### Öğrenilenler (C tarafı)
 - `jmp_buf` 16 hizalı olmalı (VM arena tahsisleri 16'ya yuvarlanır).

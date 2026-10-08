@@ -137,16 +137,22 @@ public sealed class Module
 #if DE_AOT
     const string Lib = "digitoyengine_native"; // AOT: semboller statik (c_runtime/vmint.c); lib adi yok sayilir
 
+    // NOT: handle'lar C'de pointer; P/Invoke imzalarinda IntPtr DEGIL void* kullanilir (AOT IR'de IntPtr = 64-bit long;
+    // wasm32'de pointer 32-bit -> wasm-ld imza uyusmazligi/trap). IntPtr yalniz managed yuzeyde, cast ile.
     [DllImport(Lib, EntryPoint = "vmint_load")]
-    static extern unsafe IntPtr VmLoad(byte* data, int len, [MarshalAs(UnmanagedType.LPUTF8Str)] string name, byte* err, int errcap);
+    static extern unsafe void* vmint_load(byte* data, int len, [MarshalAs(UnmanagedType.LPUTF8Str)] string name, byte* err, int errcap);
     [DllImport(Lib, EntryPoint = "vmint_unload")]
-    static extern void VmUnload(IntPtr m);
+    static extern unsafe void vmint_unload(void* m);
     [DllImport(Lib, EntryPoint = "vmint_collect")]
     static extern int VmCollect();
     [DllImport(Lib, EntryPoint = "vmint_faulted")]
-    static extern int VmFaulted(IntPtr m);
+    static extern unsafe int vmint_faulted(void* m);
     [DllImport(Lib, EntryPoint = "vmint_call_obj")]
-    static extern int VmCallObj(IntPtr m, [MarshalAs(UnmanagedType.LPUTF8Str)] string encodedName, object arg0);
+    static extern unsafe int vmint_call_obj(void* m, [MarshalAs(UnmanagedType.LPUTF8Str)] string encodedName, object arg0);
+    static unsafe IntPtr VmLoad(byte* data, int len, string name, byte* err, int errcap) => (IntPtr)vmint_load(data, len, name, err, errcap);
+    static unsafe void VmUnload(IntPtr m) => vmint_unload((void*)m);
+    static unsafe int VmFaulted(IntPtr m) => vmint_faulted((void*)m);
+    static unsafe int VmCallObj(IntPtr m, string encodedName, object arg0) => vmint_call_obj((void*)m, encodedName, arg0);
 
     unsafe bool LoadCode(byte[] code, string entryName, out string error)
     {

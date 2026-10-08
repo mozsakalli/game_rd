@@ -1562,7 +1562,7 @@ namespace DigitoyEngine.Cil
             static bool IsIdentityRefType(string owner) =>
                 owner == "System.Type" || owner == "System.Reflection.MemberInfo" ||
                 owner == "System.Reflection.FieldInfo" || owner == "System.Reflection.PropertyInfo" ||
-                owner == "System.Reflection.MethodInfo"; void RetypeConstOperand(int opIndex, Primitive target)
+                owner == "System.Reflection.MethodInfo" || owner == "System.Reflection.MethodBase" || owner == "System.Reflection.ConstructorInfo"; void RetypeConstOperand(int opIndex, Primitive target)
             {
                 if (opIndex < 0 || opIndex >= ops.Count) return;
                 var o = ops[opIndex];

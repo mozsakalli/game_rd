@@ -29,9 +29,16 @@ public static class NativeFs
     [DllImport(Lib, EntryPoint = "de_fs_decode")]
     public static extern int Decode(int handle, [MarshalAs(UnmanagedType.LPUTF8Str)] string path, long offset, long length, long rawLength);
 
-    // 0 bekliyor, 1 tamam, -1 hata.
+    // 0 bekliyor, 1 tamam, -1 hata. data C'de void** (P/Invoke'ta pointer; IntPtr wasm32'de 8 bayt slot/4 bayt yazim uyusmaz).
     [DllImport(Lib, EntryPoint = "de_job_poll")]
-    public static extern int Poll(int job, out IntPtr data, out long len, out int w, out int h);
+    static extern unsafe int de_job_poll(int job, void** data, long* len, int* w, int* h);
+    public static unsafe int Poll(int job, out IntPtr data, out long len, out int w, out int h)
+    {
+        void* p = null; long l = 0; int ww = 0, hh = 0;
+        int r = de_job_poll(job, &p, &l, &ww, &hh);
+        data = (IntPtr)p; len = l; w = ww; h = hh;
+        return r;
+    }
 
     [DllImport(Lib, EntryPoint = "de_job_free")]
     public static extern void Free(int job);

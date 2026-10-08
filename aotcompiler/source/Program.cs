@@ -14,7 +14,7 @@ public static class Program
     const string SelftestProj = "tests/dotnet-selftest/DotnetSelfTest.csproj";
     static readonly string WorkDir = Path.Combine("obj", "selftest-c");
     static readonly string GeneratedC = Path.Combine(WorkDir, "generated.c");
-    static readonly string OutBin = Path.Combine(WorkDir, "selftest");
+    static readonly string OutBin = Path.Combine(WorkDir, OperatingSystem.IsWindows() ? "selftest.exe" : "selftest"); // acik uzanti: uzantisiz eski dosya calismasin
 
     const string EngineProj = "engine/managed/DigitoyEngine.csproj";
     static readonly string EngineWorkDir = Path.Combine("obj", "engine-c");
@@ -25,9 +25,8 @@ public static class Program
     {
         try
         {
-            // Modul host export tablolari (docs/modules.md): player her zaman host'tur; diger modlar
-            // AOT_MODULES=1 ile acar (selftest --interp yolu corelib host'u ister).
-            CTranspiler.EmitModuleExports = (args.Length > 0 && args[0] == "player") || Environment.GetEnvironmentVariable("AOT_MODULES") == "1";
+            // Tek meta (docs/modules.md): reflection descriptor'lari her build'de modul host verisidir; ayri export bayragi yok.
+            // AOT_MODULES=1 yalniz selftest'e interp (vmint) adimini ekler (RunCilSelftest).
 
             // 'engine' modu: desktop engine exe'sini uret (kendi native host + sokol).
             if (args.Length > 0 && args[0] == "engine")
@@ -159,7 +158,7 @@ public static class Program
     static int RunSdkIl(string outDir)
     {
         Directory.CreateDirectory(outDir);
-        foreach (var src in new[] { CoreLibDll(), EngineAotDll("windows"), EngineAotDll("android") })
+        foreach (var src in new[] { CoreLibDll(), EngineAotDll("windows"), EngineAotDll("android"), EngineAotDll("wasm") })
         {
             File.Copy(src, Path.Combine(outDir, Path.GetFileName(src)), true);
             string pdb = Path.ChangeExtension(src, ".pdb");
@@ -270,8 +269,14 @@ public static class Program
             Lap("android projesi");
             return 0;
         }
+        if (target == "wasm")
+        {
+            BuildWasm(projectRoot, projName, generated, app);
+            Lap("emcc + link");
+            return 0;
+        }
         if (target != "windows")
-            throw new Exception("bilinmeyen hedef: " + target + " (windows | android)");
+            throw new Exception("bilinmeyen hedef: " + target + " (windows | android | wasm)");
 
         // 4) clang: uretilen C + runtime (vmrt/corelib/vmint) + platform host (de_app/host_desktop) + native
         //    (sokol+glfw+ses+de_fs) — hepsi KAYNAKTAN (prebuilt player native'i yok; docs/platform-hosts.md).
@@ -374,6 +379,94 @@ public static class Program
             Directory.CreateDirectory(Path.GetDirectoryName(to));
             File.Copy(f, to, true);
         }
+    }
+
+    // ---- wasm32 (docs/platform-hosts.md H4): emscripten ile editorde derlenir (toolchain indirilir, EmsdkToolchain) ----
+    // <proje>/Build/wasm/
+    //   game.js + game.wasm + game.data   HER build (emcc; game.data = --preload-file game.pak)
+    //   index.html                        ILK uretimde sablondan (platforms/wasm/shell), sonra DOKUNULMAZ (kullaniciya ait)
+    // Nesneler obj/wasm-c/ altinda: generated.c her build, runtime/shim'ler mtime cache. Tarayici file:// ile wasm yuklemez:
+    // Build/wasm/ bir HTTP sunucudan servis edilmeli (editor "Run in Browser" ya da `python -m http.server`).
+    static void BuildWasm(string projectRoot, string projName, string generatedC, AppInfo app)
+    {
+        string pak = Path.Combine(projectRoot, "Build", "game.pak");
+        if (!File.Exists(pak)) throw new Exception("game.pak yok (once asset pack): " + pak);
+        string tpl = Path.Combine(PlatformsDir, "wasm");
+        if (!Directory.Exists(tpl)) throw new Exception("wasm sablonu yok: " + tpl);
+        string outDir = Path.Combine(projectRoot, "Build", "wasm");
+        Directory.CreateDirectory(outDir);
+        string objDir = Path.Combine("obj", "wasm-c");
+        Directory.CreateDirectory(objDir);
+
+        DigitoyEngine.Build.EmsdkToolchain.Ensure(Console.WriteLine);
+        bool debug = Environment.GetEnvironmentVariable("AOT_DEBUG") == "1";
+        string common = $"-w -DSOKOL_GLES3 {NativeIncludes}" + (debug ? " -g -DDIGITOYENGINE_DEBUG" : "");
+        string stamp = Path.Combine(objDir, ".toolchain");
+        bool sameToolchain = File.Exists(stamp) && File.ReadAllText(stamp) == DigitoyEngine.Build.EmsdkToolchain.Key + common;
+
+        // (kaynak, ek bayrak). generated.c -O1 (cok buyuk, derleme suresi); runtime/shim -O2. Shim'ler SOKOL_IMPL ile.
+        var units = new List<(string src, string flags, bool cache)>();
+        units.Add((generatedC, debug ? "-O0" : "-O1", false));
+        foreach (var n in new[] { "vmrt.c", "corelib.c", "vmint.c", "de_app.c", "host_wasm.c" })
+            units.Add((Path.Combine(CRuntimeDir, n), "-O2", true));
+        foreach (var n in new[] { "sokol_shim.c", "audio_shim.c", "de_fs.c" })
+            units.Add((Path.Combine(EngineNativeDir, n), "-O2 -DSOKOL_IMPL", true));
+        var headers = Directory.GetFiles(EngineNativeDir, "*.h", SearchOption.AllDirectories).Concat(Directory.GetFiles(CRuntimeDir, "*.h")).ToList();
+        DateTime newestHeader = headers.Count > 0 ? headers.Max(File.GetLastWriteTimeUtc) : DateTime.MinValue;
+
+        var objs = new List<string>();
+        int compiled = 0;
+        foreach (var (src, flags, cache) in units)
+        {
+            string obj = Path.Combine(objDir, Path.GetFileNameWithoutExtension(src) + ".o");
+            objs.Add(obj);
+            if (cache && sameToolchain && File.Exists(obj) && File.GetLastWriteTimeUtc(obj) >= File.GetLastWriteTimeUtc(src) && File.GetLastWriteTimeUtc(obj) >= newestHeader)
+                continue;
+            var (e, o) = RunEmcc($"{common} {flags} -c {Quote(src)} -o {Quote(obj)}");
+            if (e != 0) throw new Exception($"emcc derleme basarisiz: {src}\n{o}");
+            compiled++;
+        }
+        File.WriteAllText(stamp, DigitoyEngine.Build.EmsdkToolchain.Key + common);
+        Console.WriteLine($"emcc: {compiled}/{units.Count} birim derlendi");
+
+        // Link: WebGL2, bellek buyur, setjmp/longjmp (exception = longjmp + shadow stack), pak MEMFS'e gomulu (game.data).
+        string outJs = Path.Combine(outDir, "game.js");
+        string link = (debug ? "-g -sASSERTIONS=1" : "-O2") +
+            " -sUSE_WEBGL2=1 -sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2 -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=64MB -sSTACK_SIZE=8MB" +
+            " -sSUPPORT_LONGJMP=emscripten -sENVIRONMENT=web -sEXIT_RUNTIME=0 -sMODULARIZE=0 -sEXPORT_NAME=Module" +
+            " -sEXPORTED_RUNTIME_METHODS=UTF8ToString" +
+            $" --preload-file {Quote(pak + "@/data/Build/game.pak")}" +
+            $" {string.Join(" ", objs.Select(Quote))} -o {Quote(outJs)}";
+        var (le, lo) = RunEmcc(link);
+        if (le != 0) throw new Exception($"emcc link hatasi (exit {le}):\n{lo}");
+        Console.WriteLine($"emcc ok -> {Path.Combine(outDir, "game.wasm")} ({new FileInfo(Path.Combine(outDir, "game.wasm")).Length / 1024} KB wasm, {new FileInfo(Path.Combine(outDir, "game.data")).Length / 1024} KB data)");
+
+        // kabuk: yalniz yoksa (kullaniciya ait)
+        string index = Path.Combine(outDir, "index.html");
+        if (!File.Exists(index))
+        {
+            string appName = string.IsNullOrWhiteSpace(app.Name) || app.Name == "Game" ? projName : app.Name;
+            foreach (var f in Directory.GetFiles(Path.Combine(tpl, "shell"), "*", SearchOption.AllDirectories))
+            {
+                string to = Path.Combine(outDir, Path.GetRelativePath(Path.Combine(tpl, "shell"), f));
+                Directory.CreateDirectory(Path.GetDirectoryName(to));
+                File.WriteAllText(to, File.ReadAllText(f).Replace("{{APP_NAME}}", appName).Replace("{{APP_VERSION}}", app.Version));
+            }
+            Console.WriteLine($"wasm kabugu olusturuldu: {index}");
+        }
+        else
+            Console.WriteLine("wasm kabugu mevcut, dokunulmadi: " + index);
+        Console.WriteLine($"wasm hazir -> {outDir}  (HTTP sunucudan acin; file:// calismaz)");
+    }
+
+    static (int exitCode, string output) RunEmcc(string args)
+    {
+        var psi = DigitoyEngine.Build.EmsdkToolchain.Emcc(args);
+        using var p = Process.Start(psi);
+        var stderrTask = p.StandardError.ReadToEndAsync();
+        var stdout = p.StandardOutput.ReadToEnd();
+        p.WaitForExit();
+        return (p.ExitCode, stdout + stderrTask.Result);
     }
 
     // ---- Native kaynak yerlesimi (docs/editor-distribution.md "Paket duzeni") ----
@@ -568,6 +661,7 @@ public static class Program
 
     static int RunCilSelftest()
     {
+        bool interpTest = Environment.GetEnvironmentVariable("AOT_MODULES") == "1"; // selftest.dmod yaz + vmint ile yorumla
         {
             var dll = BuildSelftestDll();
             Console.WriteLine($"selftest dll: {dll}");
@@ -594,7 +688,7 @@ public static class Program
             Resolver.ResolveAll(ctx, allCodes);
 
             // AOT_MODULES=1: selftest'i modul olarak da yaz (ModuleWriter dogrulamasi; Faz C'de --interp bunu yorumlar)
-            if (CTranspiler.EmitModuleExports)
+            if (interpTest)
             {
                 Directory.CreateDirectory(WorkDir);
                 var dmod = Path.Combine(WorkDir, "selftest.dmod");
@@ -624,7 +718,7 @@ public static class Program
             var actual = RunProcess(Path.GetFullPath(OutBin), "").output;
             var actualMap = ParseResults(actual);
             int aotResult = Diff(baseMap, actualMap);
-            if (!CTranspiler.EmitModuleExports) return aotResult;
+            if (!interpTest) return aotResult;
 
             // 6) INTERP yolu (docs/modules.md Faz C): yalniz corelib'den AOT host + vmint.c; selftest.dmod yorumlanir, ayni baseline.
             Console.WriteLine("\n=== interp: corelib host + vmint (selftest.dmod) ===");
@@ -650,7 +744,7 @@ public static class Program
                 "    fprintf(stderr, \"[interp] unload: live=%d, collect=%d\\n\", vmint_live(m), vmint_collect());\n" +
                 "    return 0;\n}\n";
             var hostC = Path.Combine(WorkDir, "interp_host.c");
-            var hostBin = Path.Combine(WorkDir, "interp_host");
+            var hostBin = Path.Combine(WorkDir, OperatingSystem.IsWindows() ? "interp_host.exe" : "interp_host"); // acik uzanti: eski uzantisiz dosya calismasin
             File.WriteAllText(hostC, hostSrc);
             var hFiles = new[] { hostC, "c_runtime/vmrt.c", "c_runtime/corelib.c", "c_runtime/vmint.c" };
             var hArgs = $"-O1 -w{poison} -Ic_runtime {string.Join(" ", hFiles.Select(Quote))} -o {Quote(hostBin)}";

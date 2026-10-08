@@ -26,6 +26,7 @@ typedef struct GCHeader GCHeader;
 typedef struct Type Type;
 typedef struct DigitoyEngineMember DigitoyEngineMember;
 struct VmString; // runtime adlari (Type.name/MethodInfo.name) UTF-16 VmString'e isaret eder
+struct VmArray;
 typedef void (*TraceFn)(GCHeader *);
 typedef void (*FrameTrace)(void *);
 typedef void (*FinalizeFn)(GCHeader *);
@@ -48,6 +49,12 @@ struct DigitoyEngineMember
     unsigned char kind;
     unsigned char isStatic;
     unsigned char isInitOnly;
+    /* ---- tek meta (docs/modules.md): alan yerlesimi. Modul yukleyici (vmint.c) ve FieldInfo ayni veriyi okur. ---- */
+    unsigned char tag;       /* deger etiketi (asagida DeSlot aciklamasi): i u l q h H b z c B f d o v p */
+    unsigned short offset;   /* instance alan: nesne icinde (GCHeader dahil); struct alani: struct icinde. property: 0 */
+    unsigned short size;     /* alanin bayt boyutu */
+    void *addr;              /* static alan: depo adresi */
+    unsigned long long hash; /* FNV64(alan adi) - modul baglama anahtari (bildiren tipten baslanir, base zinciri); property: 0 */
 };
 // interface implementasyon kaydi: iface kimligi (benzersiz sembol adresi) -> method tablosu
 typedef struct IfaceImpl
@@ -78,7 +85,24 @@ struct Type
     EnumParseFn enum_parse; // enum adi -> underlying int; enum disinda 0
     struct DeModule *module; // dinamik modul tipi ise sahibi (canli nesne sayaci); host/AOT tipleri icin 0
     GCHeader *dyn_wrapper;   // modul tipleri (tindex=0) icin lazy System.Type wrapper (kok); host tipleri wrapper tablosunu kullanir
+    // ---- tek meta (docs/modules.md): .NET reflection yuzeyi = modul baglama verisi. Ayri export tablosu YOK. ----
+    unsigned long long hash;       // FNV64(Primitive.Name) - tip kimligi (GetType(string), modul dis referansi)
+    struct MethodInfo *methods;    // bu tipin BILDIRDIGI metotlar (ctor dahil; iface: slot sirasinda bildirimler). digitoyengine_methods icine isaret eder
+    unsigned short nmethods;
+    unsigned char flags;           // DIGITOYENGINE_TYPE_*
+    const void *delegate_tramp;    // delegate tipi: host->modul trampoline'i ((closure, params) imzali); diger tiplerde 0
 };
+enum
+{
+    DIGITOYENGINE_TYPE_STRUCT = 1,
+    DIGITOYENGINE_TYPE_INTERFACE = 2,
+    DIGITOYENGINE_TYPE_DELEGATE = 4,
+    DIGITOYENGINE_TYPE_ENUM = 8,
+    DIGITOYENGINE_TYPE_ABSTRACT = 16
+};
+// Programdaki tum descriptor'lar (uretilen + runtime object/string/ValueType/primitive'ler): hash/ad ile arama tabani.
+extern const Type *const digitoyengine_types[];
+extern const int digitoyengine_ntypes;
 // nesne header'i artik sadece: type ptr + next + version + age + idhash  (padding'e sigar, 24 byte)
 struct GCHeader
 {
@@ -130,12 +154,57 @@ static inline const void *const *DIGITOYENGINE_itable(const Type *t, const void 
 // ---- M8 shadow stack: exception/crash'te KESIN .cs stack trace (release dahil) ----
 // Method girisinde push, cikista pop; satir SADECE firlatabilen op'lardan once yazilir (sabit store).
 // frame: coroutine frame ptr (debug protokolu yerel degiskenleri buradan okur; duz fonksiyonda 0).
+// TEK META: ayni kayit System.Reflection.MethodInfo'nun handle'i ve modul yukleyicinin host metot kaydidir
+// (hash -> fn + sekil thunk'i). Ilk uc alan trace icin; vmint yerel metotlari icin yalniz onlar dolu.
+typedef union DeSlot // deger yuvasi: thunk/trampoline/Invoke sinirinda C ABI <-> yuva
+{
+    cil_int i;
+    cil_uint u;
+    cil_long l;
+    cil_ulong q;
+    cil_float f;
+    cil_double d;
+    void *p; // referans, ham pointer, ref/out parametre, struct-by-value icin blob adresi
+} DeSlot;
+// imza-sekli thunk'i: fn'i gercek C imzasiyla cagirir; args[i] yuvalardan, donus ret'e (struct: *ret->p'ye kopya)
+typedef void (*DeThunk)(const void *fn, DeSlot *args, DeSlot *ret);
+// deger etiketi (DigitoyEngineMember.tag, MethodInfo.ret_tag/param_tags, sekil metni): i u l q h H b z c B f d = skalerler
+// (DbgTag ile ayni), o = GC referansi (class/string/array/delegate/iface), v = struct by-value (descriptor'a bak),
+// p = ham pointer / fixed dizi, r = ref/out parametre (adres), V = void
 typedef struct MethodInfo
 {
     const struct VmString *name; // gosterim adi (strpool'da; trace UTF-16 basar)
     const struct VmString *file; // kaynak dosya (strpool'da; 0 = dosyasiz IR). Debugger file:line eslesmesi buradan.
     int trypc_off;               // coroutine frame'inde __trypc offseti (-1 = try'siz / duz fonksiyon)
+    // ---- tek meta ----
+    unsigned long long hash;          // FNV64(Code.EncodeName); 0 = kayit disi (modul yerel metodu)
+    const void *fn;                   // cagrilabilir C sembolu (P/Invoke marshal sarmalayicisi dahil); 0 = govdesiz (iface bildirimi, zayif extern)
+    const void *tramp;                // sanal kok: host->modul trampoline (gercek C imzali; modul override'i slota bunu koyar)
+    const Type *declaringType;        // sahip (0 = sahipsiz/sentetik)
+    const Type *returnType;           // donus descriptor'i (yoksa 0)
+    const Type *const *param_types;   // parametre descriptor'lari (nparams; yoksa 0)
+    const unsigned char *param_tags;  // parametre etiketleri (nparams)
+    GCHeader *wrapper;                // lazy, koklu System.Reflection.MethodInfo/ConstructorInfo
+    unsigned short shape;             // digitoyengine_thunks indeksi (Invoke / modul cagrisi)
+    short vslot;                      // sanal/iface slot indeksi (sahibinin vtable/iface sirasi); -1 = sanal degil
+    unsigned char nparams;            // this HARIC parametre sayisi
+    unsigned char ret_tag;
+    unsigned char flags;              // DIGITOYENGINE_METHOD_*
 } MethodInfo;
+enum
+{
+    DIGITOYENGINE_METHOD_STATIC = 1,
+    DIGITOYENGINE_METHOD_VIRTUAL = 2, // slot acan ya da override eden
+    DIGITOYENGINE_METHOD_CTOR = 4,
+    DIGITOYENGINE_METHOD_ABSTRACT = 8 // govdesiz bildirim (iface/abstract)
+};
+// Sekil thunk'lari (uretilen): ayni C imzasina sahip metotlar tek thunk paylasir. shapes[i] = imza metni (tani + vmint eslesmesi).
+extern const DeThunk digitoyengine_thunks[];
+extern const char *const digitoyengine_shapes[];
+extern const int digitoyengine_nthunks;
+// Programdaki tum metot kayitlari (duz tablo; Type.methods buraya isaret eder; sahipsiz metotlar sonda).
+extern MethodInfo digitoyengine_methods[];
+extern const int digitoyengine_nmethods;
 #ifdef DIGITOYENGINE_DEBUG
 // debugger local/arg tablosu: uretilen kod fonksiyon girisinde kurar (adresler o cagriya ait).
 // name = KAYNAK adi (ASCII; protokol ciktisi), tag = tip etiketi (i/f/d/l/c/h/b/B/o/r/v/?), addr = C degiskeni.
@@ -269,82 +338,15 @@ void gc_add_root(GCHeader *o);
 void gc_remove_root(GCHeader *o);
 void gc_add_frame_root(void *f, FrameTrace t);
 // ---- reflection cekirdegi: Type descriptor -> System.Type wrapper (lazy, immortal-koklu, kimlik esitligi)
-// ---- Dinamik modul (docs/modules.md) host export tablolari: "parent classloader" ----
-// Uretilen kod (CTranspiler.Exports.cs, EmitModuleExports acikken) host'taki TUM tipleri/alanlari/metotlari
-// isim-hash'iyle disa verir; modul yukleyici (vmint.c) dis referanslari bunlara load zamaninda baglar.
-// Hash: FNV-1a 64 (UTF-8). Adlar IR adlaridir (Primitive.Name / Code.EncodeName) - iki taraf da ayni frontend'den.
-typedef union DeSlot // interpreter deger yuvasi: thunk/trampoline sinirinda C ABI <-> yuva
-{
-    cil_int i;
-    cil_uint u;
-    cil_long l;
-    cil_ulong q;
-    cil_float f;
-    cil_double d;
-    void *p; // referans, ham pointer, ref/out parametre, struct-by-value icin blob adresi
-} DeSlot;
-// imza-sekli thunk'i: fn'i gercek C imzasiyla cagirir; args[i] yuvalardan, donus ret'e (struct: *ret->p'ye kopya)
-typedef void (*DeThunk)(const void *fn, DeSlot *args, DeSlot *ret);
-// alan/arguman tip etiketi (DeFieldExport.tag, sekil metni): i u l q h H b z c B f d = skalerler (DbgTag ile ayni),
-// o = GC referansi (class/string/array/delegate/iface), v = struct by-value (type -> descriptor; size struct boyutu),
-// p = ham pointer / fixed dizi / ref-out parametre, V = void
-typedef struct DeFieldExport
-{
-    unsigned long long hash; // FNV64("Owner$Name")
-    const char *name;
-    const Type *type;      // alan tipi descriptor'i (yoksa 0: array/pointer)
-    void *addr;            // static alan: depo adresi; instance: 0
-    unsigned short offset; // instance alan: struct icindeki offset (GCHeader dahil)
-    unsigned short size;   // alanin bayt boyutu
-    unsigned char tag;
-    unsigned char isStatic;
-} DeFieldExport;
-typedef struct DeSlotExport // vtable/itable slotu: slot'taki metodun adi (en tureyen impl degil, SLOT KIMLIGI icin kok bildiren)
-{
-    unsigned long long hash; // FNV64(Code.EncodeName) - vtable[slot]'taki Code (bu tipte gecerli impl)
-    const char *name;
-    unsigned short slot;
-} DeSlotExport;
-typedef struct DeTypeExport
-{
-    unsigned long long hash; // FNV64(Primitive.Name)
-    const char *name;
-    const Type *type; // descriptor (struct icin kutulama descriptor'i; yoksa 0)
-    const DeFieldExport *fields;
-    const DeSlotExport *vslots; // class: vtable; interface: iface slot sirasi
-    unsigned short nfields;
-    unsigned short nvslots;
-    unsigned short size; // class: nesne boyutu (header dahil); struct: sizeof(struct)
-    unsigned char isStruct, isInterface, isDelegate, isEnum;
-} DeTypeExport;
-typedef struct DeMethodExport
-{
-    unsigned long long hash; // FNV64(Code.EncodeName)
-    const char *name;
-    const void *fn; // cagrilabilir C sembolu (P/Invoke marshal sarmalayicisi dahil)
-    unsigned short shape; // de_host_thunks indeksi
-    unsigned char isStatic, isVirtual;
-} DeMethodExport;
-extern const DeTypeExport de_host_types[];
-extern const int de_host_ntypes;
-extern const DeMethodExport de_host_methods[];
-extern const int de_host_nmethods;
-extern const DeFieldExport de_host_statics[];
-extern const int de_host_nstatics;
-extern const DeThunk de_host_thunks[];
-extern const char *const de_host_shapes[]; // shape -> imza metni (tani)
-extern const int de_host_nthunks;
-// host -> modul trampoline'leri: sanal kok metot (hash=EncodeName) ve delegate tipi (hash=tip adi) basina gercek C imzali fn
-extern const DeMethodExport de_host_vtramps[];
-extern const int de_host_nvtramps;
-extern const DeMethodExport de_host_dtramps[];
-extern const int de_host_ndtramps;
+// ---- Dinamik modul (docs/modules.md): host meta = yukaridaki Type/DigitoyEngineMember/MethodInfo kayitlari.
+// Hash: FNV-1a 64 (UTF-8). Adlar IR adlaridir (Primitive.Name / Code.EncodeName / "Owner$Field") - iki taraf da ayni frontend'den.
 unsigned long long de_hash64(const char *s);
 unsigned long long de_hash64_n(const char *s, int n);
-const DeTypeExport *de_host_find_type(unsigned long long hash);
-const DeTypeExport *de_host_type_of(const Type *t); // descriptor -> export (base zinciri yurumek icin)
-const DeMethodExport *de_host_find_method(unsigned long long hash);
-const DeFieldExport *de_host_find_static(unsigned long long hash);
+const Type *digitoyengine_find_type(unsigned long long hash);           // tip hash'i -> descriptor (lazy indeks)
+const MethodInfo *digitoyengine_find_method(unsigned long long hash);   // metot hash'i -> kayit (lazy indeks)
+DigitoyEngineMember *digitoyengine_find_field(const Type *t, unsigned long long hash); // alan adi hash'i; t'den base zincirini yurur
+const MethodInfo *digitoyengine_find_vslot(const Type *t, unsigned long long hash);    // sanal/iface slot kaydi; base zincirini yurur
+int digitoyengine_find_shape(const char *key);                          // imza metni -> thunk indeksi (-1 yok)
 // Modul sahipligi: tipler bir DeModule'e isaret eder; gc_alloc/sweep canli sayaci gunceller.
 // vmint.c bu yapiyi ILK uye olarak gomer (DeModule* <-> VmModule* cast).
 typedef struct DeModule
@@ -352,9 +354,13 @@ typedef struct DeModule
     int live;  // canli nesne sayisi (gc_alloc ++, sweep --)
     int state; // 0 = yukleniyor, 1 = aktif, 2 = unload edildi (trampoline'ler no-op; live 0 olunca free)
 } DeModule;
-void digitoyengine_reflect_init(const Type *typeType, const Type *fieldInfoType, const Type *propertyInfoType, int nwrappers); // digitoyengine_init cagirir
+void digitoyengine_reflect_init(const Type *typeType, const Type *fieldInfoType, const Type *propertyInfoType, const Type *methodInfoType, const Type *ctorInfoType, int nwrappers); // digitoyengine_init cagirir
 GCHeader *digitoyengine_type_wrapper(const Type *t);                                                                           // tindex 0 ise 0 doner (dizi tipleri vb.)
 GCHeader *digitoyengine_member_lookup(const Type *t, const struct VmString *name, int kind);
+GCHeader *digitoyengine_member_wrapper(DigitoyEngineMember *member);                      // FieldInfo/PropertyInfo (lazy, koklu)
+GCHeader *digitoyengine_method_wrapper(MethodInfo *m);                                   // MethodInfo/ConstructorInfo (flags CTOR) wrapper
+GCHeader *digitoyengine_method_lookup(const Type *t, const struct VmString *name, int ctor); // ada gore ilk eslesen (base zinciri); ctor=1: parametresiz ctor
+GCHeader *digitoyengine_method_invoke(const MethodInfo *m, GCHeader *target, struct VmArray *args); // kutulu argumanlar -> thunk -> kutulu donus
 GCHeader *digitoyengine_member_get(DigitoyEngineMember *member, GCHeader *target);
 void digitoyengine_member_set(DigitoyEngineMember *member, GCHeader *target, GCHeader *value);
 GCHeader *digitoyengine_reflect_ref(GCHeader *value, const Type *target);

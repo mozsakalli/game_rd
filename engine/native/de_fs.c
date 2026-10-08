@@ -286,12 +286,26 @@ static void de_ensure(void)
         de_handles[i].f = NULL;
     de_mutex_init(&de_lock);
     de_sem_init(DE_MAX_JOBS);
-#if defined(_WIN32)
+#if defined(__EMSCRIPTEN__)
+    // Tarayici: pthread yok (tek thread); job'lar submit aninda senkron kosar (pak zaten MEMFS'te, bellek kopyasi).
+#elif defined(_WIN32)
     CreateThread(NULL, 0, de_worker, NULL, 0, NULL);
 #else
     pthread_t t;
     if (pthread_create(&t, NULL, de_worker, NULL) == 0)
         pthread_detach(t);
+#endif
+}
+
+// Kuyruga alinan job'u worker'a bildirir (web: hemen kosar).
+static void de_kick(int job)
+{
+#if defined(__EMSCRIPTEN__)
+    de_jobs[job].state = JOB_RUNNING;
+    de_run_job(&de_jobs[job]);
+#else
+    (void)job;
+    de_sem_post();
 #endif
 }
 
@@ -377,7 +391,7 @@ DE_FS_API int de_fs_read(int handle, const char *path, long long offset, long lo
 {
     int job = de_submit(KIND_READ, handle, path, offset, length, rawLength);
     if (job >= 0)
-        de_sem_post();
+        de_kick(job);
     return job;
 }
 
@@ -385,7 +399,7 @@ DE_FS_API int de_fs_decode(int handle, const char *path, long long offset, long 
 {
     int job = de_submit(KIND_DECODE, handle, path, offset, length, rawLength);
     if (job >= 0)
-        de_sem_post();
+        de_kick(job);
     return job;
 }
 

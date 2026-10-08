@@ -236,10 +236,20 @@ public static unsafe class Audio
     // --- Editor decode (importer): mp3/ogg/wav -> PCM16. Release native'de stub. ---
 
     [DllImport(Lib, EntryPoint = "de_audio_decode")]
-    extern internal static int DecodeNative(byte* data, int length, int targetRate, int mono,
-        out IntPtr pcm, out int frames, out int channels, out int rate);
+    extern static int de_audio_decode(byte* data, int length, int targetRate, int mono,
+        void** pcm, int* frames, int* channels, int* rate);
+    internal static int DecodeNative(byte* data, int length, int targetRate, int mono,
+        out IntPtr pcm, out int frames, out int channels, out int rate)
+    {
+        void* p = null; int f = 0, c = 0, r = 0;
+        int ok = de_audio_decode(data, length, targetRate, mono, &p, &f, &c, &r);
+        pcm = (IntPtr)p; frames = f; channels = c; rate = r;
+        return ok;
+    }
+    // pcm C'de void* (wasm32: IntPtr=i64 imza uyusmazligi) -> P/Invoke pointer, yuzey IntPtr.
     [DllImport(Lib, EntryPoint = "de_audio_decode_free")]
-    extern internal static void DecodeFree(IntPtr pcm);
+    extern static void de_audio_decode_free(void* pcm);
+    internal static void DecodeFree(IntPtr pcm) => de_audio_decode_free((void*)pcm);
 
     public const int DpcmMagic = 0x4D435044; // "DPCM"
     public const int DpcmHeaderSize = 16;

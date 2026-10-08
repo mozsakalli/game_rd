@@ -329,9 +329,9 @@ objects:
           alignToDirection: false
         rotation:
           z:
-            mode: Curve
+            mode: Random
             min: 0
-            max: 720
+            max: 7200
             shape:
               Keys:
                 - Time: 0
@@ -345,6 +345,18 @@ objects:
             spread: 1
           alignToVelocity: false
           alignOffset: 0
+          x:
+            mode: Constant
+            min: 0
+            max: 0
+            shape:
+            spread: 0
+          y:
+            mode: Constant
+            min: 0
+            max: 0
+            shape:
+            spread: 0
         simulationSpace: World
         sprites:
           - 14a90a6160f94ada8a43554d942d1136
@@ -356,11 +368,11 @@ objects:
           - d8252a1134da468ba54f0137d312f8b9
           - 9328504188ca479b8bcd290cc2c2809a
         frames:
-          mode: Lifetime
-          cycles: 5
+          mode: Fps
+          cycles: 8
           fps:
-            min: 30
-            max: 30
+            min: 15
+            max: 50
           startFrame:
             min: 0
             max: 5
@@ -381,6 +393,7 @@ objects:
   - id: 21
     parent: 0
     name: GameObject (5)
+    active: false
     pos: 0 0 0
     rot: 0 0 0
     scale: 1 1 1

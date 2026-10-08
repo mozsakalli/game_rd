@@ -1402,6 +1402,144 @@ GCHeader *System_Type_GetProperty_System_String(DigitoyEngineTypeObj *a0, VmStri
 {
     return digitoyengine_member_lookup(type_of(a0), a1, DIGITOYENGINE_MEMBER_PROPERTY);
 }
+// ---- tek meta uzerinden .NET yuzeyi: tip tablosu / uye listeleri / metot reflection ----
+static VmArray *de_ref_array(int n) { return vmarray_new(n, sizeof(GCHeader *), 1); }
+static int de_count_members(const Type *t, int kind)
+{
+    int n = 0;
+    for (; t; t = t->base)
+        for (int i = 0; i < t->nmembers; i++)
+            if (t->members[i].kind == kind)
+                n++;
+    return n;
+}
+GCHeader *digitoyengine_member_wrapper(DigitoyEngineMember *m); /* vmrt.c */
+static VmArray *de_members_array(const Type *t, int kind)
+{
+    VmArray *r = de_ref_array(de_count_members(t, kind));
+    GCHeader **items = (GCHeader **)r->data;
+    int n = 0;
+    for (; t; t = t->base)
+        for (int i = 0; i < t->nmembers; i++)
+            if (t->members[i].kind == kind)
+                items[n++] = digitoyengine_member_wrapper(&t->members[i]);
+    return r;
+}
+VmArray *System_Type_GetFields(DigitoyEngineTypeObj *a0) { return de_members_array(type_of(a0), DIGITOYENGINE_MEMBER_FIELD); }
+VmArray *System_Type_GetProperties(DigitoyEngineTypeObj *a0) { return de_members_array(type_of(a0), DIGITOYENGINE_MEMBER_PROPERTY); }
+int System_Type_get_IsValueType(DigitoyEngineTypeObj *a0)
+{
+    const Type *t = type_of(a0);
+    return (t->flags & (DIGITOYENGINE_TYPE_STRUCT | DIGITOYENGINE_TYPE_ENUM)) != 0 || (t->tindex >= 4 && t->tindex <= 15);
+}
+int System_Type_get_IsInterface(DigitoyEngineTypeObj *a0) { return (type_of(a0)->flags & DIGITOYENGINE_TYPE_INTERFACE) != 0; }
+int System_Type_get_IsAbstract(DigitoyEngineTypeObj *a0) { return (type_of(a0)->flags & (DIGITOYENGINE_TYPE_ABSTRACT | DIGITOYENGINE_TYPE_INTERFACE)) != 0; }
+DigitoyEngineTypeObj *System_Type_GetType_System_String(VmString *name)
+{
+    if (!name)
+        return 0;
+    for (int i = 0; i < digitoyengine_ntypes; i++)
+    {
+        const Type *t = digitoyengine_types[i];
+        if (t->name && vmstring_eq((VmString *)t->name, name))
+            return (DigitoyEngineTypeObj *)digitoyengine_type_wrapper(t);
+    }
+    return 0;
+}
+// ctor: flags CTOR; cctor da "ctor" degil (ad .cctor) -> kayit CTOR bayragi tasimaz (CTranspiler IsCtorCode: ctor/ctor_*)
+static int de_method_listed(const MethodInfo *m, int ctors) { return ((m->flags & DIGITOYENGINE_METHOD_CTOR) != 0) == (ctors != 0); }
+static VmArray *de_methods_array(const Type *t, int ctors, int inherit)
+{
+    int n = 0;
+    for (const Type *x = t; x; x = inherit ? x->base : 0)
+        for (int i = 0; i < x->nmethods; i++)
+            if (de_method_listed(&x->methods[i], ctors))
+                n++;
+    VmArray *r = de_ref_array(n);
+    GCHeader **items = (GCHeader **)r->data;
+    n = 0;
+    for (const Type *x = t; x; x = inherit ? x->base : 0)
+        for (int i = 0; i < x->nmethods; i++)
+            if (de_method_listed(&x->methods[i], ctors))
+                items[n++] = digitoyengine_method_wrapper(&x->methods[i]);
+    return r;
+}
+GCHeader *System_Type_GetMethod_System_String(DigitoyEngineTypeObj *a0, VmString *name) { return digitoyengine_method_lookup(type_of(a0), name, 0); }
+VmArray *System_Type_GetMethods(DigitoyEngineTypeObj *a0) { return de_methods_array(type_of(a0), 0, 1); }
+VmArray *System_Type_GetConstructors(DigitoyEngineTypeObj *a0) { return de_methods_array(type_of(a0), 1, 0); }
+typedef struct DigitoyEngineMethodObj
+{
+    GCHeader gc;
+    long long handle;
+} DigitoyEngineMethodObj;
+static MethodInfo *method_of(DigitoyEngineMethodObj *m) { return (MethodInfo *)(size_t)m->handle; }
+// MemberInfo.Name metot icin yalin ad (.NET: "Scale", ".ctor"): gosterim "Owner.Name(args)" -> '(' oncesi, son '.' sonrasi
+VmString *System_Reflection_MethodBase_get_Name(DigitoyEngineMethodObj *a0)
+{
+    MethodInfo *m = method_of(a0);
+    const VmString *d = m->name;
+    if (!d)
+        return 0;
+    int end = d->length, start = 0;
+    for (int i = 0; i < d->length; i++)
+        if (d->data[i] == '(') { end = i; break; }
+    for (int i = end - 1; i >= 0; i--)
+        if (d->data[i] == '.') { start = i + 1; break; }
+    if (m->flags & DIGITOYENGINE_METHOD_CTOR)
+        return vmstring_from_cstr(".ctor");
+    sb_reset();
+    sb_utf16(d->data + start, end - start);
+    return sb_final();
+}
+int System_Reflection_MethodBase_get_IsStatic(DigitoyEngineMethodObj *a0) { return (method_of(a0)->flags & DIGITOYENGINE_METHOD_STATIC) != 0; }
+int System_Reflection_MethodBase_get_IsVirtual(DigitoyEngineMethodObj *a0) { return (method_of(a0)->flags & DIGITOYENGINE_METHOD_VIRTUAL) != 0; }
+int System_Reflection_MethodBase_get_IsAbstract(DigitoyEngineMethodObj *a0) { return (method_of(a0)->flags & DIGITOYENGINE_METHOD_ABSTRACT) != 0; }
+int System_Reflection_MethodBase_get_IsConstructor(DigitoyEngineMethodObj *a0) { return (method_of(a0)->flags & DIGITOYENGINE_METHOD_CTOR) != 0; }
+int System_Reflection_MethodBase_get_ParameterCount(DigitoyEngineMethodObj *a0) { return method_of(a0)->nparams; }
+DigitoyEngineTypeObj *System_Reflection_MethodBase_GetParameterType_Int(DigitoyEngineMethodObj *a0, int i)
+{
+    MethodInfo *m = method_of(a0);
+    if (i < 0 || i >= m->nparams)
+        DIGITOYENGINE_throw_bounds(i, m->nparams);
+    return m->param_types && m->param_types[i] ? (DigitoyEngineTypeObj *)digitoyengine_type_wrapper(m->param_types[i]) : 0;
+}
+VmObject *System_Reflection_MethodBase_Invoke_System_Object__System_Object(DigitoyEngineMethodObj *a0, VmObject *obj, VmArray *args)
+{
+    return (VmObject *)digitoyengine_method_invoke(method_of(a0), (GCHeader *)obj, args);
+}
+DigitoyEngineTypeObj *System_Reflection_MethodInfo_get_ReturnType(DigitoyEngineMethodObj *a0)
+{
+    const Type *rt = method_of(a0)->returnType;
+    return rt ? (DigitoyEngineTypeObj *)digitoyengine_type_wrapper(rt) : 0;
+}
+// ConstructorInfo.Invoke(args): tahsis (struct: kutu) + ctor cagrisi -> nesne
+static VmObject *de_construct(const MethodInfo *ctor, VmArray *args)
+{
+    const Type *t = ctor->declaringType;
+    if (!t || (t->flags & (DIGITOYENGINE_TYPE_INTERFACE | DIGITOYENGINE_TYPE_ABSTRACT)) || t->size == 0)
+        DIGITOYENGINE_throw_io("ConstructorInfo.Invoke: tip olusturulamaz (interface/abstract/descriptor'suz)");
+    GCHeader *o = (GCHeader *)gc_alloc(t);
+    digitoyengine_method_invoke(ctor, o, args);
+    return (VmObject *)o;
+}
+VmObject *System_Reflection_ConstructorInfo_Invoke__System_Object(DigitoyEngineMethodObj *a0, VmArray *args) { return de_construct(method_of(a0), args); }
+// Activator.CreateInstance(string): tip tablosunda ada gore (Type.name = C# gosterimi) -> parametresiz ctor; yoksa null (.NET: exception; mevcut sozlesme null)
+VmObject *System_Activator_CreateInstanceByName_System_String(VmString *typeName)
+{
+    DigitoyEngineTypeObj *tw = System_Type_GetType_System_String(typeName);
+    if (!tw)
+        return 0;
+    const Type *t = type_of(tw);
+    if (t->flags & (DIGITOYENGINE_TYPE_INTERFACE | DIGITOYENGINE_TYPE_ABSTRACT | DIGITOYENGINE_TYPE_DELEGATE | DIGITOYENGINE_TYPE_ENUM))
+        return 0;
+    for (int i = 0; i < t->nmethods; i++)
+    {
+        const MethodInfo *m = &t->methods[i];
+        if ((m->flags & DIGITOYENGINE_METHOD_CTOR) && m->nparams == 0 && m->fn)
+            return de_construct(m, 0);
+    }
+    return 0;
+}
 typedef struct DigitoyEngineMemberObj
 {
     GCHeader gc;

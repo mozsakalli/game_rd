@@ -25,6 +25,7 @@
 
 #include "sokol/sokol_gfx.h"
 #include <stddef.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -1046,11 +1047,18 @@ static void de_render_execute_core(
             de_sokol_apply_bindings(vbo, inst, instOff, ibo, view, smp);
             break;
         }
-        case 5: // SetUniforms — inline veri akistan kopyasiz uygulanir
-        {
+        case 5: // SetUniforms — inline veri akistan uygulanir; hizasizsa hizali tampona kopyalanir
+        {         // (WebGL HEAPF32 gorunumu 4-byte hizalama ister; akis 1-bayt opcode'lar yuzunden hizasiz).
             int slot = de_ri32(&p);
             int size = de_ri32(&p);
-            sg_range r = {p, (size_t)size};
+            static _Alignas(16) unsigned char ubuf[4096];
+            const void *src = p;
+            if (((uintptr_t)p & 15) != 0 && size <= (int)sizeof ubuf)
+            {
+                memcpy(ubuf, p, (size_t)size);
+                src = ubuf;
+            }
+            sg_range r = {src, (size_t)size};
             sg_apply_uniforms(slot, &r);
             p += size;
             break;

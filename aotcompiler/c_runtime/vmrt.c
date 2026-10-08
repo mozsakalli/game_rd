@@ -359,8 +359,8 @@ int gc_hashcode(GCHeader *o)
     return o->idhash;
 }
 
-// ---- Modul host export tablolari: arama (vmrt.h; tablolar uretilen kodda, kapaliysa bos) ----
-// Index ilk aramada kurulur (acik adresleme, 2x kapasite). Tablolar const -> index yalniz pointer tutar.
+// ---- Tek meta arama (vmrt.h): tip/metot hash indeksleri ilk aramada kurulur (acik adresleme, 2x kapasite).
+// Tablolar uretilen kodda (digitoyengine_types / digitoyengine_methods); vmint.c dis referanslari buradan baglar.
 unsigned long long de_hash64_n(const char *s, int n)
 {
     unsigned long long h = 1469598103934665603ull;
@@ -378,68 +378,91 @@ typedef struct DeIndex
     unsigned mask;
     int built;
 } DeIndex;
-static DeIndex de_idx_types, de_idx_methods, de_idx_statics;
-static void de_index_build(DeIndex *ix, const void *table, int n, size_t stride)
+static DeIndex de_idx_types, de_idx_methods;
+static void de_index_put(DeIndex *ix, unsigned long long h, const void *e)
+{
+    if (!h)
+        return;
+    unsigned k = (unsigned)h & ix->mask;
+    while (ix->slots[k])
+        k = (k + 1) & ix->mask;
+    ix->slots[k] = e;
+}
+static void de_index_alloc(DeIndex *ix, int n)
 {
     unsigned cap = 16;
     while (cap < (unsigned)n * 2)
         cap <<= 1;
     ix->slots = (const void **)calloc(cap, sizeof(void *));
     ix->mask = cap - 1;
-    for (int i = 0; i < n; i++)
-    {
-        const char *e = (const char *)table + (size_t)i * stride;
-        unsigned long long h = *(const unsigned long long *)e; // hash her export yapisinin ILK alani
-        unsigned k = (unsigned)h & ix->mask;
-        while (ix->slots[k])
-            k = (k + 1) & ix->mask;
-        ix->slots[k] = e;
-    }
     ix->built = 1;
 }
-static const void *de_index_find(DeIndex *ix, unsigned long long h)
+const Type *digitoyengine_find_type(unsigned long long hash)
 {
-    if (!ix->built || !ix->slots)
-        return 0;
-    unsigned k = (unsigned)h & ix->mask;
-    while (ix->slots[k])
+    if (!de_idx_types.built)
     {
-        if (*(const unsigned long long *)ix->slots[k] == h)
-            return ix->slots[k];
-        k = (k + 1) & ix->mask;
+        de_index_alloc(&de_idx_types, digitoyengine_ntypes);
+        for (int i = 0; i < digitoyengine_ntypes; i++)
+            de_index_put(&de_idx_types, digitoyengine_types[i]->hash, digitoyengine_types[i]);
+    }
+    unsigned k = (unsigned)hash & de_idx_types.mask;
+    while (de_idx_types.slots[k])
+    {
+        const Type *t = (const Type *)de_idx_types.slots[k];
+        if (t->hash == hash)
+            return t;
+        k = (k + 1) & de_idx_types.mask;
     }
     return 0;
 }
-const DeTypeExport *de_host_find_type(unsigned long long hash)
-{
-    if (!de_idx_types.built)
-        de_index_build(&de_idx_types, de_host_types, de_host_ntypes, sizeof(DeTypeExport));
-    return (const DeTypeExport *)de_index_find(&de_idx_types, hash);
-}
-const DeMethodExport *de_host_find_method(unsigned long long hash)
+const MethodInfo *digitoyengine_find_method(unsigned long long hash)
 {
     if (!de_idx_methods.built)
-        de_index_build(&de_idx_methods, de_host_methods, de_host_nmethods, sizeof(DeMethodExport));
-    return (const DeMethodExport *)de_index_find(&de_idx_methods, hash);
-}
-const DeFieldExport *de_host_find_static(unsigned long long hash)
-{
-    if (!de_idx_statics.built)
-        de_index_build(&de_idx_statics, de_host_statics, de_host_nstatics, sizeof(DeFieldExport));
-    return (const DeFieldExport *)de_index_find(&de_idx_statics, hash);
-}
-// descriptor -> export: base zinciri yurumek icin (Type'ta geri pointer yok; tablo kucuk, lineer + tek girisli cache)
-const DeTypeExport *de_host_type_of(const Type *t)
-{
-    static const DeTypeExport *last = 0;
-    if (last && last->type == t)
-        return last;
-    for (int i = 0; i < de_host_ntypes; i++)
-        if (de_host_types[i].type == t)
-            return last = &de_host_types[i];
+    {
+        de_index_alloc(&de_idx_methods, digitoyengine_nmethods);
+        for (int i = 0; i < digitoyengine_nmethods; i++)
+            de_index_put(&de_idx_methods, digitoyengine_methods[i].hash, &digitoyengine_methods[i]);
+    }
+    unsigned k = (unsigned)hash & de_idx_methods.mask;
+    while (de_idx_methods.slots[k])
+    {
+        const MethodInfo *m = (const MethodInfo *)de_idx_methods.slots[k];
+        if (m->hash == hash)
+            return m;
+        k = (k + 1) & de_idx_methods.mask;
+    }
     return 0;
 }
-
+// "Owner$Name" hash'i: bildiren tipten baslayip base zincirini yurur (alanlar bildiren tipin members'inda).
+DigitoyEngineMember *digitoyengine_find_field(const Type *t, unsigned long long hash)
+{
+    for (; t; t = t->base)
+        for (int i = 0; i < t->nmembers; i++)
+            if (t->members[i].hash == hash)
+                return &t->members[i];
+    return 0;
+}
+// Sanal/iface slot kaydi: metot hash'i -> kayit (vslot >= 0) ve bildiren tip t'nin kendisi/atasi ya da t'nin uyguladigi iface.
+// Slot indeksleri kalitimda sabittir (parent slotlari once) -> kaydin vslot'u t icin de gecerlidir.
+const MethodInfo *digitoyengine_find_vslot(const Type *t, unsigned long long hash)
+{
+    const MethodInfo *m = digitoyengine_find_method(hash);
+    if (!m || m->vslot < 0)
+        return 0;
+    if (!t || !m->declaringType)
+        return m;
+    for (const Type *x = t; x; x = x->base)
+        if (x == m->declaringType)
+            return m;
+    return DIGITOYENGINE_implements(t, m->declaringType) ? m : 0;
+}
+int digitoyengine_find_shape(const char *key)
+{
+    for (int i = 0; i < digitoyengine_nthunks; i++)
+        if (!strcmp(digitoyengine_shapes[i], key))
+            return i;
+    return -1;
+}
 // ---- Array ----
 void finalize_vmarray(GCHeader *h)
 {
@@ -474,8 +497,8 @@ static const unsigned short vmstring_name_d[] = {'S', 'y', 's', 't', 'e', 'm', '
 // const DEGIL: GetHashCode idhash'i header'a cache'ler (k_str havuzu ile ayni sozlesme)
 static VmString vmobject_name = {{&vmstring_type, 0, 0, GC_IMMORTAL, 0}, 13, vmobject_name_d};
 static VmString vmstring_name = {{&vmstring_type, 0, 0, GC_IMMORTAL, 0}, 13, vmstring_name_d};
-const Type vmobject_type = {0, 0, sizeof(VmObject), 1, 0, &vmobject_name, vmobject_vtable, 3, 0, 0, 1}; // System.Object koku (base=0, tindex=1)
-const Type vmstring_type = {0, finalize_vmstring, sizeof(VmString), 1, &vmobject_type, &vmstring_name, vmstring_vtable, 3, 0, 0, 2};
+const Type vmobject_type = {0, 0, sizeof(VmObject), 1, 0, &vmobject_name, vmobject_vtable, 3, 0, 0, 1, .hash = 10811164153419254939ull}; // System.Object koku (base=0, tindex=1)
+const Type vmstring_type = {0, finalize_vmstring, sizeof(VmString), 1, &vmobject_type, &vmstring_name, vmstring_vtable, 3, 0, 0, 2, .hash = 8790253667684771693ull};
 
 // ---- primitive tip descriptor'lari: yalniz typeof kimligi + ad (gc_alloc edilmez, vtable yok) ----
 #define DIGITOYENGINE_PNAME(sym, len, ...)                 \
@@ -498,8 +521,8 @@ DIGITOYENGINE_PNAME(en_name, 11, 'S', 'y', 's', 't', 'e', 'm', '.', 'E', 'n', 'u
 DIGITOYENGINE_PNAME(dg_name, 15, 'S', 'y', 's', 't', 'e', 'm', '.', 'D', 'e', 'l', 'e', 'g', 'a', 't', 'e');
 DIGITOYENGINE_PNAME(mdg_name, 24, 'S', 'y', 's', 't', 'e', 'm', '.', 'M', 'u', 'l', 't', 'i', 'c', 'a', 's', 't', 'D', 'e', 'l', 'e', 'g', 'a', 't', 'e');
 // boyut = box nesne boyutu (gc_alloc kullanir: header + payload); vtable'lar corelib.c'de
-const Type vmvaluetype_type = {0, 0, 0, 1, &vmobject_type, &vt_name, 0, 0, 0, 0, 3};
-const Type vmenum_type = {0, 0, 0, 1, &vmvaluetype_type, &en_name, 0, 0, 0, 0, 16}; // soyut kok: box'lanmaz
+const Type vmvaluetype_type = {0, 0, 0, 1, &vmobject_type, &vt_name, 0, 0, 0, 0, 3, .hash = 11398999010424436621ull, .flags = DIGITOYENGINE_TYPE_ABSTRACT};
+const Type vmenum_type = {0, 0, 0, 1, &vmvaluetype_type, &en_name, 0, 0, 0, 0, 16, .hash = 15180590948754747561ull, .flags = DIGITOYENGINE_TYPE_ABSTRACT}; // soyut kok: box'lanmaz
 void digitoyengine_delegate_trace(GCHeader *o)
 {
     VmDelegate *d = (VmDelegate *)o;
@@ -617,13 +640,17 @@ void *digitoyengine_unbox(GCHeader *o, const Type *t)
 static const Type *digitoyengine_type_type = 0;
 static const Type *digitoyengine_fieldinfo_type = 0;
 static const Type *digitoyengine_propertyinfo_type = 0;
+static const Type *digitoyengine_methodinfo_type = 0;
+static const Type *digitoyengine_ctorinfo_type = 0;
 static GCHeader **digitoyengine_wrappers = 0;
 static int digitoyengine_nwrappers = 0;
-void digitoyengine_reflect_init(const Type *typeType, const Type *fieldInfoType, const Type *propertyInfoType, int nwrappers)
+void digitoyengine_reflect_init(const Type *typeType, const Type *fieldInfoType, const Type *propertyInfoType, const Type *methodInfoType, const Type *ctorInfoType, int nwrappers)
 {
     digitoyengine_type_type = typeType;
     digitoyengine_fieldinfo_type = fieldInfoType;
     digitoyengine_propertyinfo_type = propertyInfoType;
+    digitoyengine_methodinfo_type = methodInfoType;
+    digitoyengine_ctorinfo_type = ctorInfoType;
     digitoyengine_nwrappers = nwrappers;
     digitoyengine_wrappers = (GCHeader **)calloc((size_t)nwrappers, sizeof(GCHeader *));
 }
@@ -655,7 +682,7 @@ GCHeader *digitoyengine_type_wrapper(const Type *t)
     }
     return *slot;
 }
-static GCHeader *digitoyengine_member_wrapper(DigitoyEngineMember *member)
+GCHeader *digitoyengine_member_wrapper(DigitoyEngineMember *member)
 {
     if (!member->wrapper)
     {
@@ -711,6 +738,169 @@ GCHeader *digitoyengine_reflect_unsupported(void)
 {
     DIGITOYENGINE_throw_io("reflection does not support struct or fixed-array values");
     return 0;
+}
+// ---- metot reflection: MethodInfo kaydi -> System.Reflection.MethodInfo/ConstructorInfo wrapper; Invoke = sekil thunk'u ----
+GCHeader *digitoyengine_method_wrapper(MethodInfo *m)
+{
+    if (!m)
+        return 0;
+    if (!m->wrapper)
+    {
+        const Type *wt = (m->flags & DIGITOYENGINE_METHOD_CTOR) ? digitoyengine_ctorinfo_type : digitoyengine_methodinfo_type;
+        if (!wt)
+            return 0;
+        m->wrapper = (GCHeader *)gc_alloc(wt);
+        *(long long *)((char *)m->wrapper + sizeof(GCHeader)) = (long long)(size_t)m;
+        gc_add_root(m->wrapper);
+    }
+    return m->wrapper;
+}
+// Ada gore arama (C# GetMethod(name) / GetConstructor(Type.EmptyTypes)): bildiren tipten base'e. Ad gosterim adidir
+// ("Owner.Name(args)"); karsilastirma "Owner." onekinden sonraki, '(' oncesindeki parcayla yapilir.
+static int digitoyengine_method_name_eq(const MethodInfo *m, const VmString *name)
+{
+    if (!m->name || !name)
+        return 0;
+    int n = m->name->length, start = 0, end = n;
+    for (int i = 0; i < n; i++)
+        if (m->name->data[i] == '(') { end = i; break; }
+    for (int i = end - 1; i >= 0; i--)
+        if (m->name->data[i] == '.') { start = i + 1; break; }
+    if (end - start != name->length)
+        return 0;
+    for (int i = 0; i < name->length; i++)
+        if (m->name->data[start + i] != name->data[i])
+            return 0;
+    return 1;
+}
+GCHeader *digitoyengine_method_lookup(const Type *t, const VmString *name, int ctor)
+{
+    for (; t; t = t->base)
+        for (int i = 0; i < t->nmethods; i++)
+        {
+            MethodInfo *m = &t->methods[i];
+            if (ctor)
+            {
+                if ((m->flags & DIGITOYENGINE_METHOD_CTOR) && m->nparams == 0)
+                    return digitoyengine_method_wrapper(m);
+            }
+            else if (!(m->flags & DIGITOYENGINE_METHOD_CTOR) && digitoyengine_method_name_eq(m, name))
+                return digitoyengine_method_wrapper(m);
+        }
+    return 0;
+}
+// Kutulu arguman -> yuva (etiket + descriptor). Skaler/enum: exact-tip unbox; struct: kutu payload adresi; referans: tip denetimi.
+static void digitoyengine_slot_from_object(DeSlot *s, unsigned char tag, const Type *pt, GCHeader *o)
+{
+    s->p = 0;
+    switch (tag)
+    {
+    case 'o':
+        if (o && pt && !DIGITOYENGINE_is(o->type, pt) && !(pt->flags & DIGITOYENGINE_TYPE_INTERFACE))
+            DIGITOYENGINE_cast_fail(o->type, pt);
+        s->p = o;
+        return;
+    case 'v':
+        DIGITOYENGINE_NULLCHECK(o);
+        s->p = pt ? digitoyengine_unbox(o, pt) : (char *)o + sizeof(GCHeader);
+        return;
+    case 'p': s->p = o ? (void *)(size_t) * (long long *)digitoyengine_unbox(o, &vmint64_type) : 0; return;
+    case 'r': DIGITOYENGINE_throw_io("MethodInfo.Invoke: ref/out parametre desteklenmiyor"); return;
+    default: break;
+    }
+    DIGITOYENGINE_NULLCHECK(o);
+    void *v = pt ? digitoyengine_unbox(o, pt) : (char *)o + sizeof(GCHeader);
+    switch (tag)
+    {
+    case 'i': s->i = *(cil_int *)v; break;
+    case 'u': s->u = *(cil_uint *)v; break;
+    case 'l': s->l = *(cil_long *)v; break;
+    case 'q': s->q = *(cil_ulong *)v; break;
+    case 'h': s->i = *(short *)v; break;
+    case 'H': s->u = *(unsigned short *)v; break;
+    case 'b': s->u = *(unsigned char *)v; break;
+    case 'z': s->i = *(signed char *)v; break;
+    case 'c': s->u = *(unsigned short *)v; break;
+    case 'B': s->i = *(cil_int *)v != 0; break;
+    case 'f': s->f = *(cil_float *)v; break;
+    case 'd': s->d = *(cil_double *)v; break;
+    default: DIGITOYENGINE_throw_io("MethodInfo.Invoke: bilinmeyen parametre etiketi");
+    }
+}
+static GCHeader *digitoyengine_object_from_slot(const DeSlot *s, unsigned char tag, const Type *rt)
+{
+    if (rt && (rt->flags & DIGITOYENGINE_TYPE_ENUM) && tag != 'o' && tag != 'v')
+        return (GCHeader *)digitoyengine_box_enum(s->i, rt);
+    switch (tag)
+    {
+    case 'V': return 0;
+    case 'o': return (GCHeader *)s->p;
+    case 'v': return (GCHeader *)((char *)s->p - sizeof(GCHeader)); // Invoke kutuyu onceden acti: payload -> kutu
+    case 'p': return (GCHeader *)digitoyengine_box_i64((long long)(size_t)s->p);
+    case 'i': return (GCHeader *)digitoyengine_box_i32(s->i);
+    case 'u': return (GCHeader *)digitoyengine_box_u32(s->u);
+    case 'l': return (GCHeader *)digitoyengine_box_i64(s->l);
+    case 'q': return (GCHeader *)digitoyengine_box_u64(s->q);
+    case 'h': return (GCHeader *)digitoyengine_box_i16((short)s->i);
+    case 'H': return (GCHeader *)digitoyengine_box_u16((unsigned short)s->u);
+    case 'b': return (GCHeader *)digitoyengine_box_u8((unsigned char)s->u);
+    case 'z': return (GCHeader *)digitoyengine_box_i8((signed char)s->i);
+    case 'c': return (GCHeader *)digitoyengine_box_char((cil_char)s->u);
+    case 'B': return (GCHeader *)digitoyengine_box_bool(s->i);
+    case 'f': return (GCHeader *)digitoyengine_box_f32(s->f);
+    case 'd': return (GCHeader *)digitoyengine_box_f64(s->d);
+    default: DIGITOYENGINE_throw_io("MethodInfo.Invoke: bilinmeyen donus etiketi"); return 0;
+    }
+}
+GCHeader *digitoyengine_method_invoke(const MethodInfo *m, GCHeader *target, struct VmArray *args)
+{
+    if (!m->fn && !(m->flags & DIGITOYENGINE_METHOD_ABSTRACT))
+        DIGITOYENGINE_throw_io("MethodInfo.Invoke: metodun govdesi yok (uygulanmamis extern)");
+    int isStatic = (m->flags & DIGITOYENGINE_METHOD_STATIC) != 0;
+    int nargs = args ? args->len : 0;
+    if (nargs != m->nparams)
+        DIGITOYENGINE_throw_io("MethodInfo.Invoke: arguman sayisi uyusmuyor");
+    if (!isStatic)
+    {
+        DIGITOYENGINE_NULLCHECK(target);
+        if (m->declaringType && !(m->declaringType->flags & DIGITOYENGINE_TYPE_INTERFACE) && !DIGITOYENGINE_is(target->type, m->declaringType))
+            DIGITOYENGINE_cast_fail(target->type, m->declaringType);
+    }
+    DeSlot a[32], r;
+    if (nargs + 1 > 32)
+        DIGITOYENGINE_throw_io("MethodInfo.Invoke: 31'den fazla parametre");
+    int base = 0;
+    if (!isStatic)
+    {
+        // struct instance metodu: this = kutu payload'u (C imzasi struct*); class: nesne
+        a[0].p = (m->declaringType && (m->declaringType->flags & DIGITOYENGINE_TYPE_STRUCT)) ? (void *)((char *)target + sizeof(GCHeader)) : (void *)target;
+        base = 1;
+    }
+    GCHeader **items = args ? (GCHeader **)args->data : 0;
+    for (int i = 0; i < nargs; i++)
+        digitoyengine_slot_from_object(&a[base + i], m->param_tags ? m->param_tags[i] : 'o', m->param_types ? m->param_types[i] : 0, items[i]);
+    // Sanal metot: .NET gibi alicinin runtime tipinden dispatch (vtable / iface tablosu); aksi halde dogrudan fn.
+    const void *fn = m->fn;
+    if (!isStatic && m->vslot >= 0 && m->declaringType && !(m->declaringType->flags & DIGITOYENGINE_TYPE_STRUCT))
+    {
+        const Type *rt = target->type;
+        if (m->declaringType->flags & DIGITOYENGINE_TYPE_INTERFACE)
+            fn = DIGITOYENGINE_itable(rt, m->declaringType)[m->vslot];
+        else if (rt->vtable && m->vslot < rt->nvtable)
+            fn = rt->vtable[m->vslot];
+    }
+    if (!fn)
+        DIGITOYENGINE_throw_io("MethodInfo.Invoke: metodun govdesi yok (abstract bildirim)");
+    r.p = 0;
+    if (m->ret_tag == 'v') // struct donusu: kutu onceden ayrilir, thunk payload'a kopyalar
+    {
+        if (!m->returnType)
+            DIGITOYENGINE_throw_io("MethodInfo.Invoke: struct donus descriptor'suz");
+        GCHeader *box = (GCHeader *)gc_alloc(m->returnType);
+        r.p = (char *)box + sizeof(GCHeader);
+    }
+    digitoyengine_thunks[m->shape](fn, a, &r);
+    return digitoyengine_object_from_slot(&r, m->ret_tag, m->returnType);
 }
 // vmstring_length/get/eq vmrt.h'da static inline (Mach-O duplicate cozumu)
 VmString *vmstring_alloc(int len)

@@ -107,7 +107,7 @@ Aynı kural `Build/ios/`, `Build/wasm/` için.
 | H1 | `de_app.h` ABI + `host_desktop.c` + `GameHost` (managed) + olay kuyruğu; aotcompiler `main` üretmez, `de_game_register` bağlar; `player/` dev host | Sandbox.exe davranış birebir (Windows); .NET dev host çalışır |
 | H2 | aotcompiler: Game.dll Roslyn in-process, corelib/engine prebuilt IL (dev'de taze), `DigitoyPlayer.aot.dll` kalkar; publisher `sdk/` güncel | paketten SDK'sız player build |
 | H3 | Proje üretim altyapısı: `Build/<platform>/{generated,user}` kuralı, `Assets/Editor` → `<Ad>.Editor.dll`, `I*ProjectHook` API, `Platform.Send/OnMessage` + `de_host_message` | Windows'ta sahte kanca ile uçtan uca |
-| H4 | wasm spike → wasm host + emsdk Platform Support + GLES3 shader yolu | Sandbox tarayıcıda |
+| H4 | wasm spike → wasm host + emsdk Platform Support + GLES3 shader yolu | Sandbox tarayıcıda — **BİTTİ (ilk dilim)** |
 | H5 | Android: Kotlin host şablonu + CMakeLists + Gradle + JNI köprü + AAsset pak + `de_music_*` MediaPlayer | Android Studio'da aç → derle → cihazda Sandbox |
 | H6 | iOS: Xcode proje şablonu (xcodegen ya da elle pbxproj şablonu) + Swift host + Metal + AVPlayer | Xcode'da aç → derle → cihazda Sandbox |
 | H7 | GL kaynak kaybı sonrası GPU kaynaklarını yeniden bağlama (Android) | pause/resume turu sorunsuz |
@@ -147,4 +147,19 @@ Aynı kural `Build/ios/`, `Build/wasm/` için.
   home→geri dönüş sorunsuz. Release = `assembleRelease` (NDK -O3, generated.c -O1, strip); debug varyantı da -O1 (CMake `$<CONFIG:Debug>`).
 - **Android kalanlar (sırayla)**: (1) multitouch → `Pointer` id'li; (2) `de_music_*` → MediaPlayer köprüsü (H3 mesaj kanalı/`de_host_*` ile);
   (3) klavye/EV_TEXT → soft keyboard; (4) GL context kaybı → GPU kaynak yenileme (H7); (5) pak'ı kopyalamadan AAsset fd+offset ile okuma; (6) ikon/splash.
+- **H4 (wasm) İLK DİLİM BİTTİ**: Editör `Project ▸ Build Web (wasm)` / RPC `player.build {target:"wasm"}` → `aotcompiler player --target wasm` →
+  `<proje>/Build/wasm/`: `game.js + game.wasm + game.data` (her build; data = `--preload-file game.pak@/data/Build/game.pak`) + `index.html`
+  (ilk kez `platforms/wasm/shell`'den, sonra kullanıcıya ait). **Toolchain**: `EmsdkToolchain.Ensure` (`Toolchain.cs`) — `emsdk` aracı/sistem Python'u
+  YOK; emsdk'nın kendi indirdiği üç zip (`wasm-binaries.zip` clang+wasm-ld+binaryen+emscripten+prebuilt sysroot cache, gömülü `python-3.13`, `node-22`)
+  doğrudan `%LOCALAPPDATA%\DigitoyEngine\toolchains\emsdk-<ver>\{upstream,python,node}` altına açılır, `.emscripten` yazılır, `python emcc.py` koşulur
+  (.NET wasm-tools workload'ının deseni; sisteme hiçbir şey kurulmaz). Nesneler `obj/wasm-c/` (runtime/shim mtime cache, generated.c -O1 her build).
+  Link: `-sUSE_WEBGL2 -sALLOW_MEMORY_GROWTH -sSTACK_SIZE=8MB -sSUPPORT_LONGJMP=emscripten -sENVIRONMENT=web`. Host `c_runtime/host_wasm.c`:
+  `emscripten_webgl_create_context` (WebGL2) + `emscripten_set_main_loop` → `de_app_frame`; mouse/touch(id)/key/focus/visibility(pause-resume)/resize
+  → kuyruk; canvas CSS px = mantıksal px, `scale = devicePixelRatio`. `de_fs.c` `__EMSCRIPTEN__`: worker yok, job submit anında senkron koşar.
+  **wasm32 dersleri**: (1) P/Invoke imzalarında `IntPtr` KULLANILMAZ — AOT IR'de IntPtr = 64-bit long, C'de pointer 32-bit → wasm-ld imza
+  uyuşmazlığı / `out IntPtr` 8-bayt slota 4-bayt yazım. Çözüm: extern'ler `void*`/`byte*`, dışa dönük yüzey IntPtr sarmalayıcı (Module/Sokol/Audio/NativeFs).
+  (2) Komut akışı hizasız; `SetUniforms` verisi WebGL'de 4-bayt hizalı olmalı → shim hizalı tampona kopyalar. Doğrulama: Sandbox tarayıcıda
+  (Chromium) pak→registry→16 asset→sahne, sprite+SDF yazı çizimi OK; 5.2 MB wasm (-O2), ilk tam derleme ~70 s, artımlı ~30 s.
+  Kalanlar: editörden "Run in Browser" (HttpListener statik sunucu; `file://` çalışmaz), `de_music_*` HTMLAudio shim, crash dump → JS hook,
+  IndexedDB kalıcı kayıt, mobil soft keyboard.
 - Sırada: H3 (proje üretim altyapısı + kancalar), editor-distribution Faz 1 kalanları, Faz 4.

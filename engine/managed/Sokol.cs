@@ -77,7 +77,14 @@ public static unsafe class Sokol
     extern public static int AssetLoadRange([MarshalAs(UnmanagedType.LPUTF8Str)] string path, long offset, long length, long rawLength);
 
     [DllImport(Lib, EntryPoint = "de_asset_poll")]
-    extern public static int AssetPoll(int job, out IntPtr pixels, out int w, out int h);
+    extern static int de_asset_poll(int job, void** pixels, int* w, int* h);
+    public static int AssetPoll(int job, out IntPtr pixels, out int w, out int h)
+    {
+        void* p = null; int ww = 0, hh = 0;
+        int r = de_asset_poll(job, &p, &ww, &hh);
+        pixels = (IntPtr)p; w = ww; h = hh;
+        return r;
+    }
 
     [DllImport(Lib, EntryPoint = "de_asset_free_job")]
     extern public static void AssetFreeJob(int job);
@@ -127,25 +134,31 @@ public static unsafe class Sokol
         float* glyphOut, short* kernOut, float* metricsOut);
 
     // --- Glyph-bazli SDF baker (FontImporter; codepoint listesi + SDF boyu serbest) ---
+    // P/Invoke'ta handle void* (C ile ayni genislik; wasm32'de IntPtr=i64 imza uyusmazligi olurdu); yuzey IntPtr.
 
     [DllImport(Lib, EntryPoint = "de_sdf_font_open")]
-    extern public static IntPtr SdfFontOpen(byte* ttf, int length);
+    extern static void* de_sdf_font_open(byte* ttf, int length);
+    public static IntPtr SdfFontOpen(byte* ttf, int length) => (IntPtr)de_sdf_font_open(ttf, length);
 
     [DllImport(Lib, EntryPoint = "de_sdf_font_close")]
-    extern public static void SdfFontClose(IntPtr handle);
+    extern static void de_sdf_font_close(void* handle);
+    public static void SdfFontClose(IntPtr handle) => de_sdf_font_close((void*)handle);
 
     // out5 = ascent, descent, lineHeight (SDF px), kernScale, sdfSize.
     [DllImport(Lib, EntryPoint = "de_sdf_font_metrics")]
-    extern public static int SdfFontMetrics(IntPtr handle, float sdfSize, float* out5);
+    extern static int de_sdf_font_metrics(void* handle, float sdfSize, float* out5);
+    public static int SdfFontMetrics(IntPtr handle, float sdfSize, float* out5) => de_sdf_font_metrics((void*)handle, sdfSize, out5);
 
     // out5 = advance, xoff, yoff, w, h; buffer'a w*h SDF bayti (satir 0 ustte).
     [DllImport(Lib, EntryPoint = "de_sdf_font_glyph")]
-    extern public static int SdfFontGlyph(IntPtr handle, int codepoint, float sdfSize,
-        byte* buffer, int bufferSize, float* out5);
+    extern static int de_sdf_font_glyph(void* handle, int codepoint, float sdfSize, byte* buffer, int bufferSize, float* out5);
+    public static int SdfFontGlyph(IntPtr handle, int codepoint, float sdfSize, byte* buffer, int bufferSize, float* out5)
+        => de_sdf_font_glyph((void*)handle, codepoint, sdfSize, buffer, bufferSize, out5);
 
     // codepoints[count] icin count*count int16 kerning (font-unit).
     [DllImport(Lib, EntryPoint = "de_sdf_font_kern_table")]
-    extern public static int SdfFontKernTable(IntPtr handle, int* codepoints, int count, short* outTable);
+    extern static int de_sdf_font_kern_table(void* handle, int* codepoints, int count, short* outTable);
+    public static int SdfFontKernTable(IntPtr handle, int* codepoints, int count, short* outTable) => de_sdf_font_kern_table((void*)handle, codepoints, count, outTable);
 
     [DllImport(Lib, EntryPoint = "de_sokol_commit")]
     extern public static void Commit();
@@ -255,8 +268,10 @@ public static unsafe class Sokol
     [DllImport(Lib, EntryPoint = "de_sokol_shader_valid")]
     extern public static int ShaderValid(uint id);
 
+    // C'de const char*; IntPtr degil pointer (wasm32'de IntPtr=i64 imza uyusmazligi). Managed yuzey IntPtr kalir.
     [DllImport(Lib, EntryPoint = "de_sokol_last_error")]
-    extern public static IntPtr LastError();
+    extern static unsafe byte* de_sokol_last_error();
+    public static unsafe IntPtr LastError() => (IntPtr)de_sokol_last_error();
     [DllImport(Lib, EntryPoint = "de_sokol_destroy_pipeline")]
     extern public static void DestroyPipeline(uint id);
     [DllImport(Lib, EntryPoint = "de_sokol_destroy_view")]

@@ -40,7 +40,7 @@ struct VmT
     const char *name, *display;
     VmT *elem; int rank, fixedSize;
     const Type *type;            // descriptor (host/yerel); yoksa 0
-    const DeTypeExport *host;    // host export (alan offset/slot icin)
+    const Type *host;            // host descriptor'a bagli ise (tek meta: alan offset/slot/metot buradan)
     VmT *parent; int nifaces; VmT **ifaces;
     int nfields; VmField *fields; // bildirilen alanlar (instance + static)
     int size, align;              // deger boyutu: class/ref -> pointer; struct -> yerlesim boyutu
@@ -73,7 +73,7 @@ struct VmMethod
     const char *name; VmT *owner; VmT *ret; int nargs; VmArg *args;
     const char *display, *file, *stubReason; int nlocals; VmT **locals; int nops; VmOp *ops;
     MethodInfo mi; int blobBytes; int *argBlobOff, *localBlobOff; int ntries; int *tryHandler;
-    const DeMethodExport *hostm; const void *fn; DeThunk thunk;
+    const MethodInfo *hostm; const void *fn; DeThunk thunk;
     struct VmModule *mod;
 };
 typedef struct VmClosure { GCHeader gc; GCHeader *target; VmMethod *m; } VmClosure;
@@ -135,13 +135,13 @@ static VmMethod *vm_marker_get(const void *key)
 // ---- host sekil indeksi: imza metni -> thunk id (CTranspiler.ShapeKey ile ayni metin) ----
 static void vm_shapes_build(void)
 {
-    unsigned cap = 64; while (cap < (unsigned)de_host_nthunks * 2) cap <<= 1;
+    unsigned cap = 64; while (cap < (unsigned)digitoyengine_nthunks * 2) cap <<= 1;
     vm_shapes = (VmShapeIx *)vm_zalloc(cap * sizeof(VmShapeIx)); vm_shape_mask = cap - 1;
-    for (int i = 0; i < de_host_nthunks; i++)
+    for (int i = 0; i < digitoyengine_nthunks; i++)
     {
-        unsigned k = (unsigned)vm_hash(de_host_shapes[i]) & vm_shape_mask;
+        unsigned k = (unsigned)vm_hash(digitoyengine_shapes[i]) & vm_shape_mask;
         while (vm_shapes[k].key) k = (k + 1) & vm_shape_mask;
-        vm_shapes[k].key = de_host_shapes[i]; vm_shapes[k].id = i;
+        vm_shapes[k].key = digitoyengine_shapes[i]; vm_shapes[k].id = i;
     }
     vm_shape_built = 1;
 }
@@ -273,27 +273,14 @@ static VmField *vm_find_field(VmT *t, const char *name)
     for (VmT *x = t; x; x = x->parent) for (int i = 0; i < x->nfields; i++) if (!strcmp(x->fields[i].name, name)) return &x->fields[i];
     return 0;
 }
-static const DeFieldExport *vm_host_field(const DeTypeExport *te, const char *ownerName, const char *fname, const DeTypeExport **ownerOut)
+// host alani: bildiren tipten baslayarak base zinciri (tek meta: DigitoyEngineMember, hash = alan adi)
+static DigitoyEngineMember *vm_host_field(const Type *te, const char *fname)
 {
-    char key[1024];
-    for (const DeTypeExport *e = te; e;)
-    {
-        snprintf(key, sizeof key, "%s$%s", e->name, fname);
-        unsigned long long h = vm_hash(key);
-        for (int i = 0; i < e->nfields; i++) if (e->fields[i].hash == h) { if (ownerOut) *ownerOut = e; return &e->fields[i]; }
-        e = e->type && e->type->base ? de_host_type_of(e->type->base) : 0;
-    }
-    (void)ownerName;
-    return 0;
+    return te ? digitoyengine_find_field(te, vm_hash(fname)) : 0;
 }
-static const DeSlotExport *vm_host_slot(const DeTypeExport *te, unsigned long long methodHash)
+static const MethodInfo *vm_host_slot(const Type *te, unsigned long long methodHash)
 {
-    for (const DeTypeExport *e = te; e;)
-    {
-        for (int i = 0; i < e->nvslots; i++) if (e->vslots[i].hash == methodHash) return &e->vslots[i];
-        e = e->type && e->type->base ? de_host_type_of(e->type->base) : 0;
-    }
-    return 0;
+    return te ? digitoyengine_find_vslot(te, methodHash) : 0;
 }
 
 // ---- yukleme: hata toplama ----
@@ -327,15 +314,15 @@ static void vm_collect_refs(LoadCtx *L, VmT *t, int base, int **refs, int *n, in
         else if (f->type->tag == 'v') { vm_resolve_type(L, f->type); for (int k = 0; k < f->type->nrefs; k++) { if (*n == *cap) { *cap = *cap ? *cap * 2 : 8; *refs = (int *)realloc(*refs, *cap * sizeof(int)); } (*refs)[(*n)++] = base + f->offset + f->type->refs[k]; } }
     }
 }
-// host struct export'undan referans offset'leri (tag 'o' alanlar + ic struct'lar)
-static void vm_host_struct_refs(const DeTypeExport *e, int base, int **refs, int *n, int *cap)
+// host struct descriptor'undan referans offset'leri (tag 'o' alanlar + ic struct'lar); yalniz bildirilen alanlar (struct'ta kalitim yok)
+static void vm_host_struct_refs(const Type *e, int base, int **refs, int *n, int *cap)
 {
     if (!e) return;
-    for (int i = 0; i < e->nfields; i++)
+    for (int i = 0; i < e->nmembers; i++)
     {
-        const DeFieldExport *f = &e->fields[i]; if (f->isStatic) continue;
+        const DigitoyEngineMember *f = &e->members[i]; if (f->kind != DIGITOYENGINE_MEMBER_FIELD || f->isStatic) continue;
         if (f->tag == 'o') { if (*n == *cap) { *cap = *cap ? *cap * 2 : 8; *refs = (int *)realloc(*refs, *cap * sizeof(int)); } (*refs)[(*n)++] = base + f->offset; }
-        else if (f->tag == 'v' && f->type) vm_host_struct_refs(de_host_type_of(f->type), base + f->offset, refs, n, cap);
+        else if (f->tag == 'v' && f->valueType) vm_host_struct_refs(f->valueType, base + f->offset, refs, n, cap);
     }
 }
 static void vm_trace_local(GCHeader *o);
@@ -357,18 +344,18 @@ static void vm_resolve_type(LoadCtx *L, VmT *t)
     case TK_ARRAY: vm_resolve_type(L, t->elem); t->size = t->align = sizeof(void *); t->type = &vmarray_ref_type; break;
     case TK_EXTERN:
     {
-        const DeTypeExport *e = de_host_find_type(vm_hash(t->name));
+        const Type *e = digitoyengine_find_type(vm_hash(t->name));
         if (!e) { ld_err(L, "host'ta tip yok: %s", t->name, 0); break; }
-        t->host = e; t->type = e->type;
+        t->host = t->type = e;
         if (t->flags & 8) { t->tag = 'i'; t->size = t->align = 4; }
-        else if (t->flags & 1) { t->size = e->size; t->align = 8; int n = 0, cap = 0; int *refs = 0; vm_host_struct_refs(e, 0, &refs, &n, &cap); t->refs = refs; t->nrefs = n; }
+        else if (t->flags & 1) { t->size = e->size - (int)sizeof(GCHeader); t->align = 8; int n = 0, cap = 0; int *refs = 0; vm_host_struct_refs(e, 0, &refs, &n, &cap); t->refs = refs; t->nrefs = n; } // kutu descriptor'u: header + struct
         else { t->size = t->align = sizeof(void *); t->objSize = e->size ? e->size : (int)sizeof(GCHeader); }
         break;
     }
     case TK_ENUM:
     {
-        const DeTypeExport *e = t->preferHost ? de_host_find_type(vm_hash(t->name)) : 0;
-        if (e) { t->host = e; t->type = e->type; break; }
+        const Type *e = t->preferHost ? digitoyengine_find_type(vm_hash(t->name)) : 0;
+        if (e) { t->host = t->type = e; break; }
         VmLocalType *lt = (VmLocalType *)vm_zalloc(sizeof(VmLocalType)); lt->t = t; t->ltype = lt;
         static const void *enumvt[3];
         enumvt[0] = (const void *)&digitoyengine_enumbox_hash; enumvt[1] = (const void *)&digitoyengine_enumbox_eq; enumvt[2] = (const void *)&vmint_enumstr;
@@ -379,8 +366,8 @@ static void vm_resolve_type(LoadCtx *L, VmT *t)
     }
     case TK_CLASS: case TK_STRUCT: case TK_IFACE: case TK_DELEGATE:
     {
-        const DeTypeExport *e = t->preferHost ? de_host_find_type(vm_hash(t->name)) : 0;
-        if (e) { t->host = e; t->type = e->type; t->kind = TK_EXTERN; t->flags = (unsigned char)((e->isStruct ? 1 : 0) | (e->isInterface ? 2 : 0) | (e->isDelegate ? 4 : 0)); t->tag = e->isStruct ? 'v' : 'o'; t->resolving = 0; t->resolved = 0; vm_resolve_type(L, t); return; }
+        const Type *e = t->preferHost ? digitoyengine_find_type(vm_hash(t->name)) : 0;
+        if (e) { t->host = t->type = e; t->kind = TK_EXTERN; t->flags = (unsigned char)(e->flags & 7); t->tag = (e->flags & DIGITOYENGINE_TYPE_STRUCT) ? 'v' : 'o'; t->resolving = 0; t->resolved = 0; vm_resolve_type(L, t); return; }
         t->isLocal = 1;
         if (t->parent) vm_resolve_type(L, t->parent);
         for (int i = 0; i < t->nifaces; i++) vm_resolve_type(L, t->ifaces[i]);
@@ -449,21 +436,21 @@ static void vm_resolve_method(LoadCtx *L, VmMethod *m)
     if (L->failed) return;
     if (m->local && m->preferHost)
     {
-        const DeMethodExport *e = de_host_find_method(vm_hash(m->name));
-        if (e) { m->local = 0; m->hostm = e; m->fn = e->fn; m->thunk = de_host_thunks[e->shape]; m->resolvedExtern = 1; return; }
+        const MethodInfo *e = digitoyengine_find_method(vm_hash(m->name));
+        if (e && e->fn) { m->local = 0; m->hostm = e; m->fn = e->fn; m->thunk = digitoyengine_thunks[e->shape]; m->resolvedExtern = 1; return; }
     }
     if (!m->local)
     {
-        const DeMethodExport *e = de_host_find_method(vm_hash(m->name));
-        if (!e)
+        const MethodInfo *e = digitoyengine_find_method(vm_hash(m->name));
+        if (!e || (!e->fn && (e->flags & DIGITOYENGINE_METHOD_ABSTRACT)))
         {
-            // iface metotlari govdesizdir (host export'ta yok): yalniz slot/sekil icin bildirim; thunk sekilden
+            // iface/abstract bildirimleri govdesizdir: yalniz slot/sekil icin; thunk kayittan ya da sekil metninden
             int ifaceOwner = m->owner && (m->owner->kind == TK_IFACE || (m->owner->kind == TK_EXTERN && (m->owner->flags & 2)));
-            if (!ifaceOwner) { ld_err(L, "host'ta metot yok: %s", m->name, 0); return; }
-            int sh = vm_shape_of(m->ret, m->nargs, m->args, 0);
-            m->thunk = sh >= 0 ? de_host_thunks[sh] : 0; m->resolvedExtern = 1; return;
+            if (!e && !ifaceOwner) { ld_err(L, "host'ta metot yok: %s", m->name, 0); return; }
+            int sh = e ? e->shape : vm_shape_of(m->ret, m->nargs, m->args, 0);
+            m->hostm = e; m->thunk = sh >= 0 ? digitoyengine_thunks[sh] : 0; m->resolvedExtern = 1; return;
         }
-        m->hostm = e; m->fn = e->fn; m->thunk = de_host_thunks[e->shape]; m->resolvedExtern = 1;
+        m->hostm = e; m->fn = e->fn; m->thunk = digitoyengine_thunks[e->shape]; m->resolvedExtern = 1;
         if (!m->fn) ld_err(L, "host'ta extern uygulanmamis (zayif sembol 0): %s", m->name, 0);
         return;
     }
@@ -493,9 +480,9 @@ static void vm_resolve_method(LoadCtx *L, VmMethod *m)
         if ((o->op == OP_CallVirtual || (o->op == OP_DelegateNew && o->slot >= 0)) && o->code && o->code->owner && !o->code->owner->isLocal)
         {
             vm_resolve_type(L, o->code->owner);
-            const DeSlotExport *hs = o->code->owner->host ? vm_host_slot(o->code->owner->host, vm_hash(o->code->name)) : 0;
+            const MethodInfo *hs = vm_host_slot(o->code->owner->host, vm_hash(o->code->name));
             if (!hs) { ld_err(L, "host sanal slotu yok: %s", o->code->name, 0); return; }
-            o->slot = hs->slot;
+            o->slot = hs->vslot;
         }
     }
 }
@@ -512,15 +499,10 @@ static void vm_resolve_fieldref(LoadCtx *L, VmFieldRef *fr)
         if (fr->isStatic && !fr->addr) { ld_err(L, "statik depo yok: %s.%s", fr->owner->name, fr->name); }
         return;
     }
-    const DeTypeExport *ownerE = 0;
-    const DeFieldExport *e = vm_host_field(fr->owner->host, fr->owner->name, fr->name, &ownerE);
-    if (!e)
-    {
-        if (fr->isStatic) { char key[1024]; snprintf(key, sizeof key, "%s$%s", fr->owner->name, fr->name); const DeFieldExport *s = de_host_find_static(vm_hash(key)); if (s) { fr->addr = s->addr; fr->type = fr->type; return; } }
-        ld_err(L, "host'ta alan yok: %s.%s", fr->owner->name, fr->name); return;
-    }
+    DigitoyEngineMember *e = vm_host_field(fr->owner->host, fr->name);
+    if (!e) { ld_err(L, "host'ta alan yok: %s.%s", fr->owner->name, fr->name); return; }
     fr->offset = e->offset; fr->addr = e->addr; fr->isStatic = e->isStatic;
-    if (fr->isStatic && !fr->addr) { char key[1024]; snprintf(key, sizeof key, "%s$%s", ownerE->name, fr->name); const DeFieldExport *s = de_host_find_static(vm_hash(key)); if (!s) { ld_err(L, "host'ta statik yok: %s.%s", fr->owner->name, fr->name); return; } fr->addr = s->addr; }
+    if (fr->isStatic && !fr->addr) { ld_err(L, "host'ta statik depo yok: %s.%s", fr->owner->name, fr->name); return; }
 }
 
 // ================= PARSE =================
@@ -657,8 +639,8 @@ static void vm_statics_trace(void *f)
         for (int k = 0; k < t->nfields; k++) { VmField *fl = &t->fields[k]; if (!fl->isStatic) continue; if (fl->type->tag == 'o') gc_shade(*(GCHeader **)fl->staddr); else if (fl->type->tag == 'v') for (int j = 0; j < fl->type->nrefs; j++) gc_shade(*(GCHeader **)((char *)fl->staddr + fl->type->refs[j])); }
     }
 }
-static const void *vm_vtramp_for(unsigned long long rootHash) { for (int i = 0; i < de_host_nvtramps; i++) if (de_host_vtramps[i].hash == rootHash) return de_host_vtramps[i].fn; return 0; }
-static const void *vm_dtramp_for(const char *delegateName) { unsigned long long h = vm_hash(delegateName); for (int i = 0; i < de_host_ndtramps; i++) if (de_host_dtramps[i].hash == h) return de_host_dtramps[i].fn; return 0; }
+static const void *vm_vtramp_for(unsigned long long rootHash) { const MethodInfo *m = digitoyengine_find_method(rootHash); return m ? m->tramp : 0; }
+static const void *vm_dtramp_for(const char *delegateName) { const Type *t = digitoyengine_find_type(vm_hash(delegateName)); return t ? t->delegate_tramp : 0; }
 static void vm_exec_frame(VmMethod *m, DeSlot *args, DeSlot *ret);
 
 static int vm_link(LoadCtx *L)
@@ -694,17 +676,17 @@ static int vm_link(LoadCtx *L)
             if (!impl->local)
             {
                 // host impl (miras): host parent ayni slotta ayni metodu tasimali
-                if (k < nbase && basevt && t->parent && !t->parent->isLocal) { const DeSlotExport *hs = vm_host_slot(t->parent->host, vm_hash(impl->name)); if (!hs || hs->slot != k) { ld_err(L, "miras sanal slot host ile uyusmuyor (engine surumu?): %s", impl->name, 0); return 0; } }
+                if (k < nbase && basevt && t->parent && !t->parent->isLocal) { const MethodInfo *hs = vm_host_slot(t->parent->host, vm_hash(impl->name)); if (!hs || hs->vslot != k) { ld_err(L, "miras sanal slot host ile uyusmuyor (engine surumu?): %s", impl->name, 0); return 0; } }
                 t->vtable[k] = impl->fn; t->vimpl[k] = 0; continue;
             }
             t->vimpl[k] = impl;
             // host kok: host'un slot indeksi ile dogrula ve trampoline koy
             if (s->decl && !s->decl->local)
             {
-                const DeSlotExport *hs = t->parent && t->parent->host ? vm_host_slot(t->parent->host, vm_hash(s->decl->name)) : 0;
+                const MethodInfo *hs = t->parent && t->parent->host ? vm_host_slot(t->parent->host, vm_hash(s->decl->name)) : 0;
                 if (!hs) { for (VmT *a = t->parent; a && !hs; a = a->parent) if (a->host) hs = vm_host_slot(a->host, vm_hash(s->decl->name)); }
                 if (!hs) { ld_err(L, "host sanal slotu yok: %s (kok %s)", impl->name, s->decl->name); return 0; }
-                if (hs->slot != k) { ld_err(L, "sanal slot indeksi host ile uyusmuyor: %s", impl->name, 0); return 0; }
+                if (hs->vslot != k) { ld_err(L, "sanal slot indeksi host ile uyusmuyor: %s", impl->name, 0); return 0; }
                 const void *tr = vm_vtramp_for(vm_hash(s->decl->name));
                 if (!tr) { ld_err(L, "host trampoline yok (CTranspiler EmitTrampolines): %s", s->decl->name, 0); return 0; }
                 t->vtable[k] = tr;
@@ -724,9 +706,9 @@ static int vm_link(LoadCtx *L)
                 if (!it->iface->isLocal)
                 {
                     // host iface: slot sirasi host'un iface vslots sirasiyla dogrulanir
-                    const DeSlotExport *hs = it->iface->host ? vm_host_slot(it->iface->host, vm_hash(it->imethod[j]->name)) : 0;
+                    const MethodInfo *hs = it->iface->host ? vm_host_slot(it->iface->host, vm_hash(it->imethod[j]->name)) : 0;
                     if (!hs) { ld_err(L, "host iface slotu yok: %s", it->imethod[j]->name, 0); return 0; }
-                    if (hs->slot != j) { ld_err(L, "iface slot indeksi host ile uyusmuyor: %s", it->imethod[j]->name, 0); return 0; }
+                    if (hs->vslot != j) { ld_err(L, "iface slot indeksi host ile uyusmuyor: %s", it->imethod[j]->name, 0); return 0; }
                     const void *tr = vm_vtramp_for(vm_hash(it->imethod[j]->name));
                     if (!tr) { ld_err(L, "host iface trampoline yok: %s", it->imethod[j]->name, 0); return 0; }
                     tab[j] = tr;
@@ -741,8 +723,8 @@ static int vm_link(LoadCtx *L)
     m->closureType.type.trace = vm_trace_closure; m->closureType.type.size = sizeof(VmClosure); m->closureType.type.base = &vmobject_type; m->closureType.type.module = &m->mod;
     m->closureType.type.name = vm_immortal_str(m, "<closure>");
     vm_string = vm_type_by_name(m, "System.String"); vm_object = vm_type_by_name(m, "System.Object");
-    if (!vm_string) { vm_string = (VmT *)vm_zalloc(sizeof(VmT)); vm_string->kind = TK_EXTERN; vm_string->tag = 'o'; vm_string->name = vm_string->display = "System.String"; vm_string->type = &vmstring_type; vm_string->resolved = 1; vm_string->size = vm_string->align = sizeof(void *); vm_string->host = de_host_find_type(vm_hash("System.String")); }
-    if (!vm_object) { vm_object = (VmT *)vm_zalloc(sizeof(VmT)); vm_object->kind = TK_EXTERN; vm_object->tag = 'o'; vm_object->name = vm_object->display = "System.Object"; vm_object->type = &vmobject_type; vm_object->resolved = 1; vm_object->size = vm_object->align = sizeof(void *); vm_object->host = de_host_find_type(vm_hash("System.Object")); }
+    if (!vm_string) { vm_string = (VmT *)vm_zalloc(sizeof(VmT)); vm_string->kind = TK_EXTERN; vm_string->tag = 'o'; vm_string->name = vm_string->display = "System.String"; vm_string->type = &vmstring_type; vm_string->resolved = 1; vm_string->size = vm_string->align = sizeof(void *); vm_string->host = &vmstring_type; }
+    if (!vm_object) { vm_object = (VmT *)vm_zalloc(sizeof(VmT)); vm_object->kind = TK_EXTERN; vm_object->tag = 'o'; vm_object->name = vm_object->display = "System.Object"; vm_object->type = &vmobject_type; vm_object->resolved = 1; vm_object->size = vm_object->align = sizeof(void *); vm_object->host = &vmobject_type; }
     vm_void = vm_scalar_t('V'); vm_voidptr = vm_ptr_of(vm_void);
     return 1;
 }
@@ -948,7 +930,7 @@ static void vm_call_virtual(Frame *F, VmMethod *decl, int slot, GCHeader *recv, 
     }
     const void *fn = isIface ? DIGITOYENGINE_itable(rt, decl->owner->type)[slot] : rt->vtable[slot];
     VmMethod *lm = vm_marker_get(fn); if (lm) { vm_exec_frame(lm, a, r); return; }
-    if (!decl->thunk) { int sh = vm_shape_of(decl->ret, decl->nargs, decl->args, 0); if (sh < 0) vm_fail("sanal cagri icin host sekli yok"); decl->thunk = de_host_thunks[sh]; }
+    if (!decl->thunk) { int sh = vm_shape_of(decl->ret, decl->nargs, decl->args, 0); if (sh < 0) vm_fail("sanal cagri icin host sekli yok"); decl->thunk = digitoyengine_thunks[sh]; }
     decl->thunk(fn, a, r);
 }
 // delegate cagrisi (tek dugum)
@@ -967,23 +949,20 @@ static void vm_call_delegate_leaf(Frame *F, VmT *dt, VmDelegate *d, DeSlot *a, D
     if (lm) { if (d->target) { memmove(a + 1, a, sizeof(DeSlot) * n); a[0].p = d->target; } vm_exec_frame(lm, a, r); return; }
     // host fn
     VmArg tmp[64]; for (int i = 0; i < n && i < 64; i++) { tmp[i].type = dt->dparams[i]; tmp[i].isRef = tmp[i].isOut = 0; }
-    if (d->target) { int sh = vm_shape_of(dt->dret, n, tmp, 1); if (sh < 0) vm_fail("delegate (instance) icin host sekli yok"); memmove(a + 1, a, sizeof(DeSlot) * n); a[0].p = d->target; de_host_thunks[sh](d->fn, a, r); }
-    else { int sh = vm_shape_of(dt->dret, n, tmp, 0); if (sh < 0) vm_fail("delegate (static) icin host sekli yok"); de_host_thunks[sh](d->fn, a, r); }
+    if (d->target) { int sh = vm_shape_of(dt->dret, n, tmp, 1); if (sh < 0) vm_fail("delegate (instance) icin host sekli yok"); memmove(a + 1, a, sizeof(DeSlot) * n); a[0].p = d->target; digitoyengine_thunks[sh](d->fn, a, r); }
+    else { int sh = vm_shape_of(dt->dret, n, tmp, 0); if (sh < 0) vm_fail("delegate (static) icin host sekli yok"); digitoyengine_thunks[sh](d->fn, a, r); }
     (void)F;
 }
 
-// ExBind trace baglama: exception tipinin host export'unda traceCount/trace.mi/trace.line
+// ExBind trace baglama: exception tipinin host meta'sinda traceCount/trace.mi/trace.line (alan yerlesimi descriptor'dan)
 static void vm_bind_trace(GCHeader *e, VmT *catchT)
 {
-    const DeTypeExport *te = catchT->host ? catchT->host : (catchT->type ? de_host_type_of(catchT->type) : 0);
+    const Type *te = catchT->host ? catchT->host : catchT->type;
     for (VmT *a = catchT; !te && a; a = a->parent) te = a->host;
     if (!te) return;
-    const DeTypeExport *o1 = 0, *o2 = 0;
-    const DeFieldExport *tc = vm_host_field(te, 0, "traceCount", &o1), *tr = vm_host_field(te, 0, "trace", &o2);
-    if (!tc || !tr || !tr->type) return;
-    const DeTypeExport *ts = de_host_type_of(tr->type); if (!ts) return;
-    const DeFieldExport *mi = 0, *ln = 0;
-    for (int i = 0; i < ts->nfields; i++) { if (!strcmp(ts->fields[i].name + strlen(ts->name) + 1, "mi")) mi = &ts->fields[i]; if (!strcmp(ts->fields[i].name + strlen(ts->name) + 1, "line")) ln = &ts->fields[i]; }
+    DigitoyEngineMember *tc = vm_host_field(te, "traceCount"), *tr = vm_host_field(te, "trace");
+    if (!tc || !tr || !tr->valueType) return;
+    DigitoyEngineMember *mi = vm_host_field(tr->valueType, "mi"), *ln = vm_host_field(tr->valueType, "line");
     if (!mi || !ln) return;
     int cap = mi->size / 8; if (cap <= 0) return;
     int *count = (int *)((char *)e + tc->offset);

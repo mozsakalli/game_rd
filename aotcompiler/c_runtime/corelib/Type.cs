@@ -27,17 +27,34 @@ namespace System
     public class Type : Reflection.MemberInfo
     {
         public extern static Type GetTypeFromHandle(RuntimeTypeHandle handle); // typeof(T) lowering (Roslyn well-known)
+        public extern static Type GetType(string fullName); // tip tablosunda ada gore (null = yok)
         public extern override string Name { get; }
         public extern string FullName { get; }
         public extern Type BaseType { get; }
         public extern bool IsPrimitive { get; }
         public extern bool IsEnum { get; }
+        public extern bool IsValueType { get; }
+        public extern bool IsInterface { get; }
+        public extern bool IsAbstract { get; }
+        public bool IsClass { get { return !IsValueType && !IsInterface; } }
         public extern Type[] GetGenericArguments();
         public extern static TypeCode GetTypeCode(Type type);
         public extern Reflection.FieldInfo GetField(string name);
         public extern Reflection.FieldInfo[] GetFields();
         public extern Reflection.PropertyInfo GetProperty(string name);
+        public extern Reflection.PropertyInfo[] GetProperties();
+        public extern Reflection.MethodInfo GetMethod(string name);
+        public extern Reflection.MethodInfo[] GetMethods();
+        public extern Reflection.ConstructorInfo[] GetConstructors();
+        public Reflection.ConstructorInfo GetConstructor(Type[] types)
+        {
+            var all = GetConstructors();
+            for (int i = 0; i < all.Length; i++)
+                if (all[i].MatchesParameters(types)) return all[i];
+            return null;
+        }
         public extern bool IsAssignableFrom(Type type);
         public bool IsInstanceOfType(object o) { return o != null && IsAssignableFrom(o.GetType()); }
+        public static readonly Type[] EmptyTypes = new Type[0];
     }
 }
