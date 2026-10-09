@@ -81,6 +81,7 @@ public sealed class TypeCatalog
 
     // Editor menuleri icin: kayitli tum tipler (ad sirasiz).
     public Dictionary<string, Entry>.ValueCollection Entries => _byName.Values;
+    public int Count => _byName.Count;
 
     public void Register(Entry e)
     {

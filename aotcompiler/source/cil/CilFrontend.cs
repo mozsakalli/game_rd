@@ -17,6 +17,9 @@ namespace DigitoyEngine.Cil
     // ve SourceFile'a akar -> stack trace'ler CIL yolunda da kaynak satirli.
     // KAPSAM DISI (dilim 1b/2, hepsi acik hatayla): try/catch/finally bolgeleri (1b), generic'ler,
     // struct copy-semantigi ops'lari (initobj/ldobj), ref/out parametreler, filter, unsafe/ptr.
+    // Stub tanisi: ic hata mesaji + IL konumu (yalniz en icteki op'ta sarilir)
+    sealed class CilContextException : Exception { public CilContextException(string m, Exception inner) : base(m, inner) { } }
+
     public static class CilFrontend
     {
         // Son Compile cagrisinin atladigi/stub'ladigi ogeler (desteklenmeyen ozellikler; surucu raporlar).
@@ -1064,6 +1067,7 @@ namespace DigitoyEngine.Cil
             byte[] ilBytes; // finally govdesini yeniden decode etmek icin
             readonly HashSet<int> finallySkip = new HashSet<int>(); // ana donguce atlanacak finally handler offsetleri
             Code pendingFtn; // ldftn/ldvirtftn -> newobj DelegateCtor deseni
+            List<Primitive> pendingFtnArgs = new List<Primitive>(); // hedefin [sinif args]+[method args] (generic closure: DisplayClass<!!0>.b__0)
             bool pendingFtnVirtual;
             Primitive pendingConstrained; // constrained. onki: sonraki callvirt kisitli tipe gore dispatch eder
             FieldDefinitionHandle pendingArrayField; // ldtoken <PrivateImpl>.field -> InitializeArray deseni
@@ -1539,7 +1543,11 @@ namespace DigitoyEngine.Cil
                     var (op, sz) = ReadOp(il, p);
                     p += sz;
                     if (unreachable) { p += BranchAwareOperandSize(op, il, ref p); continue; } // olu kod atla
-                    p = Exec(op, il, p, at);
+                    try { p = Exec(op, il, p, at); }
+                    catch (Exception ex) when (!(ex is CilContextException))
+                    {
+                        throw new CilContextException($"{ex.Message} [IL_{at:x4} {op}]", ex); // stub tanisina konum
+                    }
                 }
             }
 
@@ -1830,8 +1838,11 @@ namespace DigitoyEngine.Cil
                             var addr = Pop();
                             // IL ldind.X HER ZAMAN X tipiyle okur: C# pointer cast'i ((float*)p) IL'de iz birakmaz, stack'teki
                             // isaretci tipi (byte*) yaniltici. Yalniz ldind.ref/ldind.i (tipsiz) isaretcinin kendi tipine guvenir.
+                            // ISTISNA: enum (AOT'ta daima 4 bayt int). `enum E : byte` icin IL ldind.u1 uretir; isaretci `ref E` ise
+                            // tam int okunmali (dar okuma 1 bayt alir, ust baytlar yazimla uyumsuz kalir).
                             var it = IndType(op);
-                            bool useIl = op != ILOpCode.Ldind_ref && op != ILOpCode.Ldind_i || addr.ElementType == null || addr.ElementType == Primitive.Void;
+                            bool enumRef = addr.ElementType != null && addr.ElementType.IsEnum;
+                            bool useIl = !enumRef && (op != ILOpCode.Ldind_ref && op != ILOpCode.Ldind_i || addr.ElementType == null || addr.ElementType == Primitive.Void);
                             EmitOp(new Op { Type = OpType.LoadInd, PrimitiveRef = useIl ? it : null });
                             Push(useIl ? it : addr.ElementType);
                             return p;
@@ -1846,7 +1857,8 @@ namespace DigitoyEngine.Cil
                     case ILOpCode.Stind_i:
                         {
                             Pop(); var addr2 = Pop();
-                            bool useIl = op != ILOpCode.Stind_ref && op != ILOpCode.Stind_i || addr2.ElementType == null || addr2.ElementType == Primitive.Void;
+                            bool enumRef2 = addr2.ElementType != null && addr2.ElementType.IsEnum; // enum: 4 bayt int yaz (ldind istisnasiyla ayni)
+                            bool useIl = !enumRef2 && (op != ILOpCode.Stind_ref && op != ILOpCode.Stind_i || addr2.ElementType == null || addr2.ElementType == Primitive.Void);
                             EmitOp(new Op { Type = OpType.StoreInd, PrimitiveRef = useIl ? IndType(op) : null });
                             return p;
                         }
@@ -2142,9 +2154,11 @@ namespace DigitoyEngine.Cil
                                     Type = OpType.DelegateNew,
                                     Code = pendingFtn,
                                     PrimitiveRef = ownerPrim,
-                                    Slot = pendingFtnVirtual ? -2 : -1
+                                    Slot = pendingFtnVirtual ? -2 : -1,
+                                    TypeArguments = pendingFtnArgs
                                 });
                                 pendingFtn = null;
+                                pendingFtnArgs = new List<Primitive>();
                                 Push(ownerPrim);
                                 return p + 4;
                             }
@@ -2182,12 +2196,12 @@ namespace DigitoyEngine.Cil
                             return p + 4;
                         }
                     case ILOpCode.Ldftn:
-                        pendingFtn = loader.ResolveMethod(Tok(il, p));
+                        pendingFtn = loader.ResolveMethod(Tok(il, p), gc, out pendingFtnArgs); // gc: generic metot/sinif icindeki closure (!!0 / !0)
                         pendingFtnVirtual = false;
                         Push(Primitive.Long); // fnptr yer tutucu (op EMIT EDILMEZ)
                         return p + 4;
                     case ILOpCode.Ldvirtftn:
-                        pendingFtn = loader.ResolveMethod(Tok(il, p));
+                        pendingFtn = loader.ResolveMethod(Tok(il, p), gc, out pendingFtnArgs);
                         pendingFtnVirtual = true;
                         Push(Primitive.Long);
                         return p + 4;

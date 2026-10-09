@@ -222,13 +222,17 @@ namespace DigitoyEngine.Language
         {
             if (code.BodyCloned) return;
             code.BodyCloned = true;
+            // Sablon govdesi stub'landiysa (frontend hatasi) klon da stub: sessiz bos govde (tanimsiz donus) YASAK;
+            // CTranspiler NotImplementedException firlatan govde uretir, RunPlayerBuild stub kapisi erisilebilirse build'i keser.
+            if (template.UntranslatableReason != null) code.UntranslatableReason = template.UntranslatableReason;
             var newOwner = code.Owner;
             foreach (var op in template.Operations)
             {
                 var newOp = new Op { Type = op.Type, Slot = op.Slot, Line = op.Line, Field = op.Field, Value = op.Value, Label = op.Label };
                 var argTypes = op.TypeArguments.Select(a => Substitute(ctx, a, map)).ToList();
                 if (op.PrimitiveRef != null)
-                    newOp.PrimitiveRef = argTypes.Count > 0 ? InstantiatePrimitive(ctx, op.PrimitiveRef, argTypes) : Substitute(ctx, op.PrimitiveRef, map);
+                    // DelegateNew: PrimitiveRef = delegate tipi (hedefin closure argumanlariyla ILGISIZ) -> duz ikame
+                    newOp.PrimitiveRef = argTypes.Count > 0 && op.Type != OpType.DelegateNew ? InstantiatePrimitive(ctx, op.PrimitiveRef, argTypes) : Substitute(ctx, op.PrimitiveRef, map);
                 if (newOp.Type == OpType.GenericCast)
                 {
                     var target = newOp.PrimitiveRef;

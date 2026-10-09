@@ -31,7 +31,8 @@ if (-not (Test-Path $exe)) { throw "player exe yok: $exe (RPC player.build)" }
 $flag = Join-Path $Project "Build\scene-dump.flag"
 New-Item -ItemType File -Force $flag | Out-Null
 $prevEap = $ErrorActionPreference; $ErrorActionPreference = 'Continue' # exe stderr'i hata sayilmasin
-try { $run = (& $exe 2>&1 | ForEach-Object { "$_" }) -join "`n" } finally { $ErrorActionPreference = $prevEap; Remove-Item $flag -ErrorAction SilentlyContinue }
+Push-Location (Split-Path $exe) # player pak yolunu calisma dizinine gore cozer (../Build/game.pak)
+try { $run = (& $exe 2>&1 | ForEach-Object { "$_" }) -join "`n" } finally { Pop-Location; $ErrorActionPreference = $prevEap; Remove-Item $flag -ErrorAction SilentlyContinue }
 $lines = $run -split "`r?`n"
 $b = [Array]::IndexOf($lines, '[scene-dump-begin]'); $e = [Array]::IndexOf($lines, '[scene-dump-end]')
 if ($b -lt 0 -or $e -le $b) { Write-Output $run; throw "player dokumu yok" }

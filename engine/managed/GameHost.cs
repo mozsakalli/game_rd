@@ -227,11 +227,11 @@ public static class GameHost
 
     static GameHost() { SetTitle = t => de_host_set_title(t); }
 
-    // Katalog runtime reflection'dan (Reflect.ComponentTypes -> Type.GetSubtypes; docs/registry-removal.md).
+    // Katalog runtime reflection'dan: AppDomain'in tek (sahte) assembly'si = tum program (docs/registry-removal.md).
     static TypeCatalog LoadCatalog()
     {
-        var cat = TypeCatalog.FromAssemblies();
-        Console.WriteLine("[host] katalog: reflection (AOT)");
+        var cat = TypeCatalog.FromReflection();
+        Console.WriteLine($"[host] katalog: reflection (AOT), {cat.Count} component tipi");
         return cat;
     }
 #else
