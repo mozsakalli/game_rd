@@ -47,8 +47,8 @@ Siz:     dizinleri birleştir → zip
 1. `SdkLayout`: exe yanında `sdk/` → kurulu mod; yoksa repo dev modu (bugünkü akış). Tüm `RepoRoot` kullanımları buradan.
 2. Oyun kodu derlemesi: csproj + `dotnet build` → **in-process Roslyn** (SDK gereksinimi kalkar; PDB üretilir).
 3. Player çekirdeğinin oyundan ayrılması → **`platform-hosts.md` H1–H2**: `PlayerApp` → engine `GameHost` (platformsuz) + `host_desktop.c`
-   (GLFW döngüsü, `main`, crash dizini) + `de_app_*` ABI; `DigitoyPlayer.aot.dll` kalkar. Oyun scriptleri + Registry Roslyn ile
-   `<Ad>.Game.dll`; aotcompiler `de_game_register`'ı oyunun `Generated.Registry$RegisterAll`'ına bağlar.
+   (GLFW döngüsü, `main`, crash dizini) + `de_app_*` ABI; `DigitoyPlayer.aot.dll` kalkar. Oyun scriptleri Roslyn ile
+   `<Ad>.Game.dll`; katalog AOT reflection ile kurulur (Registry/`de_game_register` yok — `registry-removal.md`).
 4. aotcompiler kurulu mod: corelib + engine **prebuilt IL** (`sdk/`), runtime prebuilt lib, c_runtime kaynağı yok (dev modda Roslyn ile taze).
 5. Açılış testleri yalnız dev modda/bayrakla; `Projects/Sandbox` varsayılanı yerine kurulu modda Open/New Project; log/crash dosyaları kullanıcı dizinine.
 

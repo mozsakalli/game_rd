@@ -47,7 +47,8 @@ Frame içinde alır. Böylece SDK callback'leri (reklam kapandı, satın alma bi
 ## Managed tarafı: `DigitoyEngine.GameHost` (PlayerApp'in platformsuz hâli)
 `Boot` (pak → ProjectBinary → katalog → SceneLoader), `Frame(dt, w, h, scale)` (olay kuyruğunu boşalt → `Scene.UpdateAll` →
 pointer → `DriveCameras`/encode/`Commit` → `Module.TickAll`), `Pause/Resume`, `Shutdown`. GLFW referansı **yok**.
-Katalog: `de_game_register` extern'i → aotcompiler bunu oyunun `Generated.Registry$RegisterAll`'ına bağlar (DigitoyPlayer.aot.dll kalkar).
+Katalog: `GameHost.LoadCatalog` → `TypeCatalog.FromReflection()` (AOT reflection, `Assembly.GetTypes` → `Component` türevleri;
+`docs/registry-removal.md`). Üretilmiş Registry / `de_game_register` yok.
 `player/` dizini **.NET dev host** olarak kalır: GLFW pencere açan ince `Main`, aynı `GameHost`'u sürer; `DE_EDITOR` loose-Assets yolu burada.
 
 ## Platform servisleri: ince köprü, SDK'lar oyun projesinde
@@ -83,7 +84,8 @@ Aynı kural `Build/ios/`, `Build/wasm/` için.
 
 ## Platform başına notlar / riskler
 - **Android**
-  - `libgame.so` Android Studio'nun NDK'sıyla **projenin içinde** derlenir (`externalNativeBuild` + CMakeLists): generated.c + `c_runtime/*.c` +
+  - `libgame.so` Android Studio'nun NDK'sıyla **projenin içinde** derlenir (`externalNativeBuild` + CMakeLists): `gen/` (tip başına AOT C, açık liste
+    `gen_sources.cmake`) + `c_runtime/*.c` +
     `sokol_shim.c/audio_shim.c/de_fs.c` kaynak olarak projeye kopyalanır (`native/src/`), prebuilt yok → ABI uyumsuzluğu riski yok.
   - `System.loadLibrary("game")` APK içinden (Play Store dışı .so indirmek yok). Tek thread kuralı: `GLSurfaceView.Renderer.onDrawFrame` →
     `de_app_frame`; dokunmalar UI thread'den `de_app_event` kuyruğuna.
@@ -144,7 +146,9 @@ Aynı kural `Build/ios/`, `Build/wasm/` için.
   assets'ten fd+offset (H5.2; ilk dilimde filesDir kopyasıydı). C: `host_android.c` (JNI + stdout/stderr→logcat). Engine: `DE_RENDERER_GLES3` (`#version 300 es`), `DE_DESKTOP` (GLFW.cs),
   `NativeWindow.cs` tümü DE_EDITOR, `sokol_shim.c` Cocoa bloğu `__APPLE__`. Doğrulama (cihaz, arm64): NDK 27 libgame.so (strip 8.6 MB), Gradle 8.9
   headless debug+release APK (19 MB), logcat pak→registry→16 asset→`sahne hazir`, çizim OK (GLES3 shader), yatay yön, back→yeniden açılış temiz süreç,
-  home→geri dönüş sorunsuz. Release = `assembleRelease` (NDK -O3, generated.c -O1, strip); debug varyantı da -O1 (CMake `$<CONFIG:Debug>`).
+  home→geri dönüş sorunsuz. Release = `assembleRelease` (NDK -O3, strip); debug varyantı -O1 (CMake `$<CONFIG:Debug>`).
+  **Güncel (registry-removal D):** `generated/cpp` silinmez, `gen/` tip başına `.c/.h` (değişmeyen dosyaya dokunulmaz), derleme listesi
+  `gen_sources.cmake` (GLOB yok), `-O1` override'ları kalktı; arm64 Debug temiz 56 s, değişiklik yok 0 s (önce `generated.c.o` 984 s).
 - **Android kalanlar (sırayla)**: (1) multitouch → `Pointer` id'li; (2) `de_music_*` → MediaPlayer köprüsü (H3 mesaj kanalı/`de_host_*` ile);
   (3) klavye/EV_TEXT → soft keyboard; (4) GL context kaybı → GPU kaynak yenileme (H7); (5) splash;
   (6) izin/manifest meta-data listesi (tek `main` manifest → H3 kancalarıyla manifest merge).
@@ -169,7 +173,8 @@ Aynı kural `Build/ios/`, `Build/wasm/` için.
   (ilk kez `platforms/wasm/shell`'den, sonra kullanıcıya ait). **Toolchain**: `EmsdkToolchain.Ensure` (`Toolchain.cs`) — `emsdk` aracı/sistem Python'u
   YOK; emsdk'nın kendi indirdiği üç zip (`wasm-binaries.zip` clang+wasm-ld+binaryen+emscripten+prebuilt sysroot cache, gömülü `python-3.13`, `node-22`)
   doğrudan `%LOCALAPPDATA%\DigitoyEngine\toolchains\emsdk-<ver>\{upstream,python,node}` altına açılır, `.emscripten` yazılır, `python emcc.py` koşulur
-  (.NET wasm-tools workload'ının deseni; sisteme hiçbir şey kurulmaz). Nesneler `obj/wasm-c/` (runtime/shim mtime cache, generated.c -O1 her build).
+  (.NET wasm-tools workload'ının deseni; sisteme hiçbir şey kurulmaz). Nesneler `Library/aot/wasm/obj/` (`CcBuild`: tip başına `.c`, `.d` bağımlılık,
+  paralel/artımlı, hepsi -O2; rsp ile link).
   Link: `-sUSE_WEBGL2 -sALLOW_MEMORY_GROWTH -sSTACK_SIZE=8MB -sSUPPORT_LONGJMP=emscripten -sENVIRONMENT=web`. Host `c_runtime/host_wasm.c`:
   `emscripten_webgl_create_context` (WebGL2) + `emscripten_set_main_loop` → `de_app_frame`; mouse/touch(id)/key/focus/visibility(pause-resume)/resize
   → kuyruk; canvas CSS px = mantıksal px, `scale = devicePixelRatio`. `de_fs.c` `__EMSCRIPTEN__`: worker yok, job submit anında senkron koşar.

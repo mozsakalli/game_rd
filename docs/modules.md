@@ -139,3 +139,10 @@ B â”€â”€â”˜
 | Ä°Ã§ iÃ§e interpreter giriÅŸi + longjmp | Faz C/D | Her `vmint_invoke` kendi boundary RtTry'Ä± |
 | `Type` kimliÄŸi (modÃ¼l `typeof` vs host wrapper) | Faz D | Dinamik wrapper tek instance, immortal root |
 | Unload sonrasÄ± dangling delegate | Faz D | state guard + sayaÃ§ log'u |
+
+- **Registry kaldirildi (docs/registry-removal.md Faz 6)**: modül giris noktasi Registry.RegisterAll / __module/entry **yok**. .dmod v3 tip/alan/metot
+  custom attribute'larini ve cilattrs'i tasir; vmint yerel tipler için members/methods/attrs kurar (tek meta artik iki yönlü), mint_type_count/at
+  modülün tiplerini verir, Module.LoadAsync somut Component türevlerini TypeCatalog.RegisterReflective ile child kataloga kaydeder (host ile
+  ayni yol). MethodInfo.Invoke/Activator modül metotlarini mint_try_invoke ile yorumlar; alan get/set tag+offset'le. Yukaridaki Faz A notundaki
+  dyn_wrapper ? Type.wrapper (tüm descriptor'lar), düz digitoyengine_methods[] ? tip basina X_methods[], MethodInfo.shape ? 	hunk pointer'i.
+  Düzeltilen eski hata: TypeCatalog.Find parent zinciri (out name null) — child katalog hiç parent'a düsmüyordu.

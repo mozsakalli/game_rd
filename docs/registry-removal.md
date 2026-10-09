@@ -62,7 +62,7 @@ aotcompiler selftest'i / küçük test projesiyle (saniyeler) doğrulanır; Sand
 | 4 | **AOT reflection = .NET yüzeyi** (engine'in kullandığı alt küme; `Reflect.cs` tek fonksiyon çiftine iner, tamamı conformance testinde). Dilimler: **4a** `VmArray.elem` (dizi eleman tipi: `is T[]`, `GetType`, `Array.CreateInstance/GetValue/SetValue`); **4b** attribute tablosu (`IsDefined`, `GetCustomAttribute(s)`, sabit argümanlar) + `Type/FieldInfo.Attributes` bitleri; **4c** `BindingFlags` overload'ları, açık generic descriptor'ları (`typeof(List<>)`), sahte `Assembly`, `Activator(nonPublic)`, `List<T>: IList`, `Array.Length`; **4d** `RefAt<T>`/`Offset` intrinsic'i, `MethodInfo.CreateDelegate`, engine düz reflection'a döner. **Kapsam dışı (bilinçli):** `MakeGenericType/Method`, `Emit`, `Expression`, `Assembly.Load`, indexer/`ref` Invoke | 3–4 gün |
 | 5 | AOT player ayağa: `GameHost` kataloğu `GetSubtypes`'tan; `de_game_register` kalkar; aotcompiler `GameAotDll` yalnız scripts; Windows build → dump testi editörle birebir; sonra Android/wasm | ½ gün |
 | 6 | Modüller: giriş `Registry$RegisterAll` yerine tip listesi; modpak testi; docs | ½ gün |
-| 7 | Derleme hattı: CMake release `-O1` override'ı kalkar; `generated.c` shard'lama + ThinLTO | ½ gün |
+| 7 | Derleme hattı: CMake release `-O1` override'ı kalkar; **tip başına `.c/.h` + artımlı derleme** (shard/ThinLTO yerine; aşağıda "Faz 5+ / derleme hattı") | ½ gün ✔ |
 
 Kabul (her faz): dump testi — Faz 1–3'te editör edit ↔ play (.NET), Faz 5'ten itibaren editör ↔ AOT player.
 
@@ -152,4 +152,57 @@ Kabul (her faz): dump testi — Faz 1–3'te editör edit ↔ play (.NET), Faz 5
   `MethodInfo.CreateDelegate` ertelendi, 6 kullanım). Doğrulama: editör testleri hepsi PASS, dump 1832 fark 0; engine
   `sdk-il` ile DE_AOT/corelib'e karşı 3 hedefte derleniyor; selftest 54/57. `RefAt` çalışma zamanı doğrulaması Faz 5
   (Windows AOT player: dump + anim round-trip).
-- Faz 5: sırada (AOT player ayağa — `GameAotDll` yalnız scripts, `de_game_register` kalktı; Windows build → dump testi).
+- **Faz 5 BİTTİ (AOT player ayağa) + derleme hattı yeniden kuruldu.** `GameAotDll` yalnız scripts, `de_game_register` kalktı,
+  `vmvoid_type` (`typeof(void)`). İlk Registry'siz Windows build çalıştı ama tek TU `generated.c` (28 MB) clang+link **487 s**
+  → kök neden "büyük fonksiyon" değil tek çeviri biriminde toplam hacim. Karar: **tip başına `.h/.c`** + değişmeyen dosyaya
+  dokunmama + paralel/artımlı derleme. Bunun ön koşulu, dosya içeriğine sızan **build-sırası bağımlı global numaraların**
+  kaldırılmasıydı (A adımı), sonra emisyon (B), sürücü (C), platformlar (D):
+  - **A:** `Type.tindex` kalktı → `Type.wrapper` (her descriptor'da lazy `System.Type`, `gc_add_root`; descriptor'lar artık
+    `const` değil — zaten `.data.rel.ro`'daydı, maliyet yok) + `Type.rootid` (yalnız runtime kökleri 1..19, sabit; primitive
+    kimliği ve "üretilen tip" ölçütü `rootid == 0`) + `DIGITOYENGINE_TYPE_SYNTH_ARRAY`. Düz `digitoyengine_methods[]` kalktı →
+    tip başına `X_methods[]` + `digitoyengine_methods_misc[]` (Object/String sahipli); hash indeksi init'te tiplerden kurulur.
+    String havuzu `_strpool_<FNV64 hex>` (içerik hash'i; çakışmada `_N` eki), thunk'lar `de_thunk_<şekil hash>`,
+    `MethodInfo.shape` indeksi → `DeThunk thunk` pointer'ı; `mp_/mattrs_` metot sembolüyle adlanır. Kabul: aynı girdi → bayt bayt
+    aynı çıktı (SHA256 eşit). Selftest 54/57, `tests/meta_check.c` PASS.
+  - **B:** `CTranspiler.Units.cs` — birim = tip: `T_<cn>.h` (layout; değer-bağımlılığı `#include`, referanslar `struct X;` ileri
+    bildirim — header metninden otomatik; `extern Type X_type`, `X_methods[N]`, statik `extern`'ler, wrapper prototipleri,
+    `static inline New_X`/`ebox`) + `T_<cn>.c` (descriptor, fonksiyonlar, reflection üyeleri, attr/metot tabloları,
+    trampoline'ler; kendi `extern VmString _strpool_…`/`de_thunk_…` satırları; include'lar gövdede geçen birim adlarından —
+    kapsayıcı tarama, fazlası zararsız). Paylaşımlı: `gen_shared.h` (runtime kök/orphan/P-Invoke prototipleri, generic-def ve
+    `typeof(T[])` descriptor'ları), `gen_misc.c`, `gen_strings.c`, `gen_meta.c` (tip tablosu, thunk'lar, misc metotlar,
+    `digitoyengine_init`). Tek-dosya modu = aynı parçaların birleştirilmesi (selftest; `AOT_FILES=1` çok-dosya modunu da koşar).
+    `WriteFiles`: içerik aynıysa dokunmaz, artık üretilmeyen `T_*`/`gen_*` siler. **Derleme listesi her zaman açık listedir,
+    dizin taraması (GLOB) yok** — artımlı çalışmada eski dosya işe karışmaz.
+  - **C:** dış araç yok (ninja denendi, kaldırıldı): `CcBuild.cs` yerleşik sürücü — `clang -MD` `.d` dosyaları + bayrak damgası
+    ile "ne derlenecek", `Parallel.ForEach`, rsp dosyasıyla link, yetim `.o/.d/.flags` temizliği, `Tool` soyutlaması (emcc).
+    Release: `-O2 -ffunction-sections -fdata-sections`, link `-s -Wl,--gc-sections`. Exe 10.3 → **6.7 MB** (3.4 MB strip edilmemiş
+    COFF sembol tablosuydu; kalan `.text` 2.5 / `.rdata` 1.9 / `.data` 1.9 MB = kod + reflection metası; tip tablosu her şeye kök
+    olduğu için gc-sections metayı atamaz — küçültme ayrı iş: const ayrımı, `MethodInfo` sıkıştırma).
+  - **D:** Android: `generated/cpp` silinmez; `gen_sources.cmake` açık liste, CMake Release NDK `-O3` (eski `-O1` override'ları
+    kalktı), `--gc-sections`. wasm: aynı sürücü, emcc `-O2`, rsp link.
+  - **Ölçümler (Sandbox, 12 çekirdek):** Windows temiz 49.7 s (önce 318–487 s), değişiklik yok 9 s toplam, tek script gövdesi
+    1 dosya/≈9 s; Android arm64 Debug temiz 56 s (önce `generated.c.o` tek başına 984 s), değişiklik yok 0 s; wasm temiz
+    112 s + 14 s link.
+  - **E (çalışma zamanı doğrulaması, hepsi lldb/üretilen kod kanıtıyla):** (1) `GameHost.LoadCatalog` `FromAssemblies()` boş
+    params → katalog hiç kurulmuyordu → `FromReflection()`; (2) `enum : byte` `ref/out` yazımı 1 bayt (`stind.i1`), AOT enum
+    4 bayt → üst baytlar çöp; frontend pointee enum ise tam int (Test59); (3) generic metot içindeki lambda `ldftn
+    DisplayClass<!!0>::b__0` GenCtx'siz çözülüyordu → şablon stub → **instantiation'lar sessizce boş gövde** (tanımsız dönüş);
+    `ldftn` gc ile + `DelegateNew.TypeArguments`, `GenericInstantiator` delegate tipini düz ikame eder, stub şablonun klonları
+    `UntranslatableReason` devralır (stub kapısı yakalar); stub tanılarına IL konumu (`[IL_0011 Ldftn]`). Dump testi
+    (`tools/scene-dump-test.ps1`, exe dizininden koşar): editör ↔ AOT player **fark 0**, baseline yazıldı.
+- **Faz 6 BİTTİ (modüller).** Modül tipleri **tam reflection metası** taşır (host→modül yönü de "tek meta"): `.dmod v3`
+  (tip/alan/metot custom attribute'ları + `cilattrs`), vmint yüklemede yerel tipler için `DigitoyEngineMember[]` /
+  `MethodInfo[]` (bitişik; `VmMethod.mi` pointer) / `DeAttr[]` (`DeAttr.data`, instance lazy: host attribute ctor'u kutulu
+  arg'larla, named arg'lar alan/setter ile), `vmint_type_count/at`, `vmint_try_invoke` (`MethodInfo.Invoke`/`Activator` modül
+  metodu işaretçisi görünce yorumlar), vmrt'de get/set fonksiyonsuz üyeler için tag/offset genel erişim; unload'da wrapper/
+  instance kökleri kalkar. `Module.LoadAsync`: `RegisterAll`/`EntryKey` yok — vmint tip listesinden somut `Component` türevleri
+  `TypeCatalog.RegisterReflective` ile child kataloğa (host ile aynı yol). `ModuleBuilder` açık (Roslyn PDB için encoding'li
+  kaynak). **Eski hata:** `TypeCatalog.Find` `TryGetValue(name, out name)` bulamayınca parent'a `null` gönderiyordu — child
+  katalog zinciri hiç çalışmamıştı (eski test yolu engine tiplerini modüle de yazdığı için gizli). Doğrulama: Sandbox modül
+  olarak Sandbox player'a (`Build/autoload.module.pak`): 5 script tipi reflection ile kayıt, modül sahnesi engine tipleri dahil
+  uyarısız, `Update`'ler yorumlanıyor; AOT selftest 55/58, interp 50/58 (= önceki baseline; 55/57 iyileşti), editör testleri
+  PASS, dump testi PASS. **Açık (kapsam dışı):** yorumlanan modül kodunun kendi tipleri üzerinde reflection'ı (interp
+  Test32/55/56/57/58, önceden de yoktu; meta artık mevcut).
+- **Faz 7 BİTTİ** (yukarıda C/D: tüm hedeflerde tam optimizasyon, `-O1` override'ları kalktı; ThinLTO gereksiz).
+- **Ertelenen:** `MethodInfo.CreateDelegate` (6 kullanım, boxed Invoke ile çalışıyor); 3 eski selftest FAIL (InlineArray,
+  `Delegate.Combine`, `StringSplitOptions`); exe meta boyutu küçültme; `.d` kontrolü (1450 dosya ≈3.5 s) hızlandırma.
