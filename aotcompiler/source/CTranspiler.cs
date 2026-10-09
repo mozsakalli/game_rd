@@ -316,14 +316,14 @@ namespace DigitoyEngine.Language
             return ScalarCType(t);
         }
 
-        static string ArrayIndexSetup(CVal array, List<CVal> indices, string arrayName)
+        static string ArrayIndexSetup(CVal array, List<CVal> indices, string arrayName, int line)
         {
             var sb = new StringBuilder();
             sb.Append($"VmArray* {arrayName} = {array.Expr}; ");
             for (int i = 0; i < indices.Count; i++) sb.Append($"int {arrayName}i{i} = {indices[i].Expr}; ");
-            sb.Append($"DIGITOYENGINE_NULLCHECK({arrayName}); if ({arrayName}->rank != {indices.Count}) DIGITOYENGINE_throw_bounds({indices.Count}, {arrayName}->rank); int {arrayName}off = 0; ");
+            sb.Append($"DIGITOYENGINE_NULLCHECK_AT({arrayName}, {line}); if ({arrayName}->rank != {indices.Count}) {{ DIGITOYENGINE_SETLINE({line}); DIGITOYENGINE_throw_bounds({indices.Count}, {arrayName}->rank); }} int {arrayName}off = 0; ");
             for (int i = 0; i < indices.Count; i++)
-                sb.Append($"DIGITOYENGINE_BOUNDS({arrayName}i{i}, {arrayName}->dims[{i}]); {arrayName}off = {arrayName}off * {arrayName}->dims[{i}] + {arrayName}i{i}; ");
+                sb.Append($"DIGITOYENGINE_BOUNDS_AT({arrayName}i{i}, {arrayName}->dims[{i}], {line}); {arrayName}off = {arrayName}off * {arrayName}->dims[{i}] + {arrayName}i{i}; ");
             return sb.ToString();
         }
 
@@ -1143,10 +1143,9 @@ namespace DigitoyEngine.Language
             CVal DivCheck(CVal b, Op op)
             {
                 if (b.Type != null && (b.Type.Type == PrimitiveType.Float || b.Type.Type == PrimitiveType.Double)) return b;
-                EmitLine(op);
                 var t = $"__t{tempCounter++}";
                 sb.Append($"    {CType(b.Type ?? Primitive.Int)} {t} = {b.Expr};\n");
-                sb.Append($"    DIGITOYENGINE_DIVCHECK({t});\n");
+                sb.Append($"    DIGITOYENGINE_DIVCHECK_AT({t}, {op.Line});\n");
                 return new CVal(t, b.Type);
             }
             CVal MaterializeVal(CVal v) // sira garantisi: sol operand denetim statement'indan once degerlensin
@@ -1203,14 +1202,16 @@ namespace DigitoyEngine.Language
             }
 
             var openTries = new List<int>(); // compile-time TryBegin/TryEnd eslesmesi (LIFO)
-            int lastLine = 0; // DIGITOYENGINE_LINE dedup: ayni satiri arka arkaya yazma
+            int publishedLine = 0; // DIGITOYENGINE_SETLINE dedup (jump hedefinde sifirlanir: gelen yol bilinmez)
             int lastStep = 0; // DIGITOYENGINE_STEP dedup (paketli konum degisiminde bir kez)
-            void EmitLine(Op o) // firlatabilen op'lardan once: trace'teki satir dogru kalsin
+            // Cagri/firlatma oncesi: cagiran frame'in satiri shadow stack'e. Sicak op'lar (alan/dizi/bolme/null) satir
+            // STORE ETMEZ — check makrosunun firlatma dalinda sabit tasir (*_AT). Olcum: NOTRACE ile esit hiz.
+            void EmitLine(Op o)
             {
-                if (o.Line > 0 && o.Line != lastLine)
+                if (o.Line > 0 && o.Line != publishedLine)
                 {
-                    sb.Append($"    DIGITOYENGINE_LINE({o.Line});\n"); // Op.Line zaten paketli: (satir<<10)|kolon
-                    lastLine = o.Line;
+                    sb.Append($"    DIGITOYENGINE_SETLINE({o.Line});\n"); // Op.Line paketli: (satir<<10)|kolon
+                    publishedLine = o.Line;
                 }
             }
 
@@ -1222,6 +1223,7 @@ namespace DigitoyEngine.Language
                         if (!pv.Expr.StartsWith("__s") && !LiteralExpr(pv.Expr))
                             throw new Exception($"{code.EncodeName()}: jump hedefinde spill edilmemis ifade var (well-formed olmayan Op dizisi)");
                     sb.Append($"L{i}: ;\n"); // handler girisinde otomatik push YOK: ExIs/ExBind okur (DIGITOYENGINE_ex_* globalleri)
+                    publishedLine = 0;
                 }
 
                 var op = code.Operations[i];
@@ -1252,9 +1254,8 @@ namespace DigitoyEngine.Language
                                 Push(new CVal($"{inst.Expr}.{CName(op.Field.Name)}", op.Field.Type));
                             else
                             {
-                                EmitLine(op);
                                 var t = $"__o{tempCounter++}";
-                                Push(new CVal($"(({{ {CType(inst.Type)} {t} = {inst.Expr}; DIGITOYENGINE_NULLCHECK({t}); {t}->{CName(op.Field.Name)}; }}))", op.Field.Type));
+                                Push(new CVal($"(({{ {CType(inst.Type)} {t} = {inst.Expr}; DIGITOYENGINE_NULLCHECK_AT({t}, {op.Line}); {t}->{CName(op.Field.Name)}; }}))", op.Field.Type));
                             }
                             break;
                         }
@@ -1272,12 +1273,11 @@ namespace DigitoyEngine.Language
                                 sb.Append($"    {inst.Expr}.{CName(op.Field.Name)} = {Coerce(v, op.Field.Type)};\n");
                             else
                             {
-                                EmitLine(op);
                                 var t = $"__o{tempCounter++}";
                                 // Kusakli GC write barrier: eski nesneye genc referans yazisi remembered set'e
                                 // (gc_write_barrier: obj tenured && val genc -> gc_remember). Yalniz referans tasiyan alanlar.
                                 var barrier = WriteBarrier(t, $"{t}->{CName(op.Field.Name)}", op.Field.Type);
-                                sb.Append($"    {{ {CType(inst.Type)} {t} = {inst.Expr}; DIGITOYENGINE_NULLCHECK({t}); {t}->{CName(op.Field.Name)} = {Coerce(v, op.Field.Type)};{barrier} }}\n");
+                                sb.Append($"    {{ {CType(inst.Type)} {t} = {inst.Expr}; DIGITOYENGINE_NULLCHECK_AT({t}, {op.Line}); {t}->{CName(op.Field.Name)} = {Coerce(v, op.Field.Type)};{barrier} }}\n");
                             }
                             break;
                         }
@@ -1291,9 +1291,8 @@ namespace DigitoyEngine.Language
                             else // class alici: null check + adres; sahip temp'i ic yazimlarin barrier'i icin tasinir
                             {
                                 SpillStack(); // alici simdi degerlenir: bekleyen ifadeler once (sira korunur)
-                                EmitLine(op);
                                 var t = $"__o{tempCounter++}";
-                                sb.Append($"    {CType(inst.Type)} {t} = {inst.Expr}; DIGITOYENGINE_NULLCHECK({t});\n");
+                                sb.Append($"    {CType(inst.Type)} {t} = {inst.Expr}; DIGITOYENGINE_NULLCHECK_AT({t}, {op.Line});\n");
                                 var access = fixedBuf ? $"{t}->{CName(op.Field.Name)}" : $"(&({t}->{CName(op.Field.Name)}))";
                                 Push(new CVal(access, resType, t));
                             }
@@ -1306,7 +1305,6 @@ namespace DigitoyEngine.Language
                             for (int ii = 0; ii < rank; ii++) indices.Insert(0, Pop());
                             var arr = Pop();
                             var elem = arr.Type.ElementType;
-                            EmitLine(op);
                             if (arr.Type.Type == PrimitiveType.Array)
                             {
                                 // dizi sahibi temp'e (ic yazimlarin barrier'i icin), indeksleme statement-expression'da
@@ -1314,12 +1312,12 @@ namespace DigitoyEngine.Language
                                 var ao = $"__o{tempCounter++}";
                                 sb.Append($"    {CType(arr.Type)} {ao} = {arr.Expr};\n");
                                 var a = $"__a{tempCounter++}";
-                                Push(new CVal($"(({{ {ArrayIndexSetup(new CVal(ao, arr.Type), indices, a)}&((({CType(elem)}*){a}->data)[{a}off]); }}))", Primitive.PointerOf(elem), ao));
+                                Push(new CVal($"(({{ {ArrayIndexSetup(new CVal(ao, arr.Type), indices, a, op.Line)}&((({CType(elem)}*){a}->data)[{a}off]); }}))", Primitive.PointerOf(elem), ao));
                             }
                             else // FixedArray
                             {
                                 var i2 = $"__i{tempCounter++}";
-                                Push(new CVal($"(({{ int {i2} = {indices[0].Expr}; DIGITOYENGINE_BOUNDS({i2}, {arr.Type.FixedSize}); &({arr.Expr}[{i2}]); }}))", Primitive.PointerOf(elem)));
+                                Push(new CVal($"(({{ int {i2} = {indices[0].Expr}; DIGITOYENGINE_BOUNDS_AT({i2}, {arr.Type.FixedSize}, {op.Line}); &({arr.Expr}[{i2}]); }}))", Primitive.PointerOf(elem)));
                             }
                             break;
                         }
@@ -1351,17 +1349,16 @@ namespace DigitoyEngine.Language
                             for (int ii = 0; ii < rank; ii++) indices.Insert(0, Pop());
                             var arr = Pop();
                             var elem = arr.Type.ElementType;
-                            EmitLine(op);
                             if (arr.Type.Type == PrimitiveType.Array) // VmArray: null + bounds check'li
                             {
                                 var a = $"__a{tempCounter++}";
-                                Push(new CVal($"(({{ {ArrayIndexSetup(arr, indices, a)}(({CType(elem)}*){a}->data)[{a}off]; }}))", elem));
+                                Push(new CVal($"(({{ {ArrayIndexSetup(arr, indices, a, op.Line)}(({CType(elem)}*){a}->data)[{a}off]; }}))", elem));
                                 break;
                             }
                             if (arr.Type.Type == PrimitiveType.FixedArray) // gomulu dizi: boyut sabit, null yok
                             {
                                 var i2 = $"__i{tempCounter++}";
-                                Push(new CVal($"(({{ int {i2} = {indices[0].Expr}; DIGITOYENGINE_BOUNDS({i2}, {arr.Type.FixedSize}); {arr.Expr}[{i2}]; }}))", elem));
+                                Push(new CVal($"(({{ int {i2} = {indices[0].Expr}; DIGITOYENGINE_BOUNDS_AT({i2}, {arr.Type.FixedSize}, {op.Line}); {arr.Expr}[{i2}]; }}))", elem));
                                 break;
                             }
                             Push(new CVal($"{arr.Expr}[{indices[0].Expr}]", elem));
@@ -1375,18 +1372,17 @@ namespace DigitoyEngine.Language
                             var indices = new List<CVal>();
                             for (int ii = 0; ii < rank; ii++) indices.Insert(0, Pop());
                             var arr = Pop();
-                            EmitLine(op);
                             if (arr.Type.Type == PrimitiveType.Array)
                             {
                                 var a = $"__a{tempCounter++}";
                                 var slot = $"(({CType(arr.Type.ElementType)}*){a}->data)[{a}off]";
                                 var barrier = WriteBarrier(a, slot, arr.Type.ElementType);
-                                sb.Append($"    {{ {ArrayIndexSetup(arr, indices, a)}{slot} = {Coerce(v, arr.Type.ElementType)};{barrier} }}\n");
+                                sb.Append($"    {{ {ArrayIndexSetup(arr, indices, a, op.Line)}{slot} = {Coerce(v, arr.Type.ElementType)};{barrier} }}\n");
                             }
                             else if (arr.Type.Type == PrimitiveType.FixedArray)
                             {
                                 var i2 = $"__i{tempCounter++}";
-                                sb.Append($"    {{ int {i2} = {indices[0].Expr}; DIGITOYENGINE_BOUNDS({i2}, {arr.Type.FixedSize}); {arr.Expr}[{i2}] = {v.Expr}; }}\n");
+                                sb.Append($"    {{ int {i2} = {indices[0].Expr}; DIGITOYENGINE_BOUNDS_AT({i2}, {arr.Type.FixedSize}, {op.Line}); {arr.Expr}[{i2}] = {v.Expr}; }}\n");
                             }
                             else
                                 sb.Append($"    {arr.Expr}[{indices[0].Expr}] = {v.Expr};\n");
@@ -1395,6 +1391,7 @@ namespace DigitoyEngine.Language
 
                     case OpType.NewArray:
                         {
+                            EmitLine(op); // negatif boyut: runtime firlatir
                             int rank = op.Slot > 0 ? op.Slot : 1;
                             var dims = new List<CVal>();
                             for (int ii = 0; ii < rank; ii++) dims.Insert(0, Pop());
@@ -1411,9 +1408,8 @@ namespace DigitoyEngine.Language
                     case OpType.ArrayLength:
                         {
                             var arr = Pop();
-                            EmitLine(op);
                             var a = $"__a{tempCounter++}";
-                            Push(new CVal($"(({{ VmArray* {a} = {arr.Expr}; DIGITOYENGINE_NULLCHECK({a}); {a}->len; }}))", Primitive.Int));
+                            Push(new CVal($"(({{ VmArray* {a} = {arr.Expr}; DIGITOYENGINE_NULLCHECK_AT({a}, {op.Line}); {a}->len; }}))", Primitive.Int));
                             break;
                         }
 
@@ -1487,11 +1483,11 @@ namespace DigitoyEngine.Language
                         }
                     case OpType.CastClass:
                         {
+                            EmitLine(op); // unbox / cast_fail firlatabilir
                             // Generic sablonda `(T)obj` = unbox.any !T -> frontend T'yi referans sayip CastClass uretir; T deger
                             // tipine somutlasinca (int/enum/struct) bu bir UNBOX'tir (pointer->int cast degil).
                             if (IsNumericVal(op.PrimitiveRef) || op.PrimitiveRef.IsEnum || (op.PrimitiveRef.Type == PrimitiveType.Model && op.PrimitiveRef.IsStruct))
                             {
-                                EmitLine(op);
                                 var ov = Pop();
                                 var ut = op.PrimitiveRef;
                                 string uct = ut.Type == PrimitiveType.Model && ut.IsStruct ? $"struct {CName(ut.Name)}" : ScalarCType(ut);
@@ -1644,7 +1640,7 @@ namespace DigitoyEngine.Language
                             var recv = Pop();
                             var rt2 = $"__t{tempCounter++}";
                             sb.Append($"    {CType(recv.Type)} {rt2} = {recv.Expr};\n");
-                            sb.Append($"    DIGITOYENGINE_NULLCHECK({rt2});\n"); // C#: null alicidan delegate yaratmak NRE
+                            sb.Append($"    DIGITOYENGINE_NULLCHECK_AT({rt2}, {op.Line});\n"); // C#: null alicidan delegate yaratmak NRE
                             var dfn = op.Slot >= 0 ? $"{rt2}->gc.type->vtable[{op.Slot}]" : $"(const void*)&{CName(m.EncodeName())}";
                             Push(new CVal($"digitoyengine_delegate_new(&{TypeSym(dt)}, {dfn}, (GCHeader*){rt2})", dt));
                             break;
@@ -1668,7 +1664,7 @@ namespace DigitoyEngine.Language
                             SpillStack();
                             var d = $"__t{tempCounter++}";
                             sb.Append($"    VmDelegate* {d} = {dexpr.Expr};\n");
-                            sb.Append($"    DIGITOYENGINE_NULLCHECK({d});\n");
+                            sb.Append($"    DIGITOYENGINE_NULLCHECK_AT({d}, {op.Line});\n");
                             for (int a = 0; a < dargs.Length; a++) // C# soldan-saga arguman sirasi
                                 if (!TrivialArg(dargs[a]))
                                 {
@@ -1811,7 +1807,7 @@ namespace DigitoyEngine.Language
                             var recvType = op.Code.Arguments[0].Type;
                             var recv = $"__t{tempCounter++}";
                             sb.Append($"    {CType(recvType)} {recv} = {args[0]};\n");
-                            sb.Append($"    DIGITOYENGINE_NULLCHECK({recv});\n"); // wasm: explicit; native: MMU+VEH yakalar (makro bos)
+                            sb.Append($"    DIGITOYENGINE_NULLCHECK_AT({recv}, {op.Line});\n"); // wasm: explicit; native: MMU+VEH yakalar (makro bos)
                             args[0] = recv;
                             for (int a = 1; a < args.Length; a++)
                                 args[a] = MaterializeArg(args[a], op.Code.Arguments[a]);

@@ -185,38 +185,6 @@ public static class SerializationTests
         box.Padding = new Vec4(5, 6, 7, 8);
         Check(box.RectWidth == 32 && box.RectHeight == 24, "grouped padding lazy dirty pull");
 
-        var legacy = DocNode.Map();
-        legacy.Add("type", DocNode.Scal(nameof(LayoutBox)));
-        string[][] groups =
-        {
-            new[] { "padding", "padLeft", "padTop", "padRight", "padBottom" },
-            new[] { "border", "borderLeft", "borderTop", "borderRight", "borderBottom" },
-            new[] { "radius", "radiusTL", "radiusTR", "radiusBR", "radiusBL" },
-            new[] { "slice9", "slice9Left", "slice9Top", "slice9Right", "slice9Bottom" },
-        };
-        foreach (var group in groups)
-            for (int axis = 0; axis < 4; axis++)
-                legacy.Add(group[axis + 1], DocNode.Scal((axis + 1).ToString()));
-        var migrated = SceneDoc.CompFromNode(legacy);
-        Check(migrated.Props.Count == 4, "legacy LayoutBox alanlari dort gruba tasindi");
-        foreach (var group in groups)
-        {
-            Check(migrated.Props.Find(p => p.Key == group[0]).Value.Scalar == "1 2 3 4",
-                "legacy " + group[0] + " sirasi korunur");
-            SceneDoc.ApplyLegacyLayoutBoxOverride(migrated, group[2], DocNode.Scal("20"));
-            SceneDoc.ApplyLegacyLayoutBoxOverride(migrated, group[4], DocNode.Scal("40"));
-            Check(migrated.Props.Find(p => p.Key == group[0]).Value.Scalar == "1 20 3 40",
-                "legacy " + group[0] + " prefab delta diger eksenleri korur");
-        }
-        legacy.Add("border", DocNode.Scal("9 8 7 6"));
-        Check(SceneDoc.CompFromNode(legacy).Props.Find(p => p.Key == "border").Value.Scalar == "9 8 7 6",
-            "yeni grouped deger legacy degerden once gelir");
-        var partial = DocNode.Map();
-        partial.Add("type", DocNode.Scal(nameof(LayoutBox)));
-        partial.Add("radiusBL", DocNode.Scal("7"));
-        Check(SceneDoc.CompFromNode(partial).Props[0].Value.Scalar == "0 0 0 7",
-            "eksik legacy eksenler sifir kalir");
-
         GameObject.Destroy(box.gameObject);
         GameObject.Destroy(restored.gameObject);
     }

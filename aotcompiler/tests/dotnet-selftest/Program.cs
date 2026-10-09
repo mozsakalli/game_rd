@@ -66,7 +66,7 @@ internal static class Program
             case 56: return Demo56.App56.Run();
             case 57: return Demo57.App57.Run();
             case 58: return Demo58.App58.Run();
-                case 59: return Demo59.App59.Run();
+            case 59: return Demo59.App59.Run();
             default: return 0;
         }
     }

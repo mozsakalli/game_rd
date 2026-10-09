@@ -209,20 +209,6 @@ objects:
         Speed: 1
         Tracks:
           - Target: '9:Transform:0'
-            Path: Scale
-            Mask: 15
-            Keys:
-              - Frame: 0
-                Mode: Tween
-                Ease: InBack
-                Value: 5 5 0 0
-                Ref: ''
-              - Frame: 20
-                Mode: Tween
-                Ease: Linear
-                Value: 1 1 1 0
-                Ref: ''
-          - Target: '9:Transform:0'
             Path: Rotation
             Mask: 15
             Keys:
@@ -241,8 +227,8 @@ objects:
                 Ease: Linear
                 Value: 0 0 -2 0
                 Ref: ''
-        Labels: ''
-        Actions: ''
+        Labels:
+        Actions:
   - id: 10
     parent: 0
     name: GameObject
@@ -416,7 +402,7 @@ objects:
         shadowBlur: 16.306667
         shadowOffset: 0 4
         shadowGrow: 5
-        Effects:
+        Effects: ''
       - type: MovieClip
         Fps: 30
         FrameCount: 15

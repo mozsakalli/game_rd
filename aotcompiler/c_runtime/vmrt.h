@@ -56,7 +56,7 @@ struct DigitoyEngineMember
     void *addr;              /* static alan: depo adresi */
     unsigned long long hash; /* FNV64(alan adi) - modul baglama anahtari (bildiren tipten baslanir, base zinciri); property: 0 */
     /* ---- reflection (Faz 4b) ---- */
-    struct DeAttr *attrs;    /* custom attribute kayitlari (yoksa 0) */
+    struct DeAttr *attrs; /* custom attribute kayitlari (yoksa 0) */
     unsigned char nattrs;
     unsigned short cilattrs; /* CIL FieldAttributes / PropertyAttributes */
 };
@@ -86,24 +86,24 @@ struct Type
     unsigned short nmembers;
     const Type *const *generic_args; // kapali generic type arguman descriptor'lari
     unsigned short ngeneric_args;
-    EnumParseFn enum_parse; // enum adi -> underlying int; enum disinda 0
+    EnumParseFn enum_parse;  // enum adi -> underlying int; enum disinda 0
     struct DeModule *module; // dinamik modul tipi ise sahibi (canli nesne sayaci); host/AOT tipleri icin 0
     GCHeader *wrapper;       // lazy System.Type nesnesi (gc_add_root'lu); digitoyengine_type_wrapper doldurur. Descriptor'lar bu yuzden const DEGIL.
     // ---- tek meta (docs/modules.md): .NET reflection yuzeyi = modul baglama verisi. Ayri export tablosu YOK. ----
-    unsigned long long hash;       // FNV64(Primitive.Name) - tip kimligi (GetType(string), modul dis referansi)
-    struct MethodInfo *methods;    // bu tipin BILDIRDIGI metotlar (ctor dahil; iface: slot sirasinda bildirimler). Uretilen `X_methods[]` tablosu
+    unsigned long long hash;    // FNV64(Primitive.Name) - tip kimligi (GetType(string), modul dis referansi)
+    struct MethodInfo *methods; // bu tipin BILDIRDIGI metotlar (ctor dahil; iface: slot sirasinda bildirimler). Uretilen `X_methods[]` tablosu
     unsigned short nmethods;
-    unsigned char flags;           // DIGITOYENGINE_TYPE_*
-    const void *delegate_tramp;    // delegate tipi: host->modul trampoline'i ((closure, params) imzali); diger tiplerde 0
+    unsigned char flags;        // DIGITOYENGINE_TYPE_*
+    const void *delegate_tramp; // delegate tipi: host->modul trampoline'i ((closure, params) imzali); diger tiplerde 0
     // ---- dizi kimligi (docs/registry-removal.md Faz 4a): T[] descriptor'u (typeof(T[]) uretilen ya da runtime sentez) ----
-    const Type *elem_type;         // ARRAY bayrakli descriptor: eleman tipi; diger tiplerde 0
-    unsigned char rank;            // ARRAY: boyut sayisi
-    const Type *array_of;          // struct descriptor'u: ref tasiyan T[] icin uretilen TAHSIS tipi (eleman eleman trace); yoksa 0
+    const Type *elem_type; // ARRAY bayrakli descriptor: eleman tipi; diger tiplerde 0
+    unsigned char rank;    // ARRAY: boyut sayisi
+    const Type *array_of;  // struct descriptor'u: ref tasiyan T[] icin uretilen TAHSIS tipi (eleman eleman trace); yoksa 0
     // ---- reflection (Faz 4b) ----
-    struct DeAttr *attrs;          // custom attribute kayitlari (yoksa 0)
+    struct DeAttr *attrs; // custom attribute kayitlari (yoksa 0)
     unsigned char nattrs;
-    unsigned int cilattrs;         // CIL TypeAttributes (System.Reflection.TypeAttributes)
-    const Type *generic_def;       // kapali generic ornek: acik tanim descriptor'u (typeof(List<>)); yoksa 0
+    unsigned int cilattrs;   // CIL TypeAttributes (System.Reflection.TypeAttributes)
+    const Type *generic_def; // kapali generic ornek: acik tanim descriptor'u (typeof(List<>)); yoksa 0
 };
 enum
 {
@@ -168,7 +168,9 @@ static inline const void *const *DIGITOYENGINE_itable(const Type *t, const void 
 }
 
 // ---- M8 shadow stack: exception/crash'te KESIN .cs stack trace (release dahil) ----
-// Method girisinde push, cikista pop; satir SADECE firlatabilen op'lardan once yazilir (sabit store).
+// Method girisinde push, cikista pop. Satir YALNIZ cagri/firlatma oncesi yazilir (DIGITOYENGINE_SETLINE):
+// sicak op'lar (alan/dizi erisimi) satiri store ETMEZ, check makrosunun unlikely dalinda sabit tasir (*_AT).
+// Olcum: her op'ta store = sicak dongude +%45..%130 (vektorlestirme olur, store portu); *_AT ile NOTRACE'e esit.
 // frame: coroutine frame ptr (debug protokolu yerel degiskenleri buradan okur; duz fonksiyonda 0).
 // TEK META: ayni kayit System.Reflection.MethodInfo'nun handle'i ve modul yukleyicinin host metot kaydidir
 // (hash -> fn + sekil thunk'i). Ilk uc alan trace icin; vmint yerel metotlari icin yalniz onlar dolu.
@@ -193,23 +195,23 @@ typedef struct MethodInfo
     const struct VmString *file; // kaynak dosya (strpool'da; 0 = dosyasiz IR). Debugger file:line eslesmesi buradan.
     int trypc_off;               // coroutine frame'inde __trypc offseti (-1 = try'siz / duz fonksiyon)
     // ---- tek meta ----
-    unsigned long long hash;          // FNV64(Code.EncodeName); 0 = kayit disi (modul yerel metodu)
-    const void *fn;                   // cagrilabilir C sembolu (P/Invoke marshal sarmalayicisi dahil); 0 = govdesiz (iface bildirimi, zayif extern)
-    const void *tramp;                // sanal kok: host->modul trampoline (gercek C imzali; modul override'i slota bunu koyar)
-    const Type *declaringType;        // sahip (0 = sahipsiz/sentetik)
-    const Type *returnType;           // donus descriptor'i (yoksa 0)
-    const Type *const *param_types;   // parametre descriptor'lari (nparams; yoksa 0)
-    const unsigned char *param_tags;  // parametre etiketleri (nparams)
-    GCHeader *wrapper;                // lazy, koklu System.Reflection.MethodInfo/ConstructorInfo
-    DeThunk thunk;                    // sekil thunk'u (Invoke / modul cagrisi): de_thunk_<sekil hash> (ayni C imzasi = ayni thunk)
-    short vslot;                      // sanal/iface slot indeksi (sahibinin vtable/iface sirasi); -1 = sanal degil
-    unsigned char nparams;            // this HARIC parametre sayisi
+    unsigned long long hash;         // FNV64(Code.EncodeName); 0 = kayit disi (modul yerel metodu)
+    const void *fn;                  // cagrilabilir C sembolu (P/Invoke marshal sarmalayicisi dahil); 0 = govdesiz (iface bildirimi, zayif extern)
+    const void *tramp;               // sanal kok: host->modul trampoline (gercek C imzali; modul override'i slota bunu koyar)
+    const Type *declaringType;       // sahip (0 = sahipsiz/sentetik)
+    const Type *returnType;          // donus descriptor'i (yoksa 0)
+    const Type *const *param_types;  // parametre descriptor'lari (nparams; yoksa 0)
+    const unsigned char *param_tags; // parametre etiketleri (nparams)
+    GCHeader *wrapper;               // lazy, koklu System.Reflection.MethodInfo/ConstructorInfo
+    DeThunk thunk;                   // sekil thunk'u (Invoke / modul cagrisi): de_thunk_<sekil hash> (ayni C imzasi = ayni thunk)
+    short vslot;                     // sanal/iface slot indeksi (sahibinin vtable/iface sirasi); -1 = sanal degil
+    unsigned char nparams;           // this HARIC parametre sayisi
     unsigned char ret_tag;
-    unsigned char flags;              // DIGITOYENGINE_METHOD_*
+    unsigned char flags; // DIGITOYENGINE_METHOD_*
     // ---- reflection (docs/registry-removal.md Faz 4b) ----
-    struct DeAttr *attrs;             // custom attribute kayitlari (yoksa 0)
+    struct DeAttr *attrs; // custom attribute kayitlari (yoksa 0)
     unsigned char nattrs;
-    unsigned short cilattrs;          // CIL MethodAttributes (System.Reflection.MethodAttributes)
+    unsigned short cilattrs; // CIL MethodAttributes (System.Reflection.MethodAttributes)
 } MethodInfo;
 // Custom attribute kaydi: tip + lazy kurucu (uretilen: ctor sabit argumanlarla + named arg atamalari). instance rooted cache.
 typedef struct DeAttr
@@ -219,10 +221,10 @@ typedef struct DeAttr
     GCHeader *instance;
     const void *data; /* create yok (modul attribute'u): vmint VmAttr kaydi (ctor + arg'lar) */
 } DeAttr;
-GCHeader *digitoyengine_attr_instance(DeAttr *a);                                             // lazy + gc_add_root
-GCHeader *vmint_attr_create(DeAttr *a);                                                        // vmint.c: modul attribute instance'i
-int vmint_try_invoke(const void *fn, DeSlot *a, DeSlot *r);                                   // vmint.c: fn modul metodu isaretcisi ise yorumla (1), degilse 0
-int digitoyengine_attrs_defined(const DeAttr *attrs, int n, const Type *attrType);          // DIGITOYENGINE_is(attr.type, attrType)
+GCHeader *digitoyengine_attr_instance(DeAttr *a);                                                          // lazy + gc_add_root
+GCHeader *vmint_attr_create(DeAttr *a);                                                                    // vmint.c: modul attribute instance'i
+int vmint_try_invoke(const void *fn, DeSlot *a, DeSlot *r);                                                // vmint.c: fn modul metodu isaretcisi ise yorumla (1), degilse 0
+int digitoyengine_attrs_defined(const DeAttr *attrs, int n, const Type *attrType);                         // DIGITOYENGINE_is(attr.type, attrType)
 struct VmArray *digitoyengine_attrs_array(DeAttr *attrs, int n, const Type *filter, const Type *elemType); // instance dizisi (filter 0 = hepsi)
 enum
 {
@@ -263,9 +265,17 @@ typedef struct RtFrame
 extern RtFrame DIGITOYENGINE_stack[DIGITOYENGINE_STACK_MAX];
 extern int DIGITOYENGINE_sp;
 void DIGITOYENGINE_dump_stack(void);
+// PUSH sonrasi derleyici bariyeri (komut uretmez): TBAA ile govdenin ilk null deref'i frame store'larinin
+// ustune tasinabiliyordu -> fault aninda sp eski = NRE yerine 'native fault' raporu. Yalniz fonksiyon girisinde.
+#if defined(__GNUC__) || defined(__clang__)
+#define DIGITOYENGINE_COMPILER_BARRIER() ({ __asm__ __volatile__("" ::: "memory"); 0; })
+#else
+#define DIGITOYENGINE_COMPILER_BARRIER() (0)
+#endif
 #ifdef DIGITOYENGINE_NOTRACE // benchmark build: izleme tamamen kapali
 #define DIGITOYENGINE_PUSH(m, fr) ((void)0)
 #define DIGITOYENGINE_LINE(n) ((void)0)
+#define DIGITOYENGINE_SETLINE(n) ((void)0)
 #define DIGITOYENGINE_POP() ((void)0)
 #define DIGITOYENGINE_STEP(n) ((void)0)
 #define DIGITOYENGINE_DBG_LOCALS(t, n) ((void)0)
@@ -289,12 +299,14 @@ void DIGITOYENGINE_dump_locals(FILE *f);
 void DIGITOYENGINE_dump_steps(FILE *f);
 #define DIGITOYENGINE_PUSH(m, fr) (DIGITOYENGINE_UNLIKELY(DIGITOYENGINE_sp >= DIGITOYENGINE_STACK_MAX) ? DIGITOYENGINE_stack_overflow() : (void)(DIGITOYENGINE_stack[DIGITOYENGINE_sp].mi = (m), DIGITOYENGINE_stack[DIGITOYENGINE_sp].line = 0, DIGITOYENGINE_stack[DIGITOYENGINE_sp].frame = (fr), DIGITOYENGINE_stack[DIGITOYENGINE_sp].dbg_locals = 0, DIGITOYENGINE_stack[DIGITOYENGINE_sp].dbg_nlocals = 0, DIGITOYENGINE_sp++))
 #define DIGITOYENGINE_LINE(n) (DIGITOYENGINE_stack[DIGITOYENGINE_sp - 1].line = (n))
+#define DIGITOYENGINE_SETLINE(n) (DIGITOYENGINE_stack[DIGITOYENGINE_sp - 1].line = (n))
 #define DIGITOYENGINE_POP() (DIGITOYENGINE_sp--)
 #define DIGITOYENGINE_STEP(n) (DIGITOYENGINE_stack[DIGITOYENGINE_sp - 1].line = (n), DIGITOYENGINE_step_record(n), DIGITOYENGINE_dbg_step ? DIGITOYENGINE_dbg_step(n) : (void)0)
 #define DIGITOYENGINE_DBG_LOCALS(t, n) (DIGITOYENGINE_stack[DIGITOYENGINE_sp - 1].dbg_locals = (t), DIGITOYENGINE_stack[DIGITOYENGINE_sp - 1].dbg_nlocals = (n))
 #else
-#define DIGITOYENGINE_PUSH(m, fr) (DIGITOYENGINE_UNLIKELY(DIGITOYENGINE_sp >= DIGITOYENGINE_STACK_MAX) ? DIGITOYENGINE_stack_overflow() : (void)(DIGITOYENGINE_stack[DIGITOYENGINE_sp].mi = (m), DIGITOYENGINE_stack[DIGITOYENGINE_sp].line = 0, DIGITOYENGINE_stack[DIGITOYENGINE_sp].frame = (fr), DIGITOYENGINE_sp++))
+#define DIGITOYENGINE_PUSH(m, fr) (DIGITOYENGINE_UNLIKELY(DIGITOYENGINE_sp >= DIGITOYENGINE_STACK_MAX) ? DIGITOYENGINE_stack_overflow() : (void)(DIGITOYENGINE_stack[DIGITOYENGINE_sp].mi = (m), DIGITOYENGINE_stack[DIGITOYENGINE_sp].line = 0, DIGITOYENGINE_stack[DIGITOYENGINE_sp].frame = (fr), DIGITOYENGINE_sp++, DIGITOYENGINE_COMPILER_BARRIER()))
 #define DIGITOYENGINE_LINE(n) (DIGITOYENGINE_stack[DIGITOYENGINE_sp - 1].line = (n))
+#define DIGITOYENGINE_SETLINE(n) (DIGITOYENGINE_stack[DIGITOYENGINE_sp - 1].line = (n))
 #define DIGITOYENGINE_POP() (DIGITOYENGINE_sp--)
 #define DIGITOYENGINE_STEP(n) ((void)0)
 #define DIGITOYENGINE_DBG_LOCALS(t, n) ((void)0)
@@ -363,10 +375,16 @@ DIGITOYENGINE_NORETURN void DIGITOYENGINE_throw_io(const char *msg);            
 #define DIGITOYENGINE_BOUNDS(i, n) ((void)(DIGITOYENGINE_UNLIKELY((unsigned)(i) >= (unsigned)(n)) && (DIGITOYENGINE_throw_bounds((i), (n)), 0)))
 // ARM int div trap etmez, wasm trap'i kurtarilamaz -> explicit tek dogru ortak yol (bolme zaten pahali)
 #define DIGITOYENGINE_DIVCHECK(d) ((void)(DIGITOYENGINE_UNLIKELY((d) == 0) && (DIGITOYENGINE_throw_div(), 0)))
+// Uretilen kodun sicak-yol varyantlari: satir yalniz firlatma dalinda yazilir (sicak yolda store yok).
+#define DIGITOYENGINE_BOUNDS_AT(i, n, ln) ((void)(DIGITOYENGINE_UNLIKELY((unsigned)(i) >= (unsigned)(n)) && (DIGITOYENGINE_SETLINE(ln), DIGITOYENGINE_throw_bounds((i), (n)), 0)))
+#define DIGITOYENGINE_DIVCHECK_AT(d, ln) ((void)(DIGITOYENGINE_UNLIKELY((d) == 0) && (DIGITOYENGINE_SETLINE(ln), DIGITOYENGINE_throw_div(), 0)))
+// Null: HER platformda explicit (MMU/VEH'e birakilmaz) -> NRE satiri sembol dosyasiz kesin. Olcum: maliyet sifir
+// (alinmayan dal; asil pahali olan satir STORE'uydu, o firlatma dalina tasindi). VEH/signal yolu yalniz emniyet agi.
+#define DIGITOYENGINE_NULLCHECK_AT(o, ln) ((void)(DIGITOYENGINE_UNLIKELY((o) == 0) && (DIGITOYENGINE_SETLINE(ln), DIGITOYENGINE_throw_null(), 0)))
 void *gc_alloc(const Type *t);
 void gc_shade(GCHeader *o);
 void gc_write_barrier(GCHeader *obj, GCHeader *val); // tri-color: MARK fazinda val grilenir (obj yok sayilir)
-int gc_hashcode(GCHeader *o); // type->hashcode varsa onu, yoksa header'daki stabil idhash
+int gc_hashcode(GCHeader *o);                        // type->hashcode varsa onu, yoksa header'daki stabil idhash
 void gc_add_root(GCHeader *o);
 void gc_remove_root(GCHeader *o);
 void gc_add_frame_root(void *f, FrameTrace t);
@@ -375,11 +393,11 @@ void gc_add_frame_root(void *f, FrameTrace t);
 // Hash: FNV-1a 64 (UTF-8). Adlar IR adlaridir (Primitive.Name / Code.EncodeName / "Owner$Field") - iki taraf da ayni frontend'den.
 unsigned long long de_hash64(const char *s);
 unsigned long long de_hash64_n(const char *s, int n);
-const Type *digitoyengine_find_type(unsigned long long hash);           // tip hash'i -> descriptor (lazy indeks)
-const MethodInfo *digitoyengine_find_method(unsigned long long hash);   // metot hash'i -> kayit (lazy indeks)
+const Type *digitoyengine_find_type(unsigned long long hash);                          // tip hash'i -> descriptor (lazy indeks)
+const MethodInfo *digitoyengine_find_method(unsigned long long hash);                  // metot hash'i -> kayit (lazy indeks)
 DigitoyEngineMember *digitoyengine_find_field(const Type *t, unsigned long long hash); // alan adi hash'i; t'den base zincirini yurur
 const MethodInfo *digitoyengine_find_vslot(const Type *t, unsigned long long hash);    // sanal/iface slot kaydi; base zincirini yurur
-int digitoyengine_find_shape(const char *key);                          // imza metni -> thunk indeksi (-1 yok)
+int digitoyengine_find_shape(const char *key);                                         // imza metni -> thunk indeksi (-1 yok)
 // Modul sahipligi: tipler bir DeModule'e isaret eder; gc_alloc/sweep canli sayaci gunceller.
 // vmint.c bu yapiyi ILK uye olarak gomer (DeModule* <-> VmModule* cast).
 typedef struct DeModule
@@ -388,12 +406,12 @@ typedef struct DeModule
     int state; // 0 = yukleniyor, 1 = aktif, 2 = unload edildi (trampoline'ler no-op; live 0 olunca free)
 } DeModule;
 void digitoyengine_reflect_init(const Type *typeType, const Type *fieldInfoType, const Type *propertyInfoType, const Type *methodInfoType, const Type *ctorInfoType); // digitoyengine_init cagirir
-GCHeader *digitoyengine_type_wrapper(const Type *t);                                                                           // System.Type nesnesi (lazy, t->wrapper'da; t=0 ise 0)
-const Type *digitoyengine_reflect_type(int which); // wrapper descriptor'lari: 0=Type 1=FieldInfo 2=PropertyInfo 3=MethodInfo 4=ConstructorInfo
+GCHeader *digitoyengine_type_wrapper(const Type *t);                                                                                                                  // System.Type nesnesi (lazy, t->wrapper'da; t=0 ise 0)
+const Type *digitoyengine_reflect_type(int which);                                                                                                                    // wrapper descriptor'lari: 0=Type 1=FieldInfo 2=PropertyInfo 3=MethodInfo 4=ConstructorInfo
 GCHeader *digitoyengine_member_lookup(const Type *t, const struct VmString *name, int kind);
-GCHeader *digitoyengine_member_wrapper(DigitoyEngineMember *member);                      // FieldInfo/PropertyInfo (lazy, koklu)
-GCHeader *digitoyengine_method_wrapper(MethodInfo *m);                                   // MethodInfo/ConstructorInfo (flags CTOR) wrapper
-GCHeader *digitoyengine_method_lookup(const Type *t, const struct VmString *name, int ctor); // ada gore ilk eslesen (base zinciri); ctor=1: parametresiz ctor
+GCHeader *digitoyengine_member_wrapper(DigitoyEngineMember *member);                                // FieldInfo/PropertyInfo (lazy, koklu)
+GCHeader *digitoyengine_method_wrapper(MethodInfo *m);                                              // MethodInfo/ConstructorInfo (flags CTOR) wrapper
+GCHeader *digitoyengine_method_lookup(const Type *t, const struct VmString *name, int ctor);        // ada gore ilk eslesen (base zinciri); ctor=1: parametresiz ctor
 GCHeader *digitoyengine_method_invoke(const MethodInfo *m, GCHeader *target, struct VmArray *args); // kutulu argumanlar -> thunk -> kutulu donus
 GCHeader *digitoyengine_member_get(DigitoyEngineMember *member, GCHeader *target);
 void digitoyengine_member_set(DigitoyEngineMember *member, GCHeader *target, GCHeader *value);
@@ -457,9 +475,9 @@ VmObject *digitoyengine_box_i64(long long v);
 VmObject *digitoyengine_box_u64(unsigned long long v);
 VmObject *digitoyengine_box_f32(float v);
 VmObject *digitoyengine_box_f64(double v);
-VmObject *digitoyengine_box_enum(int v, const Type *t); // enum kutusu (tip kimligi enum descriptor'i; cache'siz)
+VmObject *digitoyengine_box_enum(int v, const Type *t);                       // enum kutusu (tip kimligi enum descriptor'i; cache'siz)
 VmObject *digitoyengine_box_struct(const Type *t, const void *src, int size); // kullanici struct kutusu: payload kopyasi (t->size = header + struct)
-int digitoyengine_enumbox_hash(VmObject *s);            // ortak enum vtable govdeleri (ToString uretilir)
+int digitoyengine_enumbox_hash(VmObject *s);                                  // ortak enum vtable govdeleri (ToString uretilir)
 int digitoyengine_enumbox_eq(VmObject *s, VmObject *o);
 VmString *digitoyengine_int_str(int v); // uretilen enum ToString'in tanimsiz-deger dali kullanir// kisitsiz T'nin deger-tipi somutlamalari: boxing'siz GetHashCode/Equals (dotnet birebir; corelib.c)
 int digitoyengine_valhash_i64(long long v);
@@ -532,8 +550,8 @@ typedef struct VmArray
     int *dims;
     const Type *elem; // eleman tipi descriptor'u (is T[] / GetType / GetValue-SetValue); bilinmiyorsa 0 (modul interp)
 } VmArray;
-extern Type vmarray_ref_type; // eleman = GC pointer (izlenir); base init'te System.Array
-extern Type vmarray_val_type; // eleman = deger tipi (atomic)
+extern Type vmarray_ref_type;                         // eleman = GC pointer (izlenir); base init'te System.Array
+extern Type vmarray_val_type;                         // eleman = deger tipi (atomic)
 void digitoyengine_array_init(const Type *arrayBase); // uretilen digitoyengine_init cagirir
 VmArray *vmarray_new(int len, unsigned short elemsize, int isref);
 VmArray *vmarray_new_rank(int rank, const int *dims, unsigned short elemsize, int isref);
@@ -542,13 +560,13 @@ VmArray *vmarray_new_rank_t(int rank, const int *dims, unsigned short elemsize, 
 VmArray *vmarray_new_rank_te(int rank, const int *dims, unsigned short elemsize, const Type *t, const Type *elem);
 VmArray *vmarray_new_e(int len, const Type *elem); // elemsize/tahsis tipi elem'den (Array.CreateInstance; corelib.c diziler)
 // ---- dizi reflection'i ----
-unsigned short digitoyengine_elem_size(const Type *elem);        // deger tipi: payload boyutu; referans: pointer
-int digitoyengine_is_reftype(const Type *t);                     // class/string/dizi/iface/delegate
+unsigned short digitoyengine_elem_size(const Type *elem);                  // deger tipi: payload boyutu; referans: pointer
+int digitoyengine_is_reftype(const Type *t);                               // class/string/dizi/iface/delegate
 int digitoyengine_is_array(const GCHeader *o, const Type *elem, int rank); // `o is T[]` (ref elemanlarda kovaryans); o null -> 0
-const Type *digitoyengine_array_type(const Type *elem, int rank); // T[] kimlik descriptor'u (uretilen typeof(T[]) ya da sentez; ayni (elem,rank) = ayni Type*)
-GCHeader *digitoyengine_array_get(VmArray *a, int index);         // kutulu eleman (Array.GetValue)
-void digitoyengine_array_set(VmArray *a, int index, GCHeader *value); // kutudan elemana (Array.SetValue), ref'te barrier
-void finalize_vmarray(GCHeader *h); // uretilen dizi Type'lari icin
+const Type *digitoyengine_array_type(const Type *elem, int rank);          // T[] kimlik descriptor'u (uretilen typeof(T[]) ya da sentez; ayni (elem,rank) = ayni Type*)
+GCHeader *digitoyengine_array_get(VmArray *a, int index);                  // kutulu eleman (Array.GetValue)
+void digitoyengine_array_set(VmArray *a, int index, GCHeader *value);      // kutudan elemana (Array.SetValue), ref'te barrier
+void finalize_vmarray(GCHeader *h);                                        // uretilen dizi Type'lari icin
 // System.Array yardimcilari: eleman tipinden bagimsiz (elemsize'i dizi tasir), memmove tabanli.
 void vmarray_copy(VmArray *src, int srcIndex, VmArray *dst, int dstIndex, int len); // overlap guvenli
 VmArray *vmarray_resize(VmArray *a, int newLen);                                    // yeni dizi dondurur (C# ref emulasyonu: a = Resize(a,n))
