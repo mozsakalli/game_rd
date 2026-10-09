@@ -253,16 +253,26 @@ public static class Program
 
         // 3) C transpile + de_app.h kopruleri: main/dongu/crash dizini artik platform host'unda
         //    (c_runtime/host_desktop.c + de_app.c). Unhandled exception yolu runtime'da (DIGITOYENGINE_dispatch).
-        var cSource = CTranspiler.TranspileProgram(ctx);
         string Sym(Code c) => CTranspiler.CName(c.EncodeName());
         var entrySym = Sym(frameCode);
-        cSource += "\n/* de_app.h kopruleri (platform host -> managed) */\n" +
+        var bridges = "\n/* de_app.h kopruleri (platform host -> managed) */\n" +
             $"void de_managed_init(const char* root, int fbw, int fbh, float scale) {{ {Sym(initCode)}(digitoyengine_from_utf8(root), fbw, fbh, scale); }}\n" +
             $"int de_managed_frame(float dt, int fbw, int fbh, float scale) {{ return {Sym(frameCode)}(dt, fbw, fbh, scale) ? 1 : 0; }}\n" +
             $"void de_managed_event(int type, int id, float x, float y, int a, int b) {{ {Sym(eventCode)}(type, id, x, y, a, b); }}\n" +
             $"void de_managed_pause(void) {{ {Sym(pauseCode)}(); }}\n" +
             $"void de_managed_resume(void) {{ {Sym(resumeCode)}(); }}\n" +
             $"void de_managed_shutdown(void) {{ {Sym(shutdownCode)}(); }}\n";
+        if (target == "windows")
+        {
+            // Windows: tip basina .c/.h (<proje>/Library/aot/windows/gen, degismeyen dosya yazilmaz) + yerlesik paralel/artimli derleyici
+            var files = CTranspiler.TranspileFiles(ctx, bridges);
+            var genDir = Path.Combine(workDir, "gen");
+            var srcs = CTranspiler.WriteFiles(genDir, files, out int written, out int unchanged);
+            Console.WriteLine($"transpile -> {genDir}: {srcs.Count} .c ({written} yazildi, {unchanged} degismedi; giris {entrySym})");
+            Lap("C transpile + yaz");
+            return BuildWindowsExe(workDir, srcs, outExe, Lap);
+        }
+        var cSource = CTranspiler.TranspileProgram(ctx) + bridges;
         File.WriteAllText(generated, cSource);
         Console.WriteLine($"transpile -> {generated} ({cSource.Length} karakter, giris {entrySym})");
         Lap("C transpile + yaz");
@@ -279,27 +289,30 @@ public static class Program
             Lap("emcc + link");
             return 0;
         }
-        if (target != "windows")
-            throw new Exception("bilinmeyen hedef: " + target + " (windows | android | wasm)");
+        throw new Exception("bilinmeyen hedef: " + target + " (windows | android | wasm)");
+    }
 
-        // 4) clang: uretilen C + runtime (vmrt/corelib/vmint) + platform host (de_app/host_desktop) + native
-        //    (sokol+glfw+ses+de_fs) — hepsi KAYNAKTAN (prebuilt player native'i yok; docs/platform-hosts.md).
-        //    Native kaynaklar obj/native-static/ altinda mtime cache'li arsive derlenir. DLL yok, P/Invoke yok.
+    // 4) clang: uretilen C + runtime (vmrt/corelib/vmint) + platform host (de_app/host_desktop) + native
+    //    (sokol+glfw+ses+de_fs) — hepsi KAYNAKTAN (prebuilt player native'i yok; docs/platform-hosts.md).
+    //    Native kaynaklar native-static/ altinda mtime cache'li arsive derlenir. DLL yok, P/Invoke yok.
+    //    Uretilen + runtime nesneleri obj/ altinda artimli (CcBuild: .d bagimlilik + bayrak damgasi).
+    static int BuildWindowsExe(string workDir, List<string> generatedSources, string outExe, Action<string> Lap)
+    {
         var staticLib = BuildNativeStaticLib(Path.Combine(workDir, "native-static"));
-        var cFiles = new List<string> { generated };
-        foreach (var n in new[] { "vmrt.c", "corelib.c", "vmint.c", "de_app.c", "host_desktop.c" })
-            cFiles.Add(Path.Combine(CRuntimeDir, n));
         var defines = "-DSOKOL_GLCORE" + (Environment.GetEnvironmentVariable("AOT_GCPOISON") == "1" ? " -DDIGITOYENGINE_GC_POISON" : "");
         var libs = "-lopengl32 -lgdi32 -luser32 -lkernel32 -lshell32 -lole32 -loleaut32 -lmfplat -lmfuuid -luuid";
         Directory.CreateDirectory(Path.GetDirectoryName(outExe));
         // AOT_DEBUG: -O0 + sembol (lldb) + DIGITOYENGINE_DEBUG (STEP/local tablolari -> crash'te degisken dokumu)
-        var dbg = Environment.GetEnvironmentVariable("AOT_DEBUG") == "1" ? "-O0 -g -gcodeview -DDIGITOYENGINE_DEBUG" : "-O1";
-        var compileArgs = $"{dbg} -w {defines} {NativeIncludes} " +
-            $"{string.Join(" ", cFiles.Select(Quote))} {Quote(staticLib)} {libs} -o {Quote(outExe)}";
-        var (ccExit, ccOut) = RunProcess(ClangPath(), compileArgs);
-        if (ccExit != 0) throw new Exception($"clang derleme/link hatasi (exit {ccExit}):\n{ccOut}");
-        Console.WriteLine($"clang ok -> {outExe} ({new FileInfo(outExe).Length / 1024} KB)");
-        Lap("clang + link");
+        bool debug = Environment.GetEnvironmentVariable("AOT_DEBUG") == "1";
+        var dbg = debug ? "-O0 -g -gcodeview -DDIGITOYENGINE_DEBUG" : "";
+        var items = generatedSources.Select(s => new DigitoyEngine.Build.CcBuild.Item { Source = s, ExtraFlags = debug ? "" : "-O1" }).ToList();
+        foreach (var n in new[] { "vmrt.c", "corelib.c", "vmint.c", "de_app.c", "host_desktop.c" })
+            items.Add(new DigitoyEngine.Build.CcBuild.Item { Source = Path.Combine(CRuntimeDir, n), ExtraFlags = debug ? "" : "-O2" });
+        var cc = ClangPath();
+        var res = DigitoyEngine.Build.CcBuild.Compile(cc, Path.Combine(workDir, "obj"), $"{dbg} -w {defines} {NativeIncludes}".Trim(), items, Console.WriteLine);
+        Lap("clang (paralel/artimli)");
+        DigitoyEngine.Build.CcBuild.Link(cc, res.Objects, $"{Quote(staticLib)} {libs}", debug ? "-g" : "", outExe, Console.WriteLine);
+        Lap("link");
         return 0;
     }
 
@@ -824,18 +837,11 @@ public static class Program
                 var genDir = Path.Combine(WorkDir, "files");
                 var srcs = CTranspiler.WriteFiles(genDir, files, out int written, out int unchanged);
                 Console.WriteLine($"transpile -> {genDir}: {srcs.Count} .c ({written} yazildi, {unchanged} degismedi) {swT.ElapsedMilliseconds} ms");
-                var tgt = new DigitoyEngine.Build.NinjaBuild.Target
-                {
-                    Output = OutBin, ObjDir = Path.Combine(genDir, "obj"), Cc = ClangPath(),
-                    CFlags = $"-O1 -w{poison} -I{Path.GetFullPath("c_runtime")}",
-                };
-                tgt.Sources.AddRange(srcs);
-                tgt.Sources.AddRange(new[] { "c_runtime/vmrt.c", "c_runtime/corelib.c", "c_runtime/vmint.c" });
-                DigitoyEngine.Build.NinjaBuild.Write(genDir, tgt);
-                var swN = Stopwatch.StartNew();
-                var (nExit, nOut) = DigitoyEngine.Build.NinjaBuild.Run(genDir, Console.WriteLine);
-                if (nExit != 0) throw new Exception($"ninja derleme hatasi (exit {nExit}):\n{nOut}");
-                Console.WriteLine($"ninja ok ({swN.ElapsedMilliseconds} ms)");
+                var items = srcs.Select(s => new DigitoyEngine.Build.CcBuild.Item { Source = s }).ToList();
+                foreach (var n in new[] { "vmrt.c", "corelib.c", "vmint.c" }) items.Add(new DigitoyEngine.Build.CcBuild.Item { Source = Path.Combine("c_runtime", n) });
+                var cc = ClangPath();
+                var res = DigitoyEngine.Build.CcBuild.Compile(cc, Path.Combine(genDir, "obj"), $"-O1 -w{poison} -I{Quote(Path.GetFullPath("c_runtime"))}", items, Console.WriteLine);
+                DigitoyEngine.Build.CcBuild.Link(cc, res.Objects, "", "", OutBin, Console.WriteLine);
             }
             else
             {

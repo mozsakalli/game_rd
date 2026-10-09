@@ -77,7 +77,8 @@ namespace DigitoyEngine.Language
             foreach (var c in ctx.AllCodes)
                 if (IsEmittableCode(c))
                 {
-                    var u = UnitOfCode(c);
+                    // P/Invoke (ExternalSymbol): sembol adi sahip tipi tasimaz -> paylasimli header (her .c gorur)
+                    var u = c.IsExternal && c.ExternalSymbol != null ? sharedUnit : UnitOfCode(c);
                     if (c.IsExternal && NeedsPInvokeMarshal(c))
                         u.H.Append(EmitPInvokeWrapper(c)); // string <-> const char* (LPUTF8Str) sarmalayici (static inline)
                     else
