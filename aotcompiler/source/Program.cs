@@ -262,34 +262,28 @@ public static class Program
             $"void de_managed_pause(void) {{ {Sym(pauseCode)}(); }}\n" +
             $"void de_managed_resume(void) {{ {Sym(resumeCode)}(); }}\n" +
             $"void de_managed_shutdown(void) {{ {Sym(shutdownCode)}(); }}\n";
-        if (target == "windows")
-        {
-            // Windows: tip basina .c/.h (<proje>/Library/aot/windows/gen, degismeyen dosya yazilmaz) + yerlesik paralel/artimli derleyici
-            var files = CTranspiler.TranspileFiles(ctx, bridges);
-            var genDir = Path.Combine(workDir, "gen");
-            var srcs = CTranspiler.WriteFiles(genDir, files, out int written, out int unchanged);
-            Console.WriteLine($"transpile -> {genDir}: {srcs.Count} .c ({written} yazildi, {unchanged} degismedi; giris {entrySym})");
-            Lap("C transpile + yaz");
-            return BuildWindowsExe(workDir, srcs, outExe, Lap);
-        }
-        var cSource = CTranspiler.TranspileProgram(ctx) + bridges;
-        File.WriteAllText(generated, cSource);
-        Console.WriteLine($"transpile -> {generated} ({cSource.Length} karakter, giris {entrySym})");
-        Lap("C transpile + yaz");
-
+        if (target != "windows" && target != "android" && target != "wasm")
+            throw new Exception("bilinmeyen hedef: " + target + " (windows | android | wasm)");
+        // Tip basina .c/.h (degismeyen dosya yazilmaz; derleme listesi her build ACIK verilir, dizin taramasi yok)
+        var files = CTranspiler.TranspileFiles(ctx, bridges);
+        Lap("C transpile");
         if (target == "android")
         {
-            EmitAndroidProject(projectRoot, projName, generated, app);
+            EmitAndroidProject(projectRoot, projName, files, app);
             Lap("android projesi");
             return 0;
         }
         if (target == "wasm")
         {
-            BuildWasm(projectRoot, projName, generated, app);
+            BuildWasm(projectRoot, projName, files, app);
             Lap("emcc + link");
             return 0;
         }
-        throw new Exception("bilinmeyen hedef: " + target + " (windows | android | wasm)");
+        var genDir = Path.Combine(workDir, "gen");
+        var srcs = CTranspiler.WriteFiles(genDir, files, out int written, out int unchanged);
+        Console.WriteLine($"transpile -> {genDir}: {srcs.Count} .c ({written} yazildi, {unchanged} degismedi; giris {entrySym})");
+        Lap("C yaz");
+        return BuildWindowsExe(workDir, srcs, outExe, Lap);
     }
 
     // 4) clang: uretilen C + runtime (vmrt/corelib/vmint) + platform host (de_app/host_desktop) + native
@@ -302,24 +296,27 @@ public static class Program
         var defines = "-DSOKOL_GLCORE" + (Environment.GetEnvironmentVariable("AOT_GCPOISON") == "1" ? " -DDIGITOYENGINE_GC_POISON" : "");
         var libs = "-lopengl32 -lgdi32 -luser32 -lkernel32 -lshell32 -lole32 -loleaut32 -lmfplat -lmfuuid -luuid";
         Directory.CreateDirectory(Path.GetDirectoryName(outExe));
-        // AOT_DEBUG: -O0 + sembol (lldb) + DIGITOYENGINE_DEBUG (STEP/local tablolari -> crash'te degisken dokumu)
+        // Release: uretilen + runtime -O2 (dosya basina derleme sayesinde maliyet dusuk), fonksiyon/veri bolumleri + --gc-sections
+        // (basvurulmayan kod/veri atilir), -s (COFF sembol tablosu exe'de tasinmaz; ~%30 boyut).
         bool debug = Environment.GetEnvironmentVariable("AOT_DEBUG") == "1";
-        var dbg = debug ? "-O0 -g -gcodeview -DDIGITOYENGINE_DEBUG" : "";
-        var items = generatedSources.Select(s => new DigitoyEngine.Build.CcBuild.Item { Source = s, ExtraFlags = debug ? "" : "-O1" }).ToList();
+        var dbg = debug ? "-O0 -g -gcodeview -DDIGITOYENGINE_DEBUG" : "-O2 -ffunction-sections -fdata-sections";
+        var items = generatedSources.Select(s => new DigitoyEngine.Build.CcBuild.Item { Source = s }).ToList();
         foreach (var n in new[] { "vmrt.c", "corelib.c", "vmint.c", "de_app.c", "host_desktop.c" })
-            items.Add(new DigitoyEngine.Build.CcBuild.Item { Source = Path.Combine(CRuntimeDir, n), ExtraFlags = debug ? "" : "-O2" });
+            items.Add(new DigitoyEngine.Build.CcBuild.Item { Source = Path.Combine(CRuntimeDir, n) });
         var cc = ClangPath();
         var res = DigitoyEngine.Build.CcBuild.Compile(cc, Path.Combine(workDir, "obj"), $"{dbg} -w {defines} {NativeIncludes}".Trim(), items, Console.WriteLine);
         Lap("clang (paralel/artimli)");
-        DigitoyEngine.Build.CcBuild.Link(cc, res.Objects, $"{Quote(staticLib)} {libs}", debug ? "-g" : "", outExe, Console.WriteLine);
+        DigitoyEngine.Build.CcBuild.Link(cc, res.Objects, $"{Quote(staticLib)} {libs}", debug ? "-g" : "-s -Wl,--gc-sections", outExe, Console.WriteLine);
         Lap("link");
         return 0;
     }
 
     // ---- Android (docs/platform-hosts.md H5): Android Studio projesi, kaynak + CMake; kullanici derler ----
     // <proje>/Build/android/
-    //   generated/   HER build silinip yazilir: cpp/{generated.c, c_runtime/, native/, CMakeLists.txt}, java/com/digitoy/host/*.kt, assets/game.pak,
-    //                app.properties (Player Settings -> Gradle), res/ (adaptive launcher icon)
+    //   generated/   her build yazilir: cpp/{gen/T_*.c|.h + gen_*.c, gen_sources.cmake (ACIK liste), c_runtime/, native/, CMakeLists.txt},
+    //                java/com/digitoy/host/*.kt, assets/game.pak, app.properties (Player Settings -> Gradle), res/ (adaptive launcher icon).
+    //                cpp/ SILINMEZ: icerigi degismeyen dosyaya dokunulmaz (mtime sabit -> NDK ninja yalniz degiseni derler); artik
+    //                uretilmeyen gen/ dosyalari silinir. Derleme listesi gen_sources.cmake'ten gelir, dizin taramasi (GLOB) yok.
     //   keystore.properties   imza varsa her build (parola icerir; kabuk .gitignore'unda), yoksa silinir
     //   app/, settings.gradle.kts, build.gradle.kts, gradle.properties, gradle/wrapper, shell.version   ILK uretimde sablondan, sonra DOKUNULMAZ
     //                (kabuk statik: degisken her sey generated/app.properties'ten okunur)
@@ -347,7 +344,7 @@ public static class Program
     // Kabuk surumu: sablon degisince artar; eski kabuk tespit edilip kullanici uyarilir (dosyalarina dokunulmaz).
     const int AndroidShellVersion = 2;
 
-    static void EmitAndroidProject(string projectRoot, string projName, string generatedC, AppInfo app)
+    static void EmitAndroidProject(string projectRoot, string projName, List<CTranspiler.GeneratedFile> files, AppInfo app)
     {
         string tpl = Path.Combine(PlatformsDir, "android");
         if (!Directory.Exists(tpl)) throw new Exception("android sablonu yok: " + tpl);
@@ -396,27 +393,35 @@ public static class Program
             throw new Exception("android: iconBackground rengi #RRGGBB olmali: " + iconBg);
         if (!bgIsColor && !File.Exists(iconBg)) throw new Exception("android: iconBackground dosyasi yok: " + iconBg);
 
-        if (Directory.Exists(gen)) Directory.Delete(gen, true);
+        // generated/: cpp/ disindaki her sey (java/assets/res/app.properties) her build taze; cpp/ artimli (mtime korunur)
+        if (Directory.Exists(gen))
+            foreach (var d in Directory.GetDirectories(gen))
+                if (!string.Equals(Path.GetFileName(d), "cpp", StringComparison.OrdinalIgnoreCase)) Directory.Delete(d, true);
 
-        // cpp: generated.c + runtime (host_desktop haric) + native shim'ler (glfw yok) + CMake
+        // cpp: gen/ (tip basina C) + runtime (host_desktop haric) + native shim'ler (glfw yok) + CMake
         string cpp = Path.Combine(gen, "cpp");
         Directory.CreateDirectory(Path.Combine(cpp, "c_runtime"));
         Directory.CreateDirectory(Path.Combine(cpp, "native"));
-        File.Copy(generatedC, Path.Combine(cpp, "generated.c"), true);
+        var genSrcs = CTranspiler.WriteFiles(Path.Combine(cpp, "gen"), files, out int written, out int unchanged);
+        Console.WriteLine($"transpile -> {Path.Combine(cpp, "gen")}: {genSrcs.Count} .c ({written} yazildi, {unchanged} degismedi)");
+        // Derleme listesi: ACIK (bu build'in urettikleri); CMake include eder, liste degisince kendisi yeniden configure olur.
+        var listText = "# DigitoyEngine: her build yeniden uretilir (acik liste; GLOB yok).\nset(DE_GEN_SOURCES\n"
+            + string.Concat(genSrcs.Select(s => "    gen/" + Path.GetFileName(s) + "\n")) + ")\n";
+        WriteIfChanged(Path.Combine(cpp, "gen_sources.cmake"), listText);
         foreach (var f in Directory.GetFiles(CRuntimeDir))
         {
             string n = Path.GetFileName(f);
             if (n == "host_desktop.c" || !(n.EndsWith(".c") || n.EndsWith(".h"))) continue;
-            File.Copy(f, Path.Combine(cpp, "c_runtime", n), true);
+            CopyIfChanged(f, Path.Combine(cpp, "c_runtime", n));
         }
         foreach (var f in Directory.GetFiles(EngineNativeDir))
         {
             string n = Path.GetFileName(f);
             if (!(n.EndsWith(".c") || n.EndsWith(".h"))) continue;
-            File.Copy(f, Path.Combine(cpp, "native", n), true);
+            CopyIfChanged(f, Path.Combine(cpp, "native", n));
         }
         CopyTree(Path.Combine(EngineNativeDir, "sokol"), Path.Combine(cpp, "native", "sokol"));
-        File.Copy(Path.Combine(tpl, "CMakeLists.txt"), Path.Combine(cpp, "CMakeLists.txt"), true);
+        CopyIfChanged(Path.Combine(tpl, "CMakeLists.txt"), Path.Combine(cpp, "CMakeLists.txt"));
 
         // java: host (her build taze — engine'e ait), assets: game.pak
         CopyTree(Path.Combine(tpl, "java"), Path.Combine(gen, "java"));
@@ -498,6 +503,23 @@ public static class Program
     // java.util.Properties: '\' kacis karakteri -> yollar '/' ile; satir sonu kacislanir.
     static string PropEscape(string v) => v.Replace("\\", "/").Replace("\r", "").Replace("\n", "\\n");
 
+    // Icerik ayniysa dokunma (mtime korunur -> artimli native derleme gereksiz yere tetiklenmez).
+    static void CopyIfChanged(string src, string dst)
+    {
+        if (File.Exists(dst))
+        {
+            var a = File.ReadAllBytes(src);
+            var b = File.ReadAllBytes(dst);
+            if (a.AsSpan().SequenceEqual(b)) return;
+        }
+        File.Copy(src, dst, true);
+    }
+    static void WriteIfChanged(string path, string text)
+    {
+        if (File.Exists(path) && File.ReadAllText(path) == text) return;
+        File.WriteAllText(path, text);
+    }
+
     static void CopyTree(string src, string dst)
     {
         Directory.CreateDirectory(dst);
@@ -505,7 +527,7 @@ public static class Program
         {
             string to = Path.Combine(dst, Path.GetRelativePath(src, f));
             Directory.CreateDirectory(Path.GetDirectoryName(to));
-            File.Copy(f, to, true);
+            CopyIfChanged(f, to);
         }
     }
 
@@ -515,7 +537,7 @@ public static class Program
     //   index.html                        ILK uretimde sablondan (platforms/wasm/shell), sonra DOKUNULMAZ (kullaniciya ait)
     // Nesneler <proje>/Library/aot/wasm/obj/ altinda: generated.c her build, runtime/shim'ler mtime cache. Tarayici file:// ile wasm yuklemez:
     // Build/wasm/ bir HTTP sunucudan servis edilmeli (editor "Run in Browser" ya da `python -m http.server`).
-    static void BuildWasm(string projectRoot, string projName, string generatedC, AppInfo app)
+    static void BuildWasm(string projectRoot, string projName, List<CTranspiler.GeneratedFile> files, AppInfo app)
     {
         string pak = Path.Combine(projectRoot, "Build", "game.pak");
         if (!File.Exists(pak)) throw new Exception("game.pak yok (once asset pack): " + pak);
@@ -523,50 +545,32 @@ public static class Program
         if (!Directory.Exists(tpl)) throw new Exception("wasm sablonu yok: " + tpl);
         string outDir = Path.Combine(projectRoot, "Build", "wasm");
         Directory.CreateDirectory(outDir);
-        string objDir = Path.Combine(ProjectAotDir(projectRoot, "wasm"), "obj");
-        Directory.CreateDirectory(objDir);
+        string workDir = ProjectAotDir(projectRoot, "wasm");
+        string objDir = Path.Combine(workDir, "obj");
 
         DigitoyEngine.Build.EmsdkToolchain.Ensure(Console.WriteLine);
         bool debug = Environment.GetEnvironmentVariable("AOT_DEBUG") == "1";
-        string common = $"-w -DSOKOL_GLES3 {NativeIncludes}" + (debug ? " -g -DDIGITOYENGINE_DEBUG" : "");
-        string stamp = Path.Combine(objDir, ".toolchain");
-        bool sameToolchain = File.Exists(stamp) && File.ReadAllText(stamp) == DigitoyEngine.Build.EmsdkToolchain.Key + common;
-
-        // (kaynak, ek bayrak). generated.c -O1 (cok buyuk, derleme suresi); runtime/shim -O2. Shim'ler SOKOL_IMPL ile.
-        var units = new List<(string src, string flags, bool cache)>();
-        units.Add((generatedC, debug ? "-O0" : "-O1", false));
+        // Tip basina .c/.h (degismeyen yazilmaz) + yerlesik paralel/artimli surucu (emcc baslatici). Release: her sey -O2.
+        var genDir = Path.Combine(workDir, "gen");
+        var srcs = CTranspiler.WriteFiles(genDir, files, out int written, out int unchanged);
+        Console.WriteLine($"transpile -> {genDir}: {srcs.Count} .c ({written} yazildi, {unchanged} degismedi)");
+        var items = srcs.Select(s => new DigitoyEngine.Build.CcBuild.Item { Source = s }).ToList();
         foreach (var n in new[] { "vmrt.c", "corelib.c", "vmint.c", "de_app.c", "host_wasm.c" })
-            units.Add((Path.Combine(CRuntimeDir, n), "-O2", true));
+            items.Add(new DigitoyEngine.Build.CcBuild.Item { Source = Path.Combine(CRuntimeDir, n) });
         foreach (var n in new[] { "sokol_shim.c", "audio_shim.c", "de_fs.c" })
-            units.Add((Path.Combine(EngineNativeDir, n), "-O2 -DSOKOL_IMPL", true));
-        var headers = Directory.GetFiles(EngineNativeDir, "*.h", SearchOption.AllDirectories).Concat(Directory.GetFiles(CRuntimeDir, "*.h")).ToList();
-        DateTime newestHeader = headers.Count > 0 ? headers.Max(File.GetLastWriteTimeUtc) : DateTime.MinValue;
-
-        var objs = new List<string>();
-        int compiled = 0;
-        foreach (var (src, flags, cache) in units)
-        {
-            string obj = Path.Combine(objDir, Path.GetFileNameWithoutExtension(src) + ".o");
-            objs.Add(obj);
-            if (cache && sameToolchain && File.Exists(obj) && File.GetLastWriteTimeUtc(obj) >= File.GetLastWriteTimeUtc(src) && File.GetLastWriteTimeUtc(obj) >= newestHeader)
-                continue;
-            var (e, o) = RunEmcc($"{common} {flags} -c {Quote(src)} -o {Quote(obj)}");
-            if (e != 0) throw new Exception($"emcc derleme basarisiz: {src}\n{o}");
-            compiled++;
-        }
-        File.WriteAllText(stamp, DigitoyEngine.Build.EmsdkToolchain.Key + common);
-        Console.WriteLine($"emcc: {compiled}/{units.Count} birim derlendi");
-
+            items.Add(new DigitoyEngine.Build.CcBuild.Item { Source = Path.Combine(EngineNativeDir, n), ExtraFlags = "-DSOKOL_IMPL" });
+        var emcc = new DigitoyEngine.Build.CcBuild.Tool { Key = "emcc:" + DigitoyEngine.Build.EmsdkToolchain.Key, Start = DigitoyEngine.Build.EmsdkToolchain.Emcc };
+        string common = $"-w -DSOKOL_GLES3 {NativeIncludes} " + (debug ? "-O0 -g -DDIGITOYENGINE_DEBUG" : "-O2");
+        var res = DigitoyEngine.Build.CcBuild.Compile(emcc, objDir, common, items, Console.WriteLine);
+        var objs = res.Objects;
         // Link: WebGL2, bellek buyur, setjmp/longjmp (exception = longjmp + shadow stack), pak MEMFS'e gomulu (game.data).
+        // Nesne listesi rsp dosyasindan (CcBuild.Link; komut satiri limiti).
         string outJs = Path.Combine(outDir, "game.js");
         string link = (debug ? "-g -sASSERTIONS=1" : "-O2") +
             " -sUSE_WEBGL2=1 -sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2 -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=64MB -sSTACK_SIZE=8MB" +
             " -sSUPPORT_LONGJMP=emscripten -sENVIRONMENT=web -sEXIT_RUNTIME=0 -sMODULARIZE=0 -sEXPORT_NAME=Module" +
-            " -sEXPORTED_RUNTIME_METHODS=UTF8ToString" +
-            $" --preload-file {Quote(pak + "@/data/Build/game.pak")}" +
-            $" {string.Join(" ", objs.Select(Quote))} -o {Quote(outJs)}";
-        var (le, lo) = RunEmcc(link);
-        if (le != 0) throw new Exception($"emcc link hatasi (exit {le}):\n{lo}");
+            " -sEXPORTED_RUNTIME_METHODS=UTF8ToString";
+        DigitoyEngine.Build.CcBuild.Link(emcc, objs, $"--preload-file {Quote(pak + "@/data/Build/game.pak")}", link, outJs, Console.WriteLine);
         Console.WriteLine($"emcc ok -> {Path.Combine(outDir, "game.wasm")} ({new FileInfo(Path.Combine(outDir, "game.wasm")).Length / 1024} KB wasm, {new FileInfo(Path.Combine(outDir, "game.data")).Length / 1024} KB data)");
 
         // kabuk: yalniz yoksa (kullaniciya ait)

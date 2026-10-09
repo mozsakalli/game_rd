@@ -73,7 +73,17 @@ namespace DigitoyEngine.Build
 
         public sealed class Result { public List<string> Objects = new List<string>(); public int Compiled, Skipped; public TimeSpan Elapsed; }
 
+        // Derleyici baslatici: duz exe (clang) ya da ozel ortamli komut (emcc: python + .emscripten). Key bayrak damgasina girer.
+        public sealed class Tool
+        {
+            public string Key;
+            public Func<string, ProcessStartInfo> Start;
+            public static Tool Exe(string path) => new Tool { Key = path, Start = args => new ProcessStartInfo(path, args) };
+        }
+
         public static Result Compile(string cc, string objDir, string baseFlags, IEnumerable<Item> items, Action<string> log = null, int parallelism = 0)
+            => Compile(Tool.Exe(cc), objDir, baseFlags, items, log, parallelism);
+        public static Result Compile(Tool cc, string objDir, string baseFlags, IEnumerable<Item> items, Action<string> log = null, int parallelism = 0)
         {
             Directory.CreateDirectory(objDir);
             var sw = Stopwatch.StartNew();
@@ -86,7 +96,7 @@ namespace DigitoyEngine.Build
                 var obj = Path.Combine(objDir, stem + ".o");
                 if (!used.Add(obj)) obj = Path.Combine(objDir, stem + "_" + (uint)Fwd(Path.GetFullPath(it.Source)).GetHashCode() + ".o");
                 r.Objects.Add(obj);
-                var flags = (baseFlags + " " + it.ExtraFlags).Trim() + " :: " + cc;
+                var flags = (baseFlags + " " + it.ExtraFlags).Trim() + " :: " + cc.Key;
                 if (NeedsBuild(Path.GetFullPath(it.Source), obj, flags)) todo.Add((it, obj, flags));
                 else r.Skipped++;
             }
@@ -103,6 +113,16 @@ namespace DigitoyEngine.Build
             });
             r.Compiled = todo.Count;
             r.Elapsed = sw.Elapsed;
+            // Yetim nesneler: bu build'in listesinde olmayan .o/.d/.flags (artik uretilmeyen tipler) silinir — dizin icerigi
+            // hicbir zaman "derlenecekler" anlamina gelmez; liste her build acik verilir.
+            var keep = new HashSet<string>(r.Objects.Select(o => Path.GetFullPath(o)), StringComparer.OrdinalIgnoreCase);
+            foreach (var f in Directory.GetFiles(objDir))
+            {
+                var stem = f.EndsWith(".o.d", StringComparison.OrdinalIgnoreCase) ? f.Substring(0, f.Length - 2)
+                         : f.EndsWith(".o.flags", StringComparison.OrdinalIgnoreCase) ? f.Substring(0, f.Length - 6)
+                         : f.EndsWith(".o", StringComparison.OrdinalIgnoreCase) ? f : null;
+                if (stem != null && !keep.Contains(Path.GetFullPath(stem))) { try { File.Delete(f); } catch { } }
+            }
             if (!errors.IsEmpty) throw new Exception($"C derleme hatasi ({errors.Count} dosya):\n" + string.Join("\n", errors.Take(5)));
             log?.Invoke($"cc: {r.Compiled} derlendi, {r.Skipped} guncel ({r.Elapsed.TotalSeconds:F1} s, {po.MaxDegreeOfParallelism} paralel)");
             return r;
@@ -110,6 +130,8 @@ namespace DigitoyEngine.Build
 
         // Link: nesne listesi rsp dosyasindan (Windows komut satiri limiti); yollar ileri egik cizgi (rsp'de '\' kacis).
         public static void Link(string cc, IEnumerable<string> objects, string extraInputs, string ldflags, string output, Action<string> log = null)
+            => Link(Tool.Exe(cc), objects, extraInputs, ldflags, output, log);
+        public static void Link(Tool cc, IEnumerable<string> objects, string extraInputs, string ldflags, string output, Action<string> log = null)
         {
             var sw = Stopwatch.StartNew();
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(output)));
@@ -121,9 +143,10 @@ namespace DigitoyEngine.Build
             log?.Invoke($"link: {output} ({new FileInfo(output).Length / 1024} KB, {sw.Elapsed.TotalSeconds:F1} s)");
         }
 
-        static (int, string) Run(string file, string args)
+        static (int, string) Run(Tool tool, string args)
         {
-            var psi = new ProcessStartInfo(file, args) { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false };
+            var psi = tool.Start(args);
+            psi.RedirectStandardOutput = true; psi.RedirectStandardError = true; psi.UseShellExecute = false;
             using var p = Process.Start(psi);
             var err = p.StandardError.ReadToEndAsync();
             var outp = p.StandardOutput.ReadToEnd();
