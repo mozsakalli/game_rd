@@ -23,20 +23,23 @@ namespace DigitoyEngine.Language
     //       TK_ENUM    : (yerel enum) i32 nMembers, { i32 nameStr, i32 value }[]
     //       TK_CLASS/TK_STRUCT/TK_IFACE/TK_DELEGATE (yerel):
     //           u8 preferHost, i32 parentType, i32 nIfaces, i32 iface[], 
-    //           i32 nFields, { i32 nameStr, i32 type, u8 isStatic }[]       (yalniz BILDIRILEN alanlar)
+    //           i32 nFields, { i32 nameStr, i32 type, u8 isStatic, u16 cilattrs, ATTRS }[]       (yalniz BILDIRILEN alanlar)
     //           i32 nVSlots, { i32 declMethod (slotu acan kok bildiren), i32 implMethod }[]   (tam vtable; kok adiyla host slotuna eslenir)
     //           i32 nITables, { i32 ifaceType, i32 n, { i32 ifaceMethod, i32 implMethod }[] }[]
     //           delegate: i32 retType, i32 nParams, i32 param[]
+    //           u32 cilattrs (TypeAttributes), ATTRS
+    //   ATTRS : i32 n, { i32 attrType, i32 ctorMethod, i32 nFixed, VALUE[nFixed], i32 nNamed, { i32 nameStr, u8 isField, VALUE }[] }[]
+    //           (v3; host reflection: IsDefined/GetCustomAttributes modul uyelerinde; instance lazy, host ctor'u ile kurulur)
     //   FIELD[nField]  : i32 ownerType, i32 nameStr, u8 isStatic, i32 fieldType   (op.Field referanslari)
-    //   METHOD[nMethod]: u8 kind (0=extern 1=local), i32 nameStr (EncodeName), i32 ownerType(-1), u8 flags (1=static 2=virtual/override 4=preferHost 8=ctor)
+    //   METHOD[nMethod]: u8 kind (0=extern 1=local), i32 nameStr (EncodeName), i32 ownerType(-1), u8 flags (1=static 2=virtual/override 4=preferHost 8=ctor 16=stub)
     //       i32 retType, i32 nArgs, { i32 type, u8 flags (1=ref 2=out) }[]
-    //       local: i32 displayStr, i32 fileStr, i32 stubReasonStr(-1), i32 nLocals, i32 localType[], i32 nOps, OP[nOps]
+    //       local: u16 cilattrs, ATTRS, i32 displayStr, i32 fileStr, i32 stubReasonStr(-1), i32 nLocals, i32 localType[], i32 nOps, OP[nOps]
     //   OP: u8 opcode (OpType), i32 slot, i32 line, i32 field, i32 code, i32 prim, u8 valTag + payload
-    //       valTag: 0 yok | 1 i32 | 2 f32 | 3 f64 | 4 i64 | 5 str(i32) | 6 bool(u8) | 7 char(u16) | 8 i16 | 9 u8 | 10 u32 | 11 u64 | 12 u16 | 13 i8
+    //       valTag: 0 yok | 1 i32 | 2 f32 | 3 f64 | 4 i64 | 5 str(i32) | 6 bool(u8) | 7 char(u16) | 8 i16 | 9 u8 | 10 u32 | 11 u64 | 12 u16 | 13 i8 | 14 type(i32)
     public static class ModuleWriter
     {
         public const uint Magic = 0x444F4D44; // "DMOD"
-        public const uint Version = 2; // v2: baslikta infoStr (uretici + engine surumu; tani)
+        public const uint Version = 3; // v3: custom attribute'lar + cilattrs (tip/alan/metot) -> modul tipleri host reflection'inda tam meta
 
         public const byte TK_SCALAR = 0, TK_ARRAY = 1, TK_FIXED = 2, TK_POINTER = 3, TK_EXTERN = 4, TK_ENUM = 5,
                           TK_CLASS = 6, TK_STRUCT = 7, TK_IFACE = 8, TK_DELEGATE = 9;
@@ -139,6 +142,29 @@ namespace DigitoyEngine.Language
                 return i;
             }
 
+            // Yazilabilir attribute: tipi class, ctor'u cozulmus, sabit arg sayisi tutan (CTranspiler.EmittableAttrs ile ayni kural;
+            // ek olarak Type/host-disi arglar: string/sayi/bool/enum/Type). Instance host'ta lazy kurulur (vmint).
+            public List<PrimitiveAttribute> Attrs(List<PrimitiveAttribute> attrs)
+            {
+                var r = new List<PrimitiveAttribute>();
+                if (attrs == null) return r;
+                foreach (var a in attrs)
+                    if (a.Type != null && a.Type.Type == PrimitiveType.Model && !a.Type.IsStruct && !a.Type.IsGeneric && a.Ctor != null && !a.Ctor.Unresolved
+                        && a.Ctor.Arguments.Count == a.FixedArgs.Count + 1)
+                        r.Add(a);
+                return r;
+            }
+            void VisitValue(object v) { if (v is string s) Str(s); else if (v is Primitive tp) Type(tp); }
+            void VisitAttrs(List<PrimitiveAttribute> attrs)
+            {
+                foreach (var a in Attrs(attrs))
+                {
+                    Type(a.Type); Method(a.Ctor, "attr:" + a.Type.Name);
+                    foreach (var v in a.FixedArgs) VisitValue(v);
+                    foreach (var (name, v, _) in a.NamedArgs) { Str(name); VisitValue(v); }
+                }
+            }
+
             public void Drain()
             {
                 while (work.Count > 0)
@@ -163,8 +189,9 @@ namespace DigitoyEngine.Language
                 if (p.IsEnum) { foreach (var m in p.EnumMembers.Keys) Str(m); return; }
                 Type(p.Parent);
                 foreach (var i in p.Interfaces) Type(i);
-                foreach (var f in p.Fields) { Str(f.Name); Type(f.Type); }
-                foreach (var f in p.StaticFields) { Str(f.Name); Type(f.Type); }
+                foreach (var f in p.Fields) { Str(f.Name); Type(f.Type); VisitAttrs(f.Attributes); }
+                foreach (var f in p.StaticFields) { Str(f.Name); Type(f.Type); VisitAttrs(f.Attributes); }
+                VisitAttrs(p.Attributes);
                 if (p.IsDelegate) { Type(p.DelegateReturn); foreach (var dp in p.DelegateParams) Type(dp); }
                 // yerel tipin TUM uyeleri (host sanal/iface uzerinden her birine girebilir; ctor/statikler modul kodundan)
                 foreach (var c in ctx.AllCodes)
@@ -190,6 +217,7 @@ namespace DigitoyEngine.Language
                 if (c.UntranslatableReason != null)
                     report.ReachableStubs.Add((c, via.TryGetValue(c, out var v) ? v : "?"));
                 Str(CTranspiler.CodeDisplay(c)); Str(c.SourceFile); Str(c.UntranslatableReason);
+                VisitAttrs(c.Attributes);
                 foreach (var l in c.Locals) Type(l);
                 foreach (var op in c.Operations)
                 {
@@ -297,7 +325,7 @@ namespace DigitoyEngine.Language
             foreach (var i in p.Interfaces) b.Write(w.Type(i));
             var fields = p.Fields.Concat(p.StaticFields).ToList();
             b.Write(fields.Count);
-            foreach (var f in fields) { b.Write(w.Str(f.Name)); b.Write(w.Type(f.Type)); b.Write((byte)(f.IsStatic ? 1 : 0)); }
+            foreach (var f in fields) { b.Write(w.Str(f.Name)); b.Write(w.Type(f.Type)); b.Write((byte)(f.IsStatic ? 1 : 0)); b.Write((ushort)f.CilAttributes); WriteAttrs(w, b, f.Attributes); }
             // vtable: her slot icin (kok bildiren, bu tipteki impl). Kok = slotu ilk acan virtual (parent zincirinde ayni isim).
             b.Write(p.VTable.Count);
             for (int i = 0; i < p.VTable.Count; i++)
@@ -319,6 +347,21 @@ namespace DigitoyEngine.Language
                 b.Write(w.Type(p.DelegateReturn)); b.Write(p.DelegateParams.Count);
                 foreach (var dp in p.DelegateParams) b.Write(w.Type(dp));
             }
+            b.Write((uint)p.CilAttributes); WriteAttrs(w, b, p.Attributes);
+        }
+
+        static void WriteAttrs(W w, BinaryWriter b, List<PrimitiveAttribute> all)
+        {
+            var attrs = w.Attrs(all);
+            b.Write(attrs.Count);
+            foreach (var a in attrs)
+            {
+                b.Write(w.Type(a.Type)); b.Write(w.Method(a.Ctor, "attr"));
+                b.Write(a.FixedArgs.Count);
+                foreach (var v in a.FixedArgs) WriteValue(w, b, v);
+                b.Write(a.NamedArgs.Count);
+                foreach (var (name, v, isField) in a.NamedArgs) { b.Write(w.Str(name)); b.Write((byte)(isField ? 1 : 0)); WriteValue(w, b, v); }
+            }
         }
 
         static void WriteMethod(W w, BinaryWriter b, Code c)
@@ -330,6 +373,7 @@ namespace DigitoyEngine.Language
             b.Write(w.Type(c.ReturnType)); b.Write(c.Arguments.Count);
             foreach (var a in c.Arguments) { b.Write(w.Type(a.Type)); b.Write((byte)((a.IsRef ? 1 : 0) | (a.IsOut ? 2 : 0))); }
             if (!local) return;
+            b.Write((ushort)c.CilAttributes); WriteAttrs(w, b, c.Attributes);
             b.Write(w.Str(CTranspiler.CodeDisplay(c))); b.Write(w.Str(c.SourceFile));
             b.Write(w.Str(c.UntranslatableReason)); // stub nedeni (-1 yok); interpreter ilk cagrida NotImplementedException firlatir
             b.Write(c.Locals.Count);
@@ -361,6 +405,7 @@ namespace DigitoyEngine.Language
                 case ulong ul: b.Write((byte)11); b.Write(ul); break;
                 case ushort us: b.Write((byte)12); b.Write(us); break;
                 case sbyte sb: b.Write((byte)13); b.Write(sb); break;
+                case Primitive tp: b.Write((byte)14); b.Write(w.Type(tp)); break; // attribute typeof(X) argumani
                 default: throw new Exception("ModuleWriter: desteklenmeyen literal tipi: " + v.GetType().Name);
             }
         }

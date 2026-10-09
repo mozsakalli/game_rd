@@ -20,8 +20,11 @@ int vmint_collect(void);
 int vmint_run_entry(VmModule *m);
 // Isimle metot bul + cagir (DeSlot ABI: thunk sozlesmesiyle ayni). Donus 0 = bulunamadi.
 int vmint_call(VmModule *m, const char *encodedName, DeSlot *args, DeSlot *ret);
-// Tek referans argumanli static yerel metot (Registry.RegisterAll(catalog) gibi). Donus 0 = bulunamadi.
+// Tek referans argumanli static yerel metot. Donus 0 = bulunamadi.
 int vmint_call_obj(VmModule *m, const char *encodedName, void *arg0);
+// Modul tipleri (host katalog kaydi, Module.cs): i. tipin System.Type wrapper'i; yerel class/struct degilse 0.
+int vmint_type_count(VmModule *m);
+GCHeader *vmint_type_at(VmModule *m, int i);
 void vmint_set_name(VmModule *m, const char *name);
 // host -> modul girisleri (uretilen trampoline'ler cagirir)
 void vmint_enter_virtual(GCHeader *self, unsigned long long rootHash, DeSlot *a, DeSlot *r);

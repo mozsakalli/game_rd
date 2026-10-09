@@ -12,11 +12,11 @@ namespace DigitoyEditor;
 
 // Dinamik modul publish'i (docs/modules.md Faz D): acik proje bir .pak modulu olarak paketlenir.
 // Zincir (hepsi ana thread; aotcompiler 'module' kisa surer — corelib+engine frontend + IR yazimi):
-//   1) Modul assembly'si: Assets/**/*.cs + module Registry.g.cs (yalniz oyun assembly'sinin tipleri, benzersiz
-//      ad alani) Roslyn ile AOT corelib + AOT engine (+ varsa host oyun DLL'i) referanslariyla derlenir.
+//   1) Modul assembly'si: Assets/**/*.cs Roslyn ile AOT corelib + AOT engine (+ varsa host oyun DLL'i) referanslariyla derlenir
+//      (uretilmis kayit kodu yok; tipler yuklemede reflection ile kataloga girer).
 //      AotCompatCheck ile ayni referans kumesi: editorde derlenen ama corelib'de olmayan API burada hata verir.
 //   2) aotcompiler module <code.dmod> --bundled <modul.dll> [--provided <hostDll>]
-//   3) Pak: AssetPackBuilder (sahneler + asset'ler + .project) + __module/code.dmod + __module/entry
+//   3) Pak: AssetPackBuilder (sahneler + asset'ler + .project) + __module/code.dmod
 // Cikti: <proje>/Build/<ProjeAdi>.module.pak -> host oyun kodunda Module.LoadAsync(yol).
 public static class ModuleBuilder
 {
@@ -32,8 +32,6 @@ public static class ModuleBuilder
             return Fail("oyun kodu derlemesi suruyor; bitince tekrar deneyin");
         if (AssetWatcher.Failed)
             return Fail("oyun kodu derlenemiyor; once hatalari giderin (Console)");
-        // docs/registry-removal.md: modul giris noktasi Registry$RegisterAll idi; Faz 6'da tip listesi sozlesmesiyle geri gelir.
-        return Fail("module build gecici olarak devre disi: Registry kaldirildi (docs/registry-removal.md Faz 6)");
         if (!AotCompatCheck.Available)
             return Fail("AOT referanslari yok (corelib/engine): once bir kez Build Player alin: " + AotCompatCheck.AotEngineDll);
         var gameAsm = App.GameAssembly;
@@ -44,15 +42,13 @@ public static class ModuleBuilder
         Directory.CreateDirectory(buildDir);
         string safeName = Sanitize(project.Name);
         string asmName = safeName + ".Module";
-        string ns = safeName + ".Generated";
-        string entryName = ns + ".Registry$RegisterAll_DigitoyEngine_TypeCatalog"; // Code.EncodeName sozlesmesi
 
-        // 1) kaynaklar: scriptler (+ editor-yalniz haric). Modul Registry'si kalkti (Faz 6: tip listesi).
+        // 1) kaynaklar: scriptler (+ editor-yalniz haric). Kayit kodu YOK: modul tipleri yuklemede reflection ile kataloga girer
+        //    (vmint tip listesi; docs/registry-removal.md Faz 6).
         var scripts = new List<string>();
         foreach (var f in Directory.GetFiles(project.AssetsPath, "*.cs", SearchOption.AllDirectories))
             if (!f.Replace('\\', '/').Contains("/Editor/"))
                 scripts.Add(f);
-        string registrySrc = null;
 
         string hostDll = project.Player.moduleHostDll;
         if (!string.IsNullOrWhiteSpace(hostDll) && !Path.IsPathRooted(hostDll))
@@ -61,7 +57,7 @@ public static class ModuleBuilder
             return Fail("moduleHostDll bulunamadi: " + hostDll);
 
         string dll = Path.Combine(buildDir, asmName + ".dll");
-        if (!CompileModuleDll(scripts, registrySrc, asmName, hostDll, dll))
+        if (!CompileModuleDll(scripts, asmName, hostDll, dll))
             return false;
         EditorLog.Info($"[module] 1/3 assembly: {dll} ({scripts.Count} script)");
 
@@ -73,18 +69,14 @@ public static class ModuleBuilder
 
         // 3) pak
         string outPath = Path.Combine(project.Root, "Build", safeName + ".module.pak");
-        var extra = new List<(string, byte[])>
-        {
-            (Module.CodeKey, File.ReadAllBytes(dmod)),
-            (Module.EntryKey, Encoding.UTF8.GetBytes(entryName)),
-        };
+        var extra = new List<(string, byte[])> { (Module.CodeKey, File.ReadAllBytes(dmod)) };
         if (!AssetPackBuilder.Build(outPath, extra))
             return Fail("modul pak'i uretilemedi");
         EditorLog.Info($"[module] 3/3 OK -> {outPath} ({new FileInfo(outPath).Length / 1024} KB); host: Module.LoadAsync(\"{outPath}\")");
         return true;
     }
 
-    static bool CompileModuleDll(List<string> scripts, string registrySrc, string asmName, string hostDll, string outDll)
+    static bool CompileModuleDll(List<string> scripts, string asmName, string hostDll, string outDll)
     {
         try
         {
@@ -98,9 +90,7 @@ public static class ModuleBuilder
             var parse = new CSharpParseOptions(LanguageVersion.Latest, preprocessorSymbols: new[] { "DE_AOT", "DE_MODULE" });
             var trees = new List<SyntaxTree>();
             foreach (var f in scripts)
-                trees.Add(CSharpSyntaxTree.ParseText(File.ReadAllText(f), parse, path: f));
-            if (registrySrc != null)
-                trees.Add(CSharpSyntaxTree.ParseText(registrySrc, parse, path: "Registry.g.cs"));
+                trees.Add(CSharpSyntaxTree.ParseText(Microsoft.CodeAnalysis.Text.SourceText.From(File.ReadAllText(f), Encoding.UTF8), parse, path: f)); // PDB: encoding'li kaynak
             var comp = CSharpCompilation.Create(asmName, trees, refs,
                 new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true,
                     optimizationLevel: OptimizationLevel.Release));

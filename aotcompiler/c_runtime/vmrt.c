@@ -725,18 +725,99 @@ static void digitoyengine_member_target(DigitoyEngineMember *member, GCHeader *t
     if (!DIGITOYENGINE_is(target->type, member->declaringType))
         DIGITOYENGINE_cast_fail(target->type, member->declaringType);
 }
+static void digitoyengine_slot_from_object(DeSlot *s, unsigned char tag, const Type *pt, GCHeader *o);
+static GCHeader *digitoyengine_object_from_slot(const DeSlot *s, unsigned char tag, const Type *rt);
+// get/set fonksiyonsuz uye (modul tipleri, vmint): tek meta'daki tag/offset/size/addr ile genel erisim
+static void *digitoyengine_member_addr(DigitoyEngineMember *member, GCHeader *target)
+{
+    if (member->isStatic) return member->addr;
+    if (member->declaringType && (member->declaringType->flags & DIGITOYENGINE_TYPE_STRUCT))
+        return (char *)target + sizeof(GCHeader) + member->offset; // kutu payload'u icinde
+    return (char *)target + member->offset;
+}
+static GCHeader *digitoyengine_member_get_generic(DigitoyEngineMember *member, GCHeader *target)
+{
+    void *p = digitoyengine_member_addr(member, target);
+    if (!p) DIGITOYENGINE_throw_io("reflection: static alan adresi yok");
+    DeSlot s;
+    switch (member->tag)
+    {
+    case 'o': return *(GCHeader **)p;
+    case 'v':
+        if (!member->valueType) DIGITOYENGINE_throw_io("reflection: struct alanin descriptor'u yok");
+        return (GCHeader *)digitoyengine_box_struct(member->valueType, p, member->size);
+    case 'p': s.p = *(void **)p; break;
+    case 'i': s.i = *(cil_int *)p; break;
+    case 'u': s.u = *(cil_uint *)p; break;
+    case 'l': s.l = *(cil_long *)p; break;
+    case 'q': s.q = *(cil_ulong *)p; break;
+    case 'h': s.i = *(short *)p; break;
+    case 'H': s.u = *(unsigned short *)p; break;
+    case 'b': s.u = *(unsigned char *)p; break;
+    case 'z': s.i = *(signed char *)p; break;
+    case 'c': s.u = *(unsigned short *)p; break;
+    case 'B': s.i = *(cil_int *)p != 0; break;
+    case 'f': s.f = *(cil_float *)p; break;
+    case 'd': s.d = *(cil_double *)p; break;
+    default: DIGITOYENGINE_throw_io("reflection: bilinmeyen alan etiketi"); return 0;
+    }
+    return digitoyengine_object_from_slot(&s, member->tag, member->valueType);
+}
+static void digitoyengine_member_set_generic(DigitoyEngineMember *member, GCHeader *target, GCHeader *value)
+{
+    void *p = digitoyengine_member_addr(member, target);
+    if (!p) DIGITOYENGINE_throw_io("reflection: static alan adresi yok");
+    DeSlot s;
+    digitoyengine_slot_from_object(&s, member->tag, member->valueType, value);
+    switch (member->tag)
+    {
+    case 'o':
+        *(GCHeader **)p = (GCHeader *)s.p;
+        if (!member->isStatic && s.p) gc_write_barrier(target, (GCHeader *)s.p);
+        return;
+    case 'v':
+        memcpy(p, s.p, member->size);
+        if (!member->isStatic && value) gc_write_barrier(target, value); // kutu grilenir -> icindeki ref'ler taranir (kopya ayni nesnelere isaret eder)
+        return;
+    case 'p': *(void **)p = s.p; return;
+    case 'i': *(cil_int *)p = s.i; return;
+    case 'u': *(cil_uint *)p = s.u; return;
+    case 'l': *(cil_long *)p = s.l; return;
+    case 'q': *(cil_ulong *)p = s.q; return;
+    case 'h': *(short *)p = (short)s.i; return;
+    case 'H': *(unsigned short *)p = (unsigned short)s.u; return;
+    case 'b': *(unsigned char *)p = (unsigned char)s.u; return;
+    case 'z': *(signed char *)p = (signed char)s.i; return;
+    case 'c': *(unsigned short *)p = (unsigned short)s.u; return;
+    case 'B': *(cil_int *)p = s.i != 0; return;
+    case 'f': *(cil_float *)p = s.f; return;
+    case 'd': *(cil_double *)p = s.d; return;
+    default: DIGITOYENGINE_throw_io("reflection: bilinmeyen alan etiketi");
+    }
+}
 GCHeader *digitoyengine_member_get(DigitoyEngineMember *member, GCHeader *target)
 {
     digitoyengine_member_target(member, target);
     if (!member->get)
+    {
+        if (member->kind == DIGITOYENGINE_MEMBER_FIELD && member->declaringType && member->declaringType->module)
+            return digitoyengine_member_get_generic(member, target);
         DIGITOYENGINE_throw_io("reflection member is not readable");
+    }
     return member->get(target);
 }
 void digitoyengine_member_set(DigitoyEngineMember *member, GCHeader *target, GCHeader *value)
 {
     digitoyengine_member_target(member, target);
     if (!member->set)
+    {
+        if (member->kind == DIGITOYENGINE_MEMBER_FIELD && member->declaringType && member->declaringType->module)
+        {
+            digitoyengine_member_set_generic(member, target, value);
+            return;
+        }
         DIGITOYENGINE_throw_io("reflection member is not writable");
+    }
     member->set(target, value);
 }
 GCHeader *digitoyengine_reflect_ref(GCHeader *value, const Type *target)
@@ -910,7 +991,12 @@ GCHeader *digitoyengine_method_invoke(const MethodInfo *m, GCHeader *target, str
         GCHeader *box = (GCHeader *)gc_alloc(m->returnType);
         r.p = (char *)box + sizeof(GCHeader);
     }
-    m->thunk(fn, a, &r);
+    if (!vmint_try_invoke(fn, a, &r)) // modul metodu (vmint marker) -> yorumla; degilse host sekil thunk'u
+    {
+        if (!m->thunk)
+            DIGITOYENGINE_throw_io("MethodInfo.Invoke: metodun imza sekli host'ta yok");
+        m->thunk(fn, a, &r);
+    }
     return digitoyengine_object_from_slot(&r, m->ret_tag, m->returnType);
 }
 // vmstring_length/get/eq vmrt.h'da static inline (Mach-O duplicate cozumu)
@@ -1626,7 +1712,7 @@ GCHeader *digitoyengine_attr_instance(DeAttr *a)
 {
     if (!a->instance)
     {
-        a->instance = a->create();
+        a->instance = a->create ? a->create() : vmint_attr_create(a); // create yok = modul attribute'u (vmint: host ctor + named arg'lar)
         if (a->instance)
             gc_add_root(a->instance);
     }

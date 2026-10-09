@@ -24,11 +24,16 @@ enum
 };
 enum { TK_SCALAR, TK_ARRAY, TK_FIXED, TK_POINTER, TK_EXTERN, TK_ENUM, TK_CLASS, TK_STRUCT, TK_IFACE, TK_DELEGATE };
 #define DMOD_MAGIC 0x444F4D44u
-#define DMOD_VERSION 2u
+#define DMOD_VERSION 3u
 
 typedef struct VmT VmT;
 typedef struct VmMethod VmMethod;
-typedef struct VmField { const char *name; VmT *type; int isStatic; int offset; void *staddr; } VmField;
+// custom attribute kaydi (.dmod v3): host reflection icin DeAttr'a baglanir; instance lazy (vmint_attr_create)
+typedef struct VmAttrVal { unsigned char tag; union { int i; float f; double d; long long l; int str; int type; } v; } VmAttrVal;
+typedef struct VmAttrNamed { const char *name; unsigned char isField; VmAttrVal val; } VmAttrNamed;
+typedef struct VmAttr { VmT *type; VmMethod *ctor; int nfixed; VmAttrVal *fixed; int nnamed; VmAttrNamed *named; struct VmModule *mod; } VmAttr;
+typedef struct VmAttrs { int n; VmAttr *a; DeAttr *de; } VmAttrs;
+typedef struct VmField { const char *name; VmT *type; int isStatic; int offset; void *staddr; unsigned short cilattrs; VmAttrs attrs; } VmField;
 typedef struct VmFieldRef { VmT *owner; const char *name; int isStatic; VmT *type; int offset; void *addr; } VmFieldRef;
 typedef struct VmVSlot { VmMethod *decl, *impl; } VmVSlot;
 typedef struct VmITable { VmT *iface; int n; VmMethod **imethod, **impl; } VmITable;
@@ -59,6 +64,10 @@ struct VmT
     const void **vtable; VmMethod **vimpl; int nvtable; // cozulmus vtable (fn + yerel impl)
     IfaceImpl *iimpls; int niimpls;
     struct VmModule *mod;
+    // ---- tek meta (host reflection: modul tipleri de ayni yuzey) ----
+    unsigned cilattrs; VmAttrs attrs;
+    DigitoyEngineMember *members;     // yerel alanlar (Type.members)
+    MethodInfo *mitab; int nmi;       // bu tipin yerel metot kayitlari (bitisik; VmMethod.mi buraya isaret eder)
 };
 typedef struct VmArg { VmT *type; unsigned char isRef, isOut; } VmArg;
 typedef struct VmOp
@@ -72,9 +81,10 @@ struct VmMethod
     unsigned char local, isStatic, isVirtual, preferHost, isCtor, marker, resolvedExtern;
     const char *name; VmT *owner; VmT *ret; int nargs; VmArg *args;
     const char *display, *file, *stubReason; int nlocals; VmT **locals; int nops; VmOp *ops;
-    MethodInfo mi; int blobBytes; int *argBlobOff, *localBlobOff; int ntries; int *tryHandler;
+    MethodInfo *mi; int blobBytes; int *argBlobOff, *localBlobOff; int ntries; int *tryHandler;
     const MethodInfo *hostm; const void *fn; DeThunk thunk;
     struct VmModule *mod;
+    unsigned short cilattrs; VmAttrs attrs;
 };
 typedef struct VmClosure { GCHeader gc; GCHeader *target; VmMethod *m; } VmClosure;
 struct VmModule
@@ -464,10 +474,10 @@ static void vm_resolve_method(LoadCtx *L, VmMethod *m)
     { // trace etiketi: "[mod:ad] Gosterim" -> crash/exception raporlarinda modul frame'leri ayirt edilir
         const char *disp = m->display ? m->display : m->name; const char *mn = L->m->name ? L->m->name : "?";
         char *tag = (char *)vm_zalloc(strlen(disp) + strlen(mn) + 10); sprintf(tag, "[mod:%s] %s", mn, disp);
-        m->mi.name = vm_immortal_str(L->m, tag); free(tag);
+        m->mi->name = vm_immortal_str(L->m, tag); free(tag);
     }
-    m->mi.file = m->file ? vm_immortal_str(L->m, m->file) : 0;
-    m->mi.trypc_off = -1;
+    m->mi->file = m->file ? vm_immortal_str(L->m, m->file) : 0;
+    m->mi->trypc_off = -1;
     vm_marker_put(&m->marker, m);
     // op duzeyi: TryBegin'lere sabit try indeksi (vtag; CTranspiler tryIndexOf), CallVirtual/DelegateNew slotlarini host'a remap
     int tries = 0;
@@ -510,12 +520,46 @@ static VmT *vm_type_at(VmModule *m, int i) { return i < 0 ? 0 : m->types[i]; }
 static VmMethod *vm_method_at(VmModule *m, int i) { return i < 0 ? 0 : m->methods[i]; }
 static const char *vm_str_at(VmModule *m, int i) { return i < 0 ? 0 : m->strs[i]; }
 
+// attribute degeri (ModuleWriter.WriteValue etiketleri; 14 = Type)
+static int vm_read_value(Rd *r, VmAttrVal *v)
+{
+    v->tag = rd_u8(r);
+    switch (v->tag)
+    {
+    case 0: break; case 1: v->v.i = rd_i32(r); break; case 2: v->v.f = rd_f32(r); break; case 3: v->v.d = rd_f64(r); break;
+    case 4: v->v.l = rd_i64(r); break; case 5: v->v.str = rd_i32(r); break; case 6: v->v.i = rd_u8(r); break; case 7: v->v.i = rd_u16(r); break;
+    case 8: v->v.i = (short)rd_u16(r); break; case 9: v->v.i = rd_u8(r); break; case 10: v->v.i = (int)rd_u32(r); break; case 11: v->v.l = rd_i64(r); break;
+    case 12: v->v.i = rd_u16(r); break; case 13: v->v.i = (signed char)rd_u8(r); break; case 14: v->v.type = rd_i32(r); break;
+    default: return 0;
+    }
+    return 1;
+}
+static int vm_read_attrs(LoadCtx *L, Rd *r, VmAttrs *out)
+{
+    VmModule *m = L->m;
+    out->n = rd_i32(r);
+    if (r->err || out->n < 0 || out->n > 4096) { ld_err(L, "attribute tablosu bozuk", 0, 0); return 0; }
+    out->a = (VmAttr *)vm_zalloc(sizeof(VmAttr) * (out->n + 1));
+    for (int i = 0; i < out->n; i++)
+    {
+        VmAttr *a = &out->a[i]; a->mod = m;
+        a->type = vm_type_at(m, rd_i32(r)); a->ctor = vm_method_at(m, rd_i32(r));
+        a->nfixed = rd_i32(r); if (r->err || a->nfixed < 0 || a->nfixed > 64) { ld_err(L, "attribute argumanlari bozuk", 0, 0); return 0; }
+        a->fixed = (VmAttrVal *)vm_zalloc(sizeof(VmAttrVal) * (a->nfixed + 1));
+        for (int k = 0; k < a->nfixed; k++) if (!vm_read_value(r, &a->fixed[k])) { ld_err(L, "attribute literal etiketi bilinmiyor", 0, 0); return 0; }
+        a->nnamed = rd_i32(r); if (r->err || a->nnamed < 0 || a->nnamed > 64) { ld_err(L, "attribute named arg bozuk", 0, 0); return 0; }
+        a->named = (VmAttrNamed *)vm_zalloc(sizeof(VmAttrNamed) * (a->nnamed + 1));
+        for (int k = 0; k < a->nnamed; k++) { a->named[k].name = vm_str_at(m, rd_i32(r)); a->named[k].isField = rd_u8(r); if (!vm_read_value(r, &a->named[k].val)) { ld_err(L, "attribute literal etiketi bilinmiyor", 0, 0); return 0; } }
+    }
+    return 1;
+}
+
 static int vm_parse(LoadCtx *L, Rd *r)
 {
     VmModule *m = L->m;
     if (rd_u32(r) != DMOD_MAGIC) { ld_err(L, "dmod magic uyusmuyor", 0, 0); return 0; }
     unsigned ver = rd_u32(r);
-    if (ver != DMOD_VERSION) { ld_err(L, "dmod surumu desteklenmiyor (bu interpreter v2 ister)", 0, 0); return 0; }
+    if (ver != DMOD_VERSION) { ld_err(L, "dmod surumu desteklenmiyor (bu interpreter v3 ister; modulu yeniden Build > Module ile uretin)", 0, 0); return 0; }
     m->nstr = rd_i32(r); m->ntypes = rd_i32(r); m->nfields = rd_i32(r); m->nmethods = rd_i32(r); m->entry = rd_i32(r);
     int infoIdx = rd_i32(r);
     if (r->err || m->nstr < 0 || m->ntypes < 0) { ld_err(L, "dmod basligi bozuk", 0, 0); return 0; }
@@ -556,7 +600,7 @@ static int vm_parse(LoadCtx *L, Rd *r)
             t->preferHost = rd_u8(r); t->parent = vm_type_at(m, rd_i32(r));
             t->nifaces = rd_i32(r); t->ifaces = (VmT **)vm_zalloc(sizeof(VmT *) * (t->nifaces + 1)); for (int k = 0; k < t->nifaces; k++) t->ifaces[k] = vm_type_at(m, rd_i32(r));
             t->nfields = rd_i32(r); t->fields = (VmField *)vm_zalloc(sizeof(VmField) * (t->nfields + 1));
-            for (int k = 0; k < t->nfields; k++) { t->fields[k].name = vm_str_at(m, rd_i32(r)); t->fields[k].type = vm_type_at(m, rd_i32(r)); t->fields[k].isStatic = rd_u8(r); }
+            for (int k = 0; k < t->nfields; k++) { t->fields[k].name = vm_str_at(m, rd_i32(r)); t->fields[k].type = vm_type_at(m, rd_i32(r)); t->fields[k].isStatic = rd_u8(r); t->fields[k].cilattrs = rd_u16(r); if (!vm_read_attrs(L, r, &t->fields[k].attrs)) return 0; }
             t->nvslots = rd_i32(r); t->vslots = (VmVSlot *)vm_zalloc(sizeof(VmVSlot) * (t->nvslots + 1));
             for (int k = 0; k < t->nvslots; k++) { t->vslots[k].decl = vm_method_at(m, rd_i32(r)); t->vslots[k].impl = vm_method_at(m, rd_i32(r)); }
             t->nitables = rd_i32(r); t->itables = (VmITable *)vm_zalloc(sizeof(VmITable) * (t->nitables + 1));
@@ -567,6 +611,7 @@ static int vm_parse(LoadCtx *L, Rd *r)
                 for (int j = 0; j < it->n; j++) { it->imethod[j] = vm_method_at(m, rd_i32(r)); it->impl[j] = vm_method_at(m, rd_i32(r)); }
             }
             if (t->kind == TK_DELEGATE) { t->dret = vm_type_at(m, rd_i32(r)); t->ndparams = rd_i32(r); t->dparams = (VmT **)vm_zalloc(sizeof(VmT *) * (t->ndparams + 1)); for (int k = 0; k < t->ndparams; k++) t->dparams[k] = vm_type_at(m, rd_i32(r)); }
+            t->cilattrs = rd_u32(r); if (!vm_read_attrs(L, r, &t->attrs)) return 0;
             break;
         }
         }
@@ -581,6 +626,7 @@ static int vm_parse(LoadCtx *L, Rd *r)
         me->ret = vm_type_at(m, rd_i32(r)); me->nargs = rd_i32(r); me->args = (VmArg *)vm_zalloc(sizeof(VmArg) * (me->nargs + 1));
         for (int k = 0; k < me->nargs; k++) { me->args[k].type = vm_type_at(m, rd_i32(r)); unsigned char af = rd_u8(r); me->args[k].isRef = af & 1; me->args[k].isOut = (af >> 1) & 1; }
         if (!me->local) continue;
+        me->cilattrs = rd_u16(r); if (!vm_read_attrs(L, r, &me->attrs)) return 0;
         me->display = vm_str_at(m, rd_i32(r)); me->file = vm_str_at(m, rd_i32(r)); me->stubReason = vm_str_at(m, rd_i32(r));
         me->nlocals = rd_i32(r); me->locals = (VmT **)vm_zalloc(sizeof(VmT *) * (me->nlocals + 1)); for (int k = 0; k < me->nlocals; k++) me->locals[k] = vm_type_at(m, rd_i32(r));
         me->nops = rd_i32(r); me->ops = (VmOp *)vm_zalloc(sizeof(VmOp) * (me->nops + 1));
@@ -603,6 +649,15 @@ static int vm_parse(LoadCtx *L, Rd *r)
         }
         if (r->err) { ld_err(L, "metot tablosu bozuk: %s", me->name, 0); return 0; }
     }
+    // metot kayitlari (MethodInfo): sahibine gore bitisik tablolar (tek meta: Type.methods); sahipsizler tekil
+    for (int i = 0; i < m->ntypes; i++)
+    {
+        VmT *t = m->types[i]; if (t->kind == TK_SCALAR) continue;
+        int n = 0; for (int k = 0; k < m->nmethods; k++) if (m->methods[k]->owner == t && m->methods[k]->local) n++;
+        t->nmi = n; t->mitab = (MethodInfo *)vm_zalloc(sizeof(MethodInfo) * (n + 1)); n = 0;
+        for (int k = 0; k < m->nmethods; k++) if (m->methods[k]->owner == t && m->methods[k]->local) m->methods[k]->mi = &t->mitab[n++];
+    }
+    for (int k = 0; k < m->nmethods; k++) if (!m->methods[k]->mi) m->methods[k]->mi = (MethodInfo *)vm_zalloc(sizeof(MethodInfo));
     // skaler kimlik fixup: tablo girdileri kanonik paylasimli VmT ile degistirildi (yukarida), ama daha once okunan
     // referanslar placeholder kopyasina isaret ediyor olabilir -> tum VmT* alanlarini kanonige cek (kimlik karsilastirmalari icin)
 #define FIXT(x) do { VmT *_t = (x); if (_t && _t->kind == TK_SCALAR && vm_scalar[_t->tag] && vm_scalar[_t->tag] != _t) (x) = vm_scalar[_t->tag]; } while (0)
@@ -642,6 +697,137 @@ static void vm_statics_trace(void *f)
 static const void *vm_vtramp_for(unsigned long long rootHash) { const MethodInfo *m = digitoyengine_find_method(rootHash); return m ? m->tramp : 0; }
 static const void *vm_dtramp_for(const char *delegateName) { const Type *t = digitoyengine_find_type(vm_hash(delegateName)); return t ? t->delegate_tramp : 0; }
 static void vm_exec_frame(VmMethod *m, DeSlot *args, DeSlot *ret);
+
+// ---- tek meta, modul -> host yonu: yerel tiplerin uye/metot/attribute kayitlari (host reflection ayni yuzeyi gorur) ----
+static const Type *vm_meta_type(VmT *t)
+{
+    if (!t) return 0;
+    if (t->kind == TK_ARRAY && t->elem && t->elem->type && t->elem->kind != TK_ARRAY) return digitoyengine_array_type(t->elem->type, t->rank > 0 ? t->rank : 1);
+    return t->type;
+}
+static void vm_build_attrs(LoadCtx *L, VmAttrs *as)
+{
+    if (as->n == 0 || as->de) return;
+    as->de = (DeAttr *)vm_zalloc(sizeof(DeAttr) * as->n);
+    for (int i = 0; i < as->n; i++) { VmAttr *a = &as->a[i]; if (a->type) vm_resolve_type(L, a->type); as->de[i].type = a->type ? a->type->type : 0; as->de[i].data = a; }
+}
+static void vm_build_meta(LoadCtx *L)
+{
+    VmModule *m = L->m;
+    for (int i = 0; i < m->ntypes; i++)
+    {
+        VmT *t = m->types[i]; if (!t->isLocal || !t->ltype) continue;
+        Type *ty = &t->ltype->type;
+        ty->hash = vm_hash(t->name); ty->cilattrs = t->cilattrs;
+        unsigned char fl = ty->flags;
+        if (t->kind == TK_STRUCT) fl |= DIGITOYENGINE_TYPE_STRUCT;
+        if (t->kind == TK_IFACE) fl |= DIGITOYENGINE_TYPE_INTERFACE;
+        if (t->kind == TK_DELEGATE) fl |= DIGITOYENGINE_TYPE_DELEGATE;
+        if (t->kind == TK_ENUM) fl |= DIGITOYENGINE_TYPE_ENUM;
+        if (t->cilattrs & 0x80) fl |= DIGITOYENGINE_TYPE_ABSTRACT; // TypeAttributes.Abstract
+        ty->flags = fl;
+        vm_build_attrs(L, &t->attrs); ty->attrs = t->attrs.de; ty->nattrs = (unsigned char)(t->attrs.n > 255 ? 255 : t->attrs.n);
+        if (t->kind == TK_CLASS || t->kind == TK_STRUCT)
+        {
+            t->members = (DigitoyEngineMember *)vm_zalloc(sizeof(DigitoyEngineMember) * (t->nfields + 1));
+            for (int k = 0; k < t->nfields; k++)
+            {
+                VmField *f = &t->fields[k]; DigitoyEngineMember *d = &t->members[k];
+                int sz, al; vm_field_size(L, f->type, &sz, &al);
+                d->name = vm_immortal_str(m, f->name); d->declaringType = ty; d->valueType = vm_meta_type(f->type);
+                d->kind = DIGITOYENGINE_MEMBER_FIELD; d->isStatic = (unsigned char)f->isStatic; d->isInitOnly = (f->cilattrs & 0x20) != 0; // FieldAttributes.InitOnly
+                d->tag = f->type ? f->type->tag : 'o'; d->offset = (unsigned short)f->offset; d->size = (unsigned short)sz; d->addr = f->staddr; d->hash = vm_hash(f->name);
+                vm_build_attrs(L, &f->attrs); d->attrs = f->attrs.de; d->nattrs = (unsigned char)f->attrs.n; d->cilattrs = f->cilattrs;
+                // get/set = 0: vmrt generic yol (tag/offset) — descriptor->module != 0 oldugu icin secilir
+            }
+            ty->members = t->members; ty->nmembers = (unsigned short)t->nfields;
+        }
+        // metotlar: parse'ta ayrilan bitisik tablo. fn = marker (digitoyengine_method_invoke -> vmint_try_invoke), thunk = host sekli (sanal
+        // dispatch host trampoline'ine dusunce kullanilir), vslot = bu tipin vtable indeksi.
+        for (int k = 0; k < m->nmethods; k++)
+        {
+            VmMethod *me = m->methods[k]; if (me->owner != t || !me->local || !me->mi) continue;
+            MethodInfo *mi = me->mi;
+            mi->hash = vm_hash(me->name); mi->fn = &me->marker; mi->declaringType = ty; mi->returnType = vm_meta_type(me->ret);
+            int skip = me->isStatic ? 0 : 1; int np = me->nargs - skip; if (np < 0) np = 0;
+            mi->nparams = (unsigned char)np; mi->ret_tag = me->ret ? me->ret->tag : 'V';
+            if (np > 0)
+            {
+                const Type **pt = (const Type **)vm_zalloc(sizeof(Type *) * np); unsigned char *tg = (unsigned char *)vm_zalloc(np + 1);
+                for (int j = 0; j < np; j++) { VmArg *a = &me->args[skip + j]; pt[j] = vm_meta_type(a->type); tg[j] = (a->isRef || a->isOut) ? 'r' : (a->type ? a->type->tag : 'o'); }
+                mi->param_types = pt; mi->param_tags = tg;
+            }
+            mi->vslot = -1;
+            for (int s = 0; s < t->nvslots; s++) if (t->vslots[s].impl == me) { mi->vslot = (short)s; break; }
+            mi->flags = (unsigned char)((me->isStatic ? DIGITOYENGINE_METHOD_STATIC : 0) | (me->isVirtual ? DIGITOYENGINE_METHOD_VIRTUAL : 0) | (me->isCtor ? DIGITOYENGINE_METHOD_CTOR : 0) | (me->nops == 0 && t->kind == TK_IFACE ? DIGITOYENGINE_METHOD_ABSTRACT : 0));
+            int sh = vm_shape_of(me->ret, me->nargs, me->args, 0); mi->thunk = sh >= 0 ? digitoyengine_thunks[sh] : 0;
+            vm_build_attrs(L, &me->attrs); mi->attrs = me->attrs.de; mi->nattrs = (unsigned char)me->attrs.n; mi->cilattrs = me->cilattrs;
+        }
+        ty->methods = t->mitab; ty->nmethods = (unsigned short)t->nmi;
+    }
+}
+// attribute argumani -> kutulu nesne (ModuleWriter.WriteValue etiketleri)
+static GCHeader *vm_attr_box(VmModule *m, VmAttrVal *v)
+{
+    switch (v->tag)
+    {
+    case 1: case 10: return (GCHeader *)digitoyengine_box_i32(v->v.i);
+    case 2: return (GCHeader *)digitoyengine_box_f32(v->v.f);
+    case 3: return (GCHeader *)digitoyengine_box_f64(v->v.d);
+    case 4: case 11: return (GCHeader *)digitoyengine_box_i64(v->v.l);
+    case 5: return (GCHeader *)vm_literal(m, v->v.str);
+    case 6: return (GCHeader *)digitoyengine_box_bool(v->v.i);
+    case 7: return (GCHeader *)digitoyengine_box_char((cil_char)v->v.i);
+    case 8: return (GCHeader *)digitoyengine_box_i16((short)v->v.i);
+    case 9: return (GCHeader *)digitoyengine_box_u8((unsigned char)v->v.i);
+    case 12: return (GCHeader *)digitoyengine_box_u16((unsigned short)v->v.i);
+    case 13: return (GCHeader *)digitoyengine_box_i8((signed char)v->v.i);
+    case 14: { VmT *t = vm_type_at(m, v->v.type); return t && t->type ? digitoyengine_type_wrapper(t->type) : 0; }
+    default: return 0;
+    }
+}
+// DeAttr.create yok: modul attribute'u -> host (ya da yerel) attribute tipinin ctor'u kutulu arg'larla, sonra named arg'lar
+GCHeader *vmint_attr_create(DeAttr *a)
+{
+    VmAttr *va = (VmAttr *)a->data;
+    if (!va || !va->type || !va->type->type || !va->ctor) return 0;
+    const MethodInfo *ctor = va->ctor->local ? va->ctor->mi : va->ctor->hostm;
+    if (!ctor) return 0;
+    GCHeader *obj = (GCHeader *)gc_alloc(va->type->type);
+    VmArray *args = vmarray_new_e(va->nfixed, &vmobject_type);
+    for (int i = 0; i < va->nfixed; i++) ((GCHeader **)args->data)[i] = vm_attr_box(va->mod, &va->fixed[i]);
+    digitoyengine_method_invoke(ctor, obj, args);
+    for (int i = 0; i < va->nnamed; i++)
+    {
+        VmAttrNamed *na = &va->named[i]; GCHeader *val = vm_attr_box(va->mod, &na->val);
+        if (na->isField) { DigitoyEngineMember *f = digitoyengine_find_field(va->type->type, vm_hash(na->name)); if (f) digitoyengine_member_set(f, obj, val); continue; }
+        char buf[256]; snprintf(buf, sizeof buf, "set_%s", na->name);
+        GCHeader *w = digitoyengine_method_lookup(va->type->type, vmstring_from_cstr(buf), 0);
+        if (!w) continue;
+        MethodInfo *sm = (MethodInfo *)(size_t) * (long long *)((char *)w + sizeof(GCHeader));
+        VmArray *one = vmarray_new_e(1, &vmobject_type); ((GCHeader **)one->data)[0] = val;
+        digitoyengine_method_invoke(sm, obj, one);
+    }
+    return obj;
+}
+// MethodInfo.Invoke / Activator: fn bir modul metodu isaretcisiyse (marker) yorumla
+static void vm_enter(VmMethod *m, DeSlot *a, DeSlot *r);
+int vmint_try_invoke(const void *fn, DeSlot *a, DeSlot *r)
+{
+    VmMethod *vm = vm_marker_get(fn);
+    if (!vm) return 0;
+    vm_enter(vm, a, r);
+    return 1;
+}
+// Modulun tipleri (Module.cs katalog kaydi): i. tipin System.Type nesnesi; yerel class/struct degilse 0
+int vmint_type_count(VmModule *m) { return m ? m->ntypes : 0; }
+GCHeader *vmint_type_at(VmModule *m, int i)
+{
+    if (!m || i < 0 || i >= m->ntypes) return 0;
+    VmT *t = m->types[i];
+    if (!t->isLocal || !t->ltype || (t->kind != TK_CLASS && t->kind != TK_STRUCT)) return 0;
+    return digitoyengine_type_wrapper(&t->ltype->type);
+}
 
 static int vm_link(LoadCtx *L)
 {
@@ -719,6 +905,8 @@ static int vm_link(LoadCtx *L)
         }
         if (t->kind == TK_CLASS) { Type *ty = &t->ltype->type; ty->vtable = t->vtable; ty->nvtable = (unsigned short)t->nvtable; ty->itables = t->iimpls; ty->nitables = (unsigned short)t->niimpls; }
     }
+    vm_build_meta(L); // uye/metot/attribute kayitlari (vtable'lar kurulduktan sonra: vslot indeksleri)
+    if (L->failed) return 0;
     // closure tipi (delegate hedefi yerel metot)
     m->closureType.type.trace = vm_trace_closure; m->closureType.type.size = sizeof(VmClosure); m->closureType.type.base = &vmobject_type; m->closureType.type.module = &m->mod;
     m->closureType.type.name = vm_immortal_str(m, "<closure>");
@@ -1011,7 +1199,7 @@ static void vm_exec_frame(VmMethod *m, DeSlot *args, DeSlot *ret)
     if (m->stubReason) // cevrilemeyen govde (CTranspiler ile ayni sozlesme): sessiz sifir YASAK; frame trace'te gorunsun
     {
         char what[512]; snprintf(what, sizeof what, "AOT stub: %s -- %s", m->display ? m->display : m->name, m->stubReason);
-        DIGITOYENGINE_PUSH(&m->mi, 0);
+        DIGITOYENGINE_PUSH(m->mi, 0);
         DIGITOYENGINE_throw_notimpl(what);
     }
     if (vm_trace_ops < 0) vm_trace_ops = getenv("VMINT_TRACE") != 0;
@@ -1028,7 +1216,7 @@ static void vm_exec_frame(VmMethod *m, DeSlot *args, DeSlot *ret)
     for (int i = 0; i < m->nargs; i++) { F->args[i] = args[i]; if (m->argBlobOff[i] >= 0) { memcpy(F->blob + m->argBlobOff[i], args[i].p, m->args[i].type->size); F->args[i].p = F->blob + m->argBlobOff[i]; } }
     for (int i = 0; i < m->nlocals; i++) { F->locals[i].l = 0; if (m->localBlobOff[i] >= 0) F->locals[i].p = F->blob + m->localBlobOff[i]; }
     F->tempBase = vm_top;
-    DIGITOYENGINE_PUSH(&m->mi, 0);
+    DIGITOYENGINE_PUSH(m->mi, 0);
     VmOp *ops = m->ops; volatile int vpc = 0;
     for (;;)
     {
@@ -1400,9 +1588,19 @@ void vmint_unload(VmModule *m)
     m->nroots = 0;
     // Type.name/MethodInfo.name stringleri (m->names) descriptor'lar serbest kalana kadar koklu kalir (vm_free_module)
 }
+static void vm_unroot_attrs(VmAttrs *as) { if (as->de) for (int i = 0; i < as->n; i++) if (as->de[i].instance) { gc_remove_root(as->de[i].instance); as->de[i].instance = 0; } }
 static void vm_free_module(VmModule *m)
 {
-    for (int i = 0; i < m->ntypes; i++) { VmT *t = m->types[i]; if (t->kind == TK_SCALAR && vm_scalar[t->tag] == t) continue; if (t->ltype && t->ltype->type.wrapper) gc_remove_root(t->ltype->type.wrapper); }
+    for (int i = 0; i < m->ntypes; i++)
+    {
+        VmT *t = m->types[i]; if (t->kind == TK_SCALAR && vm_scalar[t->tag] == t) continue;
+        if (t->ltype && t->ltype->type.wrapper) gc_remove_root(t->ltype->type.wrapper);
+        // reflection wrapper'lari / attribute instance'lari (koklu): descriptor'larla birlikte gider
+        if (t->members) for (int k = 0; k < t->nfields; k++) { if (t->members[k].wrapper) gc_remove_root(t->members[k].wrapper); vm_unroot_attrs(&t->fields[k].attrs); }
+        if (t->mitab) for (int k = 0; k < t->nmi; k++) if (t->mitab[k].wrapper) gc_remove_root(t->mitab[k].wrapper);
+        vm_unroot_attrs(&t->attrs);
+    }
+    for (int i = 0; i < m->nmethods; i++) vm_unroot_attrs(&m->methods[i]->attrs);
     for (int i = 0; i < m->nnames; i++) gc_remove_root((GCHeader *)m->names[i]);
     // VmModule govdesi kalir (statics trace kaydi state'e bakar); buyuk bloklar serbest
     free(m->strblob); free(m->strs); free(m->literals); free(m->fields); free(m->roots); free(m->names);

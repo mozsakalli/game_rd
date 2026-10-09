@@ -217,8 +217,11 @@ typedef struct DeAttr
     const Type *type;
     GCHeader *(*create)(void);
     GCHeader *instance;
+    const void *data; /* create yok (modul attribute'u): vmint VmAttr kaydi (ctor + arg'lar) */
 } DeAttr;
 GCHeader *digitoyengine_attr_instance(DeAttr *a);                                             // lazy + gc_add_root
+GCHeader *vmint_attr_create(DeAttr *a);                                                        // vmint.c: modul attribute instance'i
+int vmint_try_invoke(const void *fn, DeSlot *a, DeSlot *r);                                   // vmint.c: fn modul metodu isaretcisi ise yorumla (1), degilse 0
 int digitoyengine_attrs_defined(const DeAttr *attrs, int n, const Type *attrType);          // DIGITOYENGINE_is(attr.type, attrType)
 struct VmArray *digitoyengine_attrs_array(DeAttr *attrs, int n, const Type *filter, const Type *elemType); // instance dizisi (filter 0 = hepsi)
 enum

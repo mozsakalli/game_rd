@@ -16,7 +16,7 @@ namespace DigitoyEngine;
 public sealed class Module
 {
     public const string CodeKey = "__module/code.dmod";
-    public const string EntryKey = "__module/entry"; // UTF-8: Registry.RegisterAll'in IR adi (Ns.Registry$RegisterAll_DigitoyEngine_TypeCatalog)
+    public const string EntryKey = "__module/entry"; // eski (Registry$RegisterAll); artik yazilmaz/okunmaz — kayit vmint tip listesinden (reflection)
 
     public string Path { get; private set; }
     public string Name { get; private set; }
@@ -52,13 +52,11 @@ public sealed class Module
             m.Name = name;
             m.StartScene = startScene;
             var code = await m._pak.ReadBytesAsync(CodeKey);
-            var entry = await m._pak.ReadBytesAsync(EntryKey);
-            if (code == null || code.Length == 0 || entry == null || entry.Length == 0)
+            if (code == null || code.Length == 0)
                 return m.Fail("modul pak'ta kod yok (" + CodeKey + "): Build > Module ile uretin");
-            string entryName = System.Text.Encoding.UTF8.GetString(entry);
 
             m.Catalog = new TypeCatalog(hostCatalog ?? Scene.Active.Catalog);
-            if (!m.LoadCode(code, entryName, out var err))
+            if (!m.LoadCode(code, out var err))
                 return m.Fail(err);
 
             if (!string.IsNullOrEmpty(m.StartScene))
@@ -147,14 +145,17 @@ public sealed class Module
     static extern int VmCollect();
     [DllImport(Lib, EntryPoint = "vmint_faulted")]
     static extern unsafe int vmint_faulted(void* m);
-    [DllImport(Lib, EntryPoint = "vmint_call_obj")]
-    static extern unsafe int vmint_call_obj(void* m, [MarshalAs(UnmanagedType.LPUTF8Str)] string encodedName, object arg0);
+    [DllImport(Lib, EntryPoint = "vmint_type_count")]
+    static extern unsafe int vmint_type_count(void* m);
+    [DllImport(Lib, EntryPoint = "vmint_type_at")]
+    static extern unsafe Type vmint_type_at(void* m, int i);
     static unsafe IntPtr VmLoad(byte* data, int len, string name, byte* err, int errcap) => (IntPtr)vmint_load(data, len, name, err, errcap);
     static unsafe void VmUnload(IntPtr m) => vmint_unload((void*)m);
     static unsafe int VmFaulted(IntPtr m) => vmint_faulted((void*)m);
-    static unsafe int VmCallObj(IntPtr m, string encodedName, object arg0) => vmint_call_obj((void*)m, encodedName, arg0);
 
-    unsafe bool LoadCode(byte[] code, string entryName, out string error)
+    // Modul kodu yuklenir; modulun somut Component tipleri (vmint tip listesi, tek meta) child kataloga REFLECTION ile kaydedilir —
+    // host'un kendi tipleri icin yaptiginin aynisi (TypeCatalog.RegisterReflective). Uretilmis kayit kodu / giris metodu yok.
+    unsafe bool LoadCode(byte[] code, out string error)
     {
         var err = new byte[512];
         fixed (byte* p = code)
@@ -167,11 +168,16 @@ public sealed class Module
             error = "modul kodu yuklenemedi: " + System.Text.Encoding.UTF8.GetString(err, 0, n);
             return false;
         }
-        if (VmCallObj(_vm, entryName, Catalog) == 0)
+        int count = vmint_type_count((void*)_vm), registered = 0;
+        for (int i = 0; i < count; i++)
         {
-            error = "modul registry girisi bulunamadi: " + entryName;
-            return false;
+            var t = vmint_type_at((void*)_vm, i);
+            if (t == null || t.IsAbstract || !typeof(Component).IsAssignableFrom(t) || t == typeof(Transform))
+                continue;
+            Catalog.RegisterReflective(t);
+            registered++;
         }
+        Console.WriteLine("[module] " + registered + " component tipi kaydedildi (reflection)");
         error = null;
         return true;
     }
@@ -181,7 +187,7 @@ public sealed class Module
 #else
     // .NET (editor/dev player): yorumlayici yok. Faz F: bundled assembly'ler child AssemblyLoadContext'e
     // yuklenip ayni Module API'siyle calisacak. Simdilik acik hata.
-    bool LoadCode(byte[] code, string entryName, out string error)
+    bool LoadCode(byte[] code, out string error)
     {
         error = "Module: .NET host'ta modul yukleme henuz yok (yalniz AOT player; docs/modules.md Faz F)";
         return false;

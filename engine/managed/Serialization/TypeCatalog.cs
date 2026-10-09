@@ -56,8 +56,10 @@ public sealed class TypeCatalog
         {
             if (_byName.TryGetValue(name, out var e))
                 return e;
-            if (!_aliases.TryGetValue(name, out name))
+            // out hedefi AYRI degisken: TryGetValue bulamayinca out'u null yapar; ayni degiskeni kullanmak parent'a null gonderirdi
+            if (!_aliases.TryGetValue(name, out var next))
                 return Parent?.Find(name);
+            name = next;
         }
         return Parent?.Find(name);
     }
