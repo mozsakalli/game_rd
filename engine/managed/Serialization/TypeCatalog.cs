@@ -26,9 +26,6 @@ public sealed class TypeCatalog
         // Animatable property tablosu (AnimRegistry): uretilmis katalogda dolu gelir,
         // reflection katalogunda ilk istekte expression-compile ile kurulur.
         public AnimProperty[] Anim;
-        // Pismis sahne okuyucusu (CatalogWriter uretir): alan indeksi -> tipli atama,
-        // boxing/Unsafe yok. null = reflection katalogu (editor): SceneBinary object yolu.
-        public SceneBinary.BakedReader ReadBaked;
     }
 
     readonly Dictionary<string, Entry> _byName = new();
@@ -91,60 +88,48 @@ public sealed class TypeCatalog
         _byType[e.Type] = e;
     }
 
-#if !DE_AOT // reflection katalogu: editor + .NET player; AOT'ta yalniz uretilmis Registry
+    // Reflection katalogu — editor, .NET player ve AOT ayni yol (Reflect kabugu; docs/registry-removal.md).
     public static TypeCatalog FromReflection()
         => FromAssemblies(AppDomain.CurrentDomain.GetAssemblies());
 
     // Editor bunu kullanir: yalniz bilinen assembly'ler (unload edilmis eski oyun
-    // assembly'si AppDomain listesinde gorunup ad cakismasi yaratmasin).
+    // assembly'si AppDomain listesinde gorunup ad cakismasi yaratmasin). AOT: assembly listesi yok sayilir.
     public static TypeCatalog FromAssemblies(params System.Reflection.Assembly[] assemblies)
     {
         var cat = new TypeCatalog();
-        foreach (var asm in assemblies)
-        {
-            Type[] types;
-            try { types = asm.GetTypes(); }
-            catch { continue; }
-            foreach (var t in types)
-            {
-                if (t.IsAbstract || !typeof(Component).IsAssignableFrom(t) || t == typeof(Transform))
-                    continue;
-                cat.RegisterReflective(t);
-            }
-        }
+        foreach (var t in Reflect.ComponentTypes(assemblies))
+            cat.RegisterReflective(t);
         return cat;
     }
 
-    // Tek tipin reflection-tabanli kaydi. Source generator da erisemedigi tipler
-    // (private nested) icin bunu cagirir — davranis FromAssemblies ile birebir.
+    // Tek tipin reflection-tabanli kaydi.
     public void RegisterReflective(Type tt)
     {
-        // Clone kapsami = serilesme kurali: public VEYA [SerializeField] alanlar
-        // (property-backing private alanlar da kopyalansin — LayoutBox deseni).
-        var all = tt.GetFields(System.Reflection.BindingFlags.Instance
-            | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.NonPublic);
-        int keep = 0;
-        for (int i = 0; i < all.Length; i++)
-            if (all[i].IsPublic || all[i].IsDefined(typeof(SerializeFieldAttribute), false))
-                all[keep++] = all[i];
-        var fields = all;
-        var fieldCount = keep;
+        // Clone kapsami (Unity Instantiate): TUM public alanlar + [SerializeField] private alanlar, shallow
+        // (nesne referanslari by-ref, Texture/Material dahil). Semadan GENIS: sema disi public alanlar da kopyalanir.
+        var fields = new List<System.Reflection.FieldInfo>();
+        for (var t = tt; t != null && t != typeof(object); t = t.BaseType)
+            foreach (var fi in Reflect.DeclaredInstanceFields(t))
+                if (fi.IsPublic || Reflect.IsSerialized(fi))
+                    fields.Add(fi);
+        var copy = fields.ToArray();
         Register(new Entry
         {
             Type = tt,
             Name = tt.Name,
-            Create = () => (Component)Activator.CreateInstance(tt, nonPublic: true),
+            Create = () => (Component)Reflect.NewInstance(tt),
             CopyTo = (src, dst) =>
             {
-                for (int i = 0; i < fieldCount; i++)
-                    fields[i].SetValue(dst, fields[i].GetValue(src));
+                for (int i = 0; i < copy.Length; i++)
+                    copy[i].SetValue(dst, copy[i].GetValue(src));
             },
             Flags = Component.ComputeFlags(tt),
             Schema = SerializedType.Build(tt),
+#if DE_EDITOR
             Previewable = tt.IsDefined(typeof(PreviewableAttribute), false),
-        });
-        foreach (MovedFromAttribute moved in tt.GetCustomAttributes(typeof(MovedFromAttribute), false))
-            RegisterAlias(moved.OldName, tt.Name);
-    }
 #endif
+        });
+        foreach (var oldName in Reflect.MovedFrom(tt))
+            RegisterAlias(oldName, tt.Name);
+    }
 }

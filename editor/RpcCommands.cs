@@ -131,6 +131,23 @@ static class RpcCommands
         return root;
     }
 
+    // Faz 0 regresyon araci (docs/registry-removal.md): player'daki Build/scene-dump.flag ciktisiyla birebir karsilastirilir.
+    [RpcCommand("scene.dumpFields", "Canli sahnenin katalog semasindaki TUM alanlarini metne doker (SceneDump; which: edit|play)")]
+    static DocNode DumpFields(RpcContext ctx, string which = "edit")
+    {
+        var scene = which switch
+        {
+            "edit" => ctx.Scene.LiveScene,
+            "play" => PlayMode.PlayScene,
+            _ => throw new RpcError("which 'edit' ya da 'play' olmali"),
+        };
+        if (scene == null)
+            throw new RpcError($"canli sahne yok: {which}");
+        var r = DocNode.Map();
+        r.Add("text", DocNode.Scal(DigitoyEngine.SceneDump.Write(scene, ctx.Catalog)));
+        return r;
+    }
+
     static void DumpLiveGo(GameObject go, int depth, DocNode into)
     {
         var og = DocNode.Map();

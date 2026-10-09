@@ -5,7 +5,7 @@
 namespace System
 {
     public struct Void { }
-    public struct Boolean { }
+    public struct Boolean { public extern override string ToString(); } // "True"/"False" (corelib.c Bool_ToString)
     public struct Char { }
     public struct Byte { }
     public struct SByte { }

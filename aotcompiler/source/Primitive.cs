@@ -31,6 +31,18 @@ namespace DigitoyEngine.Language
         public bool IsStatic;
         public bool IsReadonly; // yalniz kendi sinifinin ctor/cctor'unda yazilabilir
         public int Index; // slot içindeki konum, runtime alan erişimi bunu kullanır
+        public ushort CilAttributes; // System.Reflection.FieldAttributes (reflection: IsPublic/IsNotSerialized...)
+        public List<PrimitiveAttribute> Attributes = new List<PrimitiveAttribute>();
+    }
+
+    // Custom attribute kaydi (CIL'den): tip + ctor + sabit argumanlar (string/int/bool/float/double/long/enum-int/Primitive=typeof)
+    // + named argumanlar (alan ya da property). Transpiler lazy kurucu fonksiyon uretir (docs/registry-removal.md Faz 4b).
+    public class PrimitiveAttribute
+    {
+        public Primitive Type;
+        public Code Ctor;
+        public List<object> FixedArgs = new List<object>();
+        public List<(string Name, object Value, bool IsField)> NamedArgs = new List<(string, object, bool)>();
     }
 
     // Property desugar edildikten sonra metadata olarak kalır; C transpiler get_/set_ kodlarından
@@ -42,6 +54,8 @@ namespace DigitoyEngine.Language
         public bool IsStatic;
         public bool HasGet;
         public bool HasSet;
+        public ushort CilAttributes;
+        public List<PrimitiveAttribute> Attributes = new List<PrimitiveAttribute>();
     }
 
     public class Primitive
@@ -153,12 +167,15 @@ namespace DigitoyEngine.Language
         public List<PrimitiveField> Fields = new List<PrimitiveField>();
         public List<PrimitiveField> StaticFields = new List<PrimitiveField>(); // ayri depo (instance layout'a girmez)
         public List<PrimitiveProperty> Properties = new List<PrimitiveProperty>(); // source property metadata; get_/set_ methodlardan ayri
+        public uint CilAttributes; // System.Reflection.TypeAttributes (IsSerializable/IsPublic...)
+        public List<PrimitiveAttribute> Attributes = new List<PrimitiveAttribute>();
         public object[] StaticStorage; // VM runtime: GetStatic/SetStatic deposu (lazy, VM.EnsureStatics)
         public int FixedSize;
         public bool Unresolved;
         public bool IsGenericParameter;
         public List<Code> VTable = new List<Code>(); // Hierarchy.Build doldurur (serialize edilmez, tureyen bilgi)
         public Primitive GenericTemplate; // != null ise bu node "TypeArguments ile Template'e uygulama" ifadesidir (orn. Box<T>)
+        public Primitive InstantiatedFrom; // somutlastirilmis ornegin sablonu (reflection: GetGenericTypeDefinition); Apply node'unda null
         public List<Primitive> TypeArguments = new List<Primitive>();
 
         // Apply node adi MANGLED tutulur ("Box<Int>"): ayni uygulamalar isimle esitlenebilir,

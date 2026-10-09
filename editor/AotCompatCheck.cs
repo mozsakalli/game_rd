@@ -21,7 +21,7 @@ public static class AotCompatCheck
     public static bool Available => File.Exists(CoreLibDll) && File.Exists(AotEngineDll);
 
     // Donus: hata sayisi (0 = uyumlu ya da denetim atlandi). Hatalar EditorLog'a yazilir.
-    public static int Check(IReadOnlyList<string> scriptFiles, string registrySource)
+    public static int Check(IReadOnlyList<string> scriptFiles)
     {
         if (!Available || scriptFiles.Count == 0)
             return 0;
@@ -36,8 +36,6 @@ public static class AotCompatCheck
             var trees = new List<SyntaxTree>();
             foreach (var f in scriptFiles)
                 trees.Add(CSharpSyntaxTree.ParseText(File.ReadAllText(f), parse, path: f));
-            if (registrySource != null)
-                trees.Add(CSharpSyntaxTree.ParseText(registrySource, parse, path: "Registry.g.cs"));
             var comp = CSharpCompilation.Create("AotCompat", trees, refs,
                 new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true,
                     optimizationLevel: OptimizationLevel.Release));

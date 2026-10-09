@@ -129,8 +129,8 @@ public static class PlayerApp
 #endif
     }
 
-    // Game.dll (varsa) + Digitoy.Registry.dll Library/Build'den yuklenir; katalog
-    // uretilmis RegisterAll'dan kurulur. Registry yoksa acik hata: once editorle ac.
+    // Game.dll (varsa) Library/Build/bin'den yuklenir; katalog reflection'la kurulur
+    // (docs/registry-removal.md: editorle AYNI yol). Game.dll yoksa yalniz engine tipleri.
     static TypeCatalog LoadCatalog(string root)
     {
         string buildDir = Path.Combine(root, "Library", "Build");
@@ -138,17 +138,10 @@ public static class PlayerApp
         foreach (var p in Directory.Exists(Path.Combine(buildDir, "bin"))
             ? Directory.GetFiles(Path.Combine(buildDir, "bin"), "*.Game.dll") : Array.Empty<string>())
             gameDll = p;
-        if (gameDll != null)
-            Assembly.LoadFrom(gameDll); // registry referansi adla cozulur (ayni LoadFrom baglami)
-
-        string regDll = Path.Combine(buildDir, "Digitoy.Registry.dll");
-        if (!File.Exists(regDll))
-            throw new Exception("Digitoy.Registry.dll yok — projeyi once editorle acin (registry uretimi): " + regDll);
-        var regAsm = Assembly.LoadFrom(regDll);
-        var cat = new TypeCatalog();
-        regAsm.GetType("DigitoyEngine.Generated.Registry")
-              .GetMethod("RegisterAll").Invoke(null, new object[] { cat });
-        Console.WriteLine("[player] katalog: uretilmis registry" + (gameDll != null ? " + " + Path.GetFileName(gameDll) : ""));
+        var cat = gameDll != null
+            ? TypeCatalog.FromAssemblies(typeof(GameObject).Assembly, Assembly.LoadFrom(gameDll))
+            : TypeCatalog.FromAssemblies(typeof(GameObject).Assembly);
+        Console.WriteLine("[player] katalog: reflection" + (gameDll != null ? " + " + Path.GetFileName(gameDll) : " (yalniz engine)"));
         return cat;
     }
 

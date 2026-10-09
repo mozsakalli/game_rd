@@ -138,7 +138,7 @@ public unsafe class App
         PointerTests.Run(_catalog);
         PixelEffectTests.Run();
         ProgressTests.Run(_catalog);
-        RegistryTests.Run(_catalog);
+        CatalogTests.Run(_catalog);
 #endif
         // Kullanici ayarlari (standart: [Serializable] + ObjectSerializer).
         // Otomatik sahne ACILMAZ: yalniz kullanicinin son actigi sahne (varsa) geri gelir.
@@ -485,30 +485,21 @@ public unsafe class App
         RebuildCatalog();
         _editScene.Instantiate(_catalog, _assets); // bellekteki doc'tan (kaydedilmemis duzenlemeler korunur)
         // AOT uyumluluk: scriptler corelib'e karsi ikinci kez derlenir (bilgi amacli; editor play'ini etkilemez).
-        AotCompatCheck.Check(job.Scripts, null);
+        AotCompatCheck.Check(job.Scripts);
     }
 
     internal static Project Project => _project;
 
     // Katalog SADECE bilinen assembly'lerden kurulur (AppDomain taramasi degil:
     // unload edilmis eski oyun assembly'si listede gorunup ad cakismasi yaratabilir).
-    // Once reflection katalogu kurulur (kural motoru), sonra CatalogWriter ayni
-    // katalogu C# koduna doker, in-memory derlenir ve CANLI katalog o olur —
-    // editor her gun player'in calistiracagi kodu egzersiz eder. Uretim/derleme
-    // basarisizsa reflection kataloguna dusulur (editor asla kilitlenmez).
-    internal static bool RegistryActive { get; private set; }
-
+    // Tek katalog yolu: reflection (docs/registry-removal.md). Player da ayni yoldan kurar.
     static void RebuildCatalog()
     {
-        var refCat = _gameCode.GameAssembly != null
+        _catalog = _gameCode.GameAssembly != null
             ? TypeCatalog.FromAssemblies(typeof(GameObject).Assembly, typeof(App).Assembly, _gameCode.GameAssembly)
             : TypeCatalog.FromAssemblies(typeof(GameObject).Assembly, typeof(App).Assembly);
         foreach (var r in _gameCode.Renames)
-            refCat.RegisterAlias(r.Key, r.Value); // typemap rename'leri: eski ad cozulur
-
-        var genCat = BuildRegistryCatalog(refCat);
-        RegistryActive = genCat != null;
-        _catalog = genCat ?? refCat;
+            _catalog.RegisterAlias(r.Key, r.Value); // typemap rename'leri: eski ad cozulur
         Scene.Active.Catalog = _catalog;
 
         // SceneView araclari: builtin'ler + oyun assembly'sinin [EditorTool]'lari.
@@ -532,55 +523,6 @@ public unsafe class App
                     AssetTypes.Add(t);
         }
         AssetTypes.Sort((a, b) => string.CompareOrdinal(a.Name, b.Name));
-    }
-
-    // Reflection katalogu -> C# kaynak -> in-memory derleme -> game ALC -> katalog.
-    // Editor-assembly tipleri player'a girmeyecegi icin yazilmaz, reflection'la eklenir.
-    // Donen katalog reflection'la DIFF-assert edilir; fark = null (fallback) + hata logu.
-    static TypeCatalog BuildRegistryCatalog(TypeCatalog refCat)
-    {
-        try
-        {
-            var engineAsm = typeof(GameObject).Assembly;
-            var gameAsm = _gameCode.GameAssembly;
-            string src = CatalogWriter.Write(refCat, t => t.Assembly == engineAsm || t.Assembly == gameAsm);
-
-            // Inceleme + player export'un tuketecegi ayni kaynak.
-            string buildDir = System.IO.Path.Combine(_project.LibraryPath, "Build");
-            System.IO.Directory.CreateDirectory(buildDir);
-            System.IO.File.WriteAllText(System.IO.Path.Combine(buildDir, "Registry.g.cs"), src);
-
-            byte[] pe = RegistryCompiler.Compile(src, _gameCode.GameDllPath, out string errors);
-            if (pe == null)
-            {
-                EditorLog.Error("[registry] derleme hatasi:\n" + errors);
-                return null;
-            }
-            // Player ayni PE'yi diskten yukler (Assembly.LoadFrom) — export adimi bedava.
-            System.IO.File.WriteAllBytes(System.IO.Path.Combine(buildDir, CatalogWriter.AssemblyName + ".dll"), pe);
-            var asm = _gameCode.LoadRegistry(pe);
-            var cat = new TypeCatalog();
-            asm.GetType("DigitoyEngine.Generated.Registry")
-               .GetMethod("RegisterAll").Invoke(null, new object[] { cat });
-
-            foreach (var t in typeof(App).Assembly.GetTypes())
-                if (!t.IsAbstract && typeof(Component).IsAssignableFrom(t) && t != typeof(Transform))
-                    cat.RegisterReflective(t);
-            foreach (var r in _gameCode.Renames)
-                cat.RegisterAlias(r.Key, r.Value);
-
-            if (!RegistryTests.CatalogsEqual(refCat, cat, out string diff))
-            {
-                EditorLog.Error("[registry] reflection/uretilmis katalog farki: " + diff);
-                return null;
-            }
-            return cat;
-        }
-        catch (Exception e)
-        {
-            EditorLog.Error("[registry] " + e.Message);
-            return null;
-        }
     }
 
     internal static readonly System.Collections.Generic.List<Type> AssetTypes = new();

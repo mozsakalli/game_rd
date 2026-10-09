@@ -88,9 +88,9 @@ namespace DigitoyEngine.Language
                 for (int i = 0; i < template.GenericParameters.Count; i++)
                     map[template.GenericParameters[i]] = typeArgs[i];
 
-                var baseDisp = template.Display; // arity suffix'i (Action`1) gosterime sizmasin
-                int bt = baseDisp.IndexOf('`');
-                if (bt >= 0) baseDisp = baseDisp.Substring(0, bt);
+                // arity suffix'i (Action`1) gosterime sizmasin; IC ICE tip adi KORUNUR (List`1.Enumerator -> List.Enumerator),
+                // yoksa List<int> ile List<int>.Enumerator ayni Display'i alir -> Type.GetType(ad) yanlis descriptor bulur.
+                var baseDisp = System.Text.RegularExpressions.Regex.Replace(template.Display, "`\\d+", "");
                 var instance = new Primitive
                 {
                     Name = name,
@@ -102,7 +102,9 @@ namespace DigitoyEngine.Language
                     IsDelegate = template.IsDelegate,
                     FixedSize = template.FixedSize,
                     ArrayRank = template.ArrayRank,
-                    ElementType = Substitute(ctx, template.ElementType, map)
+                    ElementType = Substitute(ctx, template.ElementType, map),
+                    InstantiatedFrom = template,
+                    CilAttributes = template.CilAttributes,
                 };
                 instance.TypeArguments.AddRange(typeArgs);
                 // oz-tip: govdede sablonun KENDISI gorunurse (ldarg.0 `this` spill'i, `new List<T>()` icinde List`1) -> bu ornek
@@ -110,9 +112,9 @@ namespace DigitoyEngine.Language
                 ctx.RegisterPrimitive(instance); // once kaydet: self-referansli generic (Node<T>.next:Node<T>) icin dongu kirilir
                                                  // alanlari HEMEN ekle: ic ice somutlastirma (parent/iface/method klonu) bu tipin alanlarini sorabilir
                 foreach (var field in template.Fields)
-                    instance.AddField(new PrimitiveField { Name = field.Name, Type = field.Type, IsStatic = field.IsStatic });
+                    instance.AddField(new PrimitiveField { Name = field.Name, Type = field.Type, IsStatic = field.IsStatic, IsReadonly = field.IsReadonly, CilAttributes = field.CilAttributes });
                 foreach (var field in template.StaticFields) // C# semantigi: Box<Int> ve Box<Float> statics AYRI
-                    instance.AddField(new PrimitiveField { Name = field.Name, Type = field.Type, IsStatic = field.IsStatic });
+                    instance.AddField(new PrimitiveField { Name = field.Name, Type = field.Type, IsStatic = field.IsStatic, IsReadonly = field.IsReadonly, CilAttributes = field.CilAttributes });
                 // FAZ 1: uye imza kabuklarini alan/parent/iface tip somutlamasindan ONCE kaydet.
                 // Alan tipi somutlamasi dongusel tipleri reentrant somutlar (List<->ListEnumerator);
                 // o sirada bu tipin uyeleri MemberOf ile aranabilir -> kabuk hazir olmali.

@@ -36,6 +36,7 @@ namespace DigitoyEngine.Cil
             var t = new Loader { ctx = ctx, md = md, pdb = pdb, PE = pe, isCoreLib = isCoreLib };
             t.LoadTypes();
             t.LoadMembers();
+            t.LoadAttributes();
             var codes = t.LoadBodies();
             LastDiagnostics = t.diag;
 
@@ -297,7 +298,7 @@ namespace DigitoyEngine.Cil
                         try
                         {
                             var ft = fd.DecodeSignature(sig, new GenCtx { TypeParams = p.GenericParameters });
-                            var pf = new PrimitiveField { Name = fname, Type = ft, IsStatic = (fd.Attributes & FieldAttributes.Static) != 0 };
+                            var pf = new PrimitiveField { Name = fname, Type = ft, IsStatic = (fd.Attributes & FieldAttributes.Static) != 0, IsReadonly = (fd.Attributes & FieldAttributes.InitOnly) != 0, CilAttributes = (ushort)fd.Attributes };
                             p.AddField(pf);
                             fieldMap[fh] = pf;
                         }
@@ -444,7 +445,119 @@ namespace DigitoyEngine.Cil
                         ctx.RegisterCode(code);
                         methodMap[mh] = code;
                         methodDefs[mh] = m;
+                        code.CilAttributes = (ushort)m.Attributes;
                     }
+                }
+                // property metadata (reflection GetProperties + attribute'lar); get_/set_ metotlari zaten Code olarak kayitli
+                foreach (var kv in prims)
+                {
+                    var td = md.GetTypeDefinition(kv.Key);
+                    var p = kv.Value;
+                    if (p.IsEnum || p.IsDelegate) continue;
+                    p.CilAttributes = (uint)td.Attributes;
+                    foreach (var ph in td.GetProperties())
+                    {
+                        try
+                        {
+                            var pd = md.GetPropertyDefinition(ph);
+                            var acc = pd.GetAccessors();
+                            var psig = pd.DecodeSignature(sig, new GenCtx { TypeParams = p.GenericParameters });
+                            if (psig.ParameterTypes.Length > 0) continue; // indexer: reflection kapsami disi
+                            bool isStatic = false;
+                            var anyAcc = !acc.Getter.IsNil ? acc.Getter : acc.Setter;
+                            if (!anyAcc.IsNil) isStatic = (md.GetMethodDefinition(anyAcc).Attributes & MethodAttributes.Static) != 0;
+                            p.Properties.Add(new PrimitiveProperty
+                            {
+                                Name = md.GetString(pd.Name), Type = psig.ReturnType, IsStatic = isStatic,
+                                HasGet = !acc.Getter.IsNil, HasSet = !acc.Setter.IsNil, CilAttributes = (ushort)pd.Attributes,
+                            });
+                        }
+                        catch (Exception ex) { diag.Add($"skip property {p.Name}: {ex.Message}"); }
+                    }
+                }
+            }
+
+            // Custom attribute'lar: tum tipler/alanlar/property'ler/metotlar yuklendikten SONRA (attribute ctor'u baska
+            // assembly'de olabilir; ResolveMethod MemberRef'i cozer). Cozulemeyen attribute (compiler-internal, dizi arg) atlanir.
+            public void LoadAttributes()
+            {
+                // Pseudo-attribute'lar: CIL bit olarak saklar, .NET reflection'da attribute olarak gorunur -> sentezle
+                var serializable = PseudoAttr("System.SerializableAttribute");
+                var nonSerialized = PseudoAttr("System.NonSerializedAttribute");
+                foreach (var kv in prims)
+                {
+                    var td = md.GetTypeDefinition(kv.Key);
+                    var p = kv.Value;
+                    ReadAttributes(td.GetCustomAttributes(), p.Attributes, p.Name);
+                    if (serializable != null && (td.Attributes & TypeAttributes.Serializable) != 0)
+                        p.Attributes.Add(new PrimitiveAttribute { Type = serializable.Value.type, Ctor = serializable.Value.ctor });
+                    if (p.IsEnum) continue;
+                    foreach (var fh in td.GetFields())
+                        if (fieldMap.TryGetValue(fh, out var pf))
+                        {
+                            var fd = md.GetFieldDefinition(fh);
+                            ReadAttributes(fd.GetCustomAttributes(), pf.Attributes, p.Name + "." + pf.Name);
+                            if (nonSerialized != null && (fd.Attributes & FieldAttributes.NotSerialized) != 0)
+                                pf.Attributes.Add(new PrimitiveAttribute { Type = nonSerialized.Value.type, Ctor = nonSerialized.Value.ctor });
+                        }
+                    foreach (var ph in td.GetProperties())
+                    {
+                        var pd = md.GetPropertyDefinition(ph);
+                        var name = md.GetString(pd.Name);
+                        var pp = p.Properties.Find(x => x.Name == name);
+                        if (pp != null) ReadAttributes(pd.GetCustomAttributes(), pp.Attributes, p.Name + "." + name);
+                    }
+                    foreach (var mh in td.GetMethods())
+                        if (methodMap.TryGetValue(mh, out var code))
+                            ReadAttributes(md.GetMethodDefinition(mh).GetCustomAttributes(), code.Attributes, code.EncodeName());
+                }
+            }
+
+            // corelib'deki pseudo-attribute tipi + parametresiz ctor'u (yoksa null)
+            (Primitive type, Code ctor)? PseudoAttr(string typeName)
+            {
+                try
+                {
+                    var t = ResolveName(typeName);
+                    if (t == null || !ctx.TryGetCode(typeName + "$ctor", out var c)) return null;
+                    return (t, c);
+                }
+                catch { return null; }
+            }
+
+            void ReadAttributes(CustomAttributeHandleCollection handles, List<PrimitiveAttribute> into, string owner)
+            {
+                foreach (var ah in handles)
+                {
+                    var a = md.GetCustomAttribute(ah);
+                    string typeName = null;
+                    try
+                    {
+                        typeName = AttributeTypeName(a);
+                        if (typeName == null || typeName.StartsWith("System.Runtime.CompilerServices.") || typeName.StartsWith("System.Diagnostics.")
+                            || typeName == "System.Runtime.InteropServices.DllImportAttribute" || typeName == "System.ObsoleteAttribute")
+                            continue; // derleyici/platform attribute'lari: reflection'a girmez
+                        var type = ResolveName(typeName);
+                        if (type == null || type.Type != PrimitiveType.Model || type.IsGeneric) continue;
+                        var ctor = ResolveMethod(a.Constructor);
+                        if (ctor == null) continue;
+                        var value = a.DecodeValue(sig);
+                        var pa = new PrimitiveAttribute { Type = type, Ctor = ctor };
+                        bool ok = true;
+                        foreach (var fa in value.FixedArguments)
+                        {
+                            if (fa.Value is System.Collections.Immutable.ImmutableArray<CustomAttributeTypedArgument<Primitive>>) { ok = false; break; }
+                            pa.FixedArgs.Add(fa.Value);
+                        }
+                        foreach (var na in value.NamedArguments)
+                        {
+                            if (na.Value is System.Collections.Immutable.ImmutableArray<CustomAttributeTypedArgument<Primitive>>) { ok = false; break; }
+                            pa.NamedArgs.Add((na.Name, na.Value, na.Kind == CustomAttributeNamedArgumentKind.Field));
+                        }
+                        if (ok) into.Add(pa);
+                        else diag.Add($"skip attribute {typeName} on {owner}: dizi argumani desteklenmez");
+                    }
+                    catch (Exception ex) { diag.Add($"skip attribute {typeName ?? "?"} on {owner}: {ex.Message}"); }
                 }
             }
 
@@ -855,10 +968,22 @@ namespace DigitoyEngine.Cil
         }
 
         // imza cozucu: metadata tip kodlari -> bizim Primitive'ler (generic Apply node / ptr byref)
-        class SigTypes : ISignatureTypeProvider<Primitive, GenCtx>
+        class SigTypes : ISignatureTypeProvider<Primitive, GenCtx>, ICustomAttributeTypeProvider<Primitive>
         {
             public Loader loader;
             static readonly Dictionary<Primitive, Primitive> arrayCache = new Dictionary<Primitive, Primitive>();
+
+            // ---- ICustomAttributeTypeProvider: attribute blob cozumu (CustomAttribute.DecodeValue) ----
+            public Primitive GetSystemType() => loader.ResolveName("System.Type");
+            public bool IsSystemType(Primitive type) => type != null && type.Name == "System.Type";
+            public Primitive GetTypeFromSerializedName(string name)
+            {
+                // "Ns.Tip, Assembly, Version=..." -> yalniz tam ad
+                int comma = name.IndexOf(',');
+                if (comma >= 0) name = name.Substring(0, comma).Trim();
+                return loader.ResolveName(name);
+            }
+            public PrimitiveTypeCode GetUnderlyingEnumType(Primitive type) => PrimitiveTypeCode.Int32; // tum enum'lar int tabanli (C'de duz int)
 
             public Primitive GetPrimitiveType(PrimitiveTypeCode code) => code switch
             {
@@ -1971,6 +2096,7 @@ namespace DigitoyEngine.Cil
                             }
                             var ownerOfCall = loader.OwnerPrimOf(h, gc);
                             if (TrySpanCall(h, ownerOfCall)) return p + 4; // Span/ReadOnlySpan/MemoryExtensions intrinsic'leri
+                            if (TryReflectIntrinsic(h, ownerOfCall)) return p + 4; // FieldInfo.RefAt<T> (offset'e tipli erisim)
                             if (Loader.IsDelegateType(ownerOfCall) && (h.Kind != HandleKind.MemberReference ? "Invoke" : md.GetString(md.GetMemberReference((MemberReferenceHandle)h).Name)) == "Invoke")
                             {
                                 var delTmpl = ownerOfCall.GenericTemplate ?? ownerOfCall; // imza sablondan (Apply node bos)
@@ -2356,6 +2482,22 @@ namespace DigitoyEngine.Cil
                 else s = mr.DecodeMethodSignature(loader.Sig, margs.Count > 0 ? new GenCtx { TypeParams = gc.TypeParams, MethodParams = margs } : gc); // generic method: !!T -> somut arg
                 return (name, s.ParameterTypes, margs);
             }
+            // FieldInfo.RefAt<T>(object target, int offset) -> ref T: [target, offset] -> (T*)((long)target + offset).
+            // GC tasimaz -> ham adres guvenli (Span ile ayni gerekce). Sonuc Pointer(T): ldind/stind deref eder.
+            bool TryReflectIntrinsic(EntityHandle h, Primitive owner)
+            {
+                if (owner?.Name != "System.Reflection.FieldInfo") return false;
+                var (name, ps, margs) = CallSigOf(h);
+                if (name != "RefAt" || margs.Count != 1 || ps.Length != 2) return false;
+                var T = margs[0];
+                int toff = SpillLocal(Primitive.Int);
+                EmitConv(Primitive.Long);                       // target (object) -> long adres
+                PushLocal(toff, Primitive.Int); EmitConv(Primitive.Long);
+                Emit(OpType.Add); Pop(); Pop(); Push(Primitive.Long);
+                EmitConv(Primitive.PointerOf(T));
+                return true;
+            }
+
             bool TrySpanCall(EntityHandle h, Primitive owner)
             {
                 var ownerName = (owner?.GenericTemplate ?? owner)?.Name;

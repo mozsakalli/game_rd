@@ -463,6 +463,10 @@ VmString *Int_ToString(int self)
     sb_int(self);
     return sb_final();
 }
+VmString *Bool_ToString(int self)
+{
+    return vmstring_from_cstr(self ? "True" : "False");
+}
 VmString *UInt_ToString(unsigned int self)
 {
     sb_reset();
@@ -853,7 +857,7 @@ VmString *System_String_ToUpper(VmString *a0)
 VmArray *System_String_ToCharArray(VmString *a0)
 {
     DIGITOYENGINE_NULLCHECK(a0);
-    VmArray *result = vmarray_new(a0->length, sizeof(cil_char), 0);
+    VmArray *result = vmarray_new_e(a0->length, &vmchar_type);
     cil_char *destination = (cil_char *)result->data;
     for (int i = 0; i < a0->length; i++)
         destination[i] = a0->data[i];
@@ -997,7 +1001,7 @@ static VmArray *digitoyengine_split(VmString *value, const unsigned short *separ
     if (count < 0)
         DIGITOYENGINE_throw_io("String.Split count cannot be negative");
     if (count == 0)
-        return vmarray_new(0, sizeof(GCHeader *), 1);
+        return vmarray_new_e(0, &vmstring_type);
     int matches = 0, at = 0;
     while (matches + 1 < count)
     {
@@ -1007,7 +1011,7 @@ static VmArray *digitoyengine_split(VmString *value, const unsigned short *separ
         matches++;
         at = match + separator_length;
     }
-    VmArray *result = vmarray_new(matches + 1, sizeof(GCHeader *), 1);
+    VmArray *result = vmarray_new_e(matches + 1, &vmstring_type);
     gc_add_root(&result->gc);
     GCHeader **items = (GCHeader **)result->data;
     at = 0;
@@ -1270,19 +1274,39 @@ static const Type *type_of(DigitoyEngineTypeObj *t)
 {
     return (const Type *)(size_t)t->handle;
 }
+static void sb_array_suffix(const Type *t)
+{
+    sb_ascii("[");
+    for (int i = 1; i < t->rank; i++)
+        sb_ascii(",");
+    sb_ascii("]");
+}
 VmString *System_Type_get_FullName(DigitoyEngineTypeObj *a0)
 {
-    return (VmString *)type_of(a0)->name; /* havuz nesnesi: sifir alloc */
+    const Type *t = type_of(a0);
+    if ((t->flags & DIGITOYENGINE_TYPE_ARRAY) && t->tindex == 0 && t->name) /* sentez dizi: eleman adi + [] */
+    {
+        sb_reset();
+        sb_utf16(t->name->data, t->name->length);
+        sb_array_suffix(t);
+        return sb_final();
+    }
+    return (VmString *)t->name; /* havuz nesnesi: sifir alloc */
 }
 VmString *System_Type_get_Name(DigitoyEngineTypeObj *a0)
 {
-    const VmString *n = type_of(a0)->name;
+    const Type *t = type_of(a0);
+    const VmString *n = t->name;
+    if (!n)
+        return 0;
     int cut = 0;
     for (int i = 0; i < n->length; i++)
         if (n->data[i] == '.')
             cut = i + 1;
     sb_reset();
     sb_utf16(n->data + cut, n->length - cut);
+    if ((t->flags & DIGITOYENGINE_TYPE_ARRAY) && t->tindex == 0)
+        sb_array_suffix(t);
     return sb_final();
 }
 DigitoyEngineTypeObj *System_Type_get_BaseType(DigitoyEngineTypeObj *a0)
@@ -1352,7 +1376,7 @@ int System_Enum_TryParse_System_String_System_Type_out_System_Object(VmString *v
 VmArray *System_Type_GetGenericArguments(DigitoyEngineTypeObj *a0)
 {
     const Type *type = type_of(a0);
-    VmArray *result = vmarray_new(type->ngeneric_args, sizeof(GCHeader *), 1);
+    VmArray *result = vmarray_new_e(type->ngeneric_args, digitoyengine_reflect_type(0));
     GCHeader **items = (GCHeader **)result->data;
     for (int i = 0; i < type->ngeneric_args; i++)
         items[i] = digitoyengine_type_wrapper(type->generic_args[i]);
@@ -1394,16 +1418,73 @@ int System_Type_GetTypeCode_System_Type(DigitoyEngineTypeObj *a0)
         return 1; /* Object: null olmayan her tip (primitive/string disi) - .NET semantigi */
     }
 }
-GCHeader *System_Type_GetField_System_String(DigitoyEngineTypeObj *a0, VmString *a1)
+// ---- generic tanim / Assembly (Faz 4c) ----
+int System_Type_get_IsGenericType(DigitoyEngineTypeObj *a0)
 {
-    return digitoyengine_member_lookup(type_of(a0), a1, DIGITOYENGINE_MEMBER_FIELD);
+    const Type *t = type_of(a0);
+    return t->ngeneric_args > 0 || (t->flags & DIGITOYENGINE_TYPE_GENERIC_DEF) != 0;
 }
-GCHeader *System_Type_GetProperty_System_String(DigitoyEngineTypeObj *a0, VmString *a1)
+int System_Type_get_IsGenericTypeDefinition(DigitoyEngineTypeObj *a0) { return (type_of(a0)->flags & DIGITOYENGINE_TYPE_GENERIC_DEF) != 0; }
+DigitoyEngineTypeObj *System_Type_GetGenericTypeDefinition(DigitoyEngineTypeObj *a0)
 {
-    return digitoyengine_member_lookup(type_of(a0), a1, DIGITOYENGINE_MEMBER_PROPERTY);
+    const Type *t = type_of(a0);
+    if (t->flags & DIGITOYENGINE_TYPE_GENERIC_DEF)
+        return a0;
+    if (!t->generic_def)
+        DIGITOYENGINE_throw_io("Type.GetGenericTypeDefinition: generic tip degil");
+    return (DigitoyEngineTypeObj *)digitoyengine_type_wrapper(t->generic_def);
+}
+static GCHeader *de_assembly; /* tek sahte System.Reflection.Assembly nesnesi (rooted) */
+static const Type *de_assembly_type(void)
+{
+    static const Type *t;
+    if (!t)
+    {
+        VmString *want = vmstring_from_cstr("System.Reflection.Assembly");
+        for (int i = 0; i < digitoyengine_ntypes && !t; i++)
+            if (digitoyengine_types[i]->name && vmstring_eq((VmString *)digitoyengine_types[i]->name, want))
+                t = digitoyengine_types[i];
+    }
+    return t;
+}
+GCHeader *System_Reflection_Assembly_GetExecutingAssembly(void)
+{
+    if (!de_assembly)
+    {
+        const Type *t = de_assembly_type();
+        if (!t)
+            DIGITOYENGINE_throw_io("System.Reflection.Assembly tipi yok");
+        de_assembly = (GCHeader *)gc_alloc(t);
+        gc_add_root(de_assembly);
+    }
+    return de_assembly;
+}
+GCHeader *System_Type_get_Assembly(DigitoyEngineTypeObj *a0) { (void)a0; return System_Reflection_Assembly_GetExecutingAssembly(); }
+// Uretilen tum tipler: tindex >= 20 (runtime kokleri/primitive'ler/Void haric), dizi/sentez ve acik generic tanimlar haric
+VmArray *System_Reflection_Assembly_GetTypes(GCHeader *self)
+{
+    (void)self;
+    int n = 0;
+    for (int i = 0; i < digitoyengine_ntypes; i++)
+    {
+        const Type *t = digitoyengine_types[i];
+        if (t->tindex >= 20 && !(t->flags & (DIGITOYENGINE_TYPE_ARRAY | DIGITOYENGINE_TYPE_GENERIC_DEF)))
+            n++;
+    }
+    VmArray *r = vmarray_new_e(n, digitoyengine_reflect_type(0));
+    GCHeader **items = (GCHeader **)r->data;
+    n = 0;
+    for (int i = 0; i < digitoyengine_ntypes; i++)
+    {
+        const Type *t = digitoyengine_types[i];
+        if (t->tindex >= 20 && !(t->flags & (DIGITOYENGINE_TYPE_ARRAY | DIGITOYENGINE_TYPE_GENERIC_DEF)))
+            items[n++] = digitoyengine_type_wrapper(t);
+    }
+    return r;
 }
 // ---- tek meta uzerinden .NET yuzeyi: tip tablosu / uye listeleri / metot reflection ----
-static VmArray *de_ref_array(int n) { return vmarray_new(n, sizeof(GCHeader *), 1); }
+// which: digitoyengine_reflect_type indeksi (eleman tipi: FieldInfo[]/PropertyInfo[]/MethodInfo[]/ConstructorInfo[])
+static VmArray *de_ref_array(int n, int which) { return vmarray_new_e(n, digitoyengine_reflect_type(which)); }
 static int de_count_members(const Type *t, int kind)
 {
     int n = 0;
@@ -1416,7 +1497,7 @@ static int de_count_members(const Type *t, int kind)
 GCHeader *digitoyengine_member_wrapper(DigitoyEngineMember *m); /* vmrt.c */
 static VmArray *de_members_array(const Type *t, int kind)
 {
-    VmArray *r = de_ref_array(de_count_members(t, kind));
+    VmArray *r = de_ref_array(de_count_members(t, kind), kind == DIGITOYENGINE_MEMBER_FIELD ? 1 : 2);
     GCHeader **items = (GCHeader **)r->data;
     int n = 0;
     for (; t; t = t->base)
@@ -1425,8 +1506,8 @@ static VmArray *de_members_array(const Type *t, int kind)
                 items[n++] = digitoyengine_member_wrapper(&t->members[i]);
     return r;
 }
-VmArray *System_Type_GetFields(DigitoyEngineTypeObj *a0) { return de_members_array(type_of(a0), DIGITOYENGINE_MEMBER_FIELD); }
-VmArray *System_Type_GetProperties(DigitoyEngineTypeObj *a0) { return de_members_array(type_of(a0), DIGITOYENGINE_MEMBER_PROPERTY); }
+VmArray *System_Type_GetFieldsRaw(DigitoyEngineTypeObj *a0) { return de_members_array(type_of(a0), DIGITOYENGINE_MEMBER_FIELD); }
+VmArray *System_Type_GetPropertiesRaw(DigitoyEngineTypeObj *a0) { return de_members_array(type_of(a0), DIGITOYENGINE_MEMBER_PROPERTY); }
 int System_Type_get_IsValueType(DigitoyEngineTypeObj *a0)
 {
     const Type *t = type_of(a0);
@@ -1455,7 +1536,7 @@ static VmArray *de_methods_array(const Type *t, int ctors, int inherit)
         for (int i = 0; i < x->nmethods; i++)
             if (de_method_listed(&x->methods[i], ctors))
                 n++;
-    VmArray *r = de_ref_array(n);
+    VmArray *r = de_ref_array(n, ctors ? 4 : 3);
     GCHeader **items = (GCHeader **)r->data;
     n = 0;
     for (const Type *x = t; x; x = inherit ? x->base : 0)
@@ -1464,8 +1545,7 @@ static VmArray *de_methods_array(const Type *t, int ctors, int inherit)
                 items[n++] = digitoyengine_method_wrapper(&x->methods[i]);
     return r;
 }
-GCHeader *System_Type_GetMethod_System_String(DigitoyEngineTypeObj *a0, VmString *name) { return digitoyengine_method_lookup(type_of(a0), name, 0); }
-VmArray *System_Type_GetMethods(DigitoyEngineTypeObj *a0) { return de_methods_array(type_of(a0), 0, 1); }
+VmArray *System_Type_GetMethodsRaw(DigitoyEngineTypeObj *a0) { return de_methods_array(type_of(a0), 0, 1); }
 VmArray *System_Type_GetConstructors(DigitoyEngineTypeObj *a0) { return de_methods_array(type_of(a0), 1, 0); }
 typedef struct DigitoyEngineMethodObj
 {
@@ -1547,13 +1627,100 @@ typedef struct DigitoyEngineMemberObj
 } DigitoyEngineMemberObj;
 static DigitoyEngineMember *member_of(DigitoyEngineMemberObj *m) { return (DigitoyEngineMember *)(size_t)m->handle; }
 VmString *System_Reflection_MemberInfo_get_Name(DigitoyEngineMemberObj *a0) { return (VmString *)member_of(a0)->name; }
-DigitoyEngineTypeObj *System_Reflection_MemberInfo_get_DeclaringType(DigitoyEngineMemberObj *a0) { return (DigitoyEngineTypeObj *)digitoyengine_type_wrapper(member_of(a0)->declaringType); }
+// DeclaringType: MemberInfo wrapper'i polimorfik (Type / Field-Property / Method-Ctor handle'lari farkli struct'lar)
+DigitoyEngineTypeObj *System_Reflection_MemberInfo_get_DeclaringType(DigitoyEngineMemberObj *a0)
+{
+    const Type *wt = ((GCHeader *)a0)->type;
+    if (wt == digitoyengine_reflect_type(0))
+        return 0; /* Type: ic ice tip bildiren tip bilgisi yok */
+    if (wt == digitoyengine_reflect_type(1) || wt == digitoyengine_reflect_type(2))
+        return (DigitoyEngineTypeObj *)digitoyengine_type_wrapper(member_of(a0)->declaringType);
+    const MethodInfo *mi = (const MethodInfo *)(size_t)a0->handle;
+    return mi->declaringType ? (DigitoyEngineTypeObj *)digitoyengine_type_wrapper(mi->declaringType) : 0;
+}
 DigitoyEngineTypeObj *System_Reflection_FieldInfo_get_FieldType(DigitoyEngineMemberObj *a0) { return (DigitoyEngineTypeObj *)digitoyengine_type_wrapper(member_of(a0)->valueType); }
 int System_Reflection_FieldInfo_get_IsStatic(DigitoyEngineMemberObj *a0) { return member_of(a0)->isStatic; }
 int System_Reflection_FieldInfo_get_IsInitOnly(DigitoyEngineMemberObj *a0) { return member_of(a0)->isInitOnly; }
 VmObject *System_Reflection_FieldInfo_GetValue_System_Object(DigitoyEngineMemberObj *a0, VmObject *a1) { return (VmObject *)digitoyengine_member_get(member_of(a0), (GCHeader *)a1); }
 void System_Reflection_FieldInfo_SetValue_System_Object_System_Object(DigitoyEngineMemberObj *a0, VmObject *a1, VmObject *a2) { digitoyengine_member_set(member_of(a0), (GCHeader *)a1, (GCHeader *)a2); }
 DigitoyEngineTypeObj *System_Reflection_PropertyInfo_get_PropertyType(DigitoyEngineMemberObj *a0) { return (DigitoyEngineTypeObj *)digitoyengine_type_wrapper(member_of(a0)->valueType); }
+// ---- custom attribute'lar + CIL attribute bitleri (Faz 4b). MemberInfo polimorfik: wrapper tipine gore handle yorumu ----
+static DeAttr *de_member_attrs(GCHeader *self, int *n, const Type **declType)
+{
+    const Type *wt = self->type;
+    long long handle = *(long long *)((char *)self + sizeof(GCHeader));
+    *declType = 0;
+    if (wt == digitoyengine_reflect_type(0))
+    {
+        const Type *t = (const Type *)(size_t)handle;
+        *declType = t;
+        *n = t->nattrs;
+        return t->attrs;
+    }
+    if (wt == digitoyengine_reflect_type(1) || wt == digitoyengine_reflect_type(2))
+    {
+        DigitoyEngineMember *m = (DigitoyEngineMember *)(size_t)handle;
+        *n = m->nattrs;
+        return m->attrs;
+    }
+    MethodInfo *mi = (MethodInfo *)(size_t)handle; /* MethodInfo / ConstructorInfo */
+    *n = mi->nattrs;
+    return mi->attrs;
+}
+int System_Reflection_MemberInfo_IsDefined_System_Type_Bool(GCHeader *self, DigitoyEngineTypeObj *attrType, int inherit)
+{
+    const Type *filter = attrType ? type_of(attrType) : 0;
+    int n; const Type *decl;
+    DeAttr *attrs = de_member_attrs(self, &n, &decl);
+    if (digitoyengine_attrs_defined(attrs, n, filter))
+        return 1;
+    if (inherit && decl) /* yalniz Type: base zinciri */
+        for (const Type *b = decl->base; b; b = b->base)
+            if (digitoyengine_attrs_defined(b->attrs, b->nattrs, filter))
+                return 1;
+    return 0;
+}
+static VmArray *de_attrs_with_inherit(GCHeader *self, const Type *filter, int inherit)
+{
+    int n; const Type *decl;
+    DeAttr *attrs = de_member_attrs(self, &n, &decl);
+    const Type *elem = filter ? filter : &vmobject_type;
+    if (!inherit || !decl || !decl->base)
+        return digitoyengine_attrs_array(attrs, n, filter, elem);
+    /* Type + inherit: kendi + base zinciri (turetilen once) */
+    int total = 0;
+    for (const Type *b = decl; b; b = b->base)
+        for (int i = 0; i < b->nattrs; i++)
+            if (!filter || DIGITOYENGINE_is(b->attrs[i].type, filter))
+                total++;
+    VmArray *r = vmarray_new_e(total, elem);
+    GCHeader **items = (GCHeader **)r->data;
+    total = 0;
+    for (const Type *b = decl; b; b = b->base)
+        for (int i = 0; i < b->nattrs; i++)
+            if (!filter || DIGITOYENGINE_is(b->attrs[i].type, filter))
+                items[total++] = digitoyengine_attr_instance(&b->attrs[i]);
+    return r;
+}
+VmArray *System_Reflection_MemberInfo_GetCustomAttributes_System_Type_Bool(GCHeader *self, DigitoyEngineTypeObj *attrType, int inherit)
+{
+    return de_attrs_with_inherit(self, attrType ? type_of(attrType) : 0, inherit);
+}
+VmArray *System_Reflection_MemberInfo_GetCustomAttributes_Bool(GCHeader *self, int inherit)
+{
+    return de_attrs_with_inherit(self, 0, inherit);
+}
+int System_Reflection_FieldInfo_get_Attributes(DigitoyEngineMemberObj *a0) { return member_of(a0)->cilattrs; }
+int System_Reflection_FieldInfo_get_Offset(DigitoyEngineMemberObj *a0)
+{
+    DigitoyEngineMember *m = member_of(a0);
+    if (m->isStatic)
+        DIGITOYENGINE_throw_io("FieldInfo.Offset: static alanin nesne offset'i yok");
+    return m->offset;
+}
+int System_Reflection_PropertyInfo_get_Attributes(DigitoyEngineMemberObj *a0) { return member_of(a0)->cilattrs; }
+int System_Reflection_MethodBase_get_Attributes(DigitoyEngineMethodObj *a0) { return method_of(a0)->cilattrs; }
+int System_Type_get_Attributes(DigitoyEngineTypeObj *a0) { return (int)type_of(a0)->cilattrs; }
 int System_Reflection_PropertyInfo_get_IsStatic(DigitoyEngineMemberObj *a0) { return member_of(a0)->isStatic; }
 int System_Reflection_PropertyInfo_get_CanRead(DigitoyEngineMemberObj *a0) { return member_of(a0)->get != 0; }
 int System_Reflection_PropertyInfo_get_CanWrite(DigitoyEngineMemberObj *a0) { return member_of(a0)->set != 0; }
@@ -1561,7 +1728,46 @@ VmObject *System_Reflection_PropertyInfo_GetValue_System_Object(DigitoyEngineMem
 void System_Reflection_PropertyInfo_SetValue_System_Object_System_Object(DigitoyEngineMemberObj *a0, VmObject *a1, VmObject *a2) { digitoyengine_member_set(member_of(a0), (GCHeader *)a1, (GCHeader *)a2); }
 DigitoyEngineTypeObj *System_Object_GetType(VmObject *a0)
 {
-    return (DigitoyEngineTypeObj *)digitoyengine_type_wrapper(((GCHeader *)a0)->type);
+    const GCHeader *h = (const GCHeader *)a0;
+    const Type *t = h->type;
+    if (t == &vmarray_ref_type || t == &vmarray_val_type || t->finalize == finalize_vmarray)
+    {
+        const VmArray *a = (const VmArray *)h;
+        if (a->elem) /* T[] kimlik descriptor'u (uretilen typeof(T[]) ya da sentez) */
+            t = digitoyengine_array_type(a->elem, a->rank);
+    }
+    return (DigitoyEngineTypeObj *)digitoyengine_type_wrapper(t);
+}
+// ---- System.Array (Array-tipli referans uzerinden; T[] erisimleri frontend intrinsic'i) ----
+int System_Array_get_Length(VmArray *a0)
+{
+    DIGITOYENGINE_NULLCHECK(a0);
+    return a0->len;
+}
+int System_Array_get_Rank(VmArray *a0)
+{
+    DIGITOYENGINE_NULLCHECK(a0);
+    return a0->rank;
+}
+VmObject *System_Array_GetValue_Int(VmArray *a0, int index) { return (VmObject *)digitoyengine_array_get(a0, index); }
+void System_Array_SetValue_System_Object_Int(VmArray *a0, VmObject *value, int index) { digitoyengine_array_set(a0, index, (GCHeader *)value); }
+VmArray *System_Array_CreateInstance_System_Type_Int(DigitoyEngineTypeObj *elem, int len)
+{
+    DIGITOYENGINE_NULLCHECK(elem);
+    return vmarray_new_e(len, type_of(elem));
+}
+int System_Type_get_IsArray(DigitoyEngineTypeObj *a0) { return (type_of(a0)->flags & DIGITOYENGINE_TYPE_ARRAY) != 0; }
+DigitoyEngineTypeObj *System_Type_GetElementType(DigitoyEngineTypeObj *a0)
+{
+    const Type *t = type_of(a0);
+    return (t->flags & DIGITOYENGINE_TYPE_ARRAY) && t->elem_type ? (DigitoyEngineTypeObj *)digitoyengine_type_wrapper(t->elem_type) : 0;
+}
+int System_Type_GetArrayRank(DigitoyEngineTypeObj *a0)
+{
+    const Type *t = type_of(a0);
+    if (!(t->flags & DIGITOYENGINE_TYPE_ARRAY))
+        DIGITOYENGINE_throw_io("Type.GetArrayRank: dizi tipi degil");
+    return t->rank;
 }
 // ---- Exception ----
 // LAYOUT SOZLESMESI: uretilen struct Exception ile birebir (GCHeader + bildirim sirali alanlar).
@@ -1694,7 +1900,7 @@ VmArray *System_Text_Encoding_Utf8Encode_System_String(VmString *s)
         if (c >= 0xD800 && c <= 0xDBFF && i + 1 < s->length) { n += 4; i++; }
         else n += c < 0x80 ? 1 : c < 0x800 ? 2 : 3;
     }
-    VmArray *a = vmarray_new(n, 1, 0);
+    VmArray *a = vmarray_new_e(n, &vmbyte_type);
     unsigned char *d = (unsigned char *)a->data;
     int o = 0;
     for (int i = 0; i < s->length; i++)

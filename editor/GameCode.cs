@@ -63,9 +63,6 @@ public sealed class GameCode
             References = { typeof(DigitoyEngine.GameObject).Assembly.Location },
             Defines = new[] { "DEBUG", "TRACE", "DE_GAME" },
         };
-        // Uretilen registry assembly'si internal oyun tiplerine erisebilsin.
-        build.ExtraSources.Add((Path.Combine(buildDir, "RegistryVisibility.g.cs"),
-            "[assembly: System.Runtime.CompilerServices.InternalsVisibleTo(\"" + CatalogWriter.AssemblyName + "\")]\n"));
         // Basarisizsa diskteki eski (calisan) dll'e dokunulmaz (CompileToFile once bellege derler).
         var r = RoslynCompiler.CompileToFile(build, dll, useCache: false);
         job.Output = r.Errors;
@@ -180,15 +177,6 @@ public sealed class GameCode
         }
         root.Add("renames", renamesNode);
         File.WriteAllText(mapPath, DigitoyEngine.Yaml.Write(root));
-    }
-
-    // Uretilen registry PE'sini game ALC'sine yukler (reload'da birlikte olur).
-    // Script yoksa registry yalniz engine tiplerini tasir — ALC yine de acilir.
-    public Assembly LoadRegistry(byte[] pe)
-    {
-        _alc ??= new AssemblyLoadContext("game", isCollectible: true);
-        using var ms = new MemoryStream(pe);
-        return _alc.LoadFromStream(ms);
     }
 
     public void Unload()

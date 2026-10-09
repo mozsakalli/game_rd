@@ -1,8 +1,5 @@
 using System;
 using System.Collections.Generic;
-#if !DE_AOT
-using System.Linq.Expressions;
-#endif
 using System.Reflection;
 
 namespace DigitoyEngine;
@@ -17,7 +14,7 @@ namespace DigitoyEngine;
 //   - [Animatable] parametresiz metod → Trigger (frame'e key = cagri)
 //   - builtin pseudo: Transform.Position/Rotation/Scale/Active, <her component>.Enabled
 // Cozumleme (string → AnimProperty) yalniz Rebuild/Start aninda; sicak yolda delegate cagrisi.
-// Editor: expression-compile. Release/AOT: CatalogWriter ayni lambdalari uretir (Entry.Anim).
+// Erisimciler Reflect kabugundan (editor/.NET: expression-compile; AOT: offset intrinsic'i) — tek kod yolu.
 
 public enum AnimKind : byte
 {
@@ -138,7 +135,7 @@ public static class AnimRegistry
     public static AnimProperty TransformActive => _transform[3];
 
     // Tipin animatable listesi: Transform → pseudo; diger → katalog Entry.Anim
-    // (uretilmis ya da ilk istekte reflection'dan kurulur) + Enabled.
+    // (ilk istekte reflection'dan kurulur, Reflect kabugu) + Enabled.
     public static AnimProperty[] PropsOf(TypeCatalog catalog, Type type)
     {
         if (type == typeof(Transform))
@@ -146,11 +143,7 @@ public static class AnimRegistry
         var e = catalog?.Find(type);
         if (e == null)
             return Array.Empty<AnimProperty>();
-#if DE_AOT
-        return e.Anim ?? Array.Empty<AnimProperty>(); // CatalogWriter uretir; RegisterReflective girisinde bos
-#else
         return e.Anim ??= BuildReflective(type, e.Schema);
-#endif
     }
 
     public static AnimProperty Find(TypeCatalog catalog, Type type, string path)
@@ -181,39 +174,34 @@ public static class AnimRegistry
         return false;
     }
 
-#if !DE_AOT
-    // --- Editor/reflection yolu: sema + [Animatable] → expression-compile ---
+    // --- Reflection yolu (editor + .NET player + AOT; Reflect kabugu): sema alanlari + [Animatable] uyeler ---
+    // Tipli erisimciler kurulumda bir kez olusur; sicak yolda delegate cagrisi, boxing yok.
 
     static AnimProperty[] BuildReflective(Type type, SerializedType.FieldSchema[] schema)
     {
         var list = new List<AnimProperty>();
-        var c = Expression.Parameter(typeof(Component), "c");
-        var v = Expression.Parameter(typeof(AnimValue), "v");
-        Expression self = Expression.Convert(c, type);
         if (schema != null)
-            Walk(schema, "", self, type, c, v, list, 0);
-        foreach (var pi in type.GetProperties(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+            Walk(schema, "", new List<FieldInfo>(), type, list, 0);
+        foreach (var pi in Reflect.InstanceProperties(type))
         {
-            if (!pi.IsDefined(typeof(AnimatableAttribute), false) || !TryKind(pi.PropertyType, out var k))
+            if (!Reflect.IsAnimatable(pi) || !TryKind(pi.PropertyType, out var k) || !Reflect.HasGetSet(pi))
                 continue;
-            if (pi.GetMethod == null || pi.SetMethod == null)
-                continue;
-            Add(list, type, pi.Name, k, pi.PropertyType, Expression.Property(self, pi), c, v);
+            AddProperty(list, type, pi, k);
         }
-        foreach (var fi in type.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+        foreach (var fi in Reflect.DeclaredInstanceFields(type))
         {
-            if (!fi.IsDefined(typeof(AnimatableAttribute), false) || !TryKind(fi.FieldType, out var k))
+            if (!Reflect.IsAnimatable(fi) || !TryKind(fi.FieldType, out var k))
                 continue;
             if (Exists(list, fi.Name))
                 continue; // serilesen alan zaten listede
-            Add(list, type, fi.Name, k, fi.FieldType, Expression.Field(self, fi), c, v);
+            AddField(list, type, fi.Name, k, new[] { fi });
         }
-        foreach (var mi in type.GetMethods(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic))
+        foreach (var mi in Reflect.InstanceMethods(type))
         {
-            if (!mi.IsDefined(typeof(AnimatableAttribute), false) || mi.GetParameters().Length != 0 || mi.ReturnType != typeof(void))
+            if (!Reflect.IsAnimatable(mi) || !Reflect.IsParameterlessVoid(mi))
                 continue;
-            var call = Expression.Lambda<Action<Component, AnimValue>>(Expression.Call(self, mi), c, v).Compile();
-            list.Add(new AnimProperty { Path = mi.Name, Kind = AnimKind.Trigger, OwnerType = type, ValueType = typeof(void), Set = call });
+            var call = Reflect.MethodCaller(mi);
+            list.Add(new AnimProperty { Path = mi.Name, Kind = AnimKind.Trigger, OwnerType = type, ValueType = typeof(void), Set = (c, _) => call(c) });
         }
         return list.ToArray();
     }
@@ -225,58 +213,60 @@ public static class AnimRegistry
         return false;
     }
 
-    static void Walk(SerializedType.FieldSchema[] schema, string prefix, Expression owner, Type ownerType,
-        ParameterExpression c, ParameterExpression v, List<AnimProperty> list, int depth)
+    static void Walk(SerializedType.FieldSchema[] schema, string prefix, List<FieldInfo> chain, Type ownerType,
+        List<AnimProperty> list, int depth)
     {
         foreach (var f in schema)
         {
             string path = prefix + f.Name;
-            // Uretilmis katalogda Info yok: ad + sahip tipten reflection ile bul (yalniz kurulumda).
-            var fi = f.Info ?? f.DeclaringType?.GetField(f.Name,
-                BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic);
+            var fi = f.Info ?? Reflect.FindField(f.DeclaringType, f.Name);
             if (fi == null)
                 continue;
-            var member = Expression.Field(owner, fi);
+            chain.Add(fi);
             if (f.Kind == SerializedType.Kind.Object && f.Nested != null && depth < 6)
-            {
-                Walk(f.Nested, path + ".", member, ownerType, c, v, list, depth + 1);
-                continue;
-            }
-            if (!TryKind(fi.FieldType, out var k))
-                continue;
-            Add(list, ownerType, path, k, fi.FieldType, member, c, v);
+                Walk(f.Nested, path + ".", chain, ownerType, list, depth + 1);
+            else if (TryKind(fi.FieldType, out var k))
+                AddField(list, ownerType, path, k, chain.ToArray());
+            chain.RemoveAt(chain.Count - 1);
         }
     }
 
-    static void Add(List<AnimProperty> list, Type ownerType, string path, AnimKind kind, Type valueType,
-        Expression member, ParameterExpression c, ParameterExpression v)
+    static void AddField(List<AnimProperty> list, Type ownerType, string path, AnimKind kind, FieldInfo[] chain)
     {
-        Expression toValue, fromValue;
+        var valueType = chain[chain.Length - 1].FieldType;
+        var p = new AnimProperty { Path = path, Kind = kind, OwnerType = ownerType, ValueType = valueType };
         switch (kind)
         {
-            case AnimKind.Float: toValue = Expression.Call(typeof(AnimValue), nameof(AnimValue.FromFloat), null, member); fromValue = Expression.Call(v, nameof(AnimValue.ToFloat), null); break;
-            case AnimKind.Int: toValue = Expression.Call(typeof(AnimValue), nameof(AnimValue.FromInt), null, member); fromValue = Expression.Call(v, nameof(AnimValue.ToInt), null); break;
-            case AnimKind.Bool: toValue = Expression.Call(typeof(AnimValue), nameof(AnimValue.FromBool), null, member); fromValue = Expression.Call(v, nameof(AnimValue.ToBool), null); break;
-            case AnimKind.Enum:
-                toValue = Expression.Call(typeof(AnimValue), nameof(AnimValue.FromInt), null, Expression.Convert(member, typeof(int)));
-                fromValue = Expression.Convert(Expression.Call(v, nameof(AnimValue.ToInt), null), valueType);
-                break;
-            case AnimKind.Vec2: toValue = Expression.Call(typeof(AnimValue), nameof(AnimValue.FromVec2), null, member); fromValue = Expression.Call(v, nameof(AnimValue.ToVec2), null); break;
-            case AnimKind.Vec3: toValue = Expression.Call(typeof(AnimValue), nameof(AnimValue.FromVec3), null, member); fromValue = Expression.Call(v, nameof(AnimValue.ToVec3), null); break;
-            case AnimKind.Vec4: toValue = Expression.Call(typeof(AnimValue), nameof(AnimValue.FromVec4), null, member); fromValue = Expression.Call(v, nameof(AnimValue.ToVec4), null); break;
-            case AnimKind.Color: toValue = Expression.Call(typeof(AnimValue), nameof(AnimValue.FromColor), null, member); fromValue = Expression.Call(v, nameof(AnimValue.ToColor), null); break;
-            case AnimKind.Ref:
-                toValue = Expression.Call(typeof(AnimValue), nameof(AnimValue.FromRef), null, Expression.Convert(member, typeof(object)));
-                fromValue = Expression.Convert(Expression.Field(v, nameof(AnimValue.Ref)), valueType);
-                break;
+            case AnimKind.Float: { var g = Reflect.FieldGetter<float>(chain); var s = Reflect.FieldSetter<float>(chain); p.Get = c => AnimValue.FromFloat(g(c)); p.Set = (c, v) => s(c, v.ToFloat()); break; }
+            case AnimKind.Int:
+            case AnimKind.Enum: { var g = Reflect.FieldGetter<int>(chain); var s = Reflect.FieldSetter<int>(chain); p.Get = c => AnimValue.FromInt(g(c)); p.Set = (c, v) => s(c, v.ToInt()); break; }
+            case AnimKind.Bool: { var g = Reflect.FieldGetter<bool>(chain); var s = Reflect.FieldSetter<bool>(chain); p.Get = c => AnimValue.FromBool(g(c)); p.Set = (c, v) => s(c, v.ToBool()); break; }
+            case AnimKind.Vec2: { var g = Reflect.FieldGetter<Vec2>(chain); var s = Reflect.FieldSetter<Vec2>(chain); p.Get = c => AnimValue.FromVec2(g(c)); p.Set = (c, v) => s(c, v.ToVec2()); break; }
+            case AnimKind.Vec3: { var g = Reflect.FieldGetter<Vec3>(chain); var s = Reflect.FieldSetter<Vec3>(chain); p.Get = c => AnimValue.FromVec3(g(c)); p.Set = (c, v) => s(c, v.ToVec3()); break; }
+            case AnimKind.Vec4: { var g = Reflect.FieldGetter<Vec4>(chain); var s = Reflect.FieldSetter<Vec4>(chain); p.Get = c => AnimValue.FromVec4(g(c)); p.Set = (c, v) => s(c, v.ToVec4()); break; }
+            case AnimKind.Color: { var g = Reflect.FieldGetter<Color>(chain); var s = Reflect.FieldSetter<Color>(chain); p.Get = c => AnimValue.FromColor(g(c)); p.Set = (c, v) => s(c, v.ToColor()); break; }
+            case AnimKind.Ref: { var g = Reflect.FieldGetter<object>(chain); var s = Reflect.FieldSetter<object>(chain); p.Get = c => AnimValue.FromRef(g(c)); p.Set = (c, v) => s(c, v.Ref); break; }
             default: return;
         }
-        list.Add(new AnimProperty
-        {
-            Path = path, Kind = kind, OwnerType = ownerType, ValueType = valueType,
-            Get = Expression.Lambda<Func<Component, AnimValue>>(toValue, c).Compile(),
-            Set = Expression.Lambda<Action<Component, AnimValue>>(Expression.Assign(member, fromValue), c, v).Compile(),
-        });
+        list.Add(p);
     }
-#endif
+
+    static void AddProperty(List<AnimProperty> list, Type ownerType, PropertyInfo pi, AnimKind kind)
+    {
+        var p = new AnimProperty { Path = pi.Name, Kind = kind, OwnerType = ownerType, ValueType = pi.PropertyType };
+        switch (kind)
+        {
+            case AnimKind.Float: { var g = Reflect.PropertyGetter<float>(pi); var s = Reflect.PropertySetter<float>(pi); p.Get = c => AnimValue.FromFloat(g(c)); p.Set = (c, v) => s(c, v.ToFloat()); break; }
+            case AnimKind.Int:
+            case AnimKind.Enum: { var g = Reflect.PropertyGetter<int>(pi); var s = Reflect.PropertySetter<int>(pi); p.Get = c => AnimValue.FromInt(g(c)); p.Set = (c, v) => s(c, v.ToInt()); break; }
+            case AnimKind.Bool: { var g = Reflect.PropertyGetter<bool>(pi); var s = Reflect.PropertySetter<bool>(pi); p.Get = c => AnimValue.FromBool(g(c)); p.Set = (c, v) => s(c, v.ToBool()); break; }
+            case AnimKind.Vec2: { var g = Reflect.PropertyGetter<Vec2>(pi); var s = Reflect.PropertySetter<Vec2>(pi); p.Get = c => AnimValue.FromVec2(g(c)); p.Set = (c, v) => s(c, v.ToVec2()); break; }
+            case AnimKind.Vec3: { var g = Reflect.PropertyGetter<Vec3>(pi); var s = Reflect.PropertySetter<Vec3>(pi); p.Get = c => AnimValue.FromVec3(g(c)); p.Set = (c, v) => s(c, v.ToVec3()); break; }
+            case AnimKind.Vec4: { var g = Reflect.PropertyGetter<Vec4>(pi); var s = Reflect.PropertySetter<Vec4>(pi); p.Get = c => AnimValue.FromVec4(g(c)); p.Set = (c, v) => s(c, v.ToVec4()); break; }
+            case AnimKind.Color: { var g = Reflect.PropertyGetter<Color>(pi); var s = Reflect.PropertySetter<Color>(pi); p.Get = c => AnimValue.FromColor(g(c)); p.Set = (c, v) => s(c, v.ToColor()); break; }
+            case AnimKind.Ref: { var g = Reflect.PropertyGetter<object>(pi); var s = Reflect.PropertySetter<object>(pi); p.Get = c => AnimValue.FromRef(g(c)); p.Set = (c, v) => s(c, v.Ref); break; }
+            default: return;
+        }
+        list.Add(p);
+    }
 }

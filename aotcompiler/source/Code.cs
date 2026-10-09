@@ -134,6 +134,8 @@ namespace DigitoyEngine.Language
         public string DisplayName;  // C# sozdizimli uye gosterimi: "Deep(int[], int)" / ".ctor(int)" / "Finalize()"
         public string UntranslatableReason; // null degilse: govde cevrilemedi, CTranspiler tipe uygun sifir stub uretir
         public bool BodyCloned; // gecici: monomorphization iki-fazli klonda govde doldurma bir kez yapilsin (serialize edilmez)
+        public ushort CilAttributes; // System.Reflection.MethodAttributes
+        public List<PrimitiveAttribute> Attributes = new List<PrimitiveAttribute>(); // custom attribute'lar (reflection tablosu)
 
         public string EncodeName() => (Owner != null ? Owner.Name + "$" : "") + Name;
 

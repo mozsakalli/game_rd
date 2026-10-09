@@ -79,7 +79,7 @@ public static class Program
     // Uc assembly, hepsi in-process Roslyn (dotnet build / csproj YOK):
     //   Digitoy.CoreLib.dll   c_runtime/corelib/**.cs, NoStdLib, referanssiz          -> prebuilt (sdk/) ya da dev'de taze
     //   DigitoyEngine.dll     engine/managed/**.cs, NoStdLib, ref CoreLib, DE_AOT     -> prebuilt (sdk/) ya da dev'de taze
-    //   <Ad>.Game.dll         <proje>/Library/Build/Registry.g.cs + Assets/Scripts   -> her build (kullanici makinesi)
+    //   <Ad>.Game.dll         <proje>/Assets/Scripts (Editor/ haric)                -> her build (kullanici makinesi; script yoksa yok)
     // KURULU MOD: aotcompiler.dll'in yaninda Digitoy.CoreLib.dll + DigitoyEngine.dll varsa (publisher sdk/) onlar kullanilir;
     // DEV MOD: repo kaynaklarindan derlenir, obj/aot-il/ altinda mtime cache.
     static readonly string AotIlDir = Path.Combine("obj", "aot-il");
@@ -133,13 +133,13 @@ public static class Program
         return dll;
     }
 
-    // Oyun: uretilmis Registry + Assets/Scripts (Assets/**/Editor/ haric) -> <Ad>.Game.dll (DE_AOT, NoStdLib).
+    // Oyun: Assets/Scripts (Assets/**/Editor/ haric) -> <Ad>.Game.dll (DE_AOT, NoStdLib). Katalog runtime reflection (Registry yok).
     static string GameAotDll(string projectRoot, string projName, string outDir, string target)
     {
-        string registry = Path.Combine(projectRoot, "Library", "Build", "Registry.g.cs");
-        if (!File.Exists(registry)) throw new Exception("Registry.g.cs yok — projeyi once editorle acin: " + registry);
+        // Registry.g.cs yok (docs/registry-removal.md): katalog runtime reflection'dan kurulur. Yalniz oyun scriptleri.
         var sources = DigitoyEngine.Build.RoslynCompiler.SourcesUnder(Path.Combine(projectRoot, "Assets", "Scripts"), "/Editor/");
-        sources.Insert(0, registry);
+        if (sources.Count == 0)
+            return null; // script yok: engine tek basina
         var defines = new List<string> { "DE_AOT", "DE_GAME" }; defines.AddRange(TargetDefines(target));
         string dll = Path.Combine(outDir, projName + ".Game.dll");
         var r = DigitoyEngine.Build.RoslynCompiler.CompileToFile(new DigitoyEngine.Build.RoslynBuild
@@ -178,7 +178,7 @@ public static class Program
         return codes;
     }
 
-    // NIHAI URUN: engine (DE_AOT) + oyun (Registry + scriptler) -> CIL -> IR -> C -> clang; platform host
+    // NIHAI URUN: engine (DE_AOT) + oyun (scriptler) -> CIL -> IR -> C -> clang; platform host
     // (c_runtime/host_desktop.c) + native (sokol + glfw + ses) STATIK linklenir. DigitoyPlayer assembly'si YOK.
     // Cikti: <proje>/Build/<ProjeAdi>.exe, game.pak'in yanina. Exe ".." = proje koku kabul eder.
     // Oyun ara urunleri PROJENIN icinde (Unity Library/ modeli; gitignore'lu, silinebilir): <proje>/Library/aot/<target>/
@@ -200,7 +200,7 @@ public static class Program
         Directory.CreateDirectory(workDir);
         var engineDll = EngineAotDll(target);
         var playerDll = GameAotDll(projectRoot, projName, workDir, target);
-        Console.WriteLine($"managed: {engineDll}\n         {playerDll}" + (Installed ? "  (kurulu mod: prebuilt sdk)" : ""));
+        Console.WriteLine($"managed: {engineDll}\n         {playerDll ?? "(script yok)"}" + (Installed ? "  (kurulu mod: prebuilt sdk)" : ""));
         Lap("Roslyn (engine AOT + oyun)");
 
         // 2) CIL -> IR: corelib + engine + player (player engine tiplerini ctx'ten cozer)
@@ -211,8 +211,11 @@ public static class Program
         var diag = new List<string>();
         allCodes.AddRange(CilFrontend.Compile(ctx, engineDll, out _));
         diag.AddRange(CilFrontend.LastDiagnostics.Select(d => "[engine] " + d));
-        allCodes.AddRange(CilFrontend.Compile(ctx, playerDll, out _));
-        diag.AddRange(CilFrontend.LastDiagnostics.Select(d => "[player] " + d));
+        if (playerDll != null)
+        {
+            allCodes.AddRange(CilFrontend.Compile(ctx, playerDll, out _));
+            diag.AddRange(CilFrontend.LastDiagnostics.Select(d => "[player] " + d));
+        }
         Lap("CIL frontend (engine+player)");
         // Host sozlesmesi (docs/platform-hosts.md): Main KULLANILMAZ; platform host'u de_app.h uzerinden
         // GameHost.Init/Event/Frame/Pause/Resume/Shutdown'i surer (GC safepoint = de_app_frame icinde).
@@ -229,9 +232,6 @@ public static class Program
         var pauseCode = HostCode("Pause");
         var resumeCode = HostCode("Resume");
         var shutdownCode = HostCode("Shutdown");
-        // Oyunun uretilmis kaydi: de_game_register(cat) -> Generated.Registry.RegisterAll(cat)
-        var registerCode = ctx.AllCodes.SingleOrDefault(c => c.Owner?.Name == "DigitoyEngine.Generated.Registry" && c.Name.StartsWith("RegisterAll", StringComparison.Ordinal))
-            ?? throw new Exception("DigitoyEngine.Generated.Registry.RegisterAll bulunamadi (editor Registry.g.cs uretmedi mi?)");
         Directory.CreateDirectory(workDir);
         File.WriteAllLines(Path.Combine(workDir, "diag.txt"), diag);
         Console.WriteLine($"CIL tani: {diag.Count} oge atlandi/stub'landi -> {Path.Combine(workDir, "diag.txt")}");
@@ -241,7 +241,7 @@ public static class Program
         // STUB KAPISI: host girislerinden cagri grafiyla ERISILEBILEN stub =
         // runtime'da NotImplementedException demek -> build HATASI (exe cikmaz; liste basilir).
         // Erisilemeyen stub'lar (editor/import yolu, kullanilmayan API) diag.txt'de kalir.
-        var hostEntries = new[] { initCode, eventCode, frameCode, pauseCode, resumeCode, shutdownCode, registerCode };
+        var hostEntries = new[] { initCode, eventCode, frameCode, pauseCode, resumeCode, shutdownCode };
         var reachableStubs = ReachableStubs(ctx, hostEntries);
         if (reachableStubs.Count > 0)
         {
@@ -256,15 +256,13 @@ public static class Program
         var cSource = CTranspiler.TranspileProgram(ctx);
         string Sym(Code c) => CTranspiler.CName(c.EncodeName());
         var entrySym = Sym(frameCode);
-        var catType = CTranspiler.CType(registerCode.Arguments[0].Type);
         cSource += "\n/* de_app.h kopruleri (platform host -> managed) */\n" +
             $"void de_managed_init(const char* root, int fbw, int fbh, float scale) {{ {Sym(initCode)}(digitoyengine_from_utf8(root), fbw, fbh, scale); }}\n" +
             $"int de_managed_frame(float dt, int fbw, int fbh, float scale) {{ return {Sym(frameCode)}(dt, fbw, fbh, scale) ? 1 : 0; }}\n" +
             $"void de_managed_event(int type, int id, float x, float y, int a, int b) {{ {Sym(eventCode)}(type, id, x, y, a, b); }}\n" +
             $"void de_managed_pause(void) {{ {Sym(pauseCode)}(); }}\n" +
             $"void de_managed_resume(void) {{ {Sym(resumeCode)}(); }}\n" +
-            $"void de_managed_shutdown(void) {{ {Sym(shutdownCode)}(); }}\n" +
-            $"void de_game_register({catType} cat) {{ {Sym(registerCode)}(cat); }}\n";
+            $"void de_managed_shutdown(void) {{ {Sym(shutdownCode)}(); }}\n";
         File.WriteAllText(generated, cSource);
         Console.WriteLine($"transpile -> {generated} ({cSource.Length} karakter, giris {entrySym})");
         Lap("C transpile + yaz");

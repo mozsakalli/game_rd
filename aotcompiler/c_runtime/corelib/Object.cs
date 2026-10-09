@@ -16,6 +16,14 @@ namespace System
         public extern static int TickCount { get; } // ms, monoton
     }
 
+    // Tek domain: AppDomain.CurrentDomain.GetAssemblies() -> [tek sahte Assembly]
+    public sealed class AppDomain
+    {
+        static readonly AppDomain current = new AppDomain();
+        public static AppDomain CurrentDomain { get { return current; } }
+        public Reflection.Assembly[] GetAssemblies() { return new Reflection.Assembly[] { Reflection.Assembly.GetExecutingAssembly() }; }
+    }
+
     public class Object
     {
         public static bool Equals(object a, object b) { return a == null ? b == null : a.Equals(b); }

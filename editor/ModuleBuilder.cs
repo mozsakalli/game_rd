@@ -32,6 +32,8 @@ public static class ModuleBuilder
             return Fail("oyun kodu derlemesi suruyor; bitince tekrar deneyin");
         if (AssetWatcher.Failed)
             return Fail("oyun kodu derlenemiyor; once hatalari giderin (Console)");
+        // docs/registry-removal.md: modul giris noktasi Registry$RegisterAll idi; Faz 6'da tip listesi sozlesmesiyle geri gelir.
+        return Fail("module build gecici olarak devre disi: Registry kaldirildi (docs/registry-removal.md Faz 6)");
         if (!AotCompatCheck.Available)
             return Fail("AOT referanslari yok (corelib/engine): once bir kez Build Player alin: " + AotCompatCheck.AotEngineDll);
         var gameAsm = App.GameAssembly;
@@ -45,13 +47,12 @@ public static class ModuleBuilder
         string ns = safeName + ".Generated";
         string entryName = ns + ".Registry$RegisterAll_DigitoyEngine_TypeCatalog"; // Code.EncodeName sozlesmesi
 
-        // 1) kaynaklar: scriptler (+ editor-yalniz haric) + modul registry'si
+        // 1) kaynaklar: scriptler (+ editor-yalniz haric). Modul Registry'si kalkti (Faz 6: tip listesi).
         var scripts = new List<string>();
         foreach (var f in Directory.GetFiles(project.AssetsPath, "*.cs", SearchOption.AllDirectories))
             if (!f.Replace('\\', '/').Contains("/Editor/"))
                 scripts.Add(f);
-        string registrySrc = CatalogWriter.Write(App.Catalog, t => t.Assembly == gameAsm, ns);
-        File.WriteAllText(Path.Combine(buildDir, "Registry.g.cs"), registrySrc);
+        string registrySrc = null;
 
         string hostDll = project.Player.moduleHostDll;
         if (!string.IsNullOrWhiteSpace(hostDll) && !Path.IsPathRooted(hostDll))
@@ -98,7 +99,8 @@ public static class ModuleBuilder
             var trees = new List<SyntaxTree>();
             foreach (var f in scripts)
                 trees.Add(CSharpSyntaxTree.ParseText(File.ReadAllText(f), parse, path: f));
-            trees.Add(CSharpSyntaxTree.ParseText(registrySrc, parse, path: "Registry.g.cs"));
+            if (registrySrc != null)
+                trees.Add(CSharpSyntaxTree.ParseText(registrySrc, parse, path: "Registry.g.cs"));
             var comp = CSharpCompilation.Create(asmName, trees, refs,
                 new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true,
                     optimizationLevel: OptimizationLevel.Release));

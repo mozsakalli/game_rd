@@ -97,7 +97,7 @@ namespace System.Collections.Generic
         public void Dispose() { }
     }
 
-    public class List<T> : IList<T>, IReadOnlyList<T>, System.Collections.IEnumerable
+    public class List<T> : IList<T>, IReadOnlyList<T>, System.Collections.IEnumerable, System.Collections.IList
     {
         public struct Enumerator
         {
@@ -145,6 +145,21 @@ namespace System.Collections.Generic
         public List<T>.Enumerator GetEnumerator() { return new List<T>.Enumerator { list = this, index = -1 }; }
         IEnumerator<T> IEnumerable<T>.GetEnumerator() { return new ListInterfaceEnumerator<T>(GetEnumerator()); }
         System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() { return new ListInterfaceEnumerator<T>(GetEnumerator()); } // koleksiyon baslaticisi (new List<T>{...}) bunu ister
+        // ---- System.Collections.IList (non-generic; reflection tabanli serializer boxing ile erisir) ----
+        object System.Collections.IList.this[int index] { get { return this[index]; } set { this[index] = (T)value; } }
+        bool System.Collections.IList.IsFixedSize { get { return false; } }
+        bool System.Collections.IList.IsReadOnly { get { return false; } }
+        int System.Collections.IList.Add(object value) { Add((T)value); return size - 1; }
+        void System.Collections.IList.Clear() { Clear(); }
+        bool System.Collections.IList.Contains(object value) { return value is T && Contains((T)value); }
+        int System.Collections.IList.IndexOf(object value) { return value is T ? IndexOf((T)value) : -1; }
+        void System.Collections.IList.Insert(int index, object value) { Insert(index, (T)value); }
+        void System.Collections.IList.Remove(object value) { if (value is T) Remove((T)value); }
+        void System.Collections.IList.RemoveAt(int index) { RemoveAt(index); }
+        int System.Collections.ICollection.Count { get { return size; } }
+        bool System.Collections.ICollection.IsSynchronized { get { return false; } }
+        object System.Collections.ICollection.SyncRoot { get { return this; } }
+        void System.Collections.ICollection.CopyTo(Array array, int index) { for (int i = 0; i < size; i++) array.SetValue(items[i], index + i); }
         public void Grow()
         {
             T[] buyuk = new T[items.Length * 2];

@@ -55,6 +55,10 @@ struct DigitoyEngineMember
     unsigned short size;     /* alanin bayt boyutu */
     void *addr;              /* static alan: depo adresi */
     unsigned long long hash; /* FNV64(alan adi) - modul baglama anahtari (bildiren tipten baslanir, base zinciri); property: 0 */
+    /* ---- reflection (Faz 4b) ---- */
+    struct DeAttr *attrs;    /* custom attribute kayitlari (yoksa 0) */
+    unsigned char nattrs;
+    unsigned short cilattrs; /* CIL FieldAttributes / PropertyAttributes */
 };
 // interface implementasyon kaydi: iface kimligi (benzersiz sembol adresi) -> method tablosu
 typedef struct IfaceImpl
@@ -91,6 +95,15 @@ struct Type
     unsigned short nmethods;
     unsigned char flags;           // DIGITOYENGINE_TYPE_*
     const void *delegate_tramp;    // delegate tipi: host->modul trampoline'i ((closure, params) imzali); diger tiplerde 0
+    // ---- dizi kimligi (docs/registry-removal.md Faz 4a): T[] descriptor'u (typeof(T[]) uretilen ya da runtime sentez) ----
+    const Type *elem_type;         // ARRAY bayrakli descriptor: eleman tipi; diger tiplerde 0
+    unsigned char rank;            // ARRAY: boyut sayisi
+    const Type *array_of;          // struct descriptor'u: ref tasiyan T[] icin uretilen TAHSIS tipi (eleman eleman trace); yoksa 0
+    // ---- reflection (Faz 4b) ----
+    struct DeAttr *attrs;          // custom attribute kayitlari (yoksa 0)
+    unsigned char nattrs;
+    unsigned int cilattrs;         // CIL TypeAttributes (System.Reflection.TypeAttributes)
+    const Type *generic_def;       // kapali generic ornek: acik tanim descriptor'u (typeof(List<>)); yoksa 0
 };
 enum
 {
@@ -98,7 +111,9 @@ enum
     DIGITOYENGINE_TYPE_INTERFACE = 2,
     DIGITOYENGINE_TYPE_DELEGATE = 4,
     DIGITOYENGINE_TYPE_ENUM = 8,
-    DIGITOYENGINE_TYPE_ABSTRACT = 16
+    DIGITOYENGINE_TYPE_ABSTRACT = 16,
+    DIGITOYENGINE_TYPE_ARRAY = 32,
+    DIGITOYENGINE_TYPE_GENERIC_DEF = 64 // acik generic tanim (boyutsuz, instantiate edilemez)
 };
 // Programdaki tum descriptor'lar (uretilen + runtime object/string/ValueType/primitive'ler): hash/ad ile arama tabani.
 extern const Type *const digitoyengine_types[];
@@ -190,7 +205,21 @@ typedef struct MethodInfo
     unsigned char nparams;            // this HARIC parametre sayisi
     unsigned char ret_tag;
     unsigned char flags;              // DIGITOYENGINE_METHOD_*
+    // ---- reflection (docs/registry-removal.md Faz 4b) ----
+    struct DeAttr *attrs;             // custom attribute kayitlari (yoksa 0)
+    unsigned char nattrs;
+    unsigned short cilattrs;          // CIL MethodAttributes (System.Reflection.MethodAttributes)
 } MethodInfo;
+// Custom attribute kaydi: tip + lazy kurucu (uretilen: ctor sabit argumanlarla + named arg atamalari). instance rooted cache.
+typedef struct DeAttr
+{
+    const Type *type;
+    GCHeader *(*create)(void);
+    GCHeader *instance;
+} DeAttr;
+GCHeader *digitoyengine_attr_instance(DeAttr *a);                                             // lazy + gc_add_root
+int digitoyengine_attrs_defined(const DeAttr *attrs, int n, const Type *attrType);          // DIGITOYENGINE_is(attr.type, attrType)
+struct VmArray *digitoyengine_attrs_array(DeAttr *attrs, int n, const Type *filter, const Type *elemType); // instance dizisi (filter 0 = hepsi)
 enum
 {
     DIGITOYENGINE_METHOD_STATIC = 1,
@@ -356,6 +385,7 @@ typedef struct DeModule
 } DeModule;
 void digitoyengine_reflect_init(const Type *typeType, const Type *fieldInfoType, const Type *propertyInfoType, const Type *methodInfoType, const Type *ctorInfoType, int nwrappers); // digitoyengine_init cagirir
 GCHeader *digitoyengine_type_wrapper(const Type *t);                                                                           // tindex 0 ise 0 doner (dizi tipleri vb.)
+const Type *digitoyengine_reflect_type(int which); // wrapper descriptor'lari: 0=Type 1=FieldInfo 2=PropertyInfo 3=MethodInfo 4=ConstructorInfo
 GCHeader *digitoyengine_member_lookup(const Type *t, const struct VmString *name, int kind);
 GCHeader *digitoyengine_member_wrapper(DigitoyEngineMember *member);                      // FieldInfo/PropertyInfo (lazy, koklu)
 GCHeader *digitoyengine_method_wrapper(MethodInfo *m);                                   // MethodInfo/ConstructorInfo (flags CTOR) wrapper
@@ -403,6 +433,7 @@ extern const Type vmenum_type;      // typeof(MyEnum).BaseType == System.Enum (d
 extern const Type vmint32_type, vmuint32_type, vmint64_type, vmuint64_type;
 extern const Type vmint16_type, vmuint16_type, vmsbyte_type, vmbyte_type;
 extern const Type vmchar_type, vmbool_type, vmsingle_type, vmdouble_type;
+extern const Type vmvoid_type; // System.Void (tindex 19): typeof(void), void donus tipi
 // box vtable'lari (corelib.c; slot sozlesmesi Object.cs: 0=GetHashCode 1=Equals 2=ToString)
 extern const void *vmbool_vtable[3], *vmchar_vtable[3], *vmsbyte_vtable[3], *vmbyte_vtable[3];
 extern const void *vmint16_vtable[3], *vmuint16_vtable[3], *vmint32_vtable[3], *vmuint32_vtable[3];
@@ -495,12 +526,24 @@ typedef struct VmArray
     void *data;
     unsigned short rank;
     int *dims;
+    const Type *elem; // eleman tipi descriptor'u (is T[] / GetType / GetValue-SetValue); bilinmiyorsa 0 (modul interp)
 } VmArray;
-extern const Type vmarray_ref_type; // eleman = GC pointer (izlenir)
-extern const Type vmarray_val_type; // eleman = deger tipi (atomic)
+extern Type vmarray_ref_type; // eleman = GC pointer (izlenir); base init'te System.Array
+extern Type vmarray_val_type; // eleman = deger tipi (atomic)
+void digitoyengine_array_init(const Type *arrayBase); // uretilen digitoyengine_init cagirir
 VmArray *vmarray_new(int len, unsigned short elemsize, int isref);
 VmArray *vmarray_new_rank(int rank, const int *dims, unsigned short elemsize, int isref);
 VmArray *vmarray_new_rank_t(int rank, const int *dims, unsigned short elemsize, const Type *t); // uretilen dizi tipi (ref tasiyan struct elemanlar)
+// Eleman tipi bilinen tahsis (uretilen kod + corelib.c): t = tahsis tipi (ref/val/arr_X), elem = eleman descriptor'u (0 olabilir)
+VmArray *vmarray_new_rank_te(int rank, const int *dims, unsigned short elemsize, const Type *t, const Type *elem);
+VmArray *vmarray_new_e(int len, const Type *elem); // elemsize/tahsis tipi elem'den (Array.CreateInstance; corelib.c diziler)
+// ---- dizi reflection'i ----
+unsigned short digitoyengine_elem_size(const Type *elem);        // deger tipi: payload boyutu; referans: pointer
+int digitoyengine_is_reftype(const Type *t);                     // class/string/dizi/iface/delegate
+int digitoyengine_is_array(const GCHeader *o, const Type *elem, int rank); // `o is T[]` (ref elemanlarda kovaryans); o null -> 0
+const Type *digitoyengine_array_type(const Type *elem, int rank); // T[] kimlik descriptor'u (uretilen typeof(T[]) ya da sentez; ayni (elem,rank) = ayni Type*)
+GCHeader *digitoyengine_array_get(VmArray *a, int index);         // kutulu eleman (Array.GetValue)
+void digitoyengine_array_set(VmArray *a, int index, GCHeader *value); // kutudan elemana (Array.SetValue), ref'te barrier
 void finalize_vmarray(GCHeader *h); // uretilen dizi Type'lari icin
 // System.Array yardimcilari: eleman tipinden bagimsiz (elemsize'i dizi tasir), memmove tabanli.
 void vmarray_copy(VmArray *src, int srcIndex, VmArray *dst, int dstIndex, int len); // overlap guvenli

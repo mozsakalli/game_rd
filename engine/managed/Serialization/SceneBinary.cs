@@ -7,14 +7,23 @@ namespace DigitoyEngine;
 
 // PISMIS (baked) sahne/prefab formati — RELEASE yolu. Pak build'de YAML doc'u
 // (prefab'lar ACILMIS, override'lar uygulanmis) katalog SEMASIYLA cozulur ve
-// dogrudan alan degerleri yazilir: alan ADI yok (sema indeksi), skaler metin yok
-// (ham float/int/bayt), Go/CompRef onceden (id, sira) olarak cozulmus, enum
-// underlying int. Runtime'da DocNode bile kurulmaz: bayt -> alan setter.
+// dogrudan alan degerleri yazilir: skaler metin yok (ham float/int/bayt),
+// Go/CompRef onceden (id, sira) olarak cozulmus, enum underlying int.
+// Runtime'da DocNode bile kurulmaz: bayt -> alan setter.
+//
+// v2 (docs/registry-removal.md Faz 2): pak KENDINI TARIF EDER — tip tablosu her tipin alan
+// tablosunu (ad + kind, ic ice dahil) tasir; alan kaydindaki u16 idx bu tabloya isaret eder.
+// Okuyucu acilista tip basina bir kez pak alani -> kod semasi eslemesi kurar (ad, FormerName).
+// Eslesmeyen/kind'i degisen alan ATLANIR (alan duzeyi tolerans: alan ekle/sil/tasi/rename sahneyi
+// bozmaz; editor ve player'in alan SIRASI onemsiz). Bilinmeyen component tipi komple atlanir.
 //
 // Duzen (little-endian):
 //   i32 magic "DSCN", i32 version
 //   i32 nStr, str[]                     (u16 len + UTF8; asset guid'leri, adlar)
-//   i32 nType, { i32 nameStr, u32 schemaHash }[]   (component tipleri)
+//   i32 nAlias, { i32 oldStr, i32 newStr }[]   (tip adi rename'leri: katalog alias'lari)
+//   i32 nType, type[]                   (component tipleri)
+//   type:  i32 nameStr, fields
+//   fields: u16 nField, { i32 nameStr, u8 kind, u8 elemKind, u8 hasNested, [fields] }[]
 //   i32 nObj, obj[]
 //   obj: i32 id, i32 parent, i32 nameStr, u8 active, i32 layer, f32 pos[3] rot[3] scale[3]
 //        u16 nComp, comp[]
@@ -23,59 +32,60 @@ namespace DigitoyEngine;
 //        Vec2 2f | Vec3 3f | Vec4 4f | Color 4u8 | Asset i32 str (-1 null) |
 //        GoRef i32 id (0 null) | CompRef i32 id, u16 sira | List i32 n (-1 null) + eleman[] |
 //        Object u8 var + u16 nField + { u16 idx, value }[]
-//
-// schemaHash: alan adi+kind (ic ice dahil) FNV-1a — pak ile derlenen kod uyusmazsa
-// component atlanir ve uyari verilir (crash yok; cozum: pak'i yeniden build et).
 public static unsafe class SceneBinary
 {
     public const int Magic = 0x4E435344; // "DSCN"
-    public const int Version = 1;
+    public const int Version = 2;
 
     public static bool IsBaked(byte[] data)
         => data != null && data.Length >= 8 && ReadI32(data, 0) == Magic;
 
-    // --- Sema parmak izi (yazici ve okuyucu ayni fonksiyonu kullanir) ---
+    // --- Pak alan tablosu (okuyucu tarafi): pak'taki alan -> kod semasindaki alan (null = atla) ---
 
-    public static uint SchemaHash(SerializedType.FieldSchema[] schema)
+    sealed class PakField
     {
-        uint h = 2166136261u;
-        HashSchema(schema, ref h);
-        return h;
+        public string Name;
+        public SerializedType.Kind Kind, ElementKind;
+        public PakField[] Nested;                 // hasNested
+        public SerializedType.FieldSchema Target; // null = kodda yok / uyumsuz -> deger atlanir
     }
 
-    static void HashSchema(SerializedType.FieldSchema[] schema, ref uint h)
+    static PakField[] ReadFieldTable(Reader r)
+    {
+        int n = r.U16();
+        var arr = new PakField[n];
+        for (int i = 0; i < n; i++)
+        {
+            var f = new PakField { Name = r.Strs[r.I32()], Kind = (SerializedType.Kind)r.U8(), ElementKind = (SerializedType.Kind)r.U8() };
+            if (r.U8() != 0)
+                f.Nested = ReadFieldTable(r);
+            arr[i] = f;
+        }
+        return arr;
+    }
+
+    // Ad (ya da FormerName) ile esle; kind/elemKind farkliysa uyumsuz say. Ic ice tablolar ozyinelemeli.
+    static void BindFieldTable(PakField[] pak, SerializedType.FieldSchema[] schema, string owner)
     {
         if (schema == null)
             return;
-        foreach (var f in schema)
+        foreach (var pf in pak)
         {
-            HashStr(f.Name, ref h);
-            HashByte((byte)f.Kind, ref h);
-            HashByte((byte)f.ElementKind, ref h);
-            if (f.Nested != null)
+            var f = SerializedType.Find(schema, pf.Name);
+            if (f == null)
             {
-                HashByte(1, ref h);
-                HashSchema(f.Nested, ref h);
+                AssetDatabase.LogWarning?.Invoke($"[baked] alan kodda yok, atlandi: {owner}.{pf.Name}");
+                continue;
             }
-            HashByte(0xFF, ref h);
+            if (f.Kind != pf.Kind || f.ElementKind != pf.ElementKind)
+            {
+                AssetDatabase.LogWarning?.Invoke($"[baked] alan turu degisti, atlandi: {owner}.{pf.Name} ({pf.Kind}/{pf.ElementKind} -> {f.Kind}/{f.ElementKind})");
+                continue;
+            }
+            pf.Target = f;
+            if (pf.Nested != null)
+                BindFieldTable(pf.Nested, f.Nested, owner + "." + pf.Name);
         }
-    }
-
-    static void HashStr(string s, ref uint h)
-    {
-        if (s == null)
-            return;
-        for (int i = 0; i < s.Length; i++)
-        {
-            HashByte((byte)s[i], ref h);
-            HashByte((byte)(s[i] >> 8), ref h);
-        }
-    }
-
-    static void HashByte(byte b, ref uint h)
-    {
-        h ^= b;
-        h *= 16777619u;
     }
 
     // ======================= RUNTIME OKUYUCU =======================
@@ -83,6 +93,9 @@ public static unsafe class SceneBinary
     // Pismis baytlardan sahneyi/prefab'i AKTIF sahneye kurar; ilk kok GO'yu dondurur.
     // SceneDoc.Spawn ile ayni sozlesme: once tum GO'lar dogar, referanslar sonra
     // cozulur, aktivasyon en sonda topluca (Awake deserialize edilmis degerleri gorur).
+    // Test kancasi (docs/registry-removal.md Faz 0): referanslar cozuldukten sonra, Awake'ten ONCE cagrilir.
+    public static Action BeforeActivate;
+
     public static GameObject Spawn(byte[] data, Transform parent, TypeCatalog catalog, AssetDatabase assets)
     {
         var r = new Reader(data, assets);
@@ -98,21 +111,28 @@ public static unsafe class SceneBinary
             strs[i] = r.Str();
         r.Strs = strs;
 
+        // Alias'lar tip tablosundan ONCE: pak'ta eski adla yazilmis tip yeni ada cozulsun.
+        int nAlias = r.I32();
+        for (int i = 0; i < nAlias; i++)
+        {
+            string oldName = strs[r.I32()], newName = strs[r.I32()];
+            if (catalog.Find(oldName) == null)
+                catalog.RegisterAlias(oldName, newName);
+        }
         int nType = r.I32();
         var types = new TypeCatalog.Entry[nType];
+        var tables = new PakField[nType][];
         for (int i = 0; i < nType; i++)
         {
             string name = strs[r.I32()];
-            uint hash = r.U32();
+            var table = ReadFieldTable(r);
             var e = catalog.Find(name);
             if (e == null)
                 AssetDatabase.LogWarning?.Invoke("[baked] bilinmeyen component tipi atlandi: " + name);
-            else if (SchemaHash(e.Schema) != hash)
-            {
-                AssetDatabase.LogWarning?.Invoke("[baked] sema uyusmazligi, component atlandi (pak'i yeniden build edin): " + name);
-                e = null;
-            }
+            else
+                BindFieldTable(table, e.Schema, name);
             types[i] = e;
+            tables[i] = table;
         }
 
         int nObj = r.I32();
@@ -143,26 +163,20 @@ public static unsafe class SceneBinary
             compsById[id] = comps;
             for (int ci = 0; ci < nComp; ci++)
             {
-                var entry = types[r.U16()];
+                int ti = r.U16();
+                var entry = types[ti];
                 bool enabled = r.U8() != 0;
                 int len = r.I32();
                 int end = r.Pos + len;
                 if (entry == null)
                 {
-                    r.Pos = end; // bilinmeyen/uyumsuz tip: govdeyi atla
+                    r.Pos = end; // bilinmeyen tip: govdeyi atla
                     continue;
                 }
                 var c = go.AddComponentRaw(entry);
                 c._enabled = enabled;
                 comps[ci] = c;
-                if (entry.ReadBaked != null)
-                    entry.ReadBaked(c, r); // uretilmis tipli okuyucu (boxing yok)
-                else
-#if DE_AOT
-                    throw new InvalidOperationException("baked okuyucu yok: " + entry.Name);
-#else
-                    ReadFields(r, c, entry.Schema, assets, deferred); // reflection katalogu (editor)
-#endif
+                ReadFields(r, c, tables[ti], assets, deferred);
                 r.Pos = end;
             }
             if (!active)
@@ -195,6 +209,7 @@ public static unsafe class SceneBinary
             }
             d.Set(v);
         }
+        BeforeActivate?.Invoke(); // test kancasi: saf deserialize durumu (Awake henuz kosmadi)
         for (int oi = 0; oi < nObj; oi++)
             gos[oi].ActivateComponentsNow();
         return first;
@@ -211,14 +226,20 @@ public static unsafe class SceneBinary
         public Action<object> Set;
     }
 
-#if !DE_AOT // object/boxing yolu: FieldSchema.Get/Set (reflection katalogu)
-    static void ReadFields(Reader r, object owner, SerializedType.FieldSchema[] schema,
-        AssetDatabase assets, List<DeferredRef> deferred)
+    // Boxed okuma yolu (FieldSchema.Get/Set) — editor, .NET player ve AOT ayni kod. Sahne yukleme tek seferlik;
+    // sicak yol degil (animasyon Reflect tipli erisimcilerle). Faz 4+: alan basina boxing istenirse GetRef'e gecilir.
+    static void ReadFields(Reader r, object owner, PakField[] table, AssetDatabase assets, List<DeferredRef> deferred)
     {
         int n = r.U16();
         for (int i = 0; i < n; i++)
         {
-            var f = schema[r.U16()];
+            var pf = table[r.U16()];
+            var f = pf.Target;
+            if (f == null)
+            {
+                SkipValue(r, pf, pf.Kind); // kodda olmayan / turu degisen alan
+                continue;
+            }
             switch (f.Kind)
             {
                 case SerializedType.Kind.GoRef:
@@ -240,7 +261,7 @@ public static unsafe class SceneBinary
                         {
                             var arr = (Array)f.NewArray(count);
                             for (int k = 0; k < count; k++)
-                                ReadElement(r, f, assets, deferred, arr, k);
+                                ReadElement(r, pf, assets, deferred, arr, k);
                             f.Set(owner, arr);
                         }
                         else
@@ -249,7 +270,7 @@ public static unsafe class SceneBinary
                             for (int k = 0; k < count; k++)
                             {
                                 list.Add(f.ElementType.IsValueType ? f.NewElement() : null);
-                                ReadElement(r, f, assets, deferred, list, k);
+                                ReadElement(r, pf, assets, deferred, list, k);
                             }
                             f.Set(owner, list);
                         }
@@ -260,7 +281,7 @@ public static unsafe class SceneBinary
                         if (r.U8() == 0)
                             break;
                         object inst = f.Get(owner) ?? f.NewElement();
-                        ReadFields(r, inst, f.Nested, assets, deferred);
+                        ReadFields(r, inst, pf.Nested, assets, deferred);
                         f.Set(owner, inst); // struct: boxed kopya geri yazilir
                         break;
                     }
@@ -271,9 +292,10 @@ public static unsafe class SceneBinary
         }
     }
 
-    static void ReadElement(Reader r, SerializedType.FieldSchema f, AssetDatabase assets,
+    static void ReadElement(Reader r, PakField pf, AssetDatabase assets,
         List<DeferredRef> deferred, object container, int index)
     {
+        var f = pf.Target;
         switch (f.ElementKind)
         {
             case SerializedType.Kind.GoRef:
@@ -288,7 +310,7 @@ public static unsafe class SceneBinary
                 {
                     object inst = f.NewElement();
                     if (r.U8() != 0)
-                        ReadFields(r, inst, f.Nested, assets, deferred);
+                        ReadFields(r, inst, pf.Nested, assets, deferred);
                     SetAt(container, index, inst);
                     break;
                 }
@@ -306,16 +328,51 @@ public static unsafe class SceneBinary
             ((System.Collections.IList)container)[index] = value;
     }
 
-#endif
+    // Degeri okumadan gecer (alan kodda yok). Kodlama kind'den belirlidir; ic ice tablolar pak'tan.
+    static void SkipValue(Reader r, PakField pf, SerializedType.Kind kind)
+    {
+        switch (kind)
+        {
+            case SerializedType.Kind.Float: case SerializedType.Kind.Int: case SerializedType.Kind.String:
+            case SerializedType.Kind.Enum: case SerializedType.Kind.Asset: case SerializedType.Kind.GoRef:
+                r.Pos += 4; break;
+            case SerializedType.Kind.Bool: r.Pos += 1; break;
+            case SerializedType.Kind.Vec2: r.Pos += 8; break;
+            case SerializedType.Kind.Vec3: r.Pos += 12; break;
+            case SerializedType.Kind.Vec4: r.Pos += 16; break;
+            case SerializedType.Kind.Color: r.Pos += 4; break;
+            case SerializedType.Kind.CompRef: r.Pos += 6; break;
+            case SerializedType.Kind.List:
+                {
+                    int count = r.I32();
+                    for (int k = 0; k < count; k++)
+                        SkipValue(r, pf, pf.ElementKind);
+                    break;
+                }
+            case SerializedType.Kind.Object:
+                if (r.U8() != 0)
+                    SkipFields(r, pf.Nested);
+                break;
+            default:
+                throw new InvalidOperationException("baked sahne: atlanamayan kind " + kind);
+        }
+    }
+
+    static void SkipFields(Reader r, PakField[] table)
+    {
+        int n = r.U16();
+        for (int i = 0; i < n; i++)
+        {
+            var pf = table[r.U16()];
+            SkipValue(r, pf, pf.Kind);
+        }
+    }
+
     static int ReadI32(byte[] b, int p)
         => b[p] | (b[p + 1] << 8) | (b[p + 2] << 16) | (b[p + 3] << 24);
 
-    // Uretilmis tipli okuyucu (CatalogWriter): alan indeksi -> dogrudan atama.
-    public delegate void BakedReader(Component c, Reader r);
-
     // Bagimliliksiz imlec: BinaryReader/Stream yok (AOT corelib yuzeyi dar kalsin).
-    // Uretilmis okuyucular (Registry.Read_N) bu API'yi cagirir; bellek duzeni
-    // dosya basindaki yorumla birebir. Class: spawn basina tek nesne, ref-param yok.
+    // Bellek duzeni dosya basindaki yorumla birebir. Class: spawn basina tek nesne, ref-param yok.
     public sealed class Reader
     {
         readonly byte[] _b;
@@ -493,20 +550,46 @@ public static unsafe class SceneBinary
 
         w.I32(Magic);
         w.I32(Version);
+        // Alias ve tip tablosu string'leri body'den sonra ama string tablosundan once eklenmeli.
+        var aliasList = new List<(int Old, int New)>();
+        foreach (var kv in catalog.Aliases)
+            aliasList.Add((Str(kv.Key), Str(kv.Value)));
+        var typeTables = new Writer();
+        typeTables.I32(typeList.Count);
+        foreach (var e in typeList)
+        {
+            typeTables.I32(Str(e.Name));
+            WriteFieldTable(typeTables, e.Schema, Str);
+        }
         var strArr = new string[strs.Count];
         foreach (var kv in strs)
             strArr[kv.Value] = kv.Key;
         w.I32(strArr.Length);
         foreach (var s in strArr)
             w.Str(s);
-        w.I32(typeList.Count);
-        foreach (var e in typeList)
-        {
-            w.I32(Str(e.Name));
-            w.U32(SchemaHash(e.Schema));
-        }
+        w.I32(aliasList.Count);
+        foreach (var (o, n) in aliasList) { w.I32(o); w.I32(n); }
+        w.Append(typeTables);
         w.Append(body);
         return w.ToArray();
+    }
+
+    // Pak alan tablosu: ad + kind (+ ic ice). Indeksler kod semasiyla ayni sirada -> WriteFields'in
+    // Array.IndexOf(schema, f) indeksi dogrudan bu tabloya isaret eder.
+    static void WriteFieldTable(Writer w, SerializedType.FieldSchema[] schema, Func<string, int> str)
+    {
+        int n = schema?.Length ?? 0;
+        w.U16((ushort)n);
+        for (int i = 0; i < n; i++)
+        {
+            var f = schema[i];
+            w.I32(str(f.Name));
+            w.U8((byte)f.Kind);
+            w.U8((byte)f.ElementKind);
+            w.U8((byte)(f.Nested != null ? 1 : 0));
+            if (f.Nested != null)
+                WriteFieldTable(w, f.Nested, str);
+        }
     }
 
     static void WriteFields(Writer w, List<KeyValuePair<string, DocNode>> props, SerializedType.FieldSchema[] schema,

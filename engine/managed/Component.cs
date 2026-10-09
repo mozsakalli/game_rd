@@ -93,7 +93,6 @@ public abstract class Component
     public static void Destroy(GameObject go) => GameObject.Destroy(go);
     public static void Destroy(Component c) => GameObject.Destroy(c);
 
-#if !DE_AOT // AOT: bayraklar uretilmis katalogdan (Entry.Flags); reflection yok
     // AddComponent<T> bayraklari statik generic cache'ten okur — dictionary lookup bile yok.
     // (Generic static, T'nin AssemblyLoadContext'iyle birlikte cope gider — reload guvenli.
     // Type-anahtarli dictionary cache BILEREK YOK: o is TypeCatalog instance'inda.)
@@ -102,6 +101,7 @@ public abstract class Component
         public static readonly LifecycleFlags Value = ComputeFlags(typeof(T));
     }
 
+    // Reflection ile (Reflect kabugu: .NET ve AOT ayni yol).
     internal static LifecycleFlags ComputeFlags(Type t)
     {
         LifecycleFlags f = LifecycleFlags.None;
@@ -123,21 +123,10 @@ public abstract class Component
     }
 
     static LifecycleFlags Overrides(Type t, string method, LifecycleFlags flag)
-    {
-        var m = t.GetMethod(method,
-            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
-            null, Type.EmptyTypes, null);
-        return (m != null && m.DeclaringType != typeof(Component)) ? flag : LifecycleFlags.None;
-    }
+        => Reflect.DeclaresOverride(t, method, Type.EmptyTypes) ? flag : LifecycleFlags.None;
 
     static readonly Type[] _ptrArgs = { typeof(PointerEvent) };
 
     static LifecycleFlags OverridesPtr(Type t, string method, LifecycleFlags flag)
-    {
-        var m = t.GetMethod(method,
-            BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic,
-            null, _ptrArgs, null);
-        return (m != null && m.DeclaringType != typeof(Component)) ? flag : LifecycleFlags.None;
-    }
-#endif
+        => Reflect.DeclaresOverride(t, method, _ptrArgs) ? flag : LifecycleFlags.None;
 }

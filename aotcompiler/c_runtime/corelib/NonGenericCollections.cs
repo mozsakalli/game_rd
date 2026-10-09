@@ -71,7 +71,11 @@ namespace System
     // reference type used by legacy collection signatures such as ICollection.CopyTo.
     public class Array
     {
-        public extern int Length { get; } // ldlen: frontend intrinsic (VmArray.len)
+        public extern int Length { get; } // ldlen: frontend intrinsic (VmArray.len); Array-tipli referansta corelib.c
+        public extern int Rank { get; }
+        public extern object GetValue(int index);              // eleman tipine gore kutular (VmArray.elem)
+        public extern void SetValue(object value, int index);  // kutudan elemana (tip denetimi, ref'te barrier)
+        public extern static Array CreateInstance(Type elementType, int length);
         public static extern int IndexOf(string[] array, string value);
         public static extern void Copy(byte[] sourceArray, byte[] destinationArray, int length);
         public static extern void Copy(byte[] sourceArray, int sourceIndex, byte[] destinationArray, int destinationIndex, int length);

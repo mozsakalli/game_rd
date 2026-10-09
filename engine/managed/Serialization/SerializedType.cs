@@ -47,7 +47,7 @@ public static class SerializedType
         // (AnimRegistry) — tween/MovieClip/inspector hepsi o tablodan gecer.
     }
 
-#if !DE_AOT // reflection yolu: editor + .NET player. AOT: uretilmis Registry doldurur.
+    // Reflection yolu — editor, .NET player ve AOT ayni kod (Reflect kabugu; docs/registry-removal.md Faz 3).
     const int MaxDepth = 7;
 
     // Cache YOK: sonucu TypeCatalog sahiplenir (reload'da katalogla birlikte olur).
@@ -64,16 +64,9 @@ public static class SerializedType
         chain.Reverse();
         foreach (var tt in chain)
         {
-            foreach (var fi in tt.GetFields(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.DeclaredOnly))
+            foreach (var fi in Reflect.DeclaredInstanceFields(tt))
             {
-                // NotSerialized/Serializable flag'leri dogrudan okunur. SYSLIB0050
-                // yanlis pozitif: uyari BinaryFormatter icin, biz kendi serializer'imizda
-                // ayni metadata'yi Unity semantigiyle kullaniyoruz.
-#pragma warning disable SYSLIB0050
-                bool serialized = (fi.IsPublic && (fi.Attributes & FieldAttributes.NotSerialized) == 0)
-                    || fi.GetCustomAttribute<SerializeFieldAttribute>() != null;
-#pragma warning restore SYSLIB0050
-                if (!serialized)
+                if (!Reflect.IsSerialized(fi))
                     continue;
                 var f = BuildField(fi, depth, insideStruct);
                 if (f != null)
@@ -149,16 +142,15 @@ public static class SerializedType
                 return null; // struct kopya semantigi deferred ref cozumuyle celisir
             f = new FieldSchema { Kind = k };
         }
-        else if (ft.IsArray || (ft.IsGenericType && ft.GetGenericTypeDefinition() == typeof(List<>)))
+        else if (Reflect.IsArray(ft, out var elem) || Reflect.IsList(ft, out elem))
         {
-            var elem = ft.IsArray ? ft.GetElementType() : ft.GetGenericArguments()[0];
             if (TryKind(elem, out var ek))
             {
                 if (insideStruct && ek is Kind.GoRef or Kind.CompRef)
                     return null;
                 f = new FieldSchema { Kind = Kind.List, ElementKind = ek, ElementType = elem };
             }
-            else if (IsInlineObject(elem) && depth < MaxDepth)
+            else if (Reflect.IsInlineObject(elem) && depth < MaxDepth)
             {
                 f = new FieldSchema
                 {
@@ -169,7 +161,7 @@ public static class SerializedType
                 };
             }
         }
-        else if (IsInlineObject(ft) && depth < MaxDepth)
+        else if (Reflect.IsInlineObject(ft) && depth < MaxDepth)
         {
             f = new FieldSchema
             {
@@ -183,32 +175,21 @@ public static class SerializedType
             return null;
         f.Name = fi.Name;
         f.Info = fi;
-        f.FormerName = fi.GetCustomAttribute<FormerlySerializedAsAttribute>()?.OldName;
+        f.FormerName = Reflect.FormerName(fi);
         f.FieldType = ft;
         f.DeclaringType = fi.DeclaringType;
-        f.Get = fi.GetValue;
-        f.Set = fi.SetValue;
+        f.Get = Reflect.Getter(fi);
+        f.Set = Reflect.Setter(fi);
         if (f.Kind == Kind.List)
         {
-            if (ft.IsArray) { var et = f.ElementType; f.NewArray = n => Array.CreateInstance(et, n); }
-            else { var lt = ft; f.NewList = () => Activator.CreateInstance(lt); }
+            if (ft.IsArray) { var et = f.ElementType; f.NewArray = n => Reflect.NewArray(et, n); }
+            else { var lt = ft; f.NewList = () => Reflect.NewInstance(lt); }
         }
         if (f.ElementType != null && (f.Kind == Kind.Object || f.ElementKind == Kind.Object || f.ElementType.IsValueType))
-        { var et = f.ElementType; f.NewElement = () => Activator.CreateInstance(et); }
+        { var et = f.ElementType; f.NewElement = () => Reflect.NewInstance(et); }
         return f;
     }
 
-    // Inline serilesen duz tip: [Serializable] sinif/struct — motor/Unity nesnesi degil.
-    static bool IsInlineObject(Type t)
-#pragma warning disable SYSLIB0050 // yanlis pozitif: [Serializable] bayragini kendi serializer'imiz icin okuyoruz
-        => (t.Attributes & TypeAttributes.Serializable) != 0 && !t.IsAbstract && !t.IsEnum && !t.IsPrimitive
-#pragma warning restore SYSLIB0050
-           && t != typeof(string) && t != typeof(decimal)
-           && !typeof(Component).IsAssignableFrom(t)
-           && t != typeof(GameObject) && !typeof(IAsset).IsAssignableFrom(t)
-           && (t.IsValueType || t.GetConstructor(Type.EmptyTypes) != null);
-
-#endif
     public static FieldSchema Find(FieldSchema[] schema, string name)
     {
         for (int i = 0; i < schema.Length; i++)

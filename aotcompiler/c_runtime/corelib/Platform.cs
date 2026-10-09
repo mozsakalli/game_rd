@@ -6,6 +6,22 @@ namespace System
     public class Attribute
     {
         public Attribute() { }
+        public static bool IsDefined(Reflection.MemberInfo element, Type attributeType) { return element.IsDefined(attributeType, false); }
+        public static bool IsDefined(Reflection.MemberInfo element, Type attributeType, bool inherit) { return element.IsDefined(attributeType, inherit); }
+        public static Attribute GetCustomAttribute(Reflection.MemberInfo element, Type attributeType)
+        {
+            var all = element.GetCustomAttributes(attributeType, false);
+            if (all.Length == 0) return null;
+            if (all.Length > 1) throw new InvalidOperationException("Multiple custom attributes of the same type found.");
+            return (Attribute)all[0];
+        }
+        public static Attribute[] GetCustomAttributes(Reflection.MemberInfo element, Type attributeType)
+        {
+            var all = element.GetCustomAttributes(attributeType, false);
+            var r = new Attribute[all.Length];
+            for (int i = 0; i < all.Length; i++) r[i] = (Attribute)all[i];
+            return r;
+        }
     }
 
     // Platform sorgulari: derleme zamani sabitleri C tarafinda (#ifdef); oyun kodu

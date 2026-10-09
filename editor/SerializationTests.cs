@@ -133,6 +133,7 @@ public static class SerializationTests
         Check(m != null && m.Renamed == 11, "[FormerlySerializedAs] eski ad eslesti");
 
         LayoutBoxFourValues(catalog);
+        BakedTolerance(catalog, doc);
 
         Scene.SetActive(prev);
         Scene.Unload(s3);
@@ -218,6 +219,79 @@ public static class SerializationTests
 
         GameObject.Destroy(box.gameObject);
         GameObject.Destroy(restored.gameObject);
+    }
+
+    // "Yeni surum" SerTestComp: alan eklenmis (Added), silinmis (Quad yok), tasinmis (sira degisik),
+    // turu degismis (Points: List<Vec3> -> float), ic ice nesnede alan silinmis (SubData2.Nums yok).
+    // Pak eski semayla pisirildi; v2 okuyucu ada gore esler, uyumsuzlari atlar.
+    [Serializable]
+    public sealed class SubData2
+    {
+        public GameObject Owner;
+        public Color Tint = Color.White;
+        public float X;
+        public List<SpriteRenderer> MoreTargets = new();
+    }
+
+    public sealed class SerTestCompV2 : Component
+    {
+        public int Added = 77;
+        public SortMode Mode = SortMode.None;
+        public SubData2 Data = new();
+        public List<SpriteRenderer> Targets = new();
+        public float Points = -1f;
+        [FormerlySerializedAs("OldCount")] public int Renamed = 3;
+        public float[] Arr;
+        [SerializeField] float _hidden = 2f;
+        public float PlainFloat = 1f;
+        public float Hidden => _hidden;
+    }
+
+    // Pismis yol toleransi (docs/registry-removal.md Faz 2): eski semayla bake -> yeni semayla spawn.
+    static void BakedTolerance(TypeCatalog catalog, SceneDoc doc)
+    {
+        byte[] baked = SceneBinary.Bake(doc, catalog);
+
+        // Ayni adla farkli tip: "SerTestComp" artik V2'yi gosterir.
+        var cat2 = new TypeCatalog();
+        foreach (var e in catalog.Entries)
+            if (e.Name != nameof(SerTestComp))
+                cat2.Register(e);
+        cat2.RegisterReflective(typeof(SerTestCompV2));
+        var v2 = cat2.Find(nameof(SerTestCompV2));
+        v2.Name = nameof(SerTestComp);
+        cat2.Register(v2);
+
+        int warnings = 0;
+        var prevWarn = AssetDatabase.LogWarning;
+        AssetDatabase.LogWarning = m => { if (m.Contains("[baked]")) warnings++; };
+        var sb = Scene.Create("ser-test-baked");
+        sb.Catalog = cat2;
+        Scene.SetActive(sb);
+        SerTestCompV2 r = null;
+        try
+        {
+            SceneBinary.Spawn(baked, null, cat2, null);
+            for (int i = 0; i < sb.RootCount && r == null; i++)
+                r = sb.GetRoot(i).GetComponent<SerTestCompV2>();
+        }
+        catch (Exception e) { Console.WriteLine("[serialization] baked spawn HATA: " + e); }
+        finally { AssetDatabase.LogWarning = prevWarn; }
+
+        Check(r != null, "baked tolerans: component yuklendi");
+        if (r != null)
+        {
+            Check(r.PlainFloat == 42.5f && r.Hidden == 7.25f && r.Renamed == 11, "baked tolerans: tasinmis alanlar ada gore");
+            Check(r.Added == 77, "baked tolerans: eklenen alan default");
+            Check(r.Points == -1f, "baked tolerans: turu degisen alan atlandi (default)");
+            Check(r.Arr != null && r.Arr.Length == 3 && r.Arr[2] == 3f, "baked tolerans: dizi okundu");
+            Check(r.Mode == SortMode.Ui, "baked tolerans: enum");
+            Check(r.Data != null && r.Data.X == 8f && r.Data.Tint.b == 30, "baked tolerans: ic ice nesne (alan silinmis)");
+            Check(r.Targets.Count == 2 && r.Targets[0] != null && r.Targets[0].gameObject.name == "B", "baked tolerans: CompRef listesi");
+            Check(r.Data.Owner != null && r.Data.Owner.name == "B" && r.Data.MoreTargets.Count == 1, "baked tolerans: ic ice referanslar");
+        }
+        Check(warnings >= 3, "baked tolerans: atlanan alanlar uyari verdi (" + warnings + ")");
+        Scene.Unload(sb);
     }
 
     static void Check(bool cond, string name)

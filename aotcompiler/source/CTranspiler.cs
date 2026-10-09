@@ -30,6 +30,7 @@ namespace DigitoyEngine.Language
         static readonly Dictionary<Primitive, int> typeIndex = new Dictionary<Primitive, int>(); // reflection tindex (0=yok, 1=object, 2=string)
         static readonly Dictionary<string, Primitive> reflectedArrays = new Dictionary<string, Primitive>();
         static readonly Dictionary<string, Primitive> reflectedValueStructs = new Dictionary<string, Primitive>();
+        static readonly Dictionary<string, Primitive> reflectedGenericDefs = new Dictionary<string, Primitive>(); // acik generic sablonlar (typeof(List<>), GetGenericTypeDefinition)
         static int nextTypeIndex;
 
         // MethodInfo gosterim adi: C# sozdizimi ("Demo12.App12.Deep(int[], int)"); IR kodlari fallback
@@ -42,8 +43,9 @@ namespace DigitoyEngine.Language
             typeIndex.Clear();
             reflectedArrays.Clear();
             reflectedValueStructs.Clear();
+            reflectedGenericDefs.Clear();
             structArrayTypes.Clear(); // ayni surecte ikinci TranspileProgram (interp host) onceki programin dizi tiplerini gormesin
-            nextTypeIndex = 19; // 0=yok, 1=object, 2=string, 3=ValueType, 4..15=primitive, 16=Enum, 17=Delegate, 18=MulticastDelegate (vmrt.c)
+            nextTypeIndex = 20; // 0=yok, 1=object, 2=string, 3=ValueType, 4..15=primitive, 16=Enum, 17=Delegate, 18=MulticastDelegate, 19=Void (vmrt.c)
             foreach (var c in ctx.AllCodes)
                 if (IsEmittableCode(c) && c.NativeBody == null)
                 {
@@ -98,6 +100,7 @@ namespace DigitoyEngine.Language
                         PoolAdd(p.Display);
                         typeIndex[p] = nextTypeIndex++;
                     }
+                    StructArrayTypeSym(p); // ref tasiyan struct: T[] tahsis tipi her zaman var (Array.CreateInstance -> Type.array_of)
                 }
             var seen = new HashSet<Primitive>(); // Type.name'ler: EmitTraceAndTypeOrdered gezisiyle birebir
             foreach (var p in ctx.AllPrimitives)
@@ -106,9 +109,12 @@ namespace DigitoyEngine.Language
             foreach (var p in ctx.AllPrimitives)
                 if (IsEmittableModel(p))
                 {
-                    foreach (var f in ReflectionFields(p)) PoolAdd(ReflectionFieldName(f));
-                    foreach (var prop in p.Properties) PoolAdd(prop.Name);
+                    foreach (var f in ReflectionFields(p)) { PoolAdd(ReflectionFieldName(f)); PoolAttrStrings(f.Attributes); }
+                    foreach (var prop in p.Properties) { PoolAdd(prop.Name); PoolAttrStrings(prop.Attributes); }
+                    PoolAttrStrings(p.Attributes);
                 }
+            foreach (var c in ctx.AllCodes)
+                if (IsEmittableCode(c)) PoolAttrStrings(c.Attributes);
             foreach (var p in ctx.AllPrimitives) // enum'lar: descriptor + ToString uye adlari
                 if (p.IsEnum && !typeIndex.ContainsKey(p))
                 {
@@ -116,6 +122,17 @@ namespace DigitoyEngine.Language
                     foreach (var m in p.EnumMembers.Keys) PoolAdd(m);
                     typeIndex[p] = nextTypeIndex++;
                 }
+            // acik generic sablonlar: her kapali ornegin GenericTemplate'i (+ typeof(List<>) hedefleri) boyutsuz descriptor alir
+            foreach (var p in ctx.AllPrimitives)
+            {
+                var tmpl = IsEmittableModel(p) ? p.InstantiatedFrom : (p.Type == PrimitiveType.Model && p.IsGeneric && p.GenericTemplate == null ? p : null);
+                if (tmpl == null || tmpl.Type != PrimitiveType.Model) continue;
+                var key = CName(tmpl.Name);
+                if (reflectedGenericDefs.ContainsKey(key)) continue;
+                reflectedGenericDefs[key] = tmpl;
+                PoolAdd(tmpl.Display);
+                typeIndex[tmpl] = nextTypeIndex++;
+            }
             CollectMethods(ctx); // metot kayitlari (ad/dosya havuzu dahil) — typeIndex hazir olduktan sonra
         }
 
@@ -360,12 +377,23 @@ namespace DigitoyEngine.Language
             foreach (var p in ctx.AllPrimitives)
                 if (HasReflectionMembers(p))
                     sb.Append($"static DigitoyEngineMember {CName(p.Name)}_members[{ReflectionMemberCount(p)}];\n");
+            foreach (var p in ctx.AllPrimitives) // tip attribute tablolari: descriptor'lar once tanimlanir -> tentative bildirim
+                if ((IsEmittableModel(p) || p.IsEnum) && typeIndex.ContainsKey(p) && EmittableAttrs(p.Attributes).Count > 0)
+                    sb.Append($"static DeAttr {CName(p.Name)}_tattrs[{EmittableAttrs(p.Attributes).Count}];\n");
             sb.Append("\n");
             var emittedTypes = new HashSet<Primitive>(); // parent'in Type'i cocuktan once tanimlanmali (&Parent_type referansi)
+            // Acik generic tanim descriptor'lari (boyutsuz, instantiate edilemez): ornekler .generic_def ile bunlara isaret eder.
+            foreach (var tmpl in reflectedGenericDefs.Values)
+            {
+                int gflags = 64 | (tmpl.IsStruct ? 1 : 0) | (tmpl.IsInterface ? 2 : 0) | (tmpl.IsDelegate ? 4 : 0) | 16;
+                sb.Append($"static const Type {TypeSym(tmpl)} = {{ 0, 0, 0, 1, &vmobject_type, &{strPool[tmpl.Display]}, 0, 0, 0, 0, {typeIndex[tmpl]}, .hash = {Fnv64(tmpl.Name)}ull, .flags = {gflags}, .cilattrs = {tmpl.CilAttributes}u }};\n");
+            }
             // Kutulanabilir struct descriptor'lari sonra tanimlanir; class generic_args tablolari
             // onlara isaret edebilir -> tentative bildirim (C: ilklendirmesiz static tanim).
             foreach (var valueStruct in reflectedValueStructs.Values)
                 sb.Append($"static const Type {CName(valueStruct.Name)}_type;\n");
+            foreach (var key in structArrayTypes.Keys) // struct descriptor .array_of bunlara isaret eder (tanim sonra)
+                sb.Append($"static const Type arr_{key}_type;\n");
             foreach (var p in ctx.AllPrimitives)
                 if (IsEmittableModel(p) && !p.IsStruct)
                 {
@@ -380,7 +408,7 @@ namespace DigitoyEngine.Language
             foreach (var elem in structArrayTypes.Values) // ref tasiyan struct eleman dizileri (GC eleman tarama)
                 sb.Append(EmitStructArrayType(elem));
             foreach (var array in reflectedArrays.Values)
-                sb.Append($"static const Type {TypeSym(array)} = {{ 0, 0, sizeof(VmArray), 0, &vmobject_type, &{strPool[array.Display]}, 0, 0, 0, 0, {typeIndex[array]}{TypeMetaTail(array)} }};\n");
+                sb.Append($"static const Type {TypeSym(array)} = {{ 0, 0, sizeof(VmArray), 0, {ArrayBaseSym()}, &{strPool[array.Display]}, 0, 0, 0, 0, {typeIndex[array]}{TypeMetaTail(array)}, .flags = DIGITOYENGINE_TYPE_ARRAY, .elem_type = {ExportTypeSym(array.ElementType)}, .rank = {Math.Max(1, array.ArrayRank)} }};\n");
             sb.Append("\n");
             foreach (var p in ctx.AllPrimitives)
                 if (IsEmittableModel(p) && !p.IsStruct && !p.IsInterface && !p.IsDelegate)
@@ -405,6 +433,9 @@ namespace DigitoyEngine.Language
             foreach (var p in ctx.AllPrimitives)
                 if (HasReflectionMembers(p))
                     sb.Append(EmitReflectionMembers(p));
+            foreach (var p in ctx.AllPrimitives) // tip attribute tablolarinin tanimi (fonksiyonlardan sonra: ctor cagrilari)
+                if ((IsEmittableModel(p) || p.IsEnum) && typeIndex.ContainsKey(p))
+                    sb.Append(EmitAttrTable($"{CName(p.Name)}_tattrs", p.Attributes));
             sb.Append(EmitMeta(ctx)); // metot kayitlari + sekil thunk'lari + trampoline'ler + tip tablosu
             sb.Append(EmitInit(ctx));
             return sb.ToString();
@@ -434,11 +465,16 @@ namespace DigitoyEngine.Language
             return has ? $"&{TypeSym(a)}" : "0";
         }
 
+        // Dizi descriptor'larinin base'i: corelib System.Array (emit ediliyorsa), yoksa Object.
+        static string ArrayBaseSym() =>
+            EmitCtx.TryGetPrimitive("System.Array", out var a) && IsEmittableModel(a) ? $"&{TypeSym(a)}" : "&vmobject_type";
+
         // Type descriptor sembolu: Object/String/primitive'ler runtime'da, gerisi uretilen {CName}_type
         static string TypeSym(Primitive p) =>
             p == Primitive.Object ? "vmobject_type" :
             p == Primitive.String ? "vmstring_type" :
             p == Primitive.ValueType ? "vmvaluetype_type" :
+            p == Primitive.Void ? "vmvoid_type" :
             PrimTypeSym(p) ?? CName(p.Name) + "_type";
 
         static string EmitValueStructType(Primitive type)
@@ -469,7 +505,7 @@ namespace DigitoyEngine.Language
                     sb.Append($"    gc_shade((GCHeader*){path});\n");
                 sb.Append("}\n");
             }
-            sb.Append($"static const Type {cn}_type = {{ {traceFn}, 0, sizeof(GCHeader) + sizeof(struct {cn}), {(paths.Count > 0 ? 0 : 1)}, &vmvaluetype_type, &{strPool[type.Display]}, 0, 0, 0, 0, {typeIndex[type]}, 0, {(HasReflectionMembers(type) ? cn + "_members" : "0")}, {ReflectionMemberCount(type)}, {genericArgs}, {genericArgCount}{TypeMetaTail(type)} }};\n");
+            sb.Append($"static const Type {cn}_type = {{ {traceFn}, 0, sizeof(GCHeader) + sizeof(struct {cn}), {(paths.Count > 0 ? 0 : 1)}, &vmvaluetype_type, &{strPool[type.Display]}, 0, 0, 0, 0, {typeIndex[type]}, 0, {(HasReflectionMembers(type) ? cn + "_members" : "0")}, {ReflectionMemberCount(type)}, {genericArgs}, {genericArgCount}{TypeMetaTail(type)}{(StructArrayTypeSym(type) is string ats ? $", .array_of = &{ats}" : "")} }};\n");
             return sb.ToString();
         }
 
@@ -549,7 +585,7 @@ namespace DigitoyEngine.Language
             sb.Append($"    for (int i = 0; i < a->len; i++) {{ ");
             foreach (var pth in paths) sb.Append($"gc_shade((GCHeader*){pth}); ");
             sb.Append("}\n}\n");
-            sb.Append($"static const Type arr_{cn}_type = {{ trace_arr_{cn}, finalize_vmarray, sizeof(VmArray), 0 }};\n");
+            sb.Append($"static const Type arr_{cn}_type = {{ trace_arr_{cn}, finalize_vmarray, sizeof(VmArray), 0, {ArrayBaseSym()} }};\n");
             return sb.ToString();
         }
 
@@ -601,10 +637,12 @@ namespace DigitoyEngine.Language
             }
         }
 
-        // is/as/cast runtime testi: class hedefi kalitim zinciri (DIGITOYENGINE_is), iface hedefi itable arama (DIGITOYENGINE_implements)
-        static string TypeTest(Primitive target, string typeExpr) =>
-            target.IsInterface ? $"DIGITOYENGINE_implements({typeExpr}, &{TypeSym(target)})"
-                               : $"DIGITOYENGINE_is({typeExpr}, &{TypeSym(target)})";
+        // is/as/cast runtime testi: class hedefi kalitim zinciri (DIGITOYENGINE_is), iface hedefi itable arama (DIGITOYENGINE_implements).
+        // objExpr: GCHeader*/nesne ifadesi (dizi hedefi VmArray.elem'e bakar), typeExpr: nesnenin gc.type'i.
+        static string TypeTest(Primitive target, string typeExpr, string objExpr = null) =>
+            target.Type == PrimitiveType.Array ? $"digitoyengine_is_array((const GCHeader*){objExpr}, {ExportTypeSym(target.ElementType)}, {Math.Max(1, target.ArrayRank)})"
+            : target.IsInterface ? $"DIGITOYENGINE_implements({typeExpr}, &{TypeSym(target)})"
+                                 : $"DIGITOYENGINE_is({typeExpr}, &{TypeSym(target)})";
 
         // digitoyengine_init: (1) class-ref static'leri GC koku olarak kaydet, (2) cctor'lari kayit sirasiyla kos.
         // Host main'i baska bir sey yapmadan ONCE cagirmali.
@@ -641,6 +679,9 @@ namespace DigitoyEngine.Language
                 ctx.TryGetPrimitive("System.Reflection.MethodInfo", out var methodInfo) &&
                 ctx.TryGetPrimitive("System.Reflection.ConstructorInfo", out var ctorInfo))
                 sb.Append($"    digitoyengine_reflect_init(&{TypeSym(sysType)}, &{TypeSym(fieldInfo)}, &{TypeSym(propertyInfo)}, &{TypeSym(methodInfo)}, &{TypeSym(ctorInfo)}, {nextTypeIndex});\n");
+            // diziler: runtime tahsis tipleri System.Array'den turer (is Array / (Array)x / Type.BaseType)
+            if (ctx.TryGetPrimitive("System.Array", out var sysArray) && IsEmittableModel(sysArray))
+                sb.Append($"    digitoyengine_array_init(&{TypeSym(sysArray)});\n");
             // runtime exception kind'lari: catch aninda TAZE nesne (DIGITOYENGINE_ex_materialize); singleton
             // yeniden kullanimi izi ezip orijini kaybettiriyordu. Firlatma hala alloc'suz; alloc yalniz catch'te.
             var notImpl = ctx.AllPrimitives.FirstOrDefault(p => p.Name == "System.NotImplementedException");
@@ -860,10 +901,11 @@ namespace DigitoyEngine.Language
             (type.Type == PrimitiveType.Model && type.IsStruct) ? (reflectedValueStructs.ContainsKey(CName(type.Name)) ? "&" + TypeSym(type) : "0") :
             "&" + TypeSym(type);
 
-        // Struct alanlari: kutu kopyasi (descriptor varsa); FieldInfo.GetValue .NET'te de kutular.
+        // Struct alanlari: kutu kopyasi (descriptor varsa); FieldInfo.GetValue .NET'te de kutular. Struct ifadesi rvalue
+        // olabilir (property getter cagrisi) -> geciciye alinir.
         static string ReflectGetValue(Primitive type, string expr) =>
             type.Type == PrimitiveType.FixedArray || type.Type == PrimitiveType.Pointer ? "digitoyengine_reflect_unsupported()" :
-            type.Type == PrimitiveType.Model && type.IsStruct ? (reflectedValueStructs.ContainsKey(CName(type.Name)) ? $"(GCHeader*)digitoyengine_box_struct(&{TypeSym(type)}, &({expr}), sizeof({CType(type)}))" : "digitoyengine_reflect_unsupported()") :
+            type.Type == PrimitiveType.Model && type.IsStruct ? (reflectedValueStructs.ContainsKey(CName(type.Name)) ? $"({{ {CType(type)} __rv = {expr}; (GCHeader*)digitoyengine_box_struct(&{TypeSym(type)}, &__rv, sizeof({CType(type)})); }})" : "digitoyengine_reflect_unsupported()") :
             type.IsEnum ? $"(GCHeader*)digitoyengine_ebox_{CName(type.Name)}({expr})" :
             BoxHelperFor(type) != null ? $"(GCHeader*){BoxHelperFor(type)}({expr})" :
             $"(GCHeader*)({expr})";
@@ -915,11 +957,12 @@ namespace DigitoyEngine.Language
                 var access = field.IsStatic ? StaticSym(field) : $"{ReflectSelf(model)}->{CName(field.Name)}";
                 sb.Append($"static GCHeader* digitoyengine_refget_{suffix}(GCHeader* target) {{ return {ReflectGetValue(field.Type, access)}; }}\n");
                 string set = "0";
-                if (!field.IsReadonly)
+                if (!field.IsReadonly || !field.IsStatic) // .NET: readonly instance alanina SetValue serbest; static readonly yazilamaz
                 {
                     sb.Append($"static void digitoyengine_refset_{suffix}(GCHeader* target, GCHeader* value) {{ {ReflectSetStatement(access, field.Type, "value")} }}\n");
                     set = $"digitoyengine_refset_{suffix}";
                 }
+                sb.Append(EmitAttrTable($"{cn}_fattrs_{CName(field.Name)}", field.Attributes));
                 entries.Add($"{{ &{strPool[ReflectionFieldName(field)]}, &{cn}_type, {ReflectionTypeSym(field.Type)}, digitoyengine_refget_{suffix}, {set}, 0, DIGITOYENGINE_MEMBER_FIELD, {Convert.ToInt32(field.IsStatic)}, {Convert.ToInt32(field.IsReadonly)}{MemberMetaTail(model, field)} }}");
             }
             foreach (var property in model.Properties)
@@ -938,7 +981,9 @@ namespace DigitoyEngine.Language
                     sb.Append($"static void digitoyengine_refset_{suffix}(GCHeader* target, GCHeader* value) {{ {PropertyCall(model, setter, ReflectSetValue(property.Type, "value"))}; }}\n");
                     set = $"digitoyengine_refset_{suffix}";
                 }
-                entries.Add($"{{ &{strPool[property.Name]}, &{cn}_type, {ReflectionTypeSym(property.Type)}, {get}, {set}, 0, DIGITOYENGINE_MEMBER_PROPERTY, {Convert.ToInt32(property.IsStatic)}, 0, .tag = '{ExportTag(property.Type)}' }}");
+                var pattrs = $"{cn}_pattrs_{CName(property.Name)}";
+                sb.Append(EmitAttrTable(pattrs, property.Attributes));
+                entries.Add($"{{ &{strPool[property.Name]}, &{cn}_type, {ReflectionTypeSym(property.Type)}, {get}, {set}, 0, DIGITOYENGINE_MEMBER_PROPERTY, {Convert.ToInt32(property.IsStatic)}, 0, .tag = '{ExportTag(property.Type)}'{AttrTail(pattrs, property.Attributes)}, .cilattrs = {property.CilAttributes} }}");
             }
             sb.Append($"static DigitoyEngineMember {cn}_members[] = {{\n    {string.Join(",\n    ", entries)}\n}};\n\n");
             return sb.ToString();
@@ -1447,10 +1492,10 @@ namespace DigitoyEngine.Language
                             var elem = op.PrimitiveRef;
                             int isref = (elem.Type == PrimitiveType.Model && !elem.IsStruct) || elem.Type == PrimitiveType.Array ? 1 : 0;
                             var dn = $"__dims{tempCounter++}";
-                            // ref tasiyan struct eleman: uretilen dizi Type'i (GC eleman eleman tarar); yoksa runtime ref/atomic tipleri
-                            string alloc = StructArrayTypeSym(elem) is string ats
-                                ? $"vmarray_new_rank_t({rank}, {dn}, sizeof({CType(elem)}), &{ats})"
-                                : $"vmarray_new_rank({rank}, {dn}, sizeof({CType(elem)}), {isref})";
+                            // ref tasiyan struct eleman: uretilen dizi Type'i (GC eleman eleman tarar); yoksa runtime ref/atomic tipleri.
+                            // Eleman descriptor'u (is T[] / GetType / Array.GetValue): ExportTypeSym; jagged/pointer eleman -> 0 (bilinmiyor).
+                            string allocType = StructArrayTypeSym(elem) is string ats ? $"&{ats}" : (isref == 1 ? "&vmarray_ref_type" : "&vmarray_val_type");
+                            string alloc = $"vmarray_new_rank_te({rank}, {dn}, sizeof({CType(elem)}), {allocType}, {ExportTypeSym(elem)})";
                             Push(new CVal($"(({{ int {dn}[{rank}] = {{ {string.Join(", ", dims.Select(d => d.Expr))} }}; {alloc}; }}))", Primitive.ArrayOf(elem, rank)));
                             break;
                         }
@@ -1481,7 +1526,7 @@ namespace DigitoyEngine.Language
                             var o = Pop(); // alici iki kez gecer (null test + tip zinciri) -> temp
                             var t = $"__t{tempCounter++}";
                             sb.Append($"    {CType(o.Type)} {t} = {o.Expr};\n");
-                            Push(new CVal($"(({t} && {TypeTest(op.PrimitiveRef, $"{t}->gc.type")}) ? 1 : 0)", Primitive.Int));
+                            Push(new CVal($"(({t} && {TypeTest(op.PrimitiveRef, $"{t}->gc.type", t)}) ? 1 : 0)", Primitive.Int));
                             break;
                         }
                     case OpType.IsValueType:
@@ -1528,19 +1573,31 @@ namespace DigitoyEngine.Language
                                 Push(new CVal($"(({t} && {TypeTest(op.PrimitiveRef, $"{t}->gc.type")}) ? (VmObject*){t} : (VmObject*)0)", Primitive.Object));
                                 break;
                             }
-                            Push(new CVal($"(({t} && {TypeTest(op.PrimitiveRef, $"{t}->gc.type")}) ? ({CType(op.PrimitiveRef)})(void*){t} : 0)", op.PrimitiveRef));
+                            Push(new CVal($"(({t} && {TypeTest(op.PrimitiveRef, $"{t}->gc.type", t)}) ? ({CType(op.PrimitiveRef)})(void*){t} : 0)", op.PrimitiveRef));
                             break;
                         }
                     case OpType.CastClass:
                         {
+                            // Generic sablonda `(T)obj` = unbox.any !T -> frontend T'yi referans sayip CastClass uretir; T deger
+                            // tipine somutlasinca (int/enum/struct) bu bir UNBOX'tir (pointer->int cast degil).
+                            if (IsNumericVal(op.PrimitiveRef) || op.PrimitiveRef.IsEnum || (op.PrimitiveRef.Type == PrimitiveType.Model && op.PrimitiveRef.IsStruct))
+                            {
+                                EmitLine(op);
+                                var ov = Pop();
+                                var ut = op.PrimitiveRef;
+                                string uct = ut.Type == PrimitiveType.Model && ut.IsStruct ? $"struct {CName(ut.Name)}" : ScalarCType(ut);
+                                Push(new CVal($"(*({uct}*)digitoyengine_unbox((GCHeader*)({ov.Expr}), &{TypeSym(ut)}))", ut));
+                                break;
+                            }
                             var o = Pop();
                             var t = $"__t{tempCounter++}";
                             sb.Append($"    {CType(o.Type)} {t} = {o.Expr};\n");
                             if (op.PrimitiveRef.Type == PrimitiveType.Array)
                             {
-                                // VmArray tum managed array tipleri icin ortak yerlesimdir; element-Type
-                                // metadata'si henuz runtime descriptor'da olmadigindan kontrol edilemez.
-                                Push(new CVal($"({CType(op.PrimitiveRef)})(void*){t}", op.PrimitiveRef));
+                                // Dizi cast'i: eleman tipi biliniyorsa (VmArray.elem) denetlenir; bilinmiyorsa (modul interp dizisi,
+                                // jagged/pointer eleman) hosgorulu gecer — eski davranis (denetimsiz) korunur.
+                                var tgt = op.PrimitiveRef;
+                                Push(new CVal($"(({CType(tgt)})((!{t} || !((VmArray*)(void*){t})->elem || {ExportTypeSym(tgt.ElementType)} == 0 || {TypeTest(tgt, $"{t}->gc.type", t)}) ? (void*){t} : (DIGITOYENGINE_cast_fail({t}->gc.type, &vmarray_ref_type), (void*)0)))", tgt));
                                 break;
                             }
                             // null gecer; tip tutmazsa DIGITOYENGINE_cast_fail (noreturn) - virgul operatoru ile ifade icinde

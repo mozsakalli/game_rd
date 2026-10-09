@@ -39,12 +39,7 @@ public sealed class GameObject
     public T AddComponent<T>() where T : Component, new()
     {
         var c = new T();
-#if DE_AOT
-        var entry = _scene.Catalog?.Find(typeof(T)) ?? throw new InvalidOperationException("AddComponent: uretilmis katalogda yok: " + typeof(T).Name);
-        c._flags = entry.Flags;
-#else
         c._flags = Component.TypeFlags<T>.Value;
-#endif
         c._gameObject = this;
         if (_componentCount == _components.Length)
             Array.Resize(ref _components, _componentCount * 2);

@@ -137,7 +137,28 @@ public static class GameHost
             throw new Exception("pak'ta proje kaydi yok (" + ProjectBinary.PakKey + ") — pak'i yeniden build edin");
         _title = name;
         SetTitle?.Invoke(name);
+
+        // Test kancasi (docs/registry-removal.md Faz 0): Build/scene-dump.flag varsa sahnenin alan dokumunu
+        // Awake'ten ONCE (saf deserialize durumu) stdout'a bas ve cik. Editor RPC scene.dumpFields(edit) ile karsilastirilir.
+        var dumpFlag = await AsyncJobs.Await(NativeFs.Open(root + "/Build/scene-dump.flag"));
+        bool dump = dumpFlag.Ok;
+        if (dump)
+        {
+            NativeFs.Close(dumpFlag.W);
+            SceneBinary.BeforeActivate = () =>
+            {
+                Console.WriteLine("[scene-dump-begin]");
+                Console.Write(SceneDump.Write(Scene.Active, Scene.Active.Catalog));
+                Console.WriteLine("[scene-dump-end]");
+            };
+        }
         await BootWith(assets, startScene);
+        if (dump)
+        {
+            SceneBinary.BeforeActivate = null;
+            _quit = true;
+            return true;
+        }
 
         // Dev/test kancasi (docs/modules.md): Build/autoload.module.pak varsa dinamik modul olarak yukle.
         string autoload = root + "/Build/autoload.module.pak";
@@ -200,27 +221,24 @@ public static class GameHost
 #endif
 
 #if DE_AOT
-    // Oyunun Generated.Registry$RegisterAll'i: aotcompiler generated.c'de bu sembolu uretir (DigitoyPlayer yok).
-    [DllImport("__Internal", EntryPoint = "de_game_register")]
-    static extern void de_game_register(TypeCatalog cat);
     // Platform host saglar (de_app.h).
     [DllImport("__Internal", EntryPoint = "de_host_set_title")]
     static extern void de_host_set_title(string utf8);
 
     static GameHost() { SetTitle = t => de_host_set_title(t); }
 
+    // Katalog runtime reflection'dan (Reflect.ComponentTypes -> Type.GetSubtypes; docs/registry-removal.md).
     static TypeCatalog LoadCatalog()
     {
-        var cat = new TypeCatalog();
-        de_game_register(cat);
-        Console.WriteLine("[host] katalog: gomulu registry (AOT)");
+        var cat = TypeCatalog.FromAssemblies();
+        Console.WriteLine("[host] katalog: reflection (AOT)");
         return cat;
     }
 #else
     static TypeCatalog LoadCatalog()
     {
         if (CatalogProvider == null)
-            throw new Exception("GameHost.CatalogProvider yok (dev host Registry'yi yuklemeli)");
+            throw new Exception("GameHost.CatalogProvider yok (dev host katalogu saglamali)");
         return CatalogProvider();
     }
 #endif

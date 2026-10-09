@@ -479,8 +479,13 @@ static void trace_vmarray(GCHeader *h)
     for (int i = 0; i < a->len; i++)
         gc_shade(e[i]);
 }
-const Type vmarray_ref_type = {trace_vmarray, finalize_vmarray, sizeof(VmArray), 0};
-const Type vmarray_val_type = {0, finalize_vmarray, sizeof(VmArray), 1};
+Type vmarray_ref_type = {trace_vmarray, finalize_vmarray, sizeof(VmArray), 0}; /* base: digitoyengine_array_init (System.Array) */
+Type vmarray_val_type = {0, finalize_vmarray, sizeof(VmArray), 1};
+void digitoyengine_array_init(const Type *arrayBase)
+{
+    vmarray_ref_type.base = arrayBase;
+    vmarray_val_type.base = arrayBase;
+}
 
 // ---- System.String cekirdegi: yalniz MEKANIZMA (yuzey corelib/String.cs NativeBody'lerinde) ----
 static void finalize_vmstring(GCHeader *h)
@@ -624,6 +629,8 @@ const Type vmchar_type = {0, 0, sizeof(GCHeader) + 2, 1, &vmvaluetype_type, &ch_
 const Type vmbool_type = {0, 0, sizeof(GCHeader) + 4, 1, &vmvaluetype_type, &bo_name, vmbool_vtable, 3, 0, 0, 13};
 const Type vmsingle_type = {0, 0, sizeof(GCHeader) + 4, 1, &vmvaluetype_type, &sg_name, vmsingle_vtable, 3, 0, 0, 14};
 const Type vmdouble_type = {0, 0, sizeof(GCHeader) + 8, 1, &vmvaluetype_type, &db_name, vmdouble_vtable, 3, 0, 0, 15};
+DIGITOYENGINE_PNAME(void_name, 11, 'S', 'y', 's', 't', 'e', 'm', '.', 'V', 'o', 'i', 'd');
+const Type vmvoid_type = {0, 0, 0, 1, &vmvaluetype_type, &void_name, 0, 0, 0, 0, 19, .flags = DIGITOYENGINE_TYPE_STRUCT}; // typeof(void) / MethodInfo.ReturnType (instantiate edilemez)
 
 // unbox: C# exact-tip kurali + CLR enum denkligi: boxed enum <-> underlying int, ayni underlying'li
 // iki enum arasi da gecerli. null -> NullRef (native: ->type MMU faultlar; wasm: makro)
@@ -654,11 +661,24 @@ void digitoyengine_reflect_init(const Type *typeType, const Type *fieldInfoType,
     digitoyengine_nwrappers = nwrappers;
     digitoyengine_wrappers = (GCHeader **)calloc((size_t)nwrappers, sizeof(GCHeader *));
 }
+// Reflection wrapper descriptor'lari (corelib.c dizileri eleman tipi olarak kullanir): 0=Type 1=FieldInfo 2=PropertyInfo 3=MethodInfo 4=ConstructorInfo
+const Type *digitoyengine_reflect_type(int which)
+{
+    switch (which)
+    {
+    case 0: return digitoyengine_type_type;
+    case 1: return digitoyengine_fieldinfo_type;
+    case 2: return digitoyengine_propertyinfo_type;
+    case 3: return digitoyengine_methodinfo_type;
+    case 4: return digitoyengine_ctorinfo_type;
+    default: return 0;
+    }
+}
 GCHeader *digitoyengine_type_wrapper(const Type *t)
 {
     if (!t || !digitoyengine_type_type)
         return 0;
-    if (t->tindex == 0 && t->module) // dinamik modul tipi: wrapper descriptor'in kendisinde (malloc'lu Type, const degil)
+    if (t->tindex == 0 && (t->module || (t->flags & DIGITOYENGINE_TYPE_ARRAY))) // dinamik modul tipi ya da sentez dizi tipi: wrapper descriptor'in kendisinde (malloc'lu Type, const degil)
     {
         Type *mt = (Type *)t;
         if (!mt->dyn_wrapper)
@@ -1592,6 +1612,10 @@ VmArray *vmarray_new_rank(int rank, const int *dims, unsigned short elemsize, in
 // atomic=0). Transpiler NewArray'de bu yolu secer; ref/atomic diziler yukaridaki iki runtime tipiyle kalir.
 VmArray *vmarray_new_rank_t(int rank, const int *dims, unsigned short elemsize, const Type *t)
 {
+    return vmarray_new_rank_te(rank, dims, elemsize, t, 0);
+}
+VmArray *vmarray_new_rank_te(int rank, const int *dims, unsigned short elemsize, const Type *t, const Type *elem)
+{
     size_t len = 1;
     for (int i = 0; i < rank; i++)
         len *= (size_t)dims[i];
@@ -1602,7 +1626,180 @@ VmArray *vmarray_new_rank_t(int rank, const int *dims, unsigned short elemsize, 
     a->dims = (int *)malloc((size_t)rank * sizeof(int));
     memcpy(a->dims, dims, (size_t)rank * sizeof(int));
     a->data = calloc(a->len > 0 ? a->len : 1, elemsize);
+    a->elem = elem;
     return a;
+}
+
+// ---- custom attribute'lar (docs/registry-removal.md Faz 4b) ----
+GCHeader *digitoyengine_attr_instance(DeAttr *a)
+{
+    if (!a->instance)
+    {
+        a->instance = a->create();
+        if (a->instance)
+            gc_add_root(a->instance);
+    }
+    return a->instance;
+}
+int digitoyengine_attrs_defined(const DeAttr *attrs, int n, const Type *attrType)
+{
+    for (int i = 0; i < n; i++)
+        if (!attrType || DIGITOYENGINE_is(attrs[i].type, attrType))
+            return 1;
+    return 0;
+}
+VmArray *digitoyengine_attrs_array(DeAttr *attrs, int n, const Type *filter, const Type *elemType)
+{
+    int count = 0;
+    for (int i = 0; i < n; i++)
+        if (!filter || DIGITOYENGINE_is(attrs[i].type, filter))
+            count++;
+    VmArray *r = vmarray_new_e(count, elemType ? elemType : &vmobject_type);
+    GCHeader **items = (GCHeader **)r->data;
+    count = 0;
+    for (int i = 0; i < n; i++)
+        if (!filter || DIGITOYENGINE_is(attrs[i].type, filter))
+            items[count++] = digitoyengine_attr_instance(&attrs[i]);
+    return r;
+}
+
+// ---- dizi reflection'i (docs/registry-removal.md Faz 4a) ----
+int digitoyengine_is_reftype(const Type *t)
+{
+    if (!t)
+        return 1;
+    if (t->flags & (DIGITOYENGINE_TYPE_STRUCT | DIGITOYENGINE_TYPE_ENUM))
+        return 0;
+    if (t->tindex >= 4 && t->tindex <= 15)
+        return 0;
+    return 1;
+}
+// Deger tipi eleman boyutu = kutu boyutu - header (primitive/enum/struct descriptor'lari header+payload tasir).
+unsigned short digitoyengine_elem_size(const Type *elem)
+{
+    if (digitoyengine_is_reftype(elem))
+        return (unsigned short)sizeof(GCHeader *);
+    if (elem->tindex == 13) /* bool: alanlarda/dizilerde cil_bool = int (layout sozlesmesi) */
+        return (unsigned short)sizeof(int);
+    return (unsigned short)(elem->size - sizeof(GCHeader));
+}
+VmArray *vmarray_new_e(int len, const Type *elem)
+{
+    DIGITOYENGINE_NULLCHECK(elem);
+    const Type *alloc = digitoyengine_is_reftype(elem) ? &vmarray_ref_type
+                        : (elem->array_of ? elem->array_of : &vmarray_val_type); /* ref tasiyan struct: uretilen eleman-eleman trace tipi */
+    if (len < 0)
+        DIGITOYENGINE_throw_bounds(len, 0);
+    return vmarray_new_rank_te(1, &len, digitoyengine_elem_size(elem), alloc, elem);
+}
+static int de_is_array_alloc_type(const Type *t)
+{
+    /* tahsis tipleri: iki runtime tipi + uretilen arr_X_type'lar (finalize_vmarray paylasir) */
+    return t == &vmarray_ref_type || t == &vmarray_val_type || t->finalize == finalize_vmarray;
+}
+int digitoyengine_is_array(const GCHeader *o, const Type *elem, int rank)
+{
+    if (!o || !de_is_array_alloc_type(o->type))
+        return 0;
+    const VmArray *a = (const VmArray *)o;
+    if (a->rank != rank)
+        return 0;
+    if (!elem)
+        return 1; /* hedef eleman tipi bilinmiyor (jagged/pointer): yalniz dizi olmasi yeter */
+    if (!a->elem)
+        return 0; /* kaynak eleman tipi bilinmiyor (modul interp dizisi): karar verilemez -> degil */
+    if (a->elem == elem)
+        return 1;
+    /* .NET dizi kovaryansi: string[] is object[]; deger tipleri exact */
+    return digitoyengine_is_reftype(a->elem) && digitoyengine_is_reftype(elem) && DIGITOYENGINE_is(a->elem, elem);
+}
+// T[] kimlik descriptor'u: once uretilen typeof(T[]) tablosu (digitoyengine_types, ARRAY bayrakli), yoksa sentez (kalici liste).
+typedef struct DeSynthArrayType
+{
+    Type type;
+    struct DeSynthArrayType *next;
+} DeSynthArrayType;
+static DeSynthArrayType *de_synth_arrays;
+const Type *digitoyengine_array_type(const Type *elem, int rank)
+{
+    for (int i = 0; i < digitoyengine_ntypes; i++)
+    {
+        const Type *t = digitoyengine_types[i];
+        if ((t->flags & DIGITOYENGINE_TYPE_ARRAY) && t->elem_type == elem && t->rank == rank)
+            return t;
+    }
+    for (DeSynthArrayType *s = de_synth_arrays; s; s = s->next)
+        if (s->type.elem_type == elem && s->type.rank == rank)
+            return &s->type;
+    DeSynthArrayType *s = (DeSynthArrayType *)calloc(1, sizeof(DeSynthArrayType));
+    s->type.size = sizeof(VmArray);
+    s->type.base = vmarray_ref_type.base ? vmarray_ref_type.base : &vmobject_type; /* System.Array (init sonrasi) */
+    s->type.flags = DIGITOYENGINE_TYPE_ARRAY;
+    s->type.elem_type = elem;
+    s->type.rank = (unsigned char)rank;
+    s->type.name = elem ? elem->name : 0; /* ad: eleman adi (Type.Name "[]" ekler) */
+    s->next = de_synth_arrays;
+    de_synth_arrays = s;
+    return &s->type;
+}
+GCHeader *digitoyengine_array_get(VmArray *a, int index)
+{
+    DIGITOYENGINE_NULLCHECK(a);
+    if (index < 0 || index >= a->len)
+        DIGITOYENGINE_throw_bounds(index, a->len);
+    const Type *e = a->elem;
+    if (!e)
+        DIGITOYENGINE_throw_io("Array.GetValue: eleman tipi bilinmiyor");
+    char *p = (char *)a->data + (size_t)index * a->elemsize;
+    if (digitoyengine_is_reftype(e))
+        return *(GCHeader **)p;
+    if (e->flags & DIGITOYENGINE_TYPE_ENUM)
+        return (GCHeader *)digitoyengine_box_enum(*(int *)p, e);
+    switch (e->tindex)
+    {
+    case 4: return (GCHeader *)digitoyengine_box_i32(*(int *)p);
+    case 5: return (GCHeader *)digitoyengine_box_u32(*(unsigned int *)p);
+    case 6: return (GCHeader *)digitoyengine_box_i64(*(long long *)p);
+    case 7: return (GCHeader *)digitoyengine_box_u64(*(unsigned long long *)p);
+    case 8: return (GCHeader *)digitoyengine_box_i16(*(short *)p);
+    case 9: return (GCHeader *)digitoyengine_box_u16(*(unsigned short *)p);
+    case 10: return (GCHeader *)digitoyengine_box_i8(*(signed char *)p);
+    case 11: return (GCHeader *)digitoyengine_box_u8(*(unsigned char *)p);
+    case 12: return (GCHeader *)digitoyengine_box_char(*(cil_char *)p);
+    case 13: return (GCHeader *)digitoyengine_box_bool(*(int *)p);
+    case 14: return (GCHeader *)digitoyengine_box_f32(*(float *)p);
+    case 15: return (GCHeader *)digitoyengine_box_f64(*(double *)p);
+    default: return (GCHeader *)digitoyengine_box_struct(e, p, a->elemsize);
+    }
+}
+void digitoyengine_array_set(VmArray *a, int index, GCHeader *value)
+{
+    DIGITOYENGINE_NULLCHECK(a);
+    if (index < 0 || index >= a->len)
+        DIGITOYENGINE_throw_bounds(index, a->len);
+    const Type *e = a->elem;
+    if (!e)
+        DIGITOYENGINE_throw_io("Array.SetValue: eleman tipi bilinmiyor");
+    char *p = (char *)a->data + (size_t)index * a->elemsize;
+    if (digitoyengine_is_reftype(e))
+    {
+        if (value && !DIGITOYENGINE_is(value->type, e) && !(e->flags & DIGITOYENGINE_TYPE_INTERFACE))
+            DIGITOYENGINE_cast_fail(value->type, e);
+        *(GCHeader **)p = value;
+        if (value)
+            gc_write_barrier((GCHeader *)a, value);
+        return;
+    }
+    if (!value)
+        DIGITOYENGINE_throw_null();
+    if (e->tindex == 13)
+    {
+        *(int *)p = *(int *)digitoyengine_unbox(value, e) != 0;
+        return;
+    }
+    memcpy(p, digitoyengine_unbox(value, e), a->elemsize);
+    if (!a->gc.type->atomic && a->gc.type->trace && gcm_phase == GCM_MARK)
+        a->gc.type->trace(&a->gc); /* ref tasiyan struct elemani: yeni referanslar grilensin */
 }
 
 // ---- System.Array yardimcilari: tek memmove/memset, eleman dongusu YOK (sicak yol) ----

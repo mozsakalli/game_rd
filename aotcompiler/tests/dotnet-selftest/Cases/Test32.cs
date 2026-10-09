@@ -33,7 +33,7 @@ namespace Demo32
             if (f.FieldType == typeof(int) && !f.IsStatic && !f.IsInitOnly) { acc += 4; }
             f.SetValue(d, 13);
             if ((int)f.GetValue(d) == 13) { acc += 8; }
-            FieldInfo sf = typeof(Derived32).GetField("staticValue");
+            FieldInfo sf = typeof(Base32).GetField("staticValue"); // .NET: kalitilan static alan FlattenHierarchy ister -> bildiren tipten
             if (sf.IsStatic) { acc += 16; }
             object noTarget = null;
             sf.SetValue(noTarget, 17);
@@ -45,7 +45,7 @@ namespace Demo32
             if (p.CanRead && p.CanWrite && !p.GetMethod.IsStatic && p.SetMethod != null && !p.SetMethod.IsStatic && typeof(Derived32).GetProperty("ReadOnly").SetMethod == null) { acc += 512; }
             p.SetValue(d, 9);
             if ((int)p.GetValue(d) == 90) { acc += 1024; }
-            PropertyInfo sp = typeof(Derived32).GetProperty("Global");
+            PropertyInfo sp = typeof(Base32).GetProperty("Global"); // .NET: kalitilan static property FlattenHierarchy ister -> bildiren tipten
             sp.SetValue(noTarget, 21);
             if (sp.GetMethod.IsStatic && sp.SetMethod.IsStatic && (int)sp.GetValue(noTarget) == 21) { acc += 2048; }
             PropertyInfo rp = typeof(Derived32).GetProperty("Friend");

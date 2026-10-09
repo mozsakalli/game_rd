@@ -55,6 +55,7 @@ namespace DigitoyEngine.Language
             if (t == Primitive.Object) return "&vmobject_type";
             if (t == Primitive.String) return "&vmstring_type";
             if (t == Primitive.ValueType) return "&vmvaluetype_type";
+            if (t == Primitive.Void || t.Type == PrimitiveType.Void) return "&vmvoid_type"; // MethodInfo.ReturnType == typeof(void) (.NET)
             if (t.IsEnum) return typeIndex.ContainsKey(t) ? $"&{CName(t.Name)}_type" : "&vmint32_type";
             var prim = PrimTypeSym(t);
             if (prim != null) return "&" + prim;
@@ -142,6 +143,10 @@ namespace DigitoyEngine.Language
             int flags = (p.IsStruct ? 1 : 0) | (p.IsInterface ? 2 : 0) | (p.IsDelegate ? 4 : 0) | (p.IsEnum ? 8 : 0);
             if (flags != 0) sb.Append($", .flags = {flags}");
             if (p.IsDelegate && IsEmittableModel(p) && p.DelegateReturn != null) sb.Append($", .delegate_tramp = (const void*)&{DTrampSym(p)}");
+            sb.Append(AttrTail($"{CName(p.Name)}_tattrs", p.Attributes));
+            if (p.CilAttributes != 0) sb.Append($", .cilattrs = {p.CilAttributes}u");
+            if (p.InstantiatedFrom != null && reflectedGenericDefs.ContainsKey(CName(p.InstantiatedFrom.Name)))
+                sb.Append($", .generic_def = &{TypeSym(p.InstantiatedFrom)}");
             return sb.ToString();
         }
 
@@ -151,9 +156,86 @@ namespace DigitoyEngine.Language
             var cn = CName(owner.Name);
             var fn = CName(f.Name);
             var tag = ExportTag(f.Type);
+            var attrs = AttrTail($"{cn}_fattrs_{fn}", f.Attributes) + $", .cilattrs = {f.CilAttributes}";
             if (f.IsStatic)
-                return $", .tag = '{tag}', .size = (unsigned short)sizeof({StaticSym(f)}), .addr = (void*)&{StaticSym(f)}, .hash = {Fnv64(f.Name)}ull";
-            return $", .tag = '{tag}', .offset = (unsigned short)offsetof(struct {cn}, {fn}), .size = (unsigned short)sizeof(((struct {cn}*)0)->{fn}), .hash = {Fnv64(f.Name)}ull";
+                return $", .tag = '{tag}', .size = (unsigned short)sizeof({StaticSym(f)}), .addr = (void*)&{StaticSym(f)}, .hash = {Fnv64(f.Name)}ull{attrs}";
+            return $", .tag = '{tag}', .offset = (unsigned short)offsetof(struct {cn}, {fn}), .size = (unsigned short)sizeof(((struct {cn}*)0)->{fn}), .hash = {Fnv64(f.Name)}ull{attrs}";
+        }
+
+        // ---- custom attribute tablolari (docs/registry-removal.md Faz 4b) ----
+        // Emit edilebilir attribute: tipi emit edilen class, ctor'u cozulmus ve arguman sayisi tutan.
+        static List<PrimitiveAttribute> EmittableAttrs(List<PrimitiveAttribute> attrs)
+        {
+            var r = new List<PrimitiveAttribute>();
+            if (attrs == null) return r;
+            foreach (var a in attrs)
+                if (a.Type != null && IsEmittableModel(a.Type) && !a.Type.IsStruct && a.Ctor != null && IsEmittableCode(a.Ctor)
+                    && a.Ctor.Arguments.Count == a.FixedArgs.Count + 1 && typeIndex.ContainsKey(a.Type))
+                    r.Add(a);
+            return r;
+        }
+        static string AttrTail(string sym, List<PrimitiveAttribute> attrs)
+        {
+            int n = EmittableAttrs(attrs).Count;
+            return n == 0 ? "" : $", .attrs = {sym}, .nattrs = {n}";
+        }
+        // Attribute argumani: sabit literal / typeof -> Type wrapper / null. Hedef parametre tipine cast.
+        static string AttrArgExpr(object v, Primitive target)
+        {
+            if (v == null) return $"(({CType(target)})0)";
+            if (v is Primitive tp)
+            {
+                EmitCtx.TryGetPrimitive("System.Type", out var st);
+                return $"(({CType(st)})digitoyengine_type_wrapper({ExportTypeSym(tp)}))";
+            }
+            if (v is string s) return $"(({CType(Primitive.String)})&{strPool[s]})";
+            return $"(({CType(target)}){Literal(v).Expr})";
+        }
+        // Lazy kurucu fonksiyonlar + DeAttr tablosu: `static DeAttr {sym}[] = { {&T_type, mk, 0}, ... }`
+        static string EmitAttrTable(string sym, List<PrimitiveAttribute> all)
+        {
+            var attrs = EmittableAttrs(all);
+            if (attrs.Count == 0) return "";
+            var sb = new StringBuilder();
+            var rows = new List<string>();
+            for (int i = 0; i < attrs.Count; i++)
+            {
+                var a = attrs[i];
+                var cn = CName(a.Type.Name);
+                sb.Append($"static GCHeader* {sym}_mk{i}(void) {{\n    struct {cn}* o = New_{cn}();\n");
+                var args = new List<string> { "o" };
+                for (int k = 0; k < a.FixedArgs.Count; k++)
+                    args.Add(AttrArgExpr(a.FixedArgs[k], a.Ctor.Arguments[k + 1].Type));
+                sb.Append($"    {CSym(a.Ctor)}({string.Join(", ", args)});\n");
+                foreach (var (name, value, isField) in a.NamedArgs)
+                {
+                    if (isField)
+                    {
+                        var f = Hierarchy.AllFields(a.Type).FirstOrDefault(x => x.Name == name);
+                        if (f == null) continue;
+                        sb.Append($"    o->{CName(f.Name)} = {AttrArgExpr(value, f.Type)};\n");
+                    }
+                    else
+                    {
+                        var prop = a.Type.Properties.FirstOrDefault(x => x.Name == name);
+                        var setter = prop == null ? null : ReflectionAccessor(a.Type, "set_" + name + "_" + prop.Type.Name.Replace('.', '_'));
+                        if (setter == null) continue;
+                        sb.Append($"    {CSym(setter)}(o, {AttrArgExpr(value, prop.Type)});\n");
+                    }
+                }
+                sb.Append("    return (GCHeader*)o;\n}\n");
+                rows.Add($"{{ &{TypeSym(a.Type)}, {sym}_mk{i}, 0 }}");
+            }
+            sb.Append($"static DeAttr {sym}[] = {{ {string.Join(", ", rows)} }};\n");
+            return sb.ToString();
+        }
+        static void PoolAttrStrings(List<PrimitiveAttribute> attrs)
+        {
+            foreach (var a in attrs)
+            {
+                foreach (var v in a.FixedArgs) if (v is string s) PoolAdd(s);
+                foreach (var (_, v, _) in a.NamedArgs) if (v is string s) PoolAdd(s);
+            }
         }
 
         // Trampoline prototipleri: Type descriptor'lari (delegate_tramp) ve metot tablosu (tramp) govdelerden once adres alir.
@@ -207,8 +289,9 @@ namespace DigitoyEngine.Language
                 string decl = c.Owner == null ? "0" : ExportTypeSym(c.Owner);
                 string fileRef = string.IsNullOrEmpty(c.SourceFile) ? "0" : $"&{strPool[c.SourceFile]}";
                 int flags = (c.IsStatic ? 1 : 0) | (c.IsVirtual || c.IsOverride ? 2 : 0) | (IsCtorCode(c) ? 4 : 0) | (hasBody ? 0 : 8);
+                sb.Append(EmitAttrTable($"mattrs_{i}", c.Attributes));
                 rows.Add($"    {{ &{strPool[CodeDisplay(c)]}, {fileRef}, -1, {Fnv64(c.EncodeName())}ull, {fn}, {tramp}, {decl}, {ExportTypeSym(c.ReturnType)}, {ptypes}, {ptags}, 0, " +
-                         $"{shapeIds[ShapeKey(c)]}, {MethodSlot(c)}, {pars.Count}, '{ExportTag(c.ReturnType)}', {flags} }},");
+                         $"{shapeIds[ShapeKey(c)]}, {MethodSlot(c)}, {pars.Count}, '{ExportTag(c.ReturnType)}', {flags}{AttrTail($"mattrs_{i}", c.Attributes)}, .cilattrs = {c.CilAttributes} }},");
             }
             sb.Append("MethodInfo digitoyengine_methods[] = {\n");
             foreach (var r in rows) sb.Append(r).Append('\n');
@@ -217,7 +300,7 @@ namespace DigitoyEngine.Language
 
             // tip tablosu: runtime kokleri + descriptor'u olan tum uretilen tipler (typeIndex sirasi)
             var types = new List<string> { "&vmobject_type", "&vmstring_type", "&vmvaluetype_type", "&vmenum_type", "&vmdelegate_type", "&vmmulticastdelegate_type",
-                "&vmint32_type", "&vmuint32_type", "&vmint64_type", "&vmuint64_type", "&vmint16_type", "&vmuint16_type", "&vmsbyte_type", "&vmbyte_type", "&vmchar_type", "&vmbool_type", "&vmsingle_type", "&vmdouble_type" };
+                "&vmint32_type", "&vmuint32_type", "&vmint64_type", "&vmuint64_type", "&vmint16_type", "&vmuint16_type", "&vmsbyte_type", "&vmbyte_type", "&vmchar_type", "&vmbool_type", "&vmsingle_type", "&vmdouble_type", "&vmvoid_type" };
             foreach (var kv in typeIndex.OrderBy(kv => kv.Value))
                 types.Add($"&{TypeSym(kv.Key)}");
             sb.Append($"const Type *const digitoyengine_types[] = {{ {string.Join(", ", types)} }};\n");

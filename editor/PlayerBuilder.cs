@@ -56,9 +56,6 @@ public static class PlayerBuilder
             return Fail("oyun kodu derlemesi suruyor; bitince tekrar deneyin");
         if (AssetWatcher.Failed)
             return Fail("oyun kodu derlenemiyor; once hatalari giderin (Console)");
-        string registry = Path.Combine(project.LibraryPath, "Build", "Registry.g.cs");
-        if (!File.Exists(registry))
-            return Fail("Registry.g.cs yok (katalog kurulmadi): " + registry);
         var ps = project.Player;
         string appArgs = $" --app-id \"{ps.bundleIdentifier}\" --app-name \"{ps.productName}\" --app-version \"{ps.version}\" --orientation {ps.orientation}";
         if (target == "android")
