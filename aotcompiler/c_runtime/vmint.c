@@ -437,7 +437,7 @@ static void vm_resolve_method(LoadCtx *L, VmMethod *m)
     if (m->local && m->preferHost)
     {
         const MethodInfo *e = digitoyengine_find_method(vm_hash(m->name));
-        if (e && e->fn) { m->local = 0; m->hostm = e; m->fn = e->fn; m->thunk = digitoyengine_thunks[e->shape]; m->resolvedExtern = 1; return; }
+        if (e && e->fn) { m->local = 0; m->hostm = e; m->fn = e->fn; m->thunk = e->thunk; m->resolvedExtern = 1; return; }
     }
     if (!m->local)
     {
@@ -447,10 +447,10 @@ static void vm_resolve_method(LoadCtx *L, VmMethod *m)
             // iface/abstract bildirimleri govdesizdir: yalniz slot/sekil icin; thunk kayittan ya da sekil metninden
             int ifaceOwner = m->owner && (m->owner->kind == TK_IFACE || (m->owner->kind == TK_EXTERN && (m->owner->flags & 2)));
             if (!e && !ifaceOwner) { ld_err(L, "host'ta metot yok: %s", m->name, 0); return; }
-            int sh = e ? e->shape : vm_shape_of(m->ret, m->nargs, m->args, 0);
-            m->hostm = e; m->thunk = sh >= 0 ? digitoyengine_thunks[sh] : 0; m->resolvedExtern = 1; return;
+            int sh = e ? -1 : vm_shape_of(m->ret, m->nargs, m->args, 0);
+            m->hostm = e; m->thunk = e ? e->thunk : sh >= 0 ? digitoyengine_thunks[sh] : 0; m->resolvedExtern = 1; return;
         }
-        m->hostm = e; m->fn = e->fn; m->thunk = digitoyengine_thunks[e->shape]; m->resolvedExtern = 1;
+        m->hostm = e; m->fn = e->fn; m->thunk = e->thunk; m->resolvedExtern = 1;
         if (!m->fn) ld_err(L, "host'ta extern uygulanmamis (zayif sembol 0): %s", m->name, 0);
         return;
     }
@@ -1402,7 +1402,7 @@ void vmint_unload(VmModule *m)
 }
 static void vm_free_module(VmModule *m)
 {
-    for (int i = 0; i < m->ntypes; i++) { VmT *t = m->types[i]; if (t->kind == TK_SCALAR && vm_scalar[t->tag] == t) continue; if (t->ltype && t->ltype->type.dyn_wrapper) gc_remove_root(t->ltype->type.dyn_wrapper); }
+    for (int i = 0; i < m->ntypes; i++) { VmT *t = m->types[i]; if (t->kind == TK_SCALAR && vm_scalar[t->tag] == t) continue; if (t->ltype && t->ltype->type.wrapper) gc_remove_root(t->ltype->type.wrapper); }
     for (int i = 0; i < m->nnames; i++) gc_remove_root((GCHeader *)m->names[i]);
     // VmModule govdesi kalir (statics trace kaydi state'e bakar); buyuk bloklar serbest
     free(m->strblob); free(m->strs); free(m->literals); free(m->fields); free(m->roots); free(m->names);

@@ -360,7 +360,7 @@ int gc_hashcode(GCHeader *o)
 }
 
 // ---- Tek meta arama (vmrt.h): tip/metot hash indeksleri ilk aramada kurulur (acik adresleme, 2x kapasite).
-// Tablolar uretilen kodda (digitoyengine_types / digitoyengine_methods); vmint.c dis referanslari buradan baglar.
+// Tablolar uretilen kodda (digitoyengine_types / tip basina X_methods / digitoyengine_methods_misc); vmint.c dis referanslari buradan baglar.
 unsigned long long de_hash64_n(const char *s, int n)
 {
     unsigned long long h = 1469598103934665603ull;
@@ -419,9 +419,18 @@ const MethodInfo *digitoyengine_find_method(unsigned long long hash)
 {
     if (!de_idx_methods.built)
     {
-        de_index_alloc(&de_idx_methods, digitoyengine_nmethods);
-        for (int i = 0; i < digitoyengine_nmethods; i++)
-            de_index_put(&de_idx_methods, digitoyengine_methods[i].hash, &digitoyengine_methods[i]);
+        int n = digitoyengine_nmethods_misc;
+        for (int i = 0; i < digitoyengine_ntypes; i++)
+            n += digitoyengine_types[i]->nmethods;
+        de_index_alloc(&de_idx_methods, n);
+        for (int i = 0; i < digitoyengine_ntypes; i++)
+        {
+            const Type *t = digitoyengine_types[i];
+            for (int j = 0; j < t->nmethods; j++)
+                de_index_put(&de_idx_methods, t->methods[j].hash, &t->methods[j]);
+        }
+        for (int i = 0; i < digitoyengine_nmethods_misc; i++)
+            de_index_put(&de_idx_methods, digitoyengine_methods_misc[i].hash, &digitoyengine_methods_misc[i]);
     }
     unsigned k = (unsigned)hash & de_idx_methods.mask;
     while (de_idx_methods.slots[k])
@@ -496,14 +505,14 @@ static void finalize_vmstring(GCHeader *h)
 }
 const void *vmobject_vtable[3]; // digitoyengine_init doldurur (Object GetHashCode/Equals/ToString)
 const void *vmstring_vtable[3]; // digitoyengine_init doldurur (String override'lari)
-// runtime tip adlari da UTF-16 VmString (uretilen tiplerin k_str havuzuyla ayni desen)
+// runtime tip adlari da UTF-16 VmString (uretilen tiplerin _strpool havuzuyla ayni desen)
 static const unsigned short vmobject_name_d[] = {'S', 'y', 's', 't', 'e', 'm', '.', 'O', 'b', 'j', 'e', 'c', 't'};
 static const unsigned short vmstring_name_d[] = {'S', 'y', 's', 't', 'e', 'm', '.', 'S', 't', 'r', 'i', 'n', 'g'};
-// const DEGIL: GetHashCode idhash'i header'a cache'ler (k_str havuzu ile ayni sozlesme)
+// const DEGIL: GetHashCode idhash'i header'a cache'ler (_strpool havuzu ile ayni sozlesme)
 static VmString vmobject_name = {{&vmstring_type, 0, 0, GC_IMMORTAL, 0}, 13, vmobject_name_d};
 static VmString vmstring_name = {{&vmstring_type, 0, 0, GC_IMMORTAL, 0}, 13, vmstring_name_d};
-const Type vmobject_type = {0, 0, sizeof(VmObject), 1, 0, &vmobject_name, vmobject_vtable, 3, 0, 0, 1, .hash = 10811164153419254939ull}; // System.Object koku (base=0, tindex=1)
-const Type vmstring_type = {0, finalize_vmstring, sizeof(VmString), 1, &vmobject_type, &vmstring_name, vmstring_vtable, 3, 0, 0, 2, .hash = 8790253667684771693ull};
+Type vmobject_type = {0, 0, sizeof(VmObject), 1, 0, &vmobject_name, vmobject_vtable, 3, 0, 0, 1, .hash = 10811164153419254939ull}; // System.Object koku (base=0, rootid=1)
+Type vmstring_type = {0, finalize_vmstring, sizeof(VmString), 1, &vmobject_type, &vmstring_name, vmstring_vtable, 3, 0, 0, 2, .hash = 8790253667684771693ull};
 
 // ---- primitive tip descriptor'lari: yalniz typeof kimligi + ad (gc_alloc edilmez, vtable yok) ----
 #define DIGITOYENGINE_PNAME(sym, len, ...)                 \
@@ -526,8 +535,8 @@ DIGITOYENGINE_PNAME(en_name, 11, 'S', 'y', 's', 't', 'e', 'm', '.', 'E', 'n', 'u
 DIGITOYENGINE_PNAME(dg_name, 15, 'S', 'y', 's', 't', 'e', 'm', '.', 'D', 'e', 'l', 'e', 'g', 'a', 't', 'e');
 DIGITOYENGINE_PNAME(mdg_name, 24, 'S', 'y', 's', 't', 'e', 'm', '.', 'M', 'u', 'l', 't', 'i', 'c', 'a', 's', 't', 'D', 'e', 'l', 'e', 'g', 'a', 't', 'e');
 // boyut = box nesne boyutu (gc_alloc kullanir: header + payload); vtable'lar corelib.c'de
-const Type vmvaluetype_type = {0, 0, 0, 1, &vmobject_type, &vt_name, 0, 0, 0, 0, 3, .hash = 11398999010424436621ull, .flags = DIGITOYENGINE_TYPE_ABSTRACT};
-const Type vmenum_type = {0, 0, 0, 1, &vmvaluetype_type, &en_name, 0, 0, 0, 0, 16, .hash = 15180590948754747561ull, .flags = DIGITOYENGINE_TYPE_ABSTRACT}; // soyut kok: box'lanmaz
+Type vmvaluetype_type = {0, 0, 0, 1, &vmobject_type, &vt_name, 0, 0, 0, 0, 3, .hash = 11398999010424436621ull, .flags = DIGITOYENGINE_TYPE_ABSTRACT};
+Type vmenum_type = {0, 0, 0, 1, &vmvaluetype_type, &en_name, 0, 0, 0, 0, 16, .hash = 15180590948754747561ull, .flags = DIGITOYENGINE_TYPE_ABSTRACT}; // soyut kok: box'lanmaz
 void digitoyengine_delegate_trace(GCHeader *o)
 {
     VmDelegate *d = (VmDelegate *)o;
@@ -538,8 +547,8 @@ void digitoyengine_delegate_trace(GCHeader *o)
     if (d->right)
         gc_shade(&d->right->gc);
 }
-const Type vmdelegate_type = {0, 0, 0, 1, &vmobject_type, &dg_name, 0, 0, 0, 0, 17};
-const Type vmmulticastdelegate_type = {0, 0, 0, 1, &vmdelegate_type, &mdg_name, 0, 0, 0, 0, 18};
+Type vmdelegate_type = {0, 0, 0, 1, &vmobject_type, &dg_name, 0, 0, 0, 0, 17};
+Type vmmulticastdelegate_type = {0, 0, 0, 1, &vmdelegate_type, &mdg_name, 0, 0, 0, 0, 18};
 VmDelegate *digitoyengine_delegate_new(const Type *t, const void *fn, GCHeader *target)
 {
     VmDelegate *d = (VmDelegate *)gc_alloc(t);
@@ -617,20 +626,20 @@ VmDelegate *digitoyengine_delegate_remove(VmDelegate *left, VmDelegate *right)
     }
     return left;
 }
-const Type vmint32_type = {0, 0, sizeof(GCHeader) + 4, 1, &vmvaluetype_type, &i32_name, vmint32_vtable, 3, 0, 0, 4};
-const Type vmuint32_type = {0, 0, sizeof(GCHeader) + 4, 1, &vmvaluetype_type, &u32_name, vmuint32_vtable, 3, 0, 0, 5};
-const Type vmint64_type = {0, 0, sizeof(GCHeader) + 8, 1, &vmvaluetype_type, &i64_name, vmint64_vtable, 3, 0, 0, 6};
-const Type vmuint64_type = {0, 0, sizeof(GCHeader) + 8, 1, &vmvaluetype_type, &u64_name, vmuint64_vtable, 3, 0, 0, 7};
-const Type vmint16_type = {0, 0, sizeof(GCHeader) + 2, 1, &vmvaluetype_type, &i16_name, vmint16_vtable, 3, 0, 0, 8};
-const Type vmuint16_type = {0, 0, sizeof(GCHeader) + 2, 1, &vmvaluetype_type, &u16_name, vmuint16_vtable, 3, 0, 0, 9};
-const Type vmsbyte_type = {0, 0, sizeof(GCHeader) + 1, 1, &vmvaluetype_type, &sb_name, vmsbyte_vtable, 3, 0, 0, 10};
-const Type vmbyte_type = {0, 0, sizeof(GCHeader) + 1, 1, &vmvaluetype_type, &by_name, vmbyte_vtable, 3, 0, 0, 11};
-const Type vmchar_type = {0, 0, sizeof(GCHeader) + 2, 1, &vmvaluetype_type, &ch_name, vmchar_vtable, 3, 0, 0, 12}; // UTF-16 kod birimi
-const Type vmbool_type = {0, 0, sizeof(GCHeader) + 4, 1, &vmvaluetype_type, &bo_name, vmbool_vtable, 3, 0, 0, 13};
-const Type vmsingle_type = {0, 0, sizeof(GCHeader) + 4, 1, &vmvaluetype_type, &sg_name, vmsingle_vtable, 3, 0, 0, 14};
-const Type vmdouble_type = {0, 0, sizeof(GCHeader) + 8, 1, &vmvaluetype_type, &db_name, vmdouble_vtable, 3, 0, 0, 15};
+Type vmint32_type = {0, 0, sizeof(GCHeader) + 4, 1, &vmvaluetype_type, &i32_name, vmint32_vtable, 3, 0, 0, 4};
+Type vmuint32_type = {0, 0, sizeof(GCHeader) + 4, 1, &vmvaluetype_type, &u32_name, vmuint32_vtable, 3, 0, 0, 5};
+Type vmint64_type = {0, 0, sizeof(GCHeader) + 8, 1, &vmvaluetype_type, &i64_name, vmint64_vtable, 3, 0, 0, 6};
+Type vmuint64_type = {0, 0, sizeof(GCHeader) + 8, 1, &vmvaluetype_type, &u64_name, vmuint64_vtable, 3, 0, 0, 7};
+Type vmint16_type = {0, 0, sizeof(GCHeader) + 2, 1, &vmvaluetype_type, &i16_name, vmint16_vtable, 3, 0, 0, 8};
+Type vmuint16_type = {0, 0, sizeof(GCHeader) + 2, 1, &vmvaluetype_type, &u16_name, vmuint16_vtable, 3, 0, 0, 9};
+Type vmsbyte_type = {0, 0, sizeof(GCHeader) + 1, 1, &vmvaluetype_type, &sb_name, vmsbyte_vtable, 3, 0, 0, 10};
+Type vmbyte_type = {0, 0, sizeof(GCHeader) + 1, 1, &vmvaluetype_type, &by_name, vmbyte_vtable, 3, 0, 0, 11};
+Type vmchar_type = {0, 0, sizeof(GCHeader) + 2, 1, &vmvaluetype_type, &ch_name, vmchar_vtable, 3, 0, 0, 12}; // UTF-16 kod birimi
+Type vmbool_type = {0, 0, sizeof(GCHeader) + 4, 1, &vmvaluetype_type, &bo_name, vmbool_vtable, 3, 0, 0, 13};
+Type vmsingle_type = {0, 0, sizeof(GCHeader) + 4, 1, &vmvaluetype_type, &sg_name, vmsingle_vtable, 3, 0, 0, 14};
+Type vmdouble_type = {0, 0, sizeof(GCHeader) + 8, 1, &vmvaluetype_type, &db_name, vmdouble_vtable, 3, 0, 0, 15};
 DIGITOYENGINE_PNAME(void_name, 11, 'S', 'y', 's', 't', 'e', 'm', '.', 'V', 'o', 'i', 'd');
-const Type vmvoid_type = {0, 0, 0, 1, &vmvaluetype_type, &void_name, 0, 0, 0, 0, 19, .flags = DIGITOYENGINE_TYPE_STRUCT}; // typeof(void) / MethodInfo.ReturnType (instantiate edilemez)
+Type vmvoid_type = {0, 0, 0, 1, &vmvaluetype_type, &void_name, 0, 0, 0, 0, 19, .flags = DIGITOYENGINE_TYPE_STRUCT}; // typeof(void) / MethodInfo.ReturnType (instantiate edilemez)
 
 // unbox: C# exact-tip kurali + CLR enum denkligi: boxed enum <-> underlying int, ayni underlying'li
 // iki enum arasi da gecerli. null -> NullRef (native: ->type MMU faultlar; wasm: makro)
@@ -643,23 +652,19 @@ void *digitoyengine_unbox(GCHeader *o, const Type *t)
     return (char *)o + sizeof(GCHeader);
 }
 
-// ---- reflection wrapper deposu: tindex -> System.Type nesnesi (lazy, gc_add_root'lu) ----
+// ---- reflection wrapper deposu: Type.wrapper -> System.Type nesnesi (lazy, gc_add_root'lu) ----
 static const Type *digitoyengine_type_type = 0;
 static const Type *digitoyengine_fieldinfo_type = 0;
 static const Type *digitoyengine_propertyinfo_type = 0;
 static const Type *digitoyengine_methodinfo_type = 0;
 static const Type *digitoyengine_ctorinfo_type = 0;
-static GCHeader **digitoyengine_wrappers = 0;
-static int digitoyengine_nwrappers = 0;
-void digitoyengine_reflect_init(const Type *typeType, const Type *fieldInfoType, const Type *propertyInfoType, const Type *methodInfoType, const Type *ctorInfoType, int nwrappers)
+void digitoyengine_reflect_init(const Type *typeType, const Type *fieldInfoType, const Type *propertyInfoType, const Type *methodInfoType, const Type *ctorInfoType)
 {
     digitoyengine_type_type = typeType;
     digitoyengine_fieldinfo_type = fieldInfoType;
     digitoyengine_propertyinfo_type = propertyInfoType;
     digitoyengine_methodinfo_type = methodInfoType;
     digitoyengine_ctorinfo_type = ctorInfoType;
-    digitoyengine_nwrappers = nwrappers;
-    digitoyengine_wrappers = (GCHeader **)calloc((size_t)nwrappers, sizeof(GCHeader *));
 }
 // Reflection wrapper descriptor'lari (corelib.c dizileri eleman tipi olarak kullanir): 0=Type 1=FieldInfo 2=PropertyInfo 3=MethodInfo 4=ConstructorInfo
 const Type *digitoyengine_reflect_type(int which)
@@ -678,29 +683,15 @@ GCHeader *digitoyengine_type_wrapper(const Type *t)
 {
     if (!t || !digitoyengine_type_type)
         return 0;
-    if (t->tindex == 0 && (t->module || (t->flags & DIGITOYENGINE_TYPE_ARRAY))) // dinamik modul tipi ya da sentez dizi tipi: wrapper descriptor'in kendisinde (malloc'lu Type, const degil)
-    {
-        Type *mt = (Type *)t;
-        if (!mt->dyn_wrapper)
-        {
-            GCHeader *w = (GCHeader *)gc_alloc(digitoyengine_type_type);
-            *(long long *)((char *)w + sizeof(GCHeader)) = (long long)(size_t)t;
-            gc_add_root(w);
-            mt->dyn_wrapper = w;
-        }
-        return mt->dyn_wrapper;
-    }
-    if (t->tindex == 0 || t->tindex >= digitoyengine_nwrappers)
-        return 0;
-    GCHeader **slot = &digitoyengine_wrappers[t->tindex];
-    if (!*slot)
+    Type *mt = (Type *)t; // descriptor'lar yazilabilir veri (wrapper alani); const yalniz API sozlesmesi
+    if (!mt->wrapper)
     {
         GCHeader *w = (GCHeader *)gc_alloc(digitoyengine_type_type);
         *(long long *)((char *)w + sizeof(GCHeader)) = (long long)(size_t)t; // System.Type.handle = ILK alan sozlesmesi
         gc_add_root(w);
-        *slot = w;
+        mt->wrapper = w;
     }
-    return *slot;
+    return mt->wrapper;
 }
 GCHeader *digitoyengine_member_wrapper(DigitoyEngineMember *member)
 {
@@ -919,7 +910,7 @@ GCHeader *digitoyengine_method_invoke(const MethodInfo *m, GCHeader *target, str
         GCHeader *box = (GCHeader *)gc_alloc(m->returnType);
         r.p = (char *)box + sizeof(GCHeader);
     }
-    digitoyengine_thunks[m->shape](fn, a, &r);
+    m->thunk(fn, a, &r);
     return digitoyengine_object_from_slot(&r, m->ret_tag, m->returnType);
 }
 // vmstring_length/get/eq vmrt.h'da static inline (Mach-O duplicate cozumu)
@@ -1670,7 +1661,7 @@ int digitoyengine_is_reftype(const Type *t)
         return 1;
     if (t->flags & (DIGITOYENGINE_TYPE_STRUCT | DIGITOYENGINE_TYPE_ENUM))
         return 0;
-    if (t->tindex >= 4 && t->tindex <= 15)
+    if (t->rootid >= 4 && t->rootid <= 15)
         return 0;
     return 1;
 }
@@ -1679,7 +1670,7 @@ unsigned short digitoyengine_elem_size(const Type *elem)
 {
     if (digitoyengine_is_reftype(elem))
         return (unsigned short)sizeof(GCHeader *);
-    if (elem->tindex == 13) /* bool: alanlarda/dizilerde cil_bool = int (layout sozlesmesi) */
+    if (elem->rootid == 13) /* bool: alanlarda/dizilerde cil_bool = int (layout sozlesmesi) */
         return (unsigned short)sizeof(int);
     return (unsigned short)(elem->size - sizeof(GCHeader));
 }
@@ -1734,7 +1725,7 @@ const Type *digitoyengine_array_type(const Type *elem, int rank)
     DeSynthArrayType *s = (DeSynthArrayType *)calloc(1, sizeof(DeSynthArrayType));
     s->type.size = sizeof(VmArray);
     s->type.base = vmarray_ref_type.base ? vmarray_ref_type.base : &vmobject_type; /* System.Array (init sonrasi) */
-    s->type.flags = DIGITOYENGINE_TYPE_ARRAY;
+    s->type.flags = DIGITOYENGINE_TYPE_ARRAY | DIGITOYENGINE_TYPE_SYNTH_ARRAY;
     s->type.elem_type = elem;
     s->type.rank = (unsigned char)rank;
     s->type.name = elem ? elem->name : 0; /* ad: eleman adi (Type.Name "[]" ekler) */
@@ -1755,7 +1746,7 @@ GCHeader *digitoyengine_array_get(VmArray *a, int index)
         return *(GCHeader **)p;
     if (e->flags & DIGITOYENGINE_TYPE_ENUM)
         return (GCHeader *)digitoyengine_box_enum(*(int *)p, e);
-    switch (e->tindex)
+    switch (e->rootid)
     {
     case 4: return (GCHeader *)digitoyengine_box_i32(*(int *)p);
     case 5: return (GCHeader *)digitoyengine_box_u32(*(unsigned int *)p);
@@ -1792,7 +1783,7 @@ void digitoyengine_array_set(VmArray *a, int index, GCHeader *value)
     }
     if (!value)
         DIGITOYENGINE_throw_null();
-    if (e->tindex == 13)
+    if (e->rootid == 13)
     {
         *(int *)p = *(int *)digitoyengine_unbox(value, e) != 0;
         return;

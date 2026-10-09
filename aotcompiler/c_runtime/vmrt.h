@@ -80,7 +80,7 @@ struct Type
     unsigned short nvtable;       // vtable slot sayisi (0 = sanal method yok)
     const IfaceImpl *itables;     // implement edilen interface'ler (DUZLESTIRILMIS: base'inkiler dahil). yoksa 0
     unsigned short nitables;      // itables kayit sayisi
-    unsigned short tindex;        // reflection wrapper indeksi (0 = wrapper yok; digitoyengine_type_wrapper)
+    unsigned short rootid;        // runtime kok kimligi (SABIT: 1=object 2=string 3=ValueType 4..15=primitive 16=Enum 17=Delegate 18=MulticastDelegate 19=Void); uretilen tiplerde 0
     const Type *alias;            // unbox denkligi: enum descriptor'inda underlying tip (int); yoksa 0
     DigitoyEngineMember *members; // AOT reflection metadata (yalniz bildirilen field/property'ler)
     unsigned short nmembers;
@@ -88,10 +88,10 @@ struct Type
     unsigned short ngeneric_args;
     EnumParseFn enum_parse; // enum adi -> underlying int; enum disinda 0
     struct DeModule *module; // dinamik modul tipi ise sahibi (canli nesne sayaci); host/AOT tipleri icin 0
-    GCHeader *dyn_wrapper;   // modul tipleri (tindex=0) icin lazy System.Type wrapper (kok); host tipleri wrapper tablosunu kullanir
+    GCHeader *wrapper;       // lazy System.Type nesnesi (gc_add_root'lu); digitoyengine_type_wrapper doldurur. Descriptor'lar bu yuzden const DEGIL.
     // ---- tek meta (docs/modules.md): .NET reflection yuzeyi = modul baglama verisi. Ayri export tablosu YOK. ----
     unsigned long long hash;       // FNV64(Primitive.Name) - tip kimligi (GetType(string), modul dis referansi)
-    struct MethodInfo *methods;    // bu tipin BILDIRDIGI metotlar (ctor dahil; iface: slot sirasinda bildirimler). digitoyengine_methods icine isaret eder
+    struct MethodInfo *methods;    // bu tipin BILDIRDIGI metotlar (ctor dahil; iface: slot sirasinda bildirimler). Uretilen `X_methods[]` tablosu
     unsigned short nmethods;
     unsigned char flags;           // DIGITOYENGINE_TYPE_*
     const void *delegate_tramp;    // delegate tipi: host->modul trampoline'i ((closure, params) imzali); diger tiplerde 0
@@ -113,7 +113,8 @@ enum
     DIGITOYENGINE_TYPE_ENUM = 8,
     DIGITOYENGINE_TYPE_ABSTRACT = 16,
     DIGITOYENGINE_TYPE_ARRAY = 32,
-    DIGITOYENGINE_TYPE_GENERIC_DEF = 64 // acik generic tanim (boyutsuz, instantiate edilemez)
+    DIGITOYENGINE_TYPE_GENERIC_DEF = 64, // acik generic tanim (boyutsuz, instantiate edilemez)
+    DIGITOYENGINE_TYPE_SYNTH_ARRAY = 128 // runtime'da sentezlenen T[] descriptor'u (digitoyengine_array_type; ad = eleman adi)
 };
 // Programdaki tum descriptor'lar (uretilen + runtime object/string/ValueType/primitive'ler): hash/ad ile arama tabani.
 extern const Type *const digitoyengine_types[];
@@ -200,7 +201,7 @@ typedef struct MethodInfo
     const Type *const *param_types;   // parametre descriptor'lari (nparams; yoksa 0)
     const unsigned char *param_tags;  // parametre etiketleri (nparams)
     GCHeader *wrapper;                // lazy, koklu System.Reflection.MethodInfo/ConstructorInfo
-    unsigned short shape;             // digitoyengine_thunks indeksi (Invoke / modul cagrisi)
+    DeThunk thunk;                    // sekil thunk'u (Invoke / modul cagrisi): de_thunk_<sekil hash> (ayni C imzasi = ayni thunk)
     short vslot;                      // sanal/iface slot indeksi (sahibinin vtable/iface sirasi); -1 = sanal degil
     unsigned char nparams;            // this HARIC parametre sayisi
     unsigned char ret_tag;
@@ -231,9 +232,9 @@ enum
 extern const DeThunk digitoyengine_thunks[];
 extern const char *const digitoyengine_shapes[];
 extern const int digitoyengine_nthunks;
-// Programdaki tum metot kayitlari (duz tablo; Type.methods buraya isaret eder; sahipsiz metotlar sonda).
-extern MethodInfo digitoyengine_methods[];
-extern const int digitoyengine_nmethods;
+// Metot kayitlari: tip basina `X_methods[]` (Type.methods/nmethods); sahipsiz (runtime-kok sahipli / owner'siz) kayitlar misc tablosunda.
+extern MethodInfo digitoyengine_methods_misc[];
+extern const int digitoyengine_nmethods_misc;
 #ifdef DIGITOYENGINE_DEBUG
 // debugger local/arg tablosu: uretilen kod fonksiyon girisinde kurar (adresler o cagriya ait).
 // name = KAYNAK adi (ASCII; protokol ciktisi), tag = tip etiketi (i/f/d/l/c/h/b/B/o/r/v/?), addr = C degiskeni.
@@ -383,8 +384,8 @@ typedef struct DeModule
     int live;  // canli nesne sayisi (gc_alloc ++, sweep --)
     int state; // 0 = yukleniyor, 1 = aktif, 2 = unload edildi (trampoline'ler no-op; live 0 olunca free)
 } DeModule;
-void digitoyengine_reflect_init(const Type *typeType, const Type *fieldInfoType, const Type *propertyInfoType, const Type *methodInfoType, const Type *ctorInfoType, int nwrappers); // digitoyengine_init cagirir
-GCHeader *digitoyengine_type_wrapper(const Type *t);                                                                           // tindex 0 ise 0 doner (dizi tipleri vb.)
+void digitoyengine_reflect_init(const Type *typeType, const Type *fieldInfoType, const Type *propertyInfoType, const Type *methodInfoType, const Type *ctorInfoType); // digitoyengine_init cagirir
+GCHeader *digitoyengine_type_wrapper(const Type *t);                                                                           // System.Type nesnesi (lazy, t->wrapper'da; t=0 ise 0)
 const Type *digitoyengine_reflect_type(int which); // wrapper descriptor'lari: 0=Type 1=FieldInfo 2=PropertyInfo 3=MethodInfo 4=ConstructorInfo
 GCHeader *digitoyengine_member_lookup(const Type *t, const struct VmString *name, int kind);
 GCHeader *digitoyengine_member_wrapper(DigitoyEngineMember *member);                      // FieldInfo/PropertyInfo (lazy, koklu)
@@ -409,7 +410,7 @@ typedef struct VmObject
 {
     GCHeader gc;
 } VmObject;
-extern const Type vmobject_type;
+extern Type vmobject_type;
 // object'in sanal methodlari (slot sozlesmesi corelib/Object.cs bildirim sirasi: 0=GetHashCode,
 // 1=Equals, 2=ToString). Icerik digitoyengine_init'te transpile edilen impl adresleriyle doldurulur.
 extern const void *vmobject_vtable[3];
@@ -424,16 +425,16 @@ typedef struct VmString
     int length; // UTF-16 kod birimi sayisi (C# String.Length)
     const unsigned short *data;
 } VmString;
-extern const Type vmstring_type;
+extern Type vmstring_type;
 extern const void *vmstring_vtable[3]; // String override'lari (digitoyengine_init doldurur; slotlar vmobject_vtable ile ayni)
 // ---- primitive tip descriptor'lari (reflection + boxing: kimlik, ad, box vtable/boyut) ----
-// tindex rezervasyonu: 1=object 2=string 3=ValueType 4..15=primitive 16=Enum 17=Delegate 18=MulticastDelegate; uretilen tipler 19'dan baslar
-extern const Type vmvaluetype_type; // typeof(int).BaseType == System.ValueType (C# zinciri)
-extern const Type vmenum_type;      // typeof(MyEnum).BaseType == System.Enum (descriptor'lar uretilir)
-extern const Type vmint32_type, vmuint32_type, vmint64_type, vmuint64_type;
-extern const Type vmint16_type, vmuint16_type, vmsbyte_type, vmbyte_type;
-extern const Type vmchar_type, vmbool_type, vmsingle_type, vmdouble_type;
-extern const Type vmvoid_type; // System.Void (tindex 19): typeof(void), void donus tipi
+// rootid (Type.rootid): 1=object 2=string 3=ValueType 4..15=primitive 16=Enum 17=Delegate 18=MulticastDelegate 19=Void; uretilen tipler 0
+extern Type vmvaluetype_type; // typeof(int).BaseType == System.ValueType (C# zinciri)
+extern Type vmenum_type;      // typeof(MyEnum).BaseType == System.Enum (descriptor'lar uretilir)
+extern Type vmint32_type, vmuint32_type, vmint64_type, vmuint64_type;
+extern Type vmint16_type, vmuint16_type, vmsbyte_type, vmbyte_type;
+extern Type vmchar_type, vmbool_type, vmsingle_type, vmdouble_type;
+extern Type vmvoid_type; // System.Void (rootid 19): typeof(void), void donus tipi
 // box vtable'lari (corelib.c; slot sozlesmesi Object.cs: 0=GetHashCode 1=Equals 2=ToString)
 extern const void *vmbool_vtable[3], *vmchar_vtable[3], *vmsbyte_vtable[3], *vmbyte_vtable[3];
 extern const void *vmint16_vtable[3], *vmuint16_vtable[3], *vmint32_vtable[3], *vmuint32_vtable[3];
@@ -476,8 +477,8 @@ typedef struct VmDelegate
     int skip_start;
     int skip_count;
 } VmDelegate;
-extern const Type vmdelegate_type;          // System.Delegate (soyut zincir halkasi)
-extern const Type vmmulticastdelegate_type; // System.MulticastDelegate (uretilen delegate'lerin base'i - C# zinciri)
+extern Type vmdelegate_type;          // System.Delegate (soyut zincir halkasi)
+extern Type vmmulticastdelegate_type; // System.MulticastDelegate (uretilen delegate'lerin base'i - C# zinciri)
 void digitoyengine_delegate_trace(GCHeader *o);
 VmDelegate *digitoyengine_delegate_new(const Type *t, const void *fn, GCHeader *target);
 VmDelegate *digitoyengine_delegate_combine(VmDelegate *left, VmDelegate *right);

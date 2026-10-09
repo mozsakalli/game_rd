@@ -1284,7 +1284,7 @@ static void sb_array_suffix(const Type *t)
 VmString *System_Type_get_FullName(DigitoyEngineTypeObj *a0)
 {
     const Type *t = type_of(a0);
-    if ((t->flags & DIGITOYENGINE_TYPE_ARRAY) && t->tindex == 0 && t->name) /* sentez dizi: eleman adi + [] */
+    if ((t->flags & DIGITOYENGINE_TYPE_SYNTH_ARRAY) && t->name) /* sentez dizi: eleman adi + [] */
     {
         sb_reset();
         sb_utf16(t->name->data, t->name->length);
@@ -1305,7 +1305,7 @@ VmString *System_Type_get_Name(DigitoyEngineTypeObj *a0)
             cut = i + 1;
     sb_reset();
     sb_utf16(n->data + cut, n->length - cut);
-    if ((t->flags & DIGITOYENGINE_TYPE_ARRAY) && t->tindex == 0)
+    if (t->flags & DIGITOYENGINE_TYPE_SYNTH_ARRAY)
         sb_array_suffix(t);
     return sb_final();
 }
@@ -1316,7 +1316,7 @@ DigitoyEngineTypeObj *System_Type_get_BaseType(DigitoyEngineTypeObj *a0)
 }
 int System_Type_get_IsPrimitive(DigitoyEngineTypeObj *a0)
 {
-    unsigned short index = type_of(a0)->tindex;
+    unsigned short index = type_of(a0)->rootid;
     return index >= 4 && index <= 15;
 }
 int System_Type_get_IsEnum(DigitoyEngineTypeObj *a0)
@@ -1331,7 +1331,7 @@ VmObject *System_Enum_ToObject_System_Type_System_Object(DigitoyEngineTypeObj *e
     if (!value)
         DIGITOYENGINE_throw_null();
     long long number;
-    switch (value->gc.type->tindex)
+    switch (value->gc.type->rootid)
     {
     case 4:
         number = DIGITOYENGINE_BOXP(int, value);
@@ -1384,7 +1384,7 @@ VmArray *System_Type_GetGenericArguments(DigitoyEngineTypeObj *a0)
 }
 int System_Type_GetTypeCode_System_Type(DigitoyEngineTypeObj *a0)
 {
-    switch (type_of(a0)->tindex)
+    switch (type_of(a0)->rootid)
     {
     case 1:
         return 1; /* Object */
@@ -1460,7 +1460,7 @@ GCHeader *System_Reflection_Assembly_GetExecutingAssembly(void)
     return de_assembly;
 }
 GCHeader *System_Type_get_Assembly(DigitoyEngineTypeObj *a0) { (void)a0; return System_Reflection_Assembly_GetExecutingAssembly(); }
-// Uretilen tum tipler: tindex >= 20 (runtime kokleri/primitive'ler/Void haric), dizi/sentez ve acik generic tanimlar haric
+// Uretilen tum tipler: rootid == 0 (runtime kokleri/primitive'ler/Void haric), dizi/sentez ve acik generic tanimlar haric
 VmArray *System_Reflection_Assembly_GetTypes(GCHeader *self)
 {
     (void)self;
@@ -1468,7 +1468,7 @@ VmArray *System_Reflection_Assembly_GetTypes(GCHeader *self)
     for (int i = 0; i < digitoyengine_ntypes; i++)
     {
         const Type *t = digitoyengine_types[i];
-        if (t->tindex >= 20 && !(t->flags & (DIGITOYENGINE_TYPE_ARRAY | DIGITOYENGINE_TYPE_GENERIC_DEF)))
+        if (t->rootid == 0 && !(t->flags & (DIGITOYENGINE_TYPE_ARRAY | DIGITOYENGINE_TYPE_GENERIC_DEF)))
             n++;
     }
     VmArray *r = vmarray_new_e(n, digitoyengine_reflect_type(0));
@@ -1477,7 +1477,7 @@ VmArray *System_Reflection_Assembly_GetTypes(GCHeader *self)
     for (int i = 0; i < digitoyengine_ntypes; i++)
     {
         const Type *t = digitoyengine_types[i];
-        if (t->tindex >= 20 && !(t->flags & (DIGITOYENGINE_TYPE_ARRAY | DIGITOYENGINE_TYPE_GENERIC_DEF)))
+        if (t->rootid == 0 && !(t->flags & (DIGITOYENGINE_TYPE_ARRAY | DIGITOYENGINE_TYPE_GENERIC_DEF)))
             items[n++] = digitoyengine_type_wrapper(t);
     }
     return r;
@@ -1511,7 +1511,7 @@ VmArray *System_Type_GetPropertiesRaw(DigitoyEngineTypeObj *a0) { return de_memb
 int System_Type_get_IsValueType(DigitoyEngineTypeObj *a0)
 {
     const Type *t = type_of(a0);
-    return (t->flags & (DIGITOYENGINE_TYPE_STRUCT | DIGITOYENGINE_TYPE_ENUM)) != 0 || (t->tindex >= 4 && t->tindex <= 15);
+    return (t->flags & (DIGITOYENGINE_TYPE_STRUCT | DIGITOYENGINE_TYPE_ENUM)) != 0 || (t->rootid >= 4 && t->rootid <= 15);
 }
 int System_Type_get_IsInterface(DigitoyEngineTypeObj *a0) { return (type_of(a0)->flags & DIGITOYENGINE_TYPE_INTERFACE) != 0; }
 int System_Type_get_IsAbstract(DigitoyEngineTypeObj *a0) { return (type_of(a0)->flags & (DIGITOYENGINE_TYPE_ABSTRACT | DIGITOYENGINE_TYPE_INTERFACE)) != 0; }

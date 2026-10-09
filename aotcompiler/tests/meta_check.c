@@ -22,8 +22,11 @@ void digitoyengine_init(void);
 int main(void)
 {
     digitoyengine_init();
-    fprintf(stderr, "[meta-check] types=%d methods=%d thunks=%d\n", digitoyengine_ntypes, digitoyengine_nmethods, digitoyengine_nthunks);
-    CHECK(digitoyengine_ntypes > 0 && digitoyengine_nmethods > 0 && digitoyengine_nthunks > 0, "tablolar dolu");
+    int nmethods = digitoyengine_nmethods_misc;
+    for (int i = 0; i < digitoyengine_ntypes; i++)
+        nmethods += digitoyengine_types[i]->nmethods;
+    fprintf(stderr, "[meta-check] types=%d methods=%d (misc %d) thunks=%d\n", digitoyengine_ntypes, nmethods, digitoyengine_nmethods_misc, digitoyengine_nthunks);
+    CHECK(digitoyengine_ntypes > 0 && nmethods > 0 && digitoyengine_nthunks > 0, "tablolar dolu");
 
     // tip: System.Object -> runtime descriptor; ToString sanal slotu kayittan
     const Type *obj = digitoyengine_find_type(de_hash64("System.Object"));
@@ -45,7 +48,7 @@ int main(void)
     }
 
     // metot + thunk: ToString'i string nesnesi uzerinde runtime vtable impl'iyle thunk ile cagir
-    CHECK(ts && ts->fn && ts->shape < digitoyengine_nthunks, "System.Object$ToString fn/sekil");
+    CHECK(ts && ts->fn && ts->thunk, "System.Object$ToString fn/thunk");
     if (ts)
     {
         VmString *s = vmstring_from_cstr("merhaba");
@@ -53,9 +56,10 @@ int main(void)
         DeSlot a[1], r;
         a[0].p = s;
         r.p = 0;
-        digitoyengine_thunks[ts->shape](impl, a, &r);
+        ts->thunk(impl, a, &r);
         CHECK(r.p == s, "String.ToString() thunk ile cagri: ayni string dondu");
-        fprintf(stderr, "  sekil: %s\n", digitoyengine_shapes[ts->shape]);
+        for (int i = 0; i < digitoyengine_nthunks; i++)
+            if (digitoyengine_thunks[i] == ts->thunk) fprintf(stderr, "  sekil: %s\n", digitoyengine_shapes[i]);
         // reflection Invoke yolu: ayni kayit, kutulu arguman yok, donus referans
         GCHeader *rr = digitoyengine_method_invoke(ts, (GCHeader *)s, 0);
         CHECK(rr == (GCHeader *)s, "MethodInfo.Invoke(ToString) ayni string dondu");

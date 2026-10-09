@@ -813,20 +813,44 @@ public static class Program
             }
 
             // 3) C transpile + main sarmalayici
-            var cSource = CTranspiler.TranspileProgram(ctx);
             var entrySym = CTranspiler.CName(entry.EncodeName());
-            cSource += $"\nint main(void) {{\n    digitoyengine_init();\n    {entrySym}();\n    return 0;\n}}\n";
-            Directory.CreateDirectory(WorkDir);
-            File.WriteAllText(GeneratedC, cSource);
-            Console.WriteLine($"transpile -> {GeneratedC} ({cSource.Length} karakter, giris {entrySym})");
-
-            // 4) clang derle
-            var cFiles = new[] { GeneratedC, "c_runtime/vmrt.c", "c_runtime/corelib.c", "c_runtime/vmint.c" };
+            var mainSrc = $"\nint main(void) {{\n    digitoyengine_init();\n    {entrySym}();\n    return 0;\n}}\n";
             var poison = Environment.GetEnvironmentVariable("AOT_GCPOISON") == "1" ? " -DDIGITOYENGINE_GC_POISON" : "";
-            var compileArgs = $"-O1 -w{poison} -Ic_runtime {string.Join(" ", cFiles.Select(Quote))} -o {Quote(OutBin)}";
-            var (ccExit, ccOut) = RunProcess(ClangPath(), compileArgs);
-            if (ccExit != 0) throw new Exception($"clang derleme hatasi (exit {ccExit}):\n{ccOut}");
-            Console.WriteLine("clang derleme ok");
+            if (Environment.GetEnvironmentVariable("AOT_FILES") == "1")
+            {
+                // Cok dosyali mod (B/C adimi dogrulamasi): tip basina .c/.h + ninja (paralel, artimli)
+                var swT = Stopwatch.StartNew();
+                var files = CTranspiler.TranspileFiles(ctx, mainSrc);
+                var genDir = Path.Combine(WorkDir, "files");
+                var srcs = CTranspiler.WriteFiles(genDir, files, out int written, out int unchanged);
+                Console.WriteLine($"transpile -> {genDir}: {srcs.Count} .c ({written} yazildi, {unchanged} degismedi) {swT.ElapsedMilliseconds} ms");
+                var tgt = new DigitoyEngine.Build.NinjaBuild.Target
+                {
+                    Output = OutBin, ObjDir = Path.Combine(genDir, "obj"), Cc = ClangPath(),
+                    CFlags = $"-O1 -w{poison} -I{Path.GetFullPath("c_runtime")}",
+                };
+                tgt.Sources.AddRange(srcs);
+                tgt.Sources.AddRange(new[] { "c_runtime/vmrt.c", "c_runtime/corelib.c", "c_runtime/vmint.c" });
+                DigitoyEngine.Build.NinjaBuild.Write(genDir, tgt);
+                var swN = Stopwatch.StartNew();
+                var (nExit, nOut) = DigitoyEngine.Build.NinjaBuild.Run(genDir, Console.WriteLine);
+                if (nExit != 0) throw new Exception($"ninja derleme hatasi (exit {nExit}):\n{nOut}");
+                Console.WriteLine($"ninja ok ({swN.ElapsedMilliseconds} ms)");
+            }
+            else
+            {
+                var cSource = CTranspiler.TranspileProgram(ctx) + mainSrc;
+                Directory.CreateDirectory(WorkDir);
+                File.WriteAllText(GeneratedC, cSource);
+                Console.WriteLine($"transpile -> {GeneratedC} ({cSource.Length} karakter, giris {entrySym})");
+
+                // 4) clang derle
+                var cFiles = new[] { GeneratedC, "c_runtime/vmrt.c", "c_runtime/corelib.c", "c_runtime/vmint.c" };
+                var compileArgs = $"-O1 -w{poison} -Ic_runtime {string.Join(" ", cFiles.Select(Quote))} -o {Quote(OutBin)}";
+                var (ccExit, ccOut) = RunProcess(ClangPath(), compileArgs);
+                if (ccExit != 0) throw new Exception($"clang derleme hatasi (exit {ccExit}):\n{ccOut}");
+                Console.WriteLine("clang derleme ok");
+            }
 
             // 5) calistir + karsilastir
             var actual = RunProcess(Path.GetFullPath(OutBin), "").output;

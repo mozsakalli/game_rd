@@ -66,11 +66,17 @@ namespace DigitoyEngine.Language
 
         // ---- Tek meta: metot kayitlari (docs/modules.md) ----
         // Her kayit = trace MethodInfo (name/file) + reflection (System.Reflection.MethodInfo handle) + modul baglama (hash/fn/sekil/slot).
-        // Duz tablo digitoyengine_methods[]: tip basina bitisik aralik (Type.methods), sahipsiz/runtime-kok sahipli kayitlar sonda.
-        static readonly Dictionary<Code, int> methodIndex = new Dictionary<Code, int>();
+        // Tip basina tablo `{cn}_methods[]` (Type.methods); sahipsiz/runtime-kok sahipli kayitlar digitoyengine_methods_misc[].
+        // Dosya icerigine global sira SIZMAZ: kayit = (tablo sembolu, tablo ici indeks).
+        static readonly Dictionary<Code, int> methodIndex = new Dictionary<Code, int>();        // tablo ici indeks
+        static readonly Dictionary<Code, string> methodTable = new Dictionary<Code, string>();  // tablo sembolu
         static readonly List<Code> methodList = new List<Code>();
-        static readonly Dictionary<Primitive, (int start, int count)> typeMethods = new Dictionary<Primitive, (int, int)>();
-        static readonly Dictionary<string, int> shapeIds = new Dictionary<string, int>(); // sekil metni -> thunk indeksi
+        static readonly Dictionary<Primitive, (string sym, int count)> typeMethods = new Dictionary<Primitive, (string, int)>();
+        const string MiscMethodsSym = "digitoyengine_methods_misc";
+        static string MethodRef(Code c) => $"&{methodTable[c]}[{methodIndex[c]}]";
+        static string MethodSym(Code c) => CName(c.EncodeName()); // kayit basina yardimci sembol eki (mp_/mattrs_)
+        static readonly Dictionary<string, int> shapeIds = new Dictionary<string, int>(); // sekil metni -> digitoyengine_shapes[] sirasi (yalniz gen_meta tablosu; kayitlar sembolle baglanir)
+        static string ThunkSym(string shapeKey) => $"de_thunk_{Fnv64(shapeKey):x16}";              // sekil hash'li thunk sembolu (build sirasindan bagimsiz)
         static readonly List<Code> shapeSamples = new List<Code>();                       // indeks -> ornek Code (thunk govdesi)
         static HashSet<Code> hostReferenced = new HashSet<Code>();
 
@@ -81,14 +87,14 @@ namespace DigitoyEngine.Language
         // native sembolu guclu ister (link kirilir). Diger extern'ler zayif prototiple kayitlanir (fn 0 olabilir).
         static bool HasMethodRecord(Code c) =>
             (IsEmittableCode(c) && !(c.IsExternal && NeedsPInvokeMarshal(c) && !hostReferenced.Contains(c))) || IsIfaceDecl(c);
-        // Tip descriptor'i uretilen kod icinde mi (Type.methods baglanabilir)? Runtime kokleri (Object/String) const -> sahipsiz grup.
+        // Tip descriptor'i uretilen kod icinde mi (Type.methods baglanabilir)? Runtime kokleri (Object/String) -> sahipsiz grup.
         static bool OwnsMethodTable(Primitive p) =>
-            p != null && (IsEmittableModel(p) || (p.IsEnum && typeIndex.ContainsKey(p)));
+            p != null && typeIndex.ContainsKey(p) && (IsEmittableModel(p) || p.IsEnum);
 
         // CollectStrings sonunda: kayit kumesi, siralama, sekiller, ad havuzu (EmitStringPool'dan ONCE).
         static void CollectMethods(Context ctx)
         {
-            methodIndex.Clear(); methodList.Clear(); typeMethods.Clear(); shapeIds.Clear(); shapeSamples.Clear();
+            methodIndex.Clear(); methodTable.Clear(); methodList.Clear(); typeMethods.Clear(); shapeIds.Clear(); shapeSamples.Clear();
             hostReferenced = ComputeReferenced(ctx);
             var byOwner = new Dictionary<Primitive, List<Code>>();
             var orphan = new List<Code>();
@@ -114,15 +120,22 @@ namespace DigitoyEngine.Language
             foreach (var p in ctx.AllPrimitives)
             {
                 if (!byOwner.TryGetValue(p, out var list) || typeMethods.ContainsKey(p)) continue;
-                typeMethods[p] = (methodList.Count, list.Count);
+                var sym = $"{CName(p.Name)}_methods";
+                typeMethods[p] = (sym, list.Count);
+                for (int i = 0; i < list.Count; i++) { methodIndex[list[i]] = i; methodTable[list[i]] = sym; }
                 methodList.AddRange(list);
             }
+            for (int i = 0; i < orphan.Count; i++) { methodIndex[orphan[i]] = i; methodTable[orphan[i]] = MiscMethodsSym; }
             methodList.AddRange(orphan);
-            for (int i = 0; i < methodList.Count; i++)
+            foreach (var c in methodList)
             {
-                methodIndex[methodList[i]] = i;
-                var key = ShapeKey(methodList[i]);
-                if (!shapeIds.ContainsKey(key)) { shapeIds[key] = shapeSamples.Count; shapeSamples.Add(methodList[i]); }
+                var key = ShapeKey(c);
+                if (!shapeIds.ContainsKey(key))
+                {
+                    var ts = ThunkSym(key);
+                    foreach (var k2 in shapeIds.Keys) if (ThunkSym(k2) == ts) throw new Exception($"meta: sekil hash cakismasi: '{key}' vs '{k2}'");
+                    shapeIds[key] = shapeSamples.Count; shapeSamples.Add(c);
+                }
             }
         }
 
@@ -138,8 +151,8 @@ namespace DigitoyEngine.Language
         {
             var sb = new StringBuilder();
             sb.Append($", .hash = {Fnv64(p.Name)}ull");
-            if (typeMethods.TryGetValue(p, out var range))
-                sb.Append($", .methods = &digitoyengine_methods[{range.start}], .nmethods = {range.count}");
+            if (typeMethods.TryGetValue(p, out var mt))
+                sb.Append($", .methods = {mt.sym}, .nmethods = {mt.count}");
             int flags = (p.IsStruct ? 1 : 0) | (p.IsInterface ? 2 : 0) | (p.IsDelegate ? 4 : 0) | (p.IsEnum ? 8 : 0);
             if (flags != 0) sb.Append($", .flags = {flags}");
             if (p.IsDelegate && IsEmittableModel(p) && p.DelegateReturn != null) sb.Append($", .delegate_tramp = (const void*)&{DTrampSym(p)}");
@@ -238,49 +251,46 @@ namespace DigitoyEngine.Language
             }
         }
 
-        // Trampoline prototipleri: Type descriptor'lari (delegate_tramp) ve metot tablosu (tramp) govdelerden once adres alir.
-        static string EmitTrampolinePrototypes(Context ctx)
+        // Trampoline govdeleri birimlere: sanal -> metodun sahibinin .c on-bolumu (metot tablosu adresini alir),
+        // delegate -> delegate tipinin .c on-bolumu (descriptor .delegate_tramp). Ikisi de dosyaya ozel (static).
+        static void EmitTrampolinesInto(Context ctx, Func<Code, StringBuilder> preOfCode, Func<Primitive, StringBuilder> preOfType)
         {
-            var sb = new StringBuilder();
             foreach (var c in methodList)
-                if (HasVirtualTramp(c))
-                {
-                    var an = CArgNames(c, new HashSet<string>());
-                    sb.Append($"static {CType(c.ReturnType)} {VTrampSym(c)}({string.Join(", ", c.Arguments.Select((a, i) => $"{ParamCType(a)} {an[i]}"))});\n");
-                }
+            {
+                if (!HasVirtualTramp(c)) continue;
+                var an = CArgNames(c, new HashSet<string>());
+                var pars = string.Join(", ", c.Arguments.Select((a, i) => $"{ParamCType(a)} {an[i]}"));
+                preOfCode(c).Append($"static {CType(c.ReturnType)} {VTrampSym(c)}({pars}) {{{TrampolineBody(c, an, $"vmint_enter_virtual((GCHeader*){an[0]}, {Fnv64(c.EncodeName())}ull, a, &r);")} }}\n");
+            }
             foreach (var p in ctx.AllPrimitives)
-                if (IsEmittableModel(p) && p.IsDelegate && p.DelegateReturn != null)
-                    sb.Append($"static {CType(p.DelegateReturn)} {DTrampSym(p)}({string.Join(", ", new[] { "void*" }.Concat(p.DelegateParams.Select(CType)))});\n");
-            return sb.ToString();
+            {
+                if (!IsEmittableModel(p) || !p.IsDelegate || p.DelegateReturn == null) continue;
+                // imza: (closure, params...) - CallIndirect'in instance yolu (fn(target, args))
+                var sig = new Code { ReturnType = p.DelegateReturn };
+                sig.Arguments.Add(new Argument { Name = "closure", Type = Primitive.Object });
+                for (int i = 0; i < p.DelegateParams.Count; i++) sig.Arguments.Add(new Argument { Name = "p" + i, Type = p.DelegateParams[i] });
+                var an = sig.Arguments.Select(a => a.Name).ToList();
+                var pars = string.Join(", ", sig.Arguments.Select((a, i) => $"{(i == 0 ? "void*" : ParamCType(a))} {an[i]}"));
+                preOfType(p).Append($"static {CType(p.DelegateReturn)} {DTrampSym(p)}({pars}) {{{TrampolineBody(sig, an, "vmint_enter_delegate((GCHeader*)closure, a + 1, &r);")} }}\n");
+            }
         }
 
-        // Metot tablosu + sekil thunk'lari + trampoline govdeleri + tip tablosu. Fonksiyon tanimlarindan sonra (fn adresleri).
-        static string EmitMeta(Context ctx)
+        // Metot tablolari: tip basina `X_methods[]` sahibinin .c'sine (mp_/mattrs_ yardimcilariyla), sahipsizler misc'e.
+        static void EmitMethodTablesInto(Func<Code, StringBuilder> bodyOf, StringBuilder misc)
         {
-            var sb = new StringBuilder();
-            sb.Append("// ---- tek meta: metot kayitlari / sekil thunk'lari / tip tablosu (docs/modules.md) ----\n");
-            for (int i = 0; i < shapeSamples.Count; i++) sb.Append(EmitShapeThunk(shapeSamples[i], i));
-            sb.Append("const DeThunk digitoyengine_thunks[] = { ");
-            sb.Append(shapeSamples.Count == 0 ? "0" : string.Join(", ", Enumerable.Range(0, shapeSamples.Count).Select(i => $"de_thunk_{i}")));
-            sb.Append(" };\n");
-            sb.Append("const char *const digitoyengine_shapes[] = { ");
-            sb.Append(shapeSamples.Count == 0 ? "0" : string.Join(", ", shapeIds.OrderBy(kv => kv.Value).Select(kv => CStringLiteral(kv.Key))));
-            sb.Append(" };\n");
-            sb.Append($"const int digitoyengine_nthunks = {shapeSamples.Count};\n");
-            sb.Append(EmitTrampolines(ctx));
-
-            // parametre descriptor dizileri + etiketleri
-            var rows = new List<string>();
-            for (int i = 0; i < methodList.Count; i++)
+            var tables = new Dictionary<string, (StringBuilder sb, List<string> rows)>();
+            foreach (var c in methodList)
             {
-                var c = methodList[i];
+                var ms = MethodSym(c);
+                var tsym = methodTable[c];
+                var sb = tsym == MiscMethodsSym ? misc : bodyOf(c);
                 int skip = c.IsStatic ? 0 : 1;
                 var pars = c.Arguments.Skip(skip).ToList();
                 string ptypes = "0", ptags = "0";
                 if (pars.Count > 0)
                 {
-                    sb.Append($"static const Type* const mp_{i}[] = {{ {string.Join(", ", pars.Select(a => ExportTypeSym(a.Type)))} }};\n");
-                    ptypes = $"mp_{i}";
+                    sb.Append($"static const Type* const mp_{ms}[] = {{ {string.Join(", ", pars.Select(a => ExportTypeSym(a.Type)))} }};\n");
+                    ptypes = $"mp_{ms}";
                     ptags = $"(const unsigned char*){CStringLiteral(new string(pars.Select(a => (a.IsRef || a.IsOut) ? 'r' : ExportTag(a.Type)).ToArray()))}";
                 }
                 bool hasBody = !IsIfaceDecl(c);
@@ -289,15 +299,38 @@ namespace DigitoyEngine.Language
                 string decl = c.Owner == null ? "0" : ExportTypeSym(c.Owner);
                 string fileRef = string.IsNullOrEmpty(c.SourceFile) ? "0" : $"&{strPool[c.SourceFile]}";
                 int flags = (c.IsStatic ? 1 : 0) | (c.IsVirtual || c.IsOverride ? 2 : 0) | (IsCtorCode(c) ? 4 : 0) | (hasBody ? 0 : 8);
-                sb.Append(EmitAttrTable($"mattrs_{i}", c.Attributes));
-                rows.Add($"    {{ &{strPool[CodeDisplay(c)]}, {fileRef}, -1, {Fnv64(c.EncodeName())}ull, {fn}, {tramp}, {decl}, {ExportTypeSym(c.ReturnType)}, {ptypes}, {ptags}, 0, " +
-                         $"{shapeIds[ShapeKey(c)]}, {MethodSlot(c)}, {pars.Count}, '{ExportTag(c.ReturnType)}', {flags}{AttrTail($"mattrs_{i}", c.Attributes)}, .cilattrs = {c.CilAttributes} }},");
+                sb.Append(EmitAttrTable($"mattrs_{ms}", c.Attributes));
+                if (!tables.TryGetValue(tsym, out var t)) tables[tsym] = t = (sb, new List<string>());
+                t.rows.Add($"    {{ &{strPool[CodeDisplay(c)]}, {fileRef}, -1, {Fnv64(c.EncodeName())}ull, {fn}, {tramp}, {decl}, {ExportTypeSym(c.ReturnType)}, {ptypes}, {ptags}, 0, " +
+                           $"{ThunkSym(ShapeKey(c))}, {MethodSlot(c)}, {pars.Count}, '{ExportTag(c.ReturnType)}', {flags}{AttrTail($"mattrs_{ms}", c.Attributes)}, .cilattrs = {c.CilAttributes} }},");
             }
-            sb.Append("MethodInfo digitoyengine_methods[] = {\n");
-            foreach (var r in rows) sb.Append(r).Append('\n');
-            if (rows.Count == 0) sb.Append("    {0}\n");
-            sb.Append($"}};\nconst int digitoyengine_nmethods = {rows.Count};\n");
+            foreach (var kv in tables)
+            {
+                if (kv.Key == MiscMethodsSym) continue;
+                kv.Value.sb.Append($"MethodInfo {kv.Key}[{kv.Value.rows.Count}] = {{\n");
+                foreach (var r in kv.Value.rows) kv.Value.sb.Append(r).Append('\n');
+                kv.Value.sb.Append("};\n");
+            }
+            tables.TryGetValue(MiscMethodsSym, out var mt);
+            misc.Append($"MethodInfo {MiscMethodsSym}[] = {{\n");
+            if (mt.rows != null) foreach (var r in mt.rows) misc.Append(r).Append('\n');
+            if (mt.rows == null || mt.rows.Count == 0) misc.Append("    {0}\n");
+            misc.Append($"}};\nconst int digitoyengine_nmethods_misc = {mt.rows?.Count ?? 0};\n");
+        }
 
+        // Paylasimli meta (gen_meta.c): sekil thunk'lari + thunk/sekil tablolari + tip tablosu. Her build yeniden yazilir.
+        static string EmitMetaTables()
+        {
+            var sb = new StringBuilder();
+            sb.Append("// ---- tek meta: sekil thunk'lari / tip tablosu (docs/modules.md) ----\n");
+            foreach (var smp in shapeSamples) sb.Append(EmitShapeThunk(smp));
+            sb.Append("const DeThunk digitoyengine_thunks[] = { ");
+            sb.Append(shapeSamples.Count == 0 ? "0" : string.Join(", ", shapeSamples.Select(smp => ThunkSym(ShapeKey(smp)))));
+            sb.Append(" };\n");
+            sb.Append("const char *const digitoyengine_shapes[] = { ");
+            sb.Append(shapeSamples.Count == 0 ? "0" : string.Join(", ", shapeIds.OrderBy(kv => kv.Value).Select(kv => CStringLiteral(kv.Key))));
+            sb.Append(" };\n");
+            sb.Append($"const int digitoyengine_nthunks = {shapeSamples.Count};\n");
             // tip tablosu: runtime kokleri + descriptor'u olan tum uretilen tipler (typeIndex sirasi)
             var types = new List<string> { "&vmobject_type", "&vmstring_type", "&vmvaluetype_type", "&vmenum_type", "&vmdelegate_type", "&vmmulticastdelegate_type",
                 "&vmint32_type", "&vmuint32_type", "&vmint64_type", "&vmuint64_type", "&vmint16_type", "&vmuint16_type", "&vmsbyte_type", "&vmbyte_type", "&vmchar_type", "&vmbool_type", "&vmsingle_type", "&vmdouble_type", "&vmvoid_type" };
@@ -353,32 +386,6 @@ namespace DigitoyEngine.Language
             return sb.ToString();
         }
 
-        static string EmitTrampolines(Context ctx)
-        {
-            var sb = new StringBuilder();
-            sb.Append("// ---- host -> modul trampoline'leri (MethodInfo.tramp / Type.delegate_tramp) ----\n");
-            sb.Append("void vmint_enter_virtual(GCHeader *self, unsigned long long rootHash, DeSlot *a, DeSlot *r);\n");
-            sb.Append("void vmint_enter_delegate(GCHeader *closure, DeSlot *a, DeSlot *r);\n");
-            foreach (var c in methodList)
-            {
-                if (!HasVirtualTramp(c)) continue;
-                var an = CArgNames(c, new HashSet<string>());
-                var pars = string.Join(", ", c.Arguments.Select((a, i) => $"{ParamCType(a)} {an[i]}"));
-                sb.Append($"static {CType(c.ReturnType)} {VTrampSym(c)}({pars}) {{{TrampolineBody(c, an, $"vmint_enter_virtual((GCHeader*){an[0]}, {Fnv64(c.EncodeName())}ull, a, &r);")} }}\n");
-            }
-            foreach (var p in ctx.AllPrimitives)
-            {
-                if (!IsEmittableModel(p) || !p.IsDelegate || p.DelegateReturn == null) continue;
-                // imza: (closure, params...) - CallIndirect'in instance yolu (fn(target, args))
-                var sig = new Code { ReturnType = p.DelegateReturn };
-                sig.Arguments.Add(new Argument { Name = "closure", Type = Primitive.Object });
-                for (int i = 0; i < p.DelegateParams.Count; i++) sig.Arguments.Add(new Argument { Name = "p" + i, Type = p.DelegateParams[i] });
-                var an = sig.Arguments.Select(a => a.Name).ToList();
-                var pars = string.Join(", ", sig.Arguments.Select((a, i) => $"{(i == 0 ? "void*" : ParamCType(a))} {an[i]}"));
-                sb.Append($"static {CType(p.DelegateReturn)} {DTrampSym(p)}({pars}) {{{TrampolineBody(sig, an, "vmint_enter_delegate((GCHeader*)closure, a + 1, &r);")} }}\n");
-            }
-            return sb.ToString();
-        }
         // sekil = C imza metni (donus | parametreler); ayni metin = ayni thunk. Pointer tipleri (struct X*, VmString*,
         // ref/out) ABI'de ayirt edilmez -> hepsi void* (sekil sayisi binlerden yuzlere iner). Struct by-value adiyla kalir.
         static string ShapeCType(string ctype) => ctype.EndsWith("*") ? "void*" : ctype;
@@ -436,12 +443,12 @@ namespace DigitoyEngine.Language
             }
         }
 
-        static string EmitShapeThunk(Code c, int id)
+        static string EmitShapeThunk(Code c)
         {
             var pars = c.Arguments.Count == 0 ? "void" : string.Join(", ", c.Arguments.Select(a => ShapeCType(ParamCType(a))));
             var args = string.Join(", ", c.Arguments.Select(SlotLoad));
             var call = $"(({ShapeCType(CType(c.ReturnType))}(*)({pars}))fn)({args})";
-            return $"static void de_thunk_{id}(const void *fn, DeSlot *a, DeSlot *r) {{ (void)a; (void)r; {SlotStore(c.ReturnType, call)} }}\n";
+            return $"void {ThunkSym(ShapeKey(c))}(const void *fn, DeSlot *a, DeSlot *r) {{ (void)a; (void)r; {SlotStore(c.ReturnType, call)} }}\n";
         }
     }
 }
