@@ -74,6 +74,13 @@ static class PlayMode
         if (PlayScene == null)
             return;
         Scene.Unload(PlayScene);
+        // Oyun kodunun SceneLoader ile yarattigi sahneler de (replace modu PlayScene'i atmis olabilir).
+        for (int i = Scene.Loaded.Count - 1; i >= 0; i--)
+        {
+            var s = Scene.Loaded[i];
+            if (!s.ExternallyDriven)
+                Scene.Unload(s);
+        }
         PlayScene = null;
         Scene.SetActive(App.EditScene.LiveScene);
     }

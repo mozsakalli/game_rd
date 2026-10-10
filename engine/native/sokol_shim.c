@@ -33,7 +33,6 @@
 #define STBTT_STATIC
 #include "stb_truetype.h"
 
-
 #if defined(DE_BUILD_DLL)
 #if defined(_WIN32)
 #define SOKOL_API __declspec(dllexport)
@@ -1048,7 +1047,7 @@ static void de_render_execute_core(
             break;
         }
         case 5: // SetUniforms — inline veri akistan uygulanir; hizasizsa hizali tampona kopyalanir
-        {         // (WebGL HEAPF32 gorunumu 4-byte hizalama ister; akis 1-bayt opcode'lar yuzunden hizasiz).
+        {       // (WebGL HEAPF32 gorunumu 4-byte hizalama ister; akis 1-bayt opcode'lar yuzunden hizasiz).
             int slot = de_ri32(&p);
             int size = de_ri32(&p);
             static _Alignas(16) unsigned char ubuf[4096];
@@ -1301,30 +1300,215 @@ SOKOL_API void de_menu_destroy(void *menu)
     DestroyMenu((HMENU)menu); // alt popup'lari da yok eder
 }
 
-// Klasor secici (Open Project): modal, SENKRON. Donus 1 = secildi (out UTF-8), 0 = iptal.
-#include <shlobj.h>
+// ---------------------------------------------------------------------------
+// Native dosya/klasor diyalogu (Vista+ IFileDialog, modal, SENKRON).
+// mode: 0 = dosya ac, 1 = dosya kaydet, 2 = klasor sec.
+// filters: "Aciklama|*.ext;*.ext2|Aciklama2|*.*" ('|' ile ad/desen ciftleri), NULL = yok.
+// defaultPath: baslangic klasoru (ac/klasor) ya da onerilen dosya adi/yolu (kaydet), NULL = yok.
+// Donus 1 = secildi (out UTF-8), 0 = iptal/hata.
+// ---------------------------------------------------------------------------
+#define COBJMACROS
+#include <shobjidl.h>
+static const CLSID de__CLSID_FileOpenDialog = {0xDC1C5A9C, 0xE88A, 0x4DDE, {0xA5, 0xA1, 0x60, 0xF8, 0x2A, 0x20, 0xAE, 0xF7}};
+static const CLSID de__CLSID_FileSaveDialog = {0xC0B4E2F3, 0xBA21, 0x4773, {0x8D, 0xBA, 0x33, 0x5E, 0xC9, 0x46, 0xEB, 0x8B}};
+static const IID de__IID_IFileDialog = {0x42F85136, 0xDB7E, 0x439C, {0x85, 0xF1, 0xE4, 0x07, 0x5D, 0x13, 0x5F, 0xC8}};
+static const IID de__IID_IShellItem = {0x43826D1E, 0xE718, 0x42EE, {0xBC, 0x55, 0xA1, 0xE2, 0x61, 0xC3, 0x7B, 0xFE}};
+
+// Diyalogun kendisi AYRI STA thread'de kosar: .NET ana thread'i MTA olabilir (CoInitializeEx
+// APARTMENTTHREADED RPC_E_CHANGED_MODE doner) ve IFileDialog/SHBrowseForFolder MTA'da takiliyordu
+// ("yanit vermiyor"). Ana thread beklerken kendi mesajlarini pompalar (pencere canli kalir).
+typedef struct de__dlg_args
+{
+    HWND hwnd;
+    int mode;
+    const char *title, *filters, *defaultPath;
+    char *out;
+    int cap;
+    int result;
+} de__dlg_args;
+
+static int de__dialog_file_sta(de__dlg_args *a)
+{
+    HWND hwnd = a->hwnd;
+    int mode = a->mode;
+    const char *title = a->title, *filters = a->filters, *defaultPath = a->defaultPath;
+    char *out = a->out;
+    int cap = a->cap;
+    int result = 0;
+    IFileDialog *dlg = NULL;
+    const CLSID *clsid = mode == 1 ? &de__CLSID_FileSaveDialog : &de__CLSID_FileOpenDialog;
+    if (FAILED(CoCreateInstance(clsid, NULL, CLSCTX_INPROC_SERVER, &de__IID_IFileDialog, (void **)&dlg)) || !dlg)
+        goto done;
+
+    DWORD opts = 0;
+    IFileDialog_GetOptions(dlg, &opts);
+    opts |= FOS_FORCEFILESYSTEM | FOS_NOCHANGEDIR;
+    if (mode == 2)
+        opts |= FOS_PICKFOLDERS;
+    if (mode == 0)
+        opts |= FOS_FILEMUSTEXIST;
+    if (mode == 1)
+        opts |= FOS_OVERWRITEPROMPT;
+    IFileDialog_SetOptions(dlg, opts);
+
+    wchar_t wtitle[256];
+    if (title)
+    {
+        de__menu_wide(title, wtitle, 256);
+        IFileDialog_SetTitle(dlg, wtitle);
+    }
+
+    // Filtreler: "ad|desen|ad|desen..." -> COMDLG_FILTERSPEC dizisi (en fazla 16 cift).
+    COMDLG_FILTERSPEC spec[16];
+    wchar_t specBuf[16][2][128];
+    int nspec = 0;
+    if (filters && mode != 2)
+    {
+        const char *p = filters;
+        while (*p && nspec < 16)
+        {
+            char name[128], pat[128];
+            int n = 0;
+            while (*p && *p != '|' && n < 127)
+                name[n++] = *p++;
+            name[n] = 0;
+            if (*p == '|')
+                p++;
+            n = 0;
+            while (*p && *p != '|' && n < 127)
+                pat[n++] = *p++;
+            pat[n] = 0;
+            if (*p == '|')
+                p++;
+            if (!name[0] || !pat[0])
+                break;
+            de__menu_wide(name, specBuf[nspec][0], 128);
+            de__menu_wide(pat, specBuf[nspec][1], 128);
+            spec[nspec].pszName = specBuf[nspec][0];
+            spec[nspec].pszSpec = specBuf[nspec][1];
+            nspec++;
+        }
+        if (nspec > 0)
+        {
+            IFileDialog_SetFileTypes(dlg, nspec, spec);
+            IFileDialog_SetFileTypeIndex(dlg, 1);
+            // Ilk desenin uzantisi varsayilan uzanti (kaydet'te kullanici yazmazsa eklenir).
+            const wchar_t *star = wcschr(specBuf[0][1], L'.');
+            if (star && star[1] && star[1] != L'*')
+            {
+                wchar_t ext[64];
+                int i = 0;
+                for (const wchar_t *q = star + 1; *q && *q != L';' && i < 63; q++)
+                    ext[i++] = *q;
+                ext[i] = 0;
+                IFileDialog_SetDefaultExtension(dlg, ext);
+            }
+        }
+    }
+
+    // Baslangic konumu / onerilen ad.
+    if (defaultPath && defaultPath[0])
+    {
+        wchar_t wpath[1024];
+        de__menu_wide(defaultPath, wpath, 1024);
+        DWORD attr = GetFileAttributesW(wpath);
+        int isDir = attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY);
+        if (mode == 1 && !isDir)
+        {
+            // Kaydet: klasor kismi baslangic, dosya adi oneri.
+            wchar_t *slash = wcsrchr(wpath, L'\\');
+            wchar_t *slash2 = wcsrchr(wpath, L'/');
+            if (slash2 > slash)
+                slash = slash2;
+            if (slash)
+            {
+                *slash = 0;
+                IFileDialog_SetFileName(dlg, slash + 1);
+            }
+            else
+            {
+                IFileDialog_SetFileName(dlg, wpath);
+                wpath[0] = 0;
+            }
+        }
+        if (wpath[0])
+        {
+            IShellItem *folder = NULL;
+            if (SUCCEEDED(SHCreateItemFromParsingName(wpath, NULL, &de__IID_IShellItem, (void **)&folder)) && folder)
+            {
+                IFileDialog_SetFolder(dlg, folder);
+                IShellItem_Release(folder);
+            }
+        }
+    }
+
+    if (SUCCEEDED(IFileDialog_Show(dlg, hwnd)))
+    {
+        IShellItem *item = NULL;
+        if (SUCCEEDED(IFileDialog_GetResult(dlg, &item)) && item)
+        {
+            PWSTR wsel = NULL;
+            if (SUCCEEDED(IShellItem_GetDisplayName(item, SIGDN_FILESYSPATH, &wsel)) && wsel)
+            {
+                WideCharToMultiByte(CP_UTF8, 0, wsel, -1, out, cap, NULL, NULL);
+                out[cap - 1] = 0;
+                CoTaskMemFree(wsel);
+                result = 1;
+            }
+            IShellItem_Release(item);
+        }
+    }
+done:
+    if (dlg)
+        IFileDialog_Release(dlg);
+    return result;
+}
+
+static DWORD WINAPI de__dialog_thread(LPVOID p)
+{
+    de__dlg_args *a = (de__dlg_args *)p;
+    HRESULT hr = CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+    a->result = de__dialog_file_sta(a);
+    if (SUCCEEDED(hr))
+        CoUninitialize();
+    return 0;
+}
+
+SOKOL_API int de_dialog_file(void *glfwWindow, int mode, const char *title, const char *filters, const char *defaultPath, char *out, int cap)
+{
+    de__dlg_args a;
+    memset(&a, 0, sizeof a);
+    a.hwnd = glfwWindow ? (HWND)glfwGetWin32Window(glfwWindow) : NULL;
+    a.mode = mode;
+    a.title = title;
+    a.filters = filters;
+    a.defaultPath = defaultPath;
+    a.out = out;
+    a.cap = cap;
+    HANDLE th = CreateThread(NULL, 0, de__dialog_thread, &a, 0, NULL);
+    if (!th)
+        return 0;
+    for (;;)
+    {
+        DWORD r = MsgWaitForMultipleObjects(1, &th, FALSE, INFINITE, QS_ALLINPUT);
+        if (r != WAIT_OBJECT_0 + 1)
+            break; // thread bitti (ya da hata)
+        MSG msg;
+        while (PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE))
+        {
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+    }
+    WaitForSingleObject(th, INFINITE);
+    CloseHandle(th);
+    return a.result;
+}
+
+// Geriye uyum: klasor secici = de_dialog_file(mode 2).
 SOKOL_API int de_dialog_pick_folder(void *glfwWindow, const char *title, char *out, int cap)
 {
-    HWND hwnd = glfwWindow ? (HWND)glfwGetWin32Window(glfwWindow) : NULL;
-    CoInitializeEx(NULL, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
-    wchar_t wtitle[256];
-    de__menu_wide(title ? title : "Select folder", wtitle, 256);
-    BROWSEINFOW bi;
-    memset(&bi, 0, sizeof bi);
-    bi.hwndOwner = hwnd;
-    bi.lpszTitle = wtitle;
-    bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE | BIF_EDITBOX;
-    LPITEMIDLIST pidl = SHBrowseForFolderW(&bi);
-    if (!pidl)
-        return 0;
-    wchar_t wpath[MAX_PATH];
-    int ok = SHGetPathFromIDListW(pidl, wpath) ? 1 : 0;
-    CoTaskMemFree(pidl);
-    if (!ok)
-        return 0;
-    WideCharToMultiByte(CP_UTF8, 0, wpath, -1, out, cap, NULL, NULL);
-    out[cap - 1] = 0;
-    return 1;
+    return de_dialog_file(glfwWindow, 2, title, NULL, NULL, out, cap);
 }
 
 #elif defined(__APPLE__) // macOS: pthread IO + Cocoa menu/dialog (editor). Android/wasm/iOS: menu/dialog yok (DllImport'lar weak, cagrilmaz).
@@ -1440,24 +1624,82 @@ SOKOL_API void de_menu_destroy(void *menu)
     CFBridgingRelease(menu); // alt popup'lar item hiyerarsisiyle birlikte serbest kalir
 }
 
-// Klasor secici (Open Project): NSOpenPanel, modal/senkron. Donus 1 = secildi (out UTF-8), 0 = iptal.
-SOKOL_API int de_dialog_pick_folder(void *glfwWindow, const char *title, char *out, int cap)
+// Native dosya/klasor diyalogu (NSOpenPanel/NSSavePanel, modal/senkron). Sozlesme Win32 ile ayni:
+// mode 0 = dosya ac, 1 = kaydet, 2 = klasor; filters "ad|*.ext;*.ext2|..." (yalniz uzantilar kullanilir);
+// defaultPath baslangic klasoru ya da (kaydet) onerilen dosya yolu. Donus 1 = secildi, 0 = iptal.
+SOKOL_API int de_dialog_file(void *glfwWindow, int mode, const char *title, const char *filters, const char *defaultPath, char *out, int cap)
 {
     (void)glfwWindow;
-    NSOpenPanel *panel = [NSOpenPanel openPanel];
-    [panel setCanChooseDirectories:YES];
-    [panel setCanChooseFiles:NO];
-    [panel setAllowsMultipleSelection:NO];
+    NSSavePanel *panel;
+    if (mode == 1)
+        panel = [NSSavePanel savePanel];
+    else
+    {
+        NSOpenPanel *open = [NSOpenPanel openPanel];
+        [open setCanChooseDirectories:mode == 2];
+        [open setCanChooseFiles:mode == 0];
+        [open setAllowsMultipleSelection:NO];
+        [open setCanCreateDirectories:YES];
+        panel = open;
+    }
     if (title)
         [panel setMessage:[NSString stringWithUTF8String:title]];
+    [panel setCanCreateDirectories:YES];
+
+    if (filters && mode != 2)
+    {
+        // "ad|*.a;*.b|ad2|*.*" -> uzanti listesi (joker '*' varsa filtre uygulanmaz).
+        NSMutableArray *exts = [NSMutableArray array];
+        BOOL any = NO;
+        NSArray *parts = [[NSString stringWithUTF8String:filters] componentsSeparatedByString:@"|"];
+        for (NSUInteger i = 1; i < parts.count; i += 2)
+        {
+            for (NSString *pat in [parts[i] componentsSeparatedByString:@";"])
+            {
+                NSString *ext = [pat pathExtension];
+                if ([ext length] == 0 || [ext isEqualToString:@"*"])
+                {
+                    any = YES;
+                    continue;
+                }
+                [exts addObject:ext];
+            }
+        }
+        if (!any && exts.count > 0)
+        {
+            [panel setAllowedFileTypes:exts];
+            [panel setAllowsOtherFileTypes:NO];
+        }
+    }
+
+    if (defaultPath && defaultPath[0])
+    {
+        NSString *p = [NSString stringWithUTF8String:defaultPath];
+        BOOL isDir = NO;
+        BOOL exists = [[NSFileManager defaultManager] fileExistsAtPath:p isDirectory:&isDir];
+        if (mode == 1 && !(exists && isDir))
+        {
+            [panel setNameFieldStringValue:[p lastPathComponent]];
+            p = [p stringByDeletingLastPathComponent];
+        }
+        if ([p length] > 0)
+            [panel setDirectoryURL:[NSURL fileURLWithPath:p isDirectory:YES]];
+    }
+
     if ([panel runModal] != NSModalResponseOK)
         return 0;
-    NSURL *url = [[panel URLs] firstObject];
+    NSURL *url = [panel URL];
     if (!url)
         return 0;
-    const char *p = [[url path] UTF8String];
-    strncpy(out, p, cap - 1);
+    const char *sel = [[url path] UTF8String];
+    strncpy(out, sel, cap - 1);
     out[cap - 1] = 0;
     return 1;
+}
+
+// Geriye uyum: klasor secici = de_dialog_file(mode 2).
+SOKOL_API int de_dialog_pick_folder(void *glfwWindow, const char *title, char *out, int cap)
+{
+    return de_dialog_file(glfwWindow, 2, title, NULL, NULL, out, cap);
 }
 #endif // _WIN32 / __APPLE__

@@ -79,7 +79,7 @@ public static class Program
     // Uc assembly, hepsi in-process Roslyn (dotnet build / csproj YOK):
     //   Digitoy.CoreLib.dll   c_runtime/corelib/**.cs, NoStdLib, referanssiz          -> prebuilt (sdk/) ya da dev'de taze
     //   DigitoyEngine.dll     engine/managed/**.cs, NoStdLib, ref CoreLib, DE_AOT     -> prebuilt (sdk/) ya da dev'de taze
-    //   <Ad>.Game.dll         <proje>/Assets/Scripts (Editor/ haric)                -> her build (kullanici makinesi; script yoksa yok)
+    //   <Ad>.Game.dll         <proje>/Assets/**/*.cs (Editor/ haric)                -> her build (kullanici makinesi; script yoksa yok)
     // KURULU MOD: aotcompiler.dll'in yaninda Digitoy.CoreLib.dll + DigitoyEngine.dll varsa (publisher sdk/) onlar kullanilir;
     // DEV MOD: repo kaynaklarindan derlenir, obj/aot-il/ altinda mtime cache.
     static readonly string AotIlDir = Path.Combine("obj", "aot-il");
@@ -133,11 +133,12 @@ public static class Program
         return dll;
     }
 
-    // Oyun: Assets/Scripts (Assets/**/Editor/ haric) -> <Ad>.Game.dll (DE_AOT, NoStdLib). Katalog runtime reflection (Registry yok).
+    // Oyun: Assets/**/*.cs (Assets/**/Editor/ haric) -> <Ad>.Game.dll (DE_AOT, NoStdLib). Katalog runtime reflection (Registry yok).
     static string GameAotDll(string projectRoot, string projName, string outDir, string target)
     {
         // Registry.g.cs yok (docs/registry-removal.md): katalog runtime reflection'dan kurulur. Yalniz oyun scriptleri.
-        var sources = DigitoyEngine.Build.RoslynCompiler.SourcesUnder(Path.Combine(projectRoot, "Assets", "Scripts"), "/Editor/");
+        // Kaynak kapsami editorle (GameCode) AYNI olmali: Assets altindaki tum .cs — yoksa editorde var olan tip player'da atlanir.
+        var sources = DigitoyEngine.Build.RoslynCompiler.SourcesUnder(Path.Combine(projectRoot, "Assets"), "/Editor/");
         if (sources.Count == 0)
             return null; // script yok: engine tek basina
         var defines = new List<string> { "DE_AOT", "DE_GAME" }; defines.AddRange(TargetDefines(target));

@@ -59,6 +59,7 @@ public sealed class EditorScene
         bool oldWasActive = old == null || prevActive == old;
         var fresh = Scene.Create(Doc.Name);
         fresh.Catalog = catalog;
+        fresh.Assets = assets;
         fresh.ExternallyDriven = true; // UpdateAll atlar; EditorApp elle surer (simulate: false)
         Scene.SetActive(fresh); // Spawn aktif sahneye dogar
         Doc.Spawn(null, catalog, assets, _live);

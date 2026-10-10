@@ -7,6 +7,7 @@
 // THREAD: de_app_init/frame/pause/resume/shutdown TEK thread'den (render thread). Managed koda
 // giris yalniz buradan -> GC safepoint = de_app_frame icinde managed Frame dondukten sonra.
 // de_app_event HER thread'den cagrilabilir (kuyruk); Frame basinda bosaltilir.
+// Ayni id'nin ardisik POINTER_MOVE'lari birlestirilir (yalniz son konum iletilir).
 #ifndef DE_APP_H
 #define DE_APP_H
 

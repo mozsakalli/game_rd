@@ -15,6 +15,8 @@ public sealed class Scene
 
     // Tip metaverisi (clone/serialize icin) — statik degil: reload'da taze katalogla kurulur.
     public TypeCatalog Catalog;
+    // Bu sahnenin asset kaynagi (oyun kodu SceneLoader/prefab icin buradan alir).
+    public AssetDatabase Assets;
 
     // AMBIENT DURUM SAHNEYE AITTIR; Time/Screen statikleri sadece pencere:
     // Update girisinde bu sahnenin degerleri basilir. Component kodu Time.time/
@@ -26,6 +28,9 @@ public sealed class Scene
     // Son Update'in simulate degeri (editor edit modu = false): component'ler oyun
     // zamani davranisini (PlayOnStart gibi) buna gore atlar — Unity Application.isPlaying.
     public bool Simulating { get; private set; } = true;
+    // Sonraki N Update dt=0 kosar: Spawn cevresindeki yukleme/kurulum frame'lerinin suresi
+    // yeni dogan nesnelere (MovieClip/tween) buyuk adim olarak gecmesin (SceneLoader yazar).
+    public int DiscardDeltaFrames;
 
     // Sahneye ait tween havuzu: sahne saatiyle akar, sahneyle olur.
     public readonly TweenPool Tweens = new();
@@ -351,6 +356,11 @@ public sealed class Scene
     // sahneleri sahibi surer. Girişte ambient pencereler bu sahneye cevrilir.
     public void Update(float dt, bool simulate = true)
     {
+        if (DiscardDeltaFrames > 0)
+        {
+            DiscardDeltaFrames--;
+            dt = 0f;
+        }
         Simulating = simulate;
         if (simulate)
             SceneTime += dt;

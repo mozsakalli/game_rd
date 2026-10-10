@@ -1,0 +1,267 @@
+scene: Main
+objects:
+  - id: 2
+    parent: 0
+    name: CAMERA
+    pos: 0 0 -3000
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: CameraComponent
+        projection: Perspective
+        fov: 30
+      - type: CameraScaler
+        camera: '2:CameraComponent:0'
+        referenceResolution: 1440 960
+  - id: 1
+    parent: 0
+    name: ROOT
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        sprite: a3bbb7fee0894f42a91174631cedb195
+        fitScreen: true
+        width: 1440
+        height: 960
+        borderFill:
+          type: Solid
+          direction: Vertical
+          color: '#ffffffff'
+          color2: '#00000000'
+        border: 1 1 1 1
+  - id: 4
+    parent: 1
+    name: BUTTONS
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        layout: Horizontal
+        spacing: 30
+        anchorMin: 0.5 1
+        anchorMax: 0.5 1
+        pivot: 0.5 1
+        anchoredPos: 0 -100
+        alignChildren: Center
+  - id: 3
+    parent: 4
+    name: FACEBOOK
+    pos: 246.7988 122.61333 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        font: dd3069bf887d44eb80d125c87f3eda93
+        text: BAĞLAN
+        fill:
+          type: Linear
+          direction: Vertical
+          color: '#486bffff'
+          color2: '#3d57c9ff'
+        radius: 20 20 20 20
+        padding: 50 15 50 15
+        textShadowColor: '#0000005e'
+        textShadowOffset: 0 1
+        shadowColor: '#000000ff'
+        textSize: 60
+  - id: 5
+    parent: 4
+    name: GUEST
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        font: dd3069bf887d44eb80d125c87f3eda93
+        text: MİSAFİR GİRİŞİ
+        padding: 50 15 50 15
+        fill:
+          type: Linear
+          direction: Vertical
+          color: '#00000000'
+          color2: '#00000000'
+        borderFill:
+          type: Solid
+          direction: Vertical
+          color: '#ffffffff'
+          color2: '#00000000'
+        border: 2 2 2 2
+        radius: 20 20 20 20
+        shadowColor: '#000000ff'
+        textSize: 60
+  - id: 6
+    parent: 4
+    name: OR
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        font: dd3069bf887d44eb80d125c87f3eda93
+        text: VEYA
+        textSize: 22
+  - id: 7
+    parent: 4
+    name: APPLE
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        font: dd3069bf887d44eb80d125c87f3eda93
+        text: APPLE İLE GİRİŞ YAP
+        padding: 50 15 50 15
+        radius: 20 20 20 20
+        fill:
+          type: Solid
+          direction: Vertical
+          color: '#ffffffff'
+          color2: '#00000000'
+        textFill:
+          type: Solid
+          direction: Vertical
+          color: '#000000ff'
+          color2: '#ffffffff'
+        shadowColor: '#000000ff'
+        textSize: 60
+  - id: 13
+    parent: 11
+    name: GameObject (2)
+    pos: -279.09442 -235.80319 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: SpriteRenderer
+        Sprite: 62239607f52740079b96f31df484b4e8
+        Width: 325
+        Height: 316
+  - id: 14
+    parent: 11
+    name: GameObject (3)
+    pos: -308.60004 297.9585 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: SpriteRenderer
+        Sprite: d9c0c4053b6a4247bb3844c72574e02a
+        Width: 402
+        Height: 197
+  - id: 8
+    parent: 11
+    name: BG
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 2 2 1
+    components:
+      - type: SpriteRenderer
+        Sprite: 3fd170c0a8c04b44a4898f8573dbbce3
+        Width: 402
+        Height: 314
+  - id: 10
+    parent: 1
+    name: POLICY
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        font: d486343bc94940e3bed6cd5ef1f70231
+        text: Giriş tuşlarına basarak Hizmet Politikamızı ve
+        pivot: 0.5 1
+        anchorMin: 0.5 1
+        anchorMax: 0.5 1
+        textShadowColor: '#000000ff'
+        anchoredPos: 0 -14.900001
+        textSize: 38
+  - id: 11
+    parent: 1
+    name: GameObject
+    pos: 0 -90 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: MovieClip
+        Fps: 45
+        FrameCount: 30
+        Loop: false
+        PlayOnStart: true
+        Interpolate: true
+        Speed: 1
+        Tracks:
+          - Target: '8:Transform:0'
+            Path: Scale
+            Mask: 15
+            Keys:
+              - Frame: 4
+                Mode: Tween
+                Ease: OutBack
+                Value: 1 1 1 0
+                Ref: ''
+              - Frame: 14
+                Mode: Tween
+                Ease: Linear
+                Value: 2 2 1 0
+                Ref: ''
+          - Target: '12:Transform:0'
+            Path: Scale
+            Mask: 15
+            Keys:
+              - Frame: 0
+                Mode: Tween
+                Ease: Linear
+                Value: 2 2 1 0
+                Ref: ''
+              - Frame: 9
+                Mode: Tween
+                Ease: Linear
+                Value: 1 1 1 0
+                Ref: ''
+          - Target: '13:Transform:0'
+            Path: Position
+            Mask: 15
+            Keys:
+              - Frame: 4
+                Mode: Tween
+                Ease: OutBack
+                Value: -233.86841 -219.84113 0 0
+                Ref: ''
+              - Frame: 9
+                Mode: Tween
+                Ease: Linear
+                Value: -279.09442 -235.80319 0 0
+                Ref: ''
+          - Target: '13:SpriteRenderer:0'
+            Path: Color
+            Mask: 15
+            Keys:
+              - Frame: 0
+                Mode: Tween
+                Ease: Linear
+                Value: 255 255 255 0
+                Ref: ''
+              - Frame: 4
+                Mode: Tween
+                Ease: Linear
+                Value: 255 255 255 0
+                Ref: ''
+              - Frame: 6
+                Mode: Tween
+                Ease: Linear
+                Value: 255 255 255 255
+                Ref: ''
+        Labels:
+        Actions:
+  - id: 12
+    parent: 11
+    name: GameObject (1)
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: SpriteRenderer
+        Sprite: ab6a232641514e3381cde052b7edc231
+        Width: 583
+        Height: 450

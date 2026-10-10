@@ -1,0 +1,23 @@
+scene: Main
+objects:
+  - id: 1
+    parent: 2
+    name: GameObject
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: SpriteRenderer
+        Sprite: becb13ff61e14372a655b4dc6e3df927
+        Width: 156
+        Height: 119
+  - id: 2
+    parent: 0
+    name: GameObject (1)
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        fitScreen: true
+      - type: LoadScene

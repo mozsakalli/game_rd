@@ -95,8 +95,10 @@ public sealed unsafe partial class LayoutBox
             return 0;
         float mx = 0;
         int pos = 0;
-        while (NextLine(ref pos, float.MaxValue, out _, out _, out float w))
-            mx = MathF.Max(mx, w);
+        // Yatayda murekkep kutusu: ilk glyph'in sol boslugu ve son glyph'in
+        // advance'i sayilmaz (kutu metne tam sarilir). Dikey metrik kalir.
+        while (NextLine(ref pos, float.MaxValue, out _, out _, out _, out float inkL, out float inkR))
+            mx = MathF.Max(mx, inkR - inkL);
         return mx * TextScale + padLeft + padRight;
     }
 
@@ -111,7 +113,7 @@ public sealed unsafe partial class LayoutBox
             ? MathF.Max(1f, width - padLeft - padRight) / scale
             : float.MaxValue;
         int n = 0, pos = 0;
-        while (NextLine(ref pos, wrapW, out _, out _, out _))
+        while (NextLine(ref pos, wrapW, out _, out _, out _, out _, out _))
             n++;
         return n * font.LineHeight * scale + padTop + padBottom;
     }
@@ -120,17 +122,23 @@ public sealed unsafe partial class LayoutBox
     // pos'tan bir satir tuketir; genislikler SDF-px uzayinda. Kirilim tercihen
     // son bosluktan (bosluk yutulur, genislige girmez); tek kelime sigmazsa
     // karakter kirilimi (satir basina en az 1 glyph — sonsuz dongu olmaz).
-    bool NextLine(ref int pos, float availW, out int start, out int end, out float w)
+    // w = advance toplami (ellipsis kirpma olcusu). inkL/inkR = murekkep sol/sag
+    // kenari (kalem orijinine gore). Sigma testi murekkep genisligiyle yapilir
+    // (inkR-inkL <= availW) — Grow'da availW = murekkep olcusu, advance ile
+    // karsilastirmak sahte wrap uretirdi.
+    bool NextLine(ref int pos, float availW, out int start, out int end, out float w, out float inkL, out float inkR)
     {
         string s = text;
         int len = s.Length;
         start = pos;
         end = pos;
         w = 0;
+        inkL = 0;
+        inkR = 0;
         if (pos > len)
             return false;
         int prev = -1, lastSp = -1;
-        float wAtSp = 0;
+        float wAtSp = 0, inkRAtSp = 0;
         for (int i = start; i < len; i++)
         {
             char c = s[i];
@@ -141,18 +149,28 @@ public sealed unsafe partial class LayoutBox
                 return true;
             }
             int gi = font.GlyphIndex(c);
-            float add = (prev >= 0 ? font.Kerning(prev, gi) : 0) + font.GlyphAt(gi).Advance + SpacingSdf;
+            ref readonly var g = ref font.GlyphAt(gi);
+            // Spacing glyph'ler ARASINA girer (ilk glyph'ten once / sonuncudan sonra yok):
+            // satir genisligi = advance toplami + (n-1)*spacing — aksi halde align kayar.
+            float gap = prev >= 0 ? font.Kerning(prev, gi) + SpacingSdf : 0;
+            float add = gap + g.Advance;
+            // Murekkep kenarlari: glyph'in alt-piksel InkL/InkR'si (quad/pad degil, gorunen piksel).
+            bool ink = g.W > 0;
+            float l = prev < 0 && ink ? g.InkL : inkL;
+            float r = ink ? MathF.Max(inkR, w + gap + g.InkR) : inkR;
             if (c == ' ')
             {
                 lastSp = i;
                 wAtSp = w;
+                inkRAtSp = inkR;
             }
-            else if (w + add > availW && i > start)
+            else if (r - l > availW && i > start)
             {
                 if (lastSp >= start)
                 {
                     end = lastSp;
                     w = wAtSp;
+                    inkR = inkRAtSp;
                     pos = lastSp + 1;
                 }
                 else
@@ -162,6 +180,8 @@ public sealed unsafe partial class LayoutBox
                 }
                 return true;
             }
+            inkL = l;
+            inkR = r;
             w += add;
             prev = gi;
         }
@@ -178,7 +198,7 @@ public sealed unsafe partial class LayoutBox
         for (int i = st; i < en; i++)
         {
             int gi = font.GlyphIndex(text[i]);
-            float add = (prev >= 0 ? font.Kerning(prev, gi) : 0) + font.GlyphAt(gi).Advance + SpacingSdf;
+            float add = (prev >= 0 ? font.Kerning(prev, gi) + SpacingSdf : 0) + font.GlyphAt(gi).Advance;
             if (w + add > maxW)
                 break;
             w += add;
@@ -224,7 +244,7 @@ public sealed unsafe partial class LayoutBox
         int total = 0;
         {
             int pos = 0;
-            while (NextLine(ref pos, wrapW, out _, out _, out _))
+            while (NextLine(ref pos, wrapW, out _, out _, out _, out _, out _))
                 total++;
         }
         int lines = total;
@@ -238,24 +258,27 @@ public sealed unsafe partial class LayoutBox
         _tqCount = 0;
 
         float clipW = availW / scale + fitEps;
-        float dotsW = font.MeasureLine("...".AsSpan());
+        // "..." genisligi: oncesinde metin varken her noktanin onune spacing girer.
+        float dotsW = font.MeasureLine("...".AsSpan()) + 3 * SpacingSdf;
         int p = 0;
         for (int li = 0; li < lines; li++)
         {
-            NextLine(ref p, wrapW, out int st, out int en, out float w);
+            NextLine(ref p, wrapW, out int st, out int en, out float w, out float inkL, out float inkR);
             // Ellipsis: blogun kirpilan son satiri VEYA availW'yi asan satir.
-            bool dots = textEllipsis && ((li == lines - 1 && li < total - 1) || w > clipW);
-            float lineW = w;
+            bool dots = textEllipsis && ((li == lines - 1 && li < total - 1) || inkR - inkL > clipW);
             if (dots)
             {
                 en = FitCount(st, en, clipW - dotsW, out float wc);
-                lineW = wc + dotsW;
+                // "..." ile biten satirda advance tabanli olcu yeterli.
+                inkL = 0;
+                inkR = wc + dotsW;
             }
+            // Murekkep kutusuna gore hizalama: sol kenar = ilk glyph'in murekkebi.
             float xs = textAlign switch
             {
-                TextAlign.Right => availW - lineW * scale,
-                TextAlign.Center => (availW - lineW * scale) * 0.5f,
-                _ => 0f,
+                TextAlign.Right => availW - inkR * scale,
+                TextAlign.Center => (availW - (inkR - inkL) * scale) * 0.5f - inkL * scale,
+                _ => -inkL * scale,
             };
             float baseY = li * lineH + font.Ascent * scale;
             float pen = 0;
@@ -275,7 +298,7 @@ public sealed unsafe partial class LayoutBox
         {
             int gi = font.GlyphIndex(s[i]);
             if (prev >= 0)
-                pen += font.Kerning(prev, gi);
+                pen += font.Kerning(prev, gi) + SpacingSdf;
             ref readonly var g = ref font.GlyphAt(gi);
             if (g.W > 0 && g.H > 0)
             {
@@ -291,7 +314,7 @@ public sealed unsafe partial class LayoutBox
                     V1 = g.AtlasY * invH,
                 };
             }
-            pen += g.Advance + SpacingSdf;
+            pen += g.Advance;
             prev = gi;
         }
     }

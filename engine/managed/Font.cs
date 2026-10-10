@@ -17,6 +17,9 @@ public sealed unsafe class Font : IAsset
         public int Codepoint;
         public float Advance, XOff, YOff, W, H;
         public float AtlasX, AtlasY; // Page depolama koordinati (satir 0 = ilk satir)
+        // Gorunen murekkebin sol/sag kenari (kalem orijinine gore, SDF px, alt-piksel;
+        // importer SDF bitmap'inden esik=128 kesisimiyle cikarir). W=0 ise ikisi de 0.
+        public float InkL, InkR;
     }
 
     public string Name { get; internal set; }
@@ -167,7 +170,7 @@ public sealed unsafe class Font : IAsset
     // [glyph: cp int32 + 7 float * glyphCount][kern int16 * glyphCount^2]
 
     public const int Magic = 0x544E4644; // "DFNT"
-    public const int Version = 3;
+    public const int Version = 4;
 
     internal static Font FromArtifact(byte[] blob, string name)
     {
@@ -232,6 +235,8 @@ public sealed unsafe class Font : IAsset
                     H = r.ReadSingle(),
                     AtlasX = r.ReadSingle(),
                     AtlasY = r.ReadSingle(),
+                    InkL = r.ReadSingle(),
+                    InkR = r.ReadSingle(),
                 };
                 f._glyphs[i] = g;
                 f._sheetX[i] = g.AtlasX;
@@ -283,6 +288,8 @@ public sealed unsafe class Font : IAsset
             w.Write(g.H);
             w.Write(g.AtlasX);
             w.Write(g.AtlasY);
+            w.Write(g.InkL);
+            w.Write(g.InkR);
         }
         foreach (short k in kern)
             w.Write(k);

@@ -29,6 +29,18 @@ static void de_app_unlock(void) { atomic_flag_clear_explicit(&de_app_q_lock, mem
 void de_app_event(const DeEvent* e)
 {
     de_app_lock();
+    // Ayni pointer'in ardisik MOVE'lari tek olaya iner: frame basina en fazla 1 drag
+    // dispatch (yuksek Hz fare / tarayici mousemove seli). Down/Up sirasi bozulmaz.
+    if (e->type == DE_EV_POINTER_MOVE && de_app_q_n > 0)
+    {
+        DeEvent* last = &de_app_q[de_app_q_n - 1];
+        if (last->type == DE_EV_POINTER_MOVE && last->id == e->id)
+        {
+            *last = *e;
+            de_app_unlock();
+            return;
+        }
+    }
     if (de_app_q_n < DE_APP_QUEUE) de_app_q[de_app_q_n++] = *e;
     else de_app_dropped++;
     de_app_unlock();

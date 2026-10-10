@@ -60,6 +60,13 @@ public sealed unsafe class SceneViewPanel : EditorWindow
 
     // Araclarin (EditorTool) kullandigi kamera uzayi API'si.
     public float Zoom => _zoom;
+    public Vec2 Center => _center;
+
+    public void SetView(Vec2 center, float zoom)
+    {
+        _center = center;
+        _zoom = Math.Clamp(zoom, 0.05f, 40f);
+    }
 
     public Vec2 PanelToWorld(Vec2 p)
         => new Vec2(_center.x + (p.x - _viewW * 0.5f) / _zoom,

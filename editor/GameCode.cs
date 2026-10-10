@@ -70,6 +70,57 @@ public sealed class GameCode
         if (r.Ok) job.Dll = dll;
         return job;
     }
+    // IDE projesi (Unity'nin Assembly-CSharp.csproj'u): proje kokune <Ad>.Game.csproj yazar — yalniz
+    // IntelliSense/gezinme icin, editor derlemesi bunu KULLANMAZ (in-process Roslyn). Kaynak kumesi glob
+    // (Assets/**/*.cs, Editor/ haric) oldugundan dosya ekle/sil'de yeniden uretim gerekmez; ayarlar
+    // RoslynCompiler ile birebir (net9.0, unsafe, nullable kapali, DEBUG;TRACE;DE_GAME). bin/obj Library/'ye.
+    public static void WriteIdeProject(Project project)
+    {
+        string engineDll = typeof(DigitoyEngine.GameObject).Assembly.Location;
+        string asmName = project.Name + ".Game";
+        var sb = new StringBuilder();
+        sb.AppendLine("<!-- DigitoyEditor tarafindan uretilir; elle duzenleme bir sonraki acilista ezilir. -->");
+        sb.AppendLine("<Project>");
+        sb.AppendLine("  <PropertyGroup>");
+        sb.AppendLine("    <BaseIntermediateOutputPath>Library/IdeBuild/obj/</BaseIntermediateOutputPath>");
+        sb.AppendLine("    <BaseOutputPath>Library/IdeBuild/bin/</BaseOutputPath>");
+        sb.AppendLine("  </PropertyGroup>");
+        sb.AppendLine("  <Import Project=\"Sdk.props\" Sdk=\"Microsoft.NET.Sdk\" />");
+        sb.AppendLine("  <PropertyGroup>");
+        sb.AppendLine("    <TargetFramework>net9.0</TargetFramework>");
+        sb.AppendLine("    <OutputType>Library</OutputType>");
+        sb.AppendLine($"    <AssemblyName>{asmName}</AssemblyName>");
+        sb.AppendLine("    <RootNamespace></RootNamespace>");
+        sb.AppendLine("    <LangVersion>latest</LangVersion>");
+        sb.AppendLine("    <Nullable>disable</Nullable>");
+        sb.AppendLine("    <ImplicitUsings>disable</ImplicitUsings>");
+        sb.AppendLine("    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>");
+        sb.AppendLine("    <DefineConstants>DEBUG;TRACE;DE_GAME</DefineConstants>");
+        sb.AppendLine("    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>");
+        sb.AppendLine("    <EnableDefaultItems>false</EnableDefaultItems>");
+        sb.AppendLine("    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>");
+        sb.AppendLine("    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>");
+        sb.AppendLine("  </PropertyGroup>");
+        sb.AppendLine("  <ItemGroup>");
+        sb.AppendLine("    <Compile Include=\"Assets/**/*.cs\" Exclude=\"Assets/**/Editor/**/*.cs\" />");
+        sb.AppendLine("  </ItemGroup>");
+        sb.AppendLine("  <ItemGroup>");
+        sb.AppendLine("    <Reference Include=\"DigitoyEngine\">");
+        sb.AppendLine($"      <HintPath>{engineDll}</HintPath>");
+        sb.AppendLine("      <Private>false</Private>");
+        sb.AppendLine("    </Reference>");
+        sb.AppendLine("  </ItemGroup>");
+        sb.AppendLine("  <Import Project=\"Sdk.targets\" Sdk=\"Microsoft.NET.Sdk\" />");
+        sb.AppendLine("</Project>");
+
+        string path = Path.Combine(project.Root, asmName + ".csproj");
+        string text = sb.ToString();
+        // Icerik ayniysa dokunma (IDE'nin yeniden yukleme tetiklenmesin).
+        if (File.Exists(path) && File.ReadAllText(path) == text)
+            return;
+        File.WriteAllText(path, text);
+    }
+
     // ANA THREAD: eski ALC bosalir, taze dll stream'den yuklenir, typemap guncellenir.
     // Cagiran once tum canli instance'lari yikmis olmali (UnloadLive/Stop).
     public bool LoadCompiled(Project project, DigitoyEngine.AssetDatabase assets, CompileJob job)

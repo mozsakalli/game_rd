@@ -147,6 +147,7 @@ public sealed partial class SceneDoc
     public void InstantiateInto(Scene scene, TypeCatalog catalog, AssetDatabase assets)
     {
         scene.Catalog = catalog;
+        scene.Assets = assets;
         Scene.SetActive(scene); // new GameObject bu sahneye dogar
         Spawn(null, catalog, assets);
     }

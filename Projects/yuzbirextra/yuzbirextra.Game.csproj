@@ -1,0 +1,33 @@
+<!-- DigitoyEditor tarafindan uretilir; elle duzenleme bir sonraki acilista ezilir. -->
+<Project>
+  <PropertyGroup>
+    <BaseIntermediateOutputPath>Library/IdeBuild/obj/</BaseIntermediateOutputPath>
+    <BaseOutputPath>Library/IdeBuild/bin/</BaseOutputPath>
+  </PropertyGroup>
+  <Import Project="Sdk.props" Sdk="Microsoft.NET.Sdk" />
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <OutputType>Library</OutputType>
+    <AssemblyName>yuzbirextra.Game</AssemblyName>
+    <RootNamespace></RootNamespace>
+    <LangVersion>latest</LangVersion>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <DefineConstants>DEBUG;TRACE;DE_GAME</DefineConstants>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+    <EnableDefaultItems>false</EnableDefaultItems>
+    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Assets/**/*.cs" Exclude="Assets/**/Editor/**/*.cs" />
+  </ItemGroup>
+  <ItemGroup>
+    <Reference Include="DigitoyEngine">
+      <HintPath>C:\Work\digitoygames\game_rd\editor\bin\Debug\net9.0\DigitoyEngine.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+  <Import Project="Sdk.targets" Sdk="Microsoft.NET.Sdk" />
+</Project>

@@ -126,6 +126,8 @@ public unsafe class App
         AssetDatabase.LogWarning = EditorLog.Warning;
         PixelEffect.LogError = EditorLog.Error; // fx derleme hatalari Console paneline
         _gameCode = new GameCode();
+        try { GameCode.WriteIdeProject(_project); } // IDE csproj (proje koku), derlemeden bagimsiz
+        catch (Exception e) { EditorLog.Warning("[gamecode] IDE csproj yazilamadi: " + e.Message); }
         _gameCode.CompileAndLoad(_project, _assets);
         RebuildCatalog();
 #if DE_EDITOR
@@ -151,6 +153,8 @@ public unsafe class App
         catch { }
         PlayMode.HotReload = Settings.hotReload;
         Gui.FontSize = Math.Clamp(Settings.uiFontSize, 10f, 24f);
+        if (Settings.sceneCamZoom > 0)
+            _sceneView.SetView(new Vec2(Settings.sceneCamX, Settings.sceneCamY), Settings.sceneCamZoom);
         if (Settings.lastScene.Length > 0)
         {
             string last = System.IO.Path.Combine(projectPath, Settings.lastScene);
@@ -183,6 +187,7 @@ public unsafe class App
             GLFW.GetWindowContentScale(window, out float uiScale, out _);
             if (uiScale <= 0) uiScale = 1f;
             Gui.Scale = uiScale;
+            Screen.pixelRatio = uiScale; // GameOutput RT fiziksel, ViewW/H mantiksal
             float lw = fbw / uiScale, lh = fbh / uiScale;
 
             // Fare bolen'i: GLFW imlec konumu PENCERE (screen-coord) uzayinda gelir;
@@ -452,6 +457,12 @@ public unsafe class App
         if (_settingsPath == null)
             return;
         Settings.hotReload = PlayMode.HotReload;
+        if (_sceneView != null)
+        {
+            Settings.sceneCamX = _sceneView.Center.x;
+            Settings.sceneCamY = _sceneView.Center.y;
+            Settings.sceneCamZoom = _sceneView.Zoom;
+        }
         try
         {
             System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(_settingsPath));

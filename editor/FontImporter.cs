@@ -23,7 +23,7 @@ public sealed class FontImportSettings
 //   sheet   : DPIX R8 glyph sayfasi (+ UiPieces bandi) — Standalone: gruba alinmamis font bunu kullanir
 //   regions : bolge manifestosu — Editor: AtlasImporter glyph'leri kendi sayfasina tasir
 // Pak'a ttf girmez, runtime bake yok.
-[AssetImporter(".ttf", ".otf", Version = 6, Settings = typeof(FontImportSettings))]
+[AssetImporter(".ttf", ".otf", Version = 7, Settings = typeof(FontImportSettings))]
 public sealed unsafe class FontImporter : AssetImporter
 {
     const int SheetMaxSize = 4096;
@@ -84,9 +84,17 @@ public sealed unsafe class FontImporter : AssetImporter
                     return;
                 }
                 int w = (int)g5[3], h = (int)g5[4];
+                InkExtents(buf, w, h, out float inkL, out float inkR);
                 glyphs[i] = new Font.Glyph
                 {
-                    Codepoint = cp, Advance = g5[0], XOff = g5[1], YOff = g5[2], W = w, H = h,
+                    Codepoint = cp,
+                    Advance = g5[0],
+                    XOff = g5[1],
+                    YOff = g5[2],
+                    W = w,
+                    H = h,
+                    InkL = w > 0 ? g5[1] + inkL : 0f,
+                    InkR = w > 0 ? g5[1] + inkR : 0f,
                 };
                 if (w > 0 && h > 0)
                 {
@@ -129,8 +137,12 @@ public sealed unsafe class FontImporter : AssetImporter
             {
                 Sub = AtlasData.GlyphName(glyphs[gi].Codepoint),
                 Pixels = "sheet",
-                X = x, Y = y, W = src.W, H = src.H,
-                OrigW = src.W, OrigH = src.H,
+                X = x,
+                Y = y,
+                W = src.W,
+                H = src.H,
+                OrigW = src.W,
+                OrigH = src.H,
                 Kind = RegionKind.Sdf,
                 Pad = GlyphPad,
             });
@@ -140,6 +152,39 @@ public sealed unsafe class FontImporter : AssetImporter
             page.Width, page.Height, page.PiecesX, page.PiecesY, glyphs, kern));
         ctx.AddArtifact("sheet", PixelBlob.Build(1, page.Width, page.Height, page.Pixels), ArtifactScope.Standalone);
         ctx.AddArtifact("regions", manifest.Write(), ArtifactScope.Editor);
+    }
+
+    // SDF bitmap'inden gorunen murekkebin sol/sag kenari (bitmap px, alt-piksel):
+    // kolon maksimumlari uzerinde esik 128'in lineer kesisimi (SDF degeri mesafede
+    // lineer; bbox floor/ceil yuvarlamasi ve pad bu sayede elenir).
+    static void InkExtents(byte[] sdf, int w, int h, out float left, out float right)
+    {
+        left = 0f;
+        right = w;
+        if (w <= 0 || h <= 0)
+            return;
+        Span<int> colMax = w <= 512 ? stackalloc int[w] : new int[w];
+        for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+            {
+                int v = sdf[y * w + x];
+                if (v > colMax[x]) colMax[x] = v;
+            }
+        int c0 = 0;
+        while (c0 < w && colMax[c0] < 128) c0++;
+        if (c0 >= w)
+        {
+            left = right = w * 0.5f; // esigi gecen piksel yok (cok ince glyph)
+            return;
+        }
+        int c1 = w - 1;
+        while (c1 > c0 && colMax[c1] < 128) c1--;
+        left = c0 > 0
+            ? c0 - 0.5f + (128f - colMax[c0 - 1]) / (colMax[c0] - colMax[c0 - 1])
+            : 0f;
+        right = c1 < w - 1
+            ? c1 + 0.5f + (colMax[c1] - 128f) / (colMax[c1] - colMax[c1 + 1])
+            : w;
     }
 
     // Charset metni -> sirali, tekil codepoint listesi (' ' ve '?' garanti).

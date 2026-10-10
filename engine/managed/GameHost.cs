@@ -39,6 +39,8 @@ public static class GameHost
     public static Func<bool> BackRequested;
     static bool _quit;
 
+    public static float MaxDeltaTime = 0.1f;
+
     public static string Title => _title;
     public static bool IsBooted => _assets != null && _bootTask == null;
 
@@ -80,7 +82,9 @@ public static class GameHost
         if (fbw <= 0 || fbh <= 0)
             return true; // minimize / surface yok
         if (scale <= 0) scale = 1f;
+        if (dt > MaxDeltaTime) dt = MaxDeltaTime; // Unity maximumDeltaTime: uzun frame tek dev adim olmasin
         float lw = fbw / scale, lh = fbh / scale;
+        Screen.pixelRatio = scale;
 
         if (_assets != null)
             _assets.Tick(); // job pompasi + biten texture'lari butceli bagla
@@ -177,6 +181,7 @@ public static class GameHost
         var catalog = LoadCatalog();
         Audio.Source = _source;
         Scene.Active.Catalog = catalog;
+        Scene.Active.Assets = assets;
         _assets = assets;
         var op = SceneLoader.LoadAsync(startScene, assets, catalog);
         int lastDone = -1;
@@ -209,6 +214,7 @@ public static class GameHost
         var catalog = LoadCatalog();
         Audio.Source = _source;
         Scene.Active.Catalog = catalog;
+        Scene.Active.Assets = assets;
         _assets = assets;
         assets.LoadAtlases();
         var sceneBytes = _source.ReadBytes(startScene);

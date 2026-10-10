@@ -187,6 +187,12 @@ public sealed class AssetDatabase
     public string ResolvePath(string keyOrGuid)
         => keyOrGuid != null && _guidToPath.TryGetValue(keyOrGuid, out var p) ? p : keyOrGuid;
 
+    public bool Exists(string keyOrGuid)
+    {
+        var k = ResolvePath(keyOrGuid);
+        return !string.IsNullOrEmpty(k) && _source.Exists(k);
+    }
+
     // Serilestirme (Kind.Asset) tek bogazdan yukler — alan tipi hangi asset'se o.
     public object LoadAsset(string keyOrGuid, Type type)
     {
@@ -778,6 +784,26 @@ public sealed class AssetDatabase
 
     // Bekleyen async yukleme sayisi (atlas pack gibi toplu isler "hepsi indi mi" diye bakar).
     public int PendingCount => _pending.Count;
+
+    // Yuklu ama henuz GPU'ya cikmamis dokulari frame basina `perFrame` adet yukler, ortak
+    // shader'lari derler. Sahne Spawn'dan once bekler: ilk cizim frame'inde upload/compile kalmaz.
+    public async Task UploadAsync(int perFrame = 2)
+    {
+        _ = Shader.Default;
+        _ = UiPieces.UiShader;
+        var list = new List<Texture>(); // bekleme sirasinda sozlukler degisebilir: once topla
+        foreach (var t in _textures.Values)
+            if (t.NeedsUpload) list.Add(t);
+        foreach (var la in _atlases.Values)
+            foreach (var t in la.Pages)
+                if (t.NeedsUpload) list.Add(t);
+        for (int i = 0; i < list.Count; i++)
+        {
+            list[i]._Sync();
+            if ((i + 1) % perFrame == 0)
+                await Frame.Next();
+        }
+    }
 
     // Frame basi cagrilir; frame basina en fazla `budget` sonuc baglanir
     // (yavas cihazda spike yerine birkac frame'e yayilir). Job->Task koprusunu de pompalar.

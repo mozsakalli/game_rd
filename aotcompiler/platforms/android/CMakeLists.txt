@@ -19,6 +19,8 @@ set_source_files_properties(${DE_SHIM} PROPERTIES COMPILE_DEFINITIONS "SOKOL_IMP
 # Release: NDK varsayilani (-O3 -DNDEBUG) — tam optimizasyon, override yok. Debug varyantinda -O0 yerine -O1:
 # AOT runtime (GC) -O0'da oynanamaz; debug sembolleri (-g) korunur.
 target_compile_options(game PRIVATE -w -ffunction-sections -fdata-sections $<$<CONFIG:Debug>:-O1>)
-target_link_options(game PRIVATE -Wl,--gc-sections)
+# 16 KB sayfa hizalamasi: Android 15+ (Play zorunlulugu) 16 KB sayfali cihazlarda .so yuklenebilsin;
+# NDK r28 oncesi varsayilan 4 KB oldugundan acikca verilir (r28+ zaten 16 KB, flag zararsiz).
+target_link_options(game PRIVATE -Wl,--gc-sections -Wl,-z,max-page-size=16384)
 
 target_link_libraries(game GLESv3 EGL aaudio log android m dl)

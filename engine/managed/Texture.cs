@@ -26,6 +26,9 @@ public unsafe class Texture : GpuResource
     // Bindings icin sokol texture-view id'si (0 = henuz senkronlanmadi).
     internal uint TextureView => (uint)_textureView;
 
+    // CPU pikseli var, GPU'da yok/bayat: sonraki _Sync upload yapar.
+    internal bool NeedsUpload => _pixels != null && _dirty;
+
     // Offscreen pass hedefi icin attachment view'lar (yalniz render target'ta dolu).
     internal uint ColorAttachmentView => (uint)_colorAttachmentView;
     internal uint DepthAttachmentView => (uint)_depthAttachmentView;

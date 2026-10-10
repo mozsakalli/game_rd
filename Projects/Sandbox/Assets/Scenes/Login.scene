@@ -3,7 +3,7 @@ objects:
   - id: 8
     parent: 0
     name: CAMERA
-    pos: 9.866663 0 -338.56665
+    pos: 9.866663 0 -425.69998
     rot: 0 0 22.5
     scale: 1 1 1
     components:
@@ -188,47 +188,18 @@ objects:
   - id: 9
     parent: 0
     name: LOGOSPRITE
-    pos: -244.00003 65.33333 0
+    pos: -34.821045 123.881714 0
     rot: 0 0 0
     scale: 1 1 1
     components:
       - type: SpriteRenderer
-        Sprite: 075be890f3654858ba989f833e31109a
-        Width: 200
-        Height: 200
+        Sprite: bb4d602a7c644c9a9b1ade78b16ead15
+        Width: 727
+        Height: 170
         SortingOrder: 0
         Effects: ''
         BlendMode: Normal
       - type: Draggable
-      - type: MovieClip
-        Fps: 30
-        FrameCount: 30
-        Loop: true
-        PlayOnStart: true
-        Interpolate: true
-        Speed: 1
-        Tracks:
-          - Target: '9:Transform:0'
-            Path: Rotation
-            Mask: 15
-            Keys:
-              - Frame: 0
-                Mode: Tween
-                Ease: Linear
-                Value: 0 0 90 0
-                Ref: ''
-              - Frame: 14
-                Mode: Tween
-                Ease: Linear
-                Value: 0 0 180 0
-                Ref: ''
-              - Frame: 20
-                Mode: Tween
-                Ease: Linear
-                Value: 0 0 -2 0
-                Ref: ''
-        Labels:
-        Actions:
   - id: 10
     parent: 0
     name: GameObject
@@ -259,7 +230,7 @@ objects:
   - id: 20
     parent: 0
     name: COIN-PARTICLE
-    pos: 0 0 0
+    pos: 598.3957 255.25964 0
     rot: 0 0 0
     scale: 1 1 1
     components:
@@ -379,7 +350,7 @@ objects:
   - id: 21
     parent: 0
     name: GameObject (5)
-    pos: 18.57779 1.4291037 0
+    pos: 106.38196 -116.79721 0
     rot: 0 0 0
     scale: 1 1 1
     components:
@@ -649,15 +620,112 @@ objects:
   - id: 25
     parent: 0
     name: STONE
-    pos: -301.36404 -99.644745 0
+    pos: -350.03314 83.851074 0
     rot: 0 0 0
     scale: 1 1 1
     prefab: caad6699497e45e5a9ea3e5ed5660cde
     prefabIds: '1:25'
+    overrides:
+      - node: 1
+        comp: 'LayoutBox:0'
+        prop: height
+        value: 65
+      - node: 1
+        comp: 'LayoutBox:0'
+        prop: fill
+        value:
+          type: Linear
+          direction: Vertical
+          color: '#ffffffff'
+          color2: '#ffe3cfff'
+      - node: 1
+        comp: 'LayoutBox:0'
+        prop: radius
+        value: 5 5 5 5
+      - node: 1
+        comp: 'LayoutBox:0'
+        prop: border
+        value: 0 0 0 2
+      - node: 1
+        comp: 'LayoutBox:0'
+        prop: borderFill
+        value:
+          type: Linear
+          direction: Vertical
+          color: '#fff3d9ff'
+          color2: '#a6946dff'
+      - node: 1
+        comp: 'LayoutBox:0'
+        prop: textAlignV
+        value: Start
+      - node: 1
+        comp: 'LayoutBox:0'
+        prop: textFill
+        value:
+          type: Solid
+          direction: Vertical
+          color: '#0053aeff'
+          color2: '#ffffffff'
+      - node: 1
+        comp: 'LayoutBox:0'
+        prop: textSize
+        value: 40
+      - node: 1
+        comp: 'LayoutBox:0'
+        prop: textSpacing
+        value: -2.1866677
+      - node: 1
+        comp: 'LayoutBox:0'
+        prop: padding
+        value: 0 0 0 0
+      - node: 1
+        comp: 'LayoutBox:0'
+        prop: textOutline
+        value:
+          type: Linear
+          direction: Vertical
+          color: '#583b00ff'
+          color2: '#ffffffff'
+      - node: 1
+        comp: 'LayoutBox:0'
+        prop: textOutlineWidth
+        value: 1
+      - node: 1
+        comp: 'LayoutBox:0'
+        prop: textShadowColor
+        value: '#ffffff76'
+      - node: 1
+        comp: 'LayoutBox:0'
+        prop: overflowX
+        value: Grow
+      - node: 1
+        comp: 'LayoutBox:0'
+        prop: overflowY
+        value: Grow
+      - node: 1
+        comp: 'LayoutBox:0'
+        prop: shadowColor
+        value: '#0000005c'
+      - node: 1
+        comp: 'LayoutBox:0'
+        prop: shadowOffset
+        value: 2 1
+      - node: 1
+        comp: 'LayoutBox:0'
+        prop: shadowBlur
+        value: 2
+      - node: 1
+        comp: 'LayoutBox:0'
+        prop: textWeight
+        value: 0
+      - node: 1
+        prop: addComp
+        value:
+          type: Draggable
   - id: 26
     parent: 0
     name: STONE (1)
-    pos: -251.9486 -99.74358 0
+    pos: -122.676926 -89.87773 0
     rot: 0 0 0
     scale: 1 1 1
     prefab: caad6699497e45e5a9ea3e5ed5660cde
@@ -686,4 +754,32 @@ objects:
           type: Solid
           direction: Vertical
           color: '#971c1cff'
+          color2: '#ffffffff'
+      - node: 1
+        prop: addComp
+        value:
+          type: Draggable
+  - id: 27
+    parent: 25
+    name: GameObject (3)
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        fill:
+          type: Solid
+          direction: Vertical
+          color: '#bc8225ff'
+          color2: '#00000000'
+        width: 15
+        height: 15
+        radius: 15 15 15 15
+        pivot: 0.5 0.5
+        anchoredPos: 0 17.866674
+        border: 1 1 1 1
+        borderFill:
+          type: Linear
+          direction: Vertical
+          color: '#00000092'
           color2: '#ffffffff'

@@ -60,11 +60,6 @@ public class EditorPrefs
 // secici (File/Open Project...) ya da recent listesi + repo Projects/* (File/Open Recent...).
 public static class ProjectSwitcher
 {
-    const string Lib = "digitoyengine_native";
-
-    [DllImport(Lib, EntryPoint = "de_dialog_pick_folder")]
-    static extern unsafe int PickFolder(IntPtr glfwWindow, [MarshalAs(UnmanagedType.LPUTF8Str)] string title, byte* outPath, int cap);
-
     // Gecerli proje koku: Assets/ ya da ProjectSettings/ klasoru olan dizin (bos klasor de kabul: yeni proje tohumlanir).
     public static bool IsProjectRoot(string dir)
         => Directory.Exists(dir) && (Directory.Exists(Path.Combine(dir, "Assets")) || Directory.Exists(Path.Combine(dir, "ProjectSettings"))
@@ -81,18 +76,56 @@ public static class ProjectSwitcher
         return fallback;
     }
 
-    [MenuItem("File/Open Project...", 10)]
-    static unsafe void OpenProjectMenu()
+    [MenuItem("File/New Project...", 9)]
+    static void NewProjectMenu()
     {
-        var buf = new byte[4096];
-        int ok;
-        fixed (byte* p = buf)
-            ok = PickFolder(EditorMenu.MainWindow, "Proje klasoru secin (Assets/ iceren)", p, buf.Length);
-        if (ok == 0)
+        // Kaydet diyalogu klasor adi girisi olarak kullanilir: secilen yol = yeni proje koku.
+        string suggested = Path.Combine(App.Project?.Root != null ? Path.GetDirectoryName(App.Project.Root) : Path.Combine(App.RepoRoot, "Projects"), "NewProject");
+        string path = NativeDialog.SaveFile("Yeni proje: konum ve proje adi", null, suggested);
+        if (path == null)
             return;
-        int n = Array.IndexOf(buf, (byte)0);
-        string path = System.Text.Encoding.UTF8.GetString(buf, 0, n < 0 ? buf.Length : n);
+        path = Path.GetFullPath(path);
+        if (Directory.Exists(path) && Directory.GetFileSystemEntries(path).Length > 0)
+        {
+            EditorLog.Error("[project] klasor bos degil: " + path);
+            return;
+        }
+        try { Seed(path); }
+        catch (Exception e)
+        {
+            EditorLog.Error("[project] proje olusturulamadi: " + e.Message);
+            return;
+        }
         Open(path);
+    }
+
+    // Bos klasoru acilabilir projeye cevirir: Assets/Scenes/Main.scene + PlayerSettings + son-sahne kaydi.
+    static void Seed(string root)
+    {
+        Directory.CreateDirectory(root);
+        var project = Project.Load(root); // Assets/, Library/, ProjectSettings/PlayerSettings.asset
+        project.Player.productName = Path.GetFileName(root.TrimEnd('\\', '/'));
+        if (!project.Player.scenes.Contains(project.Player.startScene))
+            project.Player.scenes.Add(project.Player.startScene);
+        project.SavePlayerSettings();
+
+        string scenePath = project.StartScenePath;
+        Directory.CreateDirectory(Path.GetDirectoryName(scenePath));
+        if (!File.Exists(scenePath))
+            File.WriteAllText(scenePath, new SceneDoc().ToYaml());
+
+        Directory.CreateDirectory(project.UserSettingsPath);
+        var settings = new EditorSettings { lastScene = Path.GetRelativePath(root, scenePath).Replace('\\', '/') };
+        ObjectSerializer.Save(settings, Path.Combine(project.UserSettingsPath, "EditorSettings.asset"));
+    }
+
+    [MenuItem("File/Open Project...", 10)]
+    static void OpenProjectMenu()
+    {
+        string path = NativeDialog.PickFolder("Proje klasoru secin (Assets/ iceren)",
+            App.Project?.Root != null ? Path.GetDirectoryName(App.Project.Root) : null);
+        if (path != null)
+            Open(path);
     }
 
     [MenuItem("File/Open Recent...", 11)]
