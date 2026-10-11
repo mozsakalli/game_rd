@@ -34,88 +34,149 @@ objects:
       - type: MovieClip
         Fps: 60
         FrameCount: 96
-        PlayOnStart: true
         Loop: false
+        PlayOnStart: true
+        Interpolate: true
+        Speed: 1
         Tracks:
-          - Keys:
+          - Target: '11:Transform:0'
+            Path: Scale
+            Mask: 15
+            Keys:
               - Frame: 0
+                Mode: Tween
+                Ease: Linear
                 Value: 1 1 1 0
-              - Ease: OutQuad
-                Frame: 18
+                Ref: ''
+              - Frame: 18
+                Mode: Tween
+                Ease: OutQuad
                 Value: 1 1 1 0
-              - Ease: InOutSine
-                Frame: 22
+                Ref: ''
+              - Frame: 22
+                Mode: Tween
+                Ease: InOutSine
                 Value: 1.05 1.05 1 0
+                Ref: ''
               - Frame: 34
+                Mode: Tween
+                Ease: Linear
                 Value: 1 1 1 0
+                Ref: ''
+          - Target: '8:Transform:0'
             Path: Scale
-            Target: '11:Transform:0'
-          - Keys:
-              - Ease: InSine
-                Frame: 0
+            Mask: 15
+            Keys:
+              - Frame: 0
+                Mode: Tween
+                Ease: InSine
                 Value: 0.3 0.3 1 0
-              - Ease: OutExpo
-                Frame: 18
+                Ref: ''
+              - Frame: 18
+                Mode: Tween
+                Ease: OutExpo
                 Value: 0.6 0.6 1 0
+                Ref: ''
               - Frame: 42
+                Mode: Tween
+                Ease: Linear
                 Value: 2 2 1 0
+                Ref: ''
+          - Target: '12:Transform:0'
             Path: Scale
-            Target: '8:Transform:0'
-          - Keys:
-              - Ease: InCubic
-                Frame: 0
+            Mask: 15
+            Keys:
+              - Frame: 0
+                Mode: Tween
+                Ease: InCubic
                 Value: 2 2 1 0
-              - Ease: OutQuad
-                Frame: 18
+                Ref: ''
+              - Frame: 18
+                Mode: Tween
+                Ease: OutQuad
                 Value: 0.94 0.94 1 0
+                Ref: ''
               - Frame: 26
+                Mode: Tween
+                Ease: Linear
                 Value: 1 1 1 0
+                Ref: ''
+          - Target: '3:Transform:0'
             Path: Scale
-            Target: '12:Transform:0'
-          - Keys:
+            Mask: 15
+            Keys:
               - Frame: 0
                 Mode: Hold
+                Ease: Linear
                 Value: 0 0 1 0
-              - Ease: OutBack
-                Frame: 34
+                Ref: ''
+              - Frame: 34
+                Mode: Tween
+                Ease: OutBack
                 Value: 0 0 1 0
+                Ref: ''
               - Frame: 54
+                Mode: Tween
+                Ease: Linear
                 Value: 1 1 1 0
+                Ref: ''
+          - Target: '5:Transform:0'
             Path: Scale
-            Target: '3:Transform:0'
-          - Keys:
+            Mask: 15
+            Keys:
               - Frame: 0
                 Mode: Hold
+                Ease: Linear
                 Value: 0 0 1 0
-              - Ease: OutBack
-                Frame: 40
+                Ref: ''
+              - Frame: 40
+                Mode: Tween
+                Ease: OutBack
                 Value: 0 0 1 0
+                Ref: ''
               - Frame: 60
+                Mode: Tween
+                Ease: Linear
                 Value: 1 1 1 0
+                Ref: ''
+          - Target: '6:Transform:0'
             Path: Scale
-            Target: '5:Transform:0'
-          - Keys:
+            Mask: 15
+            Keys:
               - Frame: 0
                 Mode: Hold
+                Ease: Linear
                 Value: 0 0 1 0
-              - Ease: OutBack
-                Frame: 46
+                Ref: ''
+              - Frame: 46
+                Mode: Tween
+                Ease: OutBack
                 Value: 0 0 1 0
+                Ref: ''
               - Frame: 66
+                Mode: Tween
+                Ease: Linear
                 Value: 1 1 1 0
+                Ref: ''
+          - Target: '7:Transform:0'
             Path: Scale
-            Target: '6:Transform:0'
-          - Keys:
+            Mask: 15
+            Keys:
               - Frame: 0
                 Mode: Hold
+                Ease: Linear
                 Value: 0 0 1 0
-              - Ease: OutBack
-                Frame: 52
+                Ref: ''
+              - Frame: 52
+                Mode: Tween
+                Ease: OutBack
                 Value: 0 0 1 0
+                Ref: ''
               - Frame: 72
+                Mode: Tween
+                Ease: Linear
                 Value: 1 1 1 0
-            Path: Scale
-            Target: '7:Transform:0'
+                Ref: ''
           - Target: '10:RenderGroup:0'
             Path: Alpha
             Mask: 15
@@ -123,18 +184,44 @@ objects:
               - Frame: 0
                 Mode: Hold
                 Ease: Linear
-                Value: 0
+                Value: 0 0 0 0
                 Ref: ''
               - Frame: 60
                 Mode: Tween
                 Ease: OutSine
-                Value: 0
+                Value: 0 0 0 0
                 Ref: ''
               - Frame: 84
                 Mode: Tween
                 Ease: Linear
-                Value: 1
+                Value: 1 0 0 0
                 Ref: ''
+          - Target: '12:SpriteRenderer:0'
+            Path: FxParams
+            Mask: 15
+            Keys:
+              - Frame: 0
+                Mode: Hold
+                Ease: Linear
+                Value: -0.4 0.15 0 0.5
+                Ref: ''
+              - Frame: 26
+                Mode: Tween
+                Ease: Linear
+                Value: -0.4 0.15 0.9 0.5
+                Ref: ''
+              - Frame: 87
+                Mode: Hold
+                Ease: Linear
+                Value: 1.6 0.15 0.9 0.5
+                Ref: ''
+              - Frame: 88
+                Mode: Hold
+                Ease: Linear
+                Value: 1.6 0.15 0 0.5
+                Ref: ''
+        Labels:
+        Actions:
   - id: 11
     parent: 1
     name: LOGO_GROUP
@@ -309,6 +396,9 @@ objects:
         Sprite: ab6a232641514e3381cde052b7edc231
         Width: 583
         Height: 450
+        Effects:
+          - Common/Effects/Shine.fx
+        FxParams: 1.6 0.15 0 0.5
   - id: 16
     parent: 10
     name: TXT1

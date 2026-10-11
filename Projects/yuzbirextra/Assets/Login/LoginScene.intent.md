@@ -281,3 +281,17 @@ Not: Edit sahnesinde canli dump RenderGroup.Alpha=0 gosterir (MovieClip frame 0 
 Invariantlar: 2026-10-11 ilk kaydin invariantlari aynen gecerli (policy girisi = POLICY.RenderGroup.Alpha f60-84 OutSine;
 cocuklarin renk alanlari anime EDILMEZ; yeni policy parcasi icin ek track gerekmez).
 Dogrulama: iphone-14 landscape; f50 policy gorunmez; f72 soluk (metin+golge+altcizgi birlikte); f100 = statik, tam gorunur.
+
+## 2026-10-11 — Logo Shine.fx: carpma bitince tek parlama (SAHNE KAYDEDILMEDI; undo'lu)
+Prompt: "logo.ya shine.fx ekle ve carpma biter bitmez bir kez parlat" + "cok hizli geciyor shine"
+Yapi: LOGO(12) SpriteRenderer Effects[0] = Common/Effects/Shine.fx (guid 024d1c3d...); doc FxParams = 1.6 0.15 0 0.5 (z=0 -> no-op).
+ROOT(1) MovieClip T8: Target 12:SpriteRenderer:0, Path FxParams, Mask 15, Keys:
+  0@"-0.4 0.15 0 0.5" Hold -> 26@"-0.4 0.15 0.9 0.5" Linear -> 74@"1.6 0.15 0.9 0.5" Hold -> 75@"1.6 0.15 0 0.5".
+  (FXP: x faz -0.5..1.5, y bant yari genisligi, z yogunluk, w egim). Ilk deneme 20 kare (f26-46) cok hizli bulundu -> 48 kare.
+Ogrenilen: FXP.x=0 shader'da TIME ile otomatik tarama demek; faz anahtarlari 0'dan gecerken 0'a tam esit olmamali
+(linear interp'te tek kare risk; -0.4 -> 1.6 araliginda sorun gorulmedi). Shine batch'i bozmaz (per-instance FXP).
+Invariantlar:
+- Parlama carpma toparlanmasi bitince (f26) baslar, tek gecis, ~0.8s (48 kare), lineer; dongu YOK (son key z=0).
+- Baslangic/bitis fazi logo disinda (-0.4 / 1.6) -> parlama bant sinirda gorunmez.
+- Doc FxParams = son key (z=0) -> edit sahnesinde ve animasyon sonunda efekt no-op; Effects listesi kalsa da gorunum degismez.
+Dogrulama: iphone-14 landscape; f31 sol kenar hafif, f44 bant "0"/"xt" uzerinde, f60 sag kenar, f100 = statik (parlama yok).
