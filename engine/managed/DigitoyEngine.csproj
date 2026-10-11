@@ -50,7 +50,13 @@
        exe'lere transitif tasinir; DllImport bulur). -->
   <ItemGroup>
     <None Include="..\native\build\digitoyengine_native.dll"
+          Condition="Exists('..\native\build\digitoyengine_native.dll')"
           Link="digitoyengine_native.dll"
+          CopyToOutputDirectory="PreserveNewest" />
+    <!-- build_editor.sh ciktisi (macOS) -->
+    <None Include="..\native\build\libdigitoyengine_native.dylib"
+          Condition="Exists('..\native\build\libdigitoyengine_native.dylib')"
+          Link="libdigitoyengine_native.dylib"
           CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
