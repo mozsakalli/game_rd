@@ -21,6 +21,7 @@ OUT="$OUTDIR/libdigitoyengine_native.dylib"
 
 # --- clang bul -------------------------------------------------------------
 CLANG="clang"
+CLANGXX="clang++"
 if ! command -v "$CLANG" >/dev/null 2>&1; then
     echo "[HATA] clang bulunamadi. Xcode Command Line Tools kurun (xcode-select --install)."
     exit 1
@@ -108,13 +109,26 @@ NET_OBJ="$OUTDIR/de_net.o"
 "$CLANG" -O1 -w -c "$HERE/de_async.c" "${DEFINES[@]}" "${INCLUDES[@]}" -o "$ASYNC_OBJ"
 "$CLANG" -O1 -w -c "$HERE/de_net.c" "${DEFINES[@]}" "${INCLUDES[@]}" -o "$NET_OBJ"
 
+# --- EDITOR-ONLY C++ parcasi: msdfgen core + msdf_shim.cpp (FontImporter Msdf modu; de_msdf_font_*).
+# build_editor.cmd ile ayni: C kaynaklariyla tek komutta -std=c++17 verilemez; once nesneye derlenir.
+CXXOBJ="$OUTDIR/obj_msdf"
+mkdir -p "$CXXOBJ"
+CXXOBJS=()
+for f in "$HERE/msdf_shim.cpp" "$HERE"/msdfgen/core/*.cpp; do
+    o="$CXXOBJ/$(basename "${f%.*}").o"
+    "$CLANGXX" -O2 -w -std=c++17 -c -DMSDFGEN_PUBLIC= "${INCLUDES[@]}" "$f" -o "$o"
+    CXXOBJS+=("$o")
+done
+
 "$CLANG" -O1 -w -dynamiclib \
     -fvisibility=default \
     -Wno-deprecated-declarations \
     "${DEFINES[@]}" "${INCLUDES[@]}" \
     "$SHIM_OBJ" "$AUDIO_OBJ" "$FS_OBJ" "$ASYNC_OBJ" "$NET_OBJ" \
+    "${CXXOBJS[@]}" \
     "${SOURCES[@]}" \
     "${FRAMEWORKS[@]}" \
+    -lc++ \
     -install_name "@rpath/libdigitoyengine_native.dylib" \
     -o "$OUT"
 
