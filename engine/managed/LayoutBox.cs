@@ -120,6 +120,10 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
     [SerializeField] float shadowBlur = 8f;   // falloff yari genisligi (dunya px)
     [SerializeField] float shadowGrow;        // kutuyu her yonde genislet (spread)
 
+    // --- ic golge (alpha > 0 ise dolgu ustune, border altina kenardan iceri sonen band) ---
+    [SerializeField] Color innerShadowColor = Color.Transparent;
+    [SerializeField] float innerShadowBlur = 8f;  // bandin derinligi (dunya px)
+
     // --- cozulmus durum ---
     float _rw, _rh;
     float _placedX, _placedY;   // layout'un son yazdigi lokal pozisyon
@@ -188,6 +192,9 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
     public Vec2 ShadowOffset { get => shadowOffset; set => shadowOffset = value; }
     public float ShadowBlur { get => shadowBlur; set => shadowBlur = value; }
     public float ShadowGrow { get => shadowGrow; set => shadowGrow = value; }
+
+    public Color InnerShadowColor { get => innerShadowColor; set => innerShadowColor = value; }
+    public float InnerShadowBlur { get => innerShadowBlur; set => innerShadowBlur = value; }
 
     // --- driven transform (Unity paritesi) ---
     // fitScreen veya parent kutu varsa pozisyonu layout yazar → disaridan kilitli.
@@ -843,9 +850,10 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
         && (borderLeft > 0 || borderTop > 0 || borderRight > 0 || borderBottom > 0);
 
     bool HasShadow => shadowColor.a > 0;
+    bool HasInnerShadow => innerShadowColor.a > 0 && innerShadowBlur > 0;
 
     bool HasStyle
-        => sprite != null || fill.Visible || HasBorder || HasShadow;
+        => sprite != null || fill.Visible || HasBorder || HasShadow || HasInnerShadow;
 
     // Kutu SDF parcalari icerigin yasadigi SAYFADAN orneklenir: metin varsa fontun
     // sayfasi, ikon varsa sprite'in sayfasi (atlas sayfalari UiPieces tasir), yoksa
@@ -917,6 +925,9 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
         }
 
         bool hasFill = fill.Visible;
+        // Ic kutu (border'in ic kenari; border yoksa kutunun kendisi): dolgu + ic golge buraya.
+        float ix0 = x0, iy0 = y0, ix1 = x1, iy1 = y1;
+        float irTL = radiusTL, irTR = radiusTR, irBR = radiusBR, irBL = radiusBL;
         if (HasBorder)
         {
             // Karsilikli kenarlarin toplami kutuya sigmali (CSS border cakisma kurali).
@@ -926,24 +937,22 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
             bl *= sx; br *= sx; bt *= sy; bb *= sy;
             EmitLayer(queue, wm, x0, y0, x1, y1,
                 radiusTL, radiusTR, radiusBR, radiusBL, bl, bt, br, bb, isBorder: true, layer);
-            if (hasFill)
-            {
-                EmitLayer(queue, wm, x0 + bl, y0 + bt, x1 - br, y1 - bb,
-                    MathF.Max(radiusTL - MathF.Max(bl, bt), 0),
-                    MathF.Max(radiusTR - MathF.Max(br, bt), 0),
-                    MathF.Max(radiusBR - MathF.Max(br, bb), 0),
-                    MathF.Max(radiusBL - MathF.Max(bl, bb), 0),
-                    0, 0, 0, 0, isBorder: false, layer);
-                if (fill.type == GradientType.Radial)
-                    EmitRadial(queue, wm, x0 + bl, y0 + bt, x1 - br, y1 - bb, layer);
-            }
+            ix0 += bl; iy0 += bt; ix1 -= br; iy1 -= bb;
+            irTL = MathF.Max(radiusTL - MathF.Max(bl, bt), 0);
+            irTR = MathF.Max(radiusTR - MathF.Max(br, bt), 0);
+            irBR = MathF.Max(radiusBR - MathF.Max(br, bb), 0);
+            irBL = MathF.Max(radiusBL - MathF.Max(bl, bb), 0);
         }
-        else if (hasFill)
+        if (hasFill)
         {
-            EmitLayer(queue, wm, x0, y0, x1, y1,
-                radiusTL, radiusTR, radiusBR, radiusBL, 0, 0, 0, 0, isBorder: false, layer);
+            EmitLayer(queue, wm, ix0, iy0, ix1, iy1, irTL, irTR, irBR, irBL, 0, 0, 0, 0, isBorder: false, layer);
             if (fill.type == GradientType.Radial)
-                EmitRadial(queue, wm, x0, y0, x1, y1, layer);
+                EmitRadial(queue, wm, ix0, iy0, ix1, iy1, layer);
+        }
+        if (HasInnerShadow)
+        {
+            float b = innerShadowBlur;
+            EmitLayer(queue, wm, ix0, iy0, ix1, iy1, irTL, irTR, irBR, irBL, b, b, b, b, isBorder: false, layer, innerBlur: b);
         }
 
         if (HasText)
@@ -1073,14 +1082,28 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
     // Tek katman rounded-rect: 4 SDF kose hucresi + 4 kenar falloff seridi +
     // (dolguysa) ic quad'lar — hepsi disjoint, AA fwidth'ten her olcekte ~1px.
     // isBorder=true: ic dolgu YOK, USER.z ic kenar bandiyla RING cizilir.
+    // innerBlur>0: IC GOLGE — ring gibi ama ic band yumusak (USER.x+USER.z), renk
+    // innerShadowColor. Band derinligi b radius'u asarsa hucre max(r,b) ile kurulur
+    // (gercek blur iso-konturu gibi yuvarlanir; kenar seritleriyle ortusme olmaz); kutunun
+    // gercek kosesi hucre merkezli bir KESME dairesiyle yaklasik kirpilir (hata < ~0.7px).
     void EmitLayer(RenderQueue q, Mat4 wm, float x0, float y0, float x1, float y1,
         float rtl, float rtr, float rbr, float rbl,
-        float ringL, float ringT, float ringR, float ringB, bool isBorder, int layer)
+        float ringL, float ringT, float ringR, float ringB, bool isBorder, int layer, float innerBlur = 0f)
     {
         float w = x1 - x0, h = y1 - y0;
         if (w <= 0 || h <= 0)
             return;
-        bool ring = isBorder;
+        bool inner = innerBlur > 0f;
+        bool ring = isBorder || inner;
+        // Ic golge: gercek kose radius'lari kesme dairesi icin saklanir, hucre band kadar buyur.
+        float ttl = rtl, ttr = rtr, tbr = rbr, tbl = rbl;
+        if (inner)
+        {
+            float b = MathF.Min(innerBlur, MathF.Min(w, h) * 0.5f);
+            ringL = ringT = ringR = ringB = b;
+            rtl = MathF.Max(rtl, b); rtr = MathF.Max(rtr, b);
+            rbr = MathF.Max(rbr, b); rbl = MathF.Max(rbl, b);
+        }
 
         // Radius sigdirma (CSS pair kurali) + parca haritalamasi icin minimum.
         float k = 1f;
@@ -1090,6 +1113,7 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
         if (rtr + rbr > h) k = MathF.Min(k, h / (rtr + rbr));
         rtl = MathF.Max(rtl * k, 0.75f); rtr = MathF.Max(rtr * k, 0.75f);
         rbr = MathF.Max(rbr * k, 0.75f); rbl = MathF.Max(rbl * k, 0.75f);
+        ttl *= k; ttr *= k; tbr *= k; tbl *= k;
 
         var at = PiecesAtlas(out var mat);
         float texW = at.Tex.Width, texH = at.Tex.Height;
@@ -1109,33 +1133,62 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
         float EV(float py) => (eby + py) / texH;
         float su0 = (at.X + UiPieces.SolidX + 8) / texW, su1 = (at.X + UiPieces.SolidX + 24) / texW;
         float sv0 = (at.Y + UiPieces.SolidY + 24) / texH, sv1 = (at.Y + UiPieces.SolidY + 8) / texH;
-        Color At(float c) => isBorder ? BorderAt(c) : FillAt(c);
+        Color At(float c) => inner ? innerShadowColor : isBorder ? BorderAt(c) : FillAt(c);
         bool gh = (isBorder ? borderFill : fill).IsHorizontal; // gradient ekseni
 
         // Kose hucresi: parca koordinati merkezden (0) kutu kosesine dogru buyur;
-        // farLeft/farTop = kutu kosesinin hucre icindeki yonu.
-        void Cell(float cx0, float cy0, float cx1, float cy1, float r, bool farLeft, bool farTop, float bC)
+        // farLeft/farTop = kutu kosesinin hucre icindeki yonu. rTrue = kutunun gercek
+        // radius'u (yalniz ic golgede r'den kucuk olabilir).
+        void Cell(float cx0, float cy0, float cx1, float cy1, float r, bool farLeft, bool farTop, float bC, float rTrue)
         {
             if (ring && bC <= 0f)
                 return; // sifir kalinlikta ring: smoothstep carpimi yine de AA genisliginde iz birakir
-            float m = MathF.Min(AaOut, 0.4f * r);
+            bool cutCorner = inner && rTrue < r;
+            // Kesilen kosede hucre kutu sinirinda biter: dis pay kesme dairesinin icinde kalip boyanirdi.
+            float m = cutCorner ? 0f : MathF.Min(AaOut, 0.4f * r);
             float pFar = (r + m) * pieceR / r;
             if (farLeft) cx0 -= m; else cx1 += m;
             if (farTop) cy0 -= m; else cy1 += m;
             float uNear = CU(0f), uFar = CU(pFar);
             float vNear = CV(0f), vFar = CV(pFar);
-            Vec4 user = ring
-                ? new Vec4(0f, 0.5f, MathF.Min(0.5f + bC * pieceR / (r * pieceS), 0.98f), 0f)
-                : default;
+            Vec4 user;
+            if (inner)
+            {
+                // v = 0.5 + t/(2r) (t = kenardan derinlik): band 0.5..0.5+b/(2r) smoothstep'le soner.
+                float s = bC / (4f * r);
+                float cut = 0.5f;
+                if (cutCorner)
+                {
+                    // Gercek yayin hucre merkezine uzakligi: kenar ucu ile tepe noktasinin ortalamasi.
+                    float dEdge = MathF.Sqrt(r * r + (r - rTrue) * (r - rTrue));
+                    float dTip = MathF.Sqrt(2f) * r - rTrue * (MathF.Sqrt(2f) - 1f);
+                    float rc = 0.5f * (dEdge + dTip);
+                    cut = MathF.Max(0.5f + (pieceR - rc * pieceR / r) / pieceS, 0.02f);
+                }
+                user = new Vec4(s, cut, 0.5f + s, 0f);
+            }
+            else
+                user = ring
+                    ? new Vec4(0f, 0.5f, MathF.Min(0.5f + bC * pieceR / (r * pieceS), 0.98f), 0f)
+                    : default;
             EmitQuad(q, mat, wm, cx0, cy0, cx1, cy1,
                 farLeft ? uFar : uNear, farTop ? vNear : vFar,
                 farLeft ? uNear : uFar, farTop ? vFar : vNear,
                 At(gh ? cx0 : cy0), At(gh ? cx1 : cy1), gh, user, layer);
         }
-        Cell(x0, y0, x0 + rtl, y0 + rtl, rtl, true, true, MathF.Max(ringL, ringT));
-        Cell(x1 - rtr, y0, x1, y0 + rtr, rtr, false, true, MathF.Max(ringR, ringT));
-        Cell(x1 - rbr, y1 - rbr, x1, y1, rbr, false, false, MathF.Max(ringR, ringB));
-        Cell(x0, y1 - rbl, x0 + rbl, y1, rbl, true, false, MathF.Max(ringL, ringB));
+        Cell(x0, y0, x0 + rtl, y0 + rtl, rtl, true, true, MathF.Max(ringL, ringT), ttl);
+        Cell(x1 - rtr, y0, x1, y0 + rtr, rtr, false, true, MathF.Max(ringR, ringT), ttr);
+        Cell(x1 - rbr, y1 - rbr, x1, y1, rbr, false, false, MathF.Max(ringR, ringB), tbr);
+        Cell(x0, y1 - rbl, x0 + rbl, y1, rbl, true, false, MathF.Max(ringL, ringB), tbl);
+
+        // Ring USER'i: border keskin ic kenar (z=c2); ic golge 0.5..c2 arasi yumusak band.
+        Vec4 RingUser(float c2)
+        {
+            if (!ring) return default;
+            if (!inner) return new Vec4(0f, 0.5f, c2, 0f);
+            float s = (c2 - 0.5f) * 0.5f;
+            return new Vec4(s, 0.5f, 0.5f + s, 0f);
+        }
 
         // Yatay kenar seridi: parca kesiti (sutun x~0.7px, d≈y) dikeyde falloff.
         void HEdge(float xa, float xb, float ye, bool outUp, float b)
@@ -1152,7 +1205,7 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
             float yB = outUp ? ye + inTh : ye + m;
             float vOut = EV(pyOut), vIn = EV(pyIn);
             float v0 = outUp ? vIn : vOut, v1 = outUp ? vOut : vIn;
-            var user = ring ? new Vec4(0f, 0.5f, c2, 0f) : default;
+            var user = RingUser(c2);
             EmitQuad(q, mat, wm, xa, yA, xb, yB, uA, v0, uB, v1, At(gh ? xa : yA), At(gh ? xb : yB), gh, user, layer);
         }
         // Dikey kenar seridi: ayni kesit satirdan (y~0.7px, d≈x) yatay falloff.
@@ -1170,7 +1223,7 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
             float xB = outLeft ? xe + inTh : xe + m;
             float uOut = EU(pxOut), uIn = EU(pxIn);
             float u0 = outLeft ? uOut : uIn, u1 = outLeft ? uIn : uOut;
-            var user = ring ? new Vec4(0f, 0.5f, c2, 0f) : default;
+            var user = RingUser(c2);
             EmitQuad(q, mat, wm, xA, ya, xB, yb, u0, vA, u1, vB, At(gh ? xA : ya), At(gh ? xB : yb), gh, user, layer);
         }
         HEdge(x0 + rtl, x1 - rtr, y0, true, ringT);

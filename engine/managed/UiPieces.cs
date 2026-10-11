@@ -128,7 +128,8 @@ public static unsafe class UiPieces
 
     // Ortak UI shader'i: USER.x = smoothing (0 = fwidth keskin), USER.y =
     // kenar merkezi (0 = 0.5; ISARET = mesafe kaynagi, asagi bak), USER.z > 0 = ic
-    // kenar bandi (border RINGI icin; alpha dista 0 - kenarda 1 - USER.z'de tekrar 0),
+    // kenar bandi (border RINGI icin; alpha dista 0 - kenarda 1 - USER.z'de tekrar 0;
+    // USER.x > 0 ile birlikte: dis kenar fwidth KESKIN, ic band smoothing'li = IC GOLGE),
     // USER.w > 0 = ham rampa (alpha = d dogrudan; radyal gradient), USER.w < 0 =
     // DOKULU gecis (duz sprite: SAMPLE * color — ayni sayfadaki ikon kutu/metinle
     // tek draw'a girer).
@@ -154,8 +155,10 @@ public static unsafe class UiPieces
         "  FLOAT a;\n" +
         "  if (USER.x > 0.0) {\n" +
         "    FLOAT s = USER.x;\n" +
-        "    a = smoothstep(c - s, c + s, d);\n" +
-        "    if (USER.z > 0.0) a *= 1.0 - smoothstep(USER.z - s, USER.z + s, d);\n" +
+        "    if (USER.z > 0.0) {\n" +
+        "      FLOAT w = max(FWIDTH(d), 1e-5);\n" +
+        "      a = SATURATE((d - c) / w + 0.5) * (1.0 - smoothstep(USER.z - s, USER.z + s, d));\n" +
+        "    } else a = smoothstep(c - s, c + s, d);\n" +
         "  } else {\n" +
         "    FLOAT w = max(FWIDTH(d), 1e-5);\n" +
         "    a = SATURATE((d - c) / w + 0.5);\n" +

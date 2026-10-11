@@ -175,7 +175,7 @@ objects:
         radius: 20 20 20 20
         padding: 50 15 50 15
         textShadowColor: '#0000005e'
-        textShadowOffset: 0 2
+        textShadowOffset: 0 4
         shadowColor: '#000000ff'
         textSize: 70
         BlocksRaycast: true
@@ -189,6 +189,12 @@ objects:
         width: 300
         textWrap: false
         textAlign: Center
+        textOutlineWidth: 0
+        textOutline:
+          type: Solid
+          direction: Vertical
+          color: '#00000000'
+          color2: '#000000ff'
       - type: Button
         buttonId: facebook
   - id: 5

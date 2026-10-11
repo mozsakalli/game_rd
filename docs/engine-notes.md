@@ -1,5 +1,18 @@
 # DigitoyEngine R&D (game_rd)
 
+## LAYOUTBOX IC GOLGE (innerShadowColor/Blur) — ek draw/doku yok (2026-10-11)
+- Unity UIBox karsilastirmasindan: iç gölge, border ring yolunun (EmitLayer) yumusak-ic-bandli hali. Dolgu USTUNE, border
+  ALTINA (border'in ic kutusu), 8 quad (4 hucre + 4 serit), ic dolgu yok; ayni UiPieces materyali -> kutunun draw'ina merge.
+- SHADER (UiPieces._fragTail): `USER.x>0 && USER.z>0` kombinasyonu artik "dis kenar fwidth KESKIN, ic band smoothing'li"
+  demek (onceden iki kenar da yumusakti; hicbir yayici kullanmiyordu). Golge x>0/z=0, border x=0/z>0 degismedi.
+- b > radius durumu: hucre max(r,b) ile kurulur (gercek blur iso-konturu gibi yuvarlanir, seritlerle ortusme/çift blend
+  olmaz); kutunun gercek kosesi hucre merkezli KESME dairesiyle (USER.y=c) yaklasik kirpilir — yay uc noktasi ile tepe
+  uzakliginin ortalamasi, hata < ~0.7px; bu hucrede dis AA payi (m) 0 (pay kesme dairesinin icinde kalip boyanirdi).
+  b <= r ise border ring'iyle birebir ayni geometri (kesin).
+- YOK (bilincli): offset'li inset golge (CSS inset dx/dy) — kaydirilmis ring'in kutuya kirpilmasi gerekir; istenirse 2. faz.
+- RPC TUZAGI: comp.schema Color format'i yanlis "r g b a 0..255" diyordu; doc kanonik "#RRGGBBAA" (baska bicim ParseColor'da
+  BEYAZA duser, hata vermez). Format metni duzeltildi. Test betigi: tools/innershadow_test.ps1 (Sandbox Scenes/InnerShadowTest).
+
 ## CORELIB EKSIGI = CORELIB'DE KAPANIR (Delegate.Combine / IsMacCatalyst, 2026-10-11)
 - yuzbirextra Button.cs `event` (+=/-=) ve PlatformFilter `IsMacCatalyst` AOT'de patliyordu (CS0656 / CS0117); scriptler yeni
   eklenmisti, editorde (.NET) calistigi icin fark edilmemis. Cozum TAMAMEN corelib'de: `Delegate.Combine/Remove` extern

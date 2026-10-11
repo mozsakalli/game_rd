@@ -223,7 +223,7 @@ static class RpcCommands
         SerializedType.Kind.Vec2 => "\"x y\"",
         SerializedType.Kind.Vec3 => "\"x y z\"",
         SerializedType.Kind.Vec4 => "\"x y z w\"",
-        SerializedType.Kind.Color => "\"r g b a\" 0..255",
+        SerializedType.Kind.Color => "\"#RRGGBBAA\" hex (doc kanonik; baska bicim beyaza duser)",
         SerializedType.Kind.Bool => "true|false",
         _ => null,
     };

@@ -1,0 +1,87 @@
+[gamecode] yuklendi: Yuzbir Extra.Game (6 script)
+[lifecycle] 23 PASS, 0 FAIL
+[movieclip] 65 PASS, 0 FAIL
+[particle] 19 PASS, 0 FAIL
+[serialization] 38 PASS, 0 FAIL
+[inspector] 47 PASS, 0 FAIL
+[layout] 39 PASS, 0 FAIL
+[pointer] 22 PASS, 0 FAIL
+[rendergroup] 12 PASS, 0 FAIL
+[fx] 9 PASS, 0 FAIL
+[prefs] 15 PASS, 0 FAIL
+[async] 28 PASS, 0 FAIL
+[net] 18 PASS, 0 FAIL
+[progress] 11 PASS, 0 FAIL
+[catalogtest] 13 PASS 0 FAIL
+[info] [import] Fonts/arial.ttf -> 3 artifact (FontImporter, 128ms)
+[info] [import] Fonts/NotoSans-Black.ttf -> 3 artifact (FontImporter, 137ms)
+[info] [atlas] MainAtlas.asset: 643 bolge, 1 sayfa (RGBA8, 11 uye)
+[info] [import] MainAtlas.asset -> 2 artifact (AtlasImporter, 158ms)
+[info] [rpc] dinleniyor: localhost:5157  (http://localhost:5157/ -> C:\Work\digitoygames\game_rd\Projects\Sandbox\Build\wasm)
+[info] [project] yeni editor basladi: C:\Work\digitoygames\game_rd\Projects\yuzbirextra - bu pencere kapaniyor
+[gamecode] yuklendi: yuzbirextra.Game (5 script)
+[lifecycle] 23 PASS, 0 FAIL
+[movieclip] 65 PASS, 0 FAIL
+[particle] 19 PASS, 0 FAIL
+[serialization] 38 PASS, 0 FAIL
+[inspector] 47 PASS, 0 FAIL
+[layout] 39 PASS, 0 FAIL
+[pointer] 22 PASS, 0 FAIL
+[rendergroup] 12 PASS, 0 FAIL
+[fx] 9 PASS, 0 FAIL
+[prefs] 15 PASS, 0 FAIL
+[async] 28 PASS, 0 FAIL
+[net] 18 PASS, 0 FAIL
+[progress] 11 PASS, 0 FAIL
+[catalogtest] 13 PASS 0 FAIL
+[info] [rpc] dinleniyor: localhost:5157  (http://localhost:5157/ -> C:\Work\digitoygames\game_rd\Projects\yuzbirextra\Build\wasm)
+[play] hot reload
+[play] hot reload
+[play] hot reload
+[play] hot reload
+[play] hot reload
+[play] hot reload
+[play] hot reload
+[play] hot reload
+[play] hot reload
+[play] hot reload
+[play] hot reload
+[play] hot reload
+[play] hot reload
+[play] hot reload
+[play] hot reload
+[play] hot reload
+[play] hot reload
+[play] hot reload
+[play] hot reload
+[play] hot reload
+[play] hot reload
+[play] hot reload
+[play] hot reload
+[play] hot reload
+[play] hot reload
+[play] hot reload
+[play] hot reload
+[play] hot reload
+[play] hot reload
+[play] hot reload
+[play] hot reload
+[play] hot reload
+[play] hot reload
+[play] hot reload
+[play] hot reload
+[play] hot reload
+[play] hot reload
+[play] hot reload
+[play] hot reload
+[play] hot reload
+[play] hot reload
+[play] hot reload
+[play] hot reload
+[play] hot reload
+[play] hot reload
+[play] hot reload
+[play] hot reload
+[play] hot reload
+[play] hot reload
+[play] hot reload
