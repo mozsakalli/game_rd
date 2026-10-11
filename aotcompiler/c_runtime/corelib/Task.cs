@@ -9,10 +9,31 @@ namespace System.Threading.Tasks
         public bool completed;
         public Exception fault; // SetException ile dolar; Result/GetResult yeniden firlatir
         public List<Action> continuations = new List<Action>();
+        public bool canceled; // fault = TaskCanceledException; IsFaulted false (.NET ayrimi)
 
         public bool IsCompleted { get { return completed; } }
-        public bool IsFaulted { get { return fault != null; } }
+        public bool IsFaulted { get { return fault != null && !canceled; } }
+        public bool IsCanceled { get { return canceled; } }
+        public bool IsCompletedSuccessfully { get { return completed && fault == null; } }
         internal Exception Fault { get { return fault; } }
+
+        static Task completedTask;
+        public static Task CompletedTask
+        {
+            get
+            {
+                if (completedTask == null) { completedTask = new Task(); completedTask.completed = true; }
+                return completedTask;
+            }
+        }
+        public static Task<T> FromResult<T>(T value) { var t = new Task<T>(); t.TrySetResult(value); return t; }
+        public static Task FromException(Exception e) { var t = new Task(); t.TrySetException(e); return t; }
+        public static Task FromCanceled(System.Threading.CancellationToken token) { var t = new Task(); t.TrySetCanceled(token); return t; }
+
+        // Hepsi bitince tamamlanir. Biri hata verdiyse ilk hata ile fault; yalniz iptal varsa iptal.
+        public static Task WhenAll(Task[] tasks) { return new WhenAllState(tasks).Source.Task; }
+        // Ilk biten task'i (hata/iptal dahil) sonuc olarak verir.
+        public static Task<Task> WhenAny(Task[] tasks) { return new WhenAnyState(tasks).Source.Task; }
 
         public System.Runtime.CompilerServices.TaskAwaiter GetAwaiter()
         {
@@ -38,6 +59,14 @@ namespace System.Threading.Tasks
             return Complete();
         }
 
+        internal bool TrySetCanceled(System.Threading.CancellationToken token)
+        {
+            if (completed) return false;
+            canceled = true;
+            fault = new TaskCanceledException(token);
+            return Complete();
+        }
+
         protected bool Complete()
         {
             if (completed) return false;
@@ -50,10 +79,11 @@ namespace System.Threading.Tasks
         }
     }
 
+    // Yalniz non-generic ContinueWith(Action) var: Action<Task<T>> overload'u her T icin List<Action<Task<T>>> ornekliyordu
+    // (~50 KB/T kod), kullanan yoktu. Devam icin `await` kullanilir.
     public class Task<T> : Task
     {
         public T result;
-        public List<Action<Task<T>>> typedContinuations = new List<Action<Task<T>>>();
 
         public T Result
         {
@@ -74,19 +104,8 @@ namespace System.Threading.Tasks
         {
             if (IsCompleted) return false;
             result = value;
-            if (!Complete()) return false;
-            for (int i = 0; i < typedContinuations.Count; i++) { typedContinuations[i](this); }
-            typedContinuations.Clear();
-            return true;
+            return Complete();
         }
-
-        public void ContinueWith(Action<Task<T>> continuation)
-        {
-            if (continuation == null) return;
-            if (IsCompleted) { continuation(this); return; }
-            typedContinuations.Add(continuation);
-        }
-
     }
 
     public class TaskCompletionSource<T>
@@ -95,5 +114,53 @@ namespace System.Threading.Tasks
         public Task<T> Task { get { return task; } }
         public bool TrySetResult(T value) { return task.TrySetResult(value); }
         public bool TrySetException(Exception cause) { return task.TrySetException(cause); }
+        public bool TrySetCanceled() { return task.TrySetCanceled(System.Threading.CancellationToken.None); }
+        public bool TrySetCanceled(System.Threading.CancellationToken token) { return task.TrySetCanceled(token); }
+    }
+
+    // WhenAll/WhenAny yardimcilari: lambda yerine acik siniflar (generic icinde closure frontend'de yok).
+    internal sealed class WhenAllState
+    {
+        public readonly TaskCompletionSource<int> Source;
+        readonly Task[] tasks;
+        int remaining;
+        public WhenAllState(Task[] tasks)
+        {
+            Source = new TaskCompletionSource<int>();
+            this.tasks = tasks;
+            remaining = tasks.Length;
+            if (remaining == 0) { Source.TrySetResult(0); return; }
+            for (int i = 0; i < tasks.Length; i++) tasks[i].ContinueWith(OneDone);
+        }
+        void OneDone()
+        {
+            if (--remaining != 0) return;
+            Exception firstFault = null; bool anyCanceled = false;
+            for (int i = 0; i < tasks.Length; i++)
+            {
+                if (tasks[i].IsFaulted && firstFault == null) firstFault = tasks[i].fault;
+                if (tasks[i].IsCanceled) anyCanceled = true;
+            }
+            if (firstFault != null) Source.TrySetException(firstFault);
+            else if (anyCanceled) Source.TrySetCanceled();
+            else Source.TrySetResult(0);
+        }
+    }
+
+    internal sealed class WhenAnyState
+    {
+        public readonly TaskCompletionSource<Task> Source;
+        public WhenAnyState(Task[] tasks)
+        {
+            Source = new TaskCompletionSource<Task>();
+            for (int i = 0; i < tasks.Length; i++) new WhenAnyOne(this, tasks[i]).Arm();
+        }
+    }
+    internal sealed class WhenAnyOne
+    {
+        readonly WhenAnyState owner; readonly Task task;
+        public WhenAnyOne(WhenAnyState owner, Task task) { this.owner = owner; this.task = task; }
+        public void Arm() { task.ContinueWith(Done); }
+        void Done() { owner.Source.TrySetResult(task); }
     }
 }

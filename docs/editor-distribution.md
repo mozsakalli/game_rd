@@ -31,6 +31,7 @@ DigitoyEditor-<VERSION>/
                   rid: win-x64 win-arm64 linux-x64 android-arm64 wasm32 osx-arm64 ios-arm64
   toolchains/llvm-mingw/   (Windows hedefleri; Linux/Mac host'tan Windows'a cross da buradan)
   templates/NewProject/
+  tools/mcp-bridge/  mcp-bridge.dll(+deps)   ← AI MCP koprusu; editor proje acilisinda .vscode/mcp.json'u buraya isaretler
   manifest.json   (VERSION, mevcut RID'ler, eksikler + gerekli host/toolchain)
 ```
 Her bileşen kapalı birim: kendi `manifest.json`'u (girdi kaynak hash'i, toolchain, define seti, VERSION). Birleştirme = klasör kopyası.

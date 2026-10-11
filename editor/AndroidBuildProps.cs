@@ -35,7 +35,7 @@ public static class AndroidBuildProps
             new("versionCode", a.versionCode.ToString()),
             new("targetSdk", a.targetSdk.ToString()),
             new("abis", a.includeX86_64 ? "arm64-v8a,x86_64" : "arm64-v8a"),
-            new("orientation", ps.orientation),
+            new("orientation", ps.orientation.ToString().ToLowerInvariant()),
             new("iconForeground", ResolveAsset(project, a.iconForeground)),
             new("iconBackground", a.iconBackground != null && a.iconBackground.TrimStart().StartsWith("#")
                 ? a.iconBackground.Trim() : ResolveAsset(project, a.iconBackground)),

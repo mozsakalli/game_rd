@@ -159,7 +159,7 @@ public sealed class GameObject
         for (int i = 0; i < n; i++)
         {
             var c = _components[i];
-            if (!c._destroyed && (c._flags & LifecycleFlags.ParentChanged) != 0)
+            if (!c._destroyed && _scene.RunsHook(c, LifecycleFlags.ParentChanged))
                 c.OnTransformParentChanged();
         }
     }
@@ -172,7 +172,7 @@ public sealed class GameObject
         for (int i = 0; i < n; i++)
         {
             var c = _components[i];
-            if (!c._destroyed && (c._flags & LifecycleFlags.ChildrenChanged) != 0)
+            if (!c._destroyed && _scene.RunsHook(c, LifecycleFlags.ChildrenChanged))
                 c.OnTransformChildrenChanged();
         }
     }

@@ -2,6 +2,7 @@
 // Platformsuz; her host bunu oyun kutuphanesiyle birlikte derler. Managed'a giris
 // yalniz generated.c'deki de_managed_* kopruleriyle.
 #include "de_app.h"
+#include "de_fs.h"
 #include "vmrt.h"
 #include <stdatomic.h>
 #include <stdio.h>
@@ -72,6 +73,7 @@ void de_app_init(const char* dataRoot, const char* writableRoot, int fbw, int fb
     snprintf(crashDir, sizeof crashDir, "%s/crash", writableRoot && *writableRoot ? writableRoot : ".");
     de_mkdir(crashDir);
     digitoyengine_crash_init(crashDir);
+    de_prefs_set_root(writableRoot && *writableRoot ? writableRoot : "."); // PlayerPrefs (desktop dosya koku)
     atexit(de_app_atexit);
     fprintf(stderr, "[app] start\n");
     digitoyengine_init();

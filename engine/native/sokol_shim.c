@@ -592,6 +592,73 @@ SOKOL_API void de_sokol_destroy_view(unsigned int id)
 }
 
 // ---------------------------------------------------------------------------
+// GPU -> CPU okuma (editor screenshot). Pass DISINDA cagrilir. Cikti RGBA8,
+// GL satir duzeni (satir 0 = ALT). Yalniz GLCORE; diger backend'ler 0 doner.
+// ---------------------------------------------------------------------------
+#if defined(SOKOL_GLCORE)
+extern void *glfwGetProcAddress(const char *name); // glfw ayni DLL'e statik linkli
+typedef void (*de_pfn_genfb_t)(int, unsigned int *);
+typedef void (*de_pfn_delfb_t)(int, const unsigned int *);
+typedef void (*de_pfn_bindfb_t)(unsigned int, unsigned int);
+typedef void (*de_pfn_fbtex2d_t)(unsigned int, unsigned int, unsigned int, unsigned int, int);
+typedef void (*de_pfn_readpix_t)(int, int, int, int, unsigned int, unsigned int, void *);
+typedef void (*de_pfn_pixstore_t)(unsigned int, int);
+typedef void (*de_pfn_getint_t)(unsigned int, int *);
+
+SOKOL_API int de_sokol_read_image(unsigned int img, int w, int h, void *rgba)
+{
+    static de_pfn_genfb_t genfb;
+    static de_pfn_delfb_t delfb;
+    static de_pfn_bindfb_t bindfb;
+    static de_pfn_fbtex2d_t fbtex;
+    static de_pfn_readpix_t readpix;
+    static de_pfn_pixstore_t pixstore;
+    static de_pfn_getint_t getint;
+    if (!genfb)
+    {
+        genfb = (de_pfn_genfb_t)glfwGetProcAddress("glGenFramebuffers");
+        delfb = (de_pfn_delfb_t)glfwGetProcAddress("glDeleteFramebuffers");
+        bindfb = (de_pfn_bindfb_t)glfwGetProcAddress("glBindFramebuffer");
+        fbtex = (de_pfn_fbtex2d_t)glfwGetProcAddress("glFramebufferTexture2D");
+        readpix = (de_pfn_readpix_t)glfwGetProcAddress("glReadPixels");
+        pixstore = (de_pfn_pixstore_t)glfwGetProcAddress("glPixelStorei");
+        getint = (de_pfn_getint_t)glfwGetProcAddress("glGetIntegerv");
+        if (!genfb || !delfb || !bindfb || !fbtex || !readpix || !pixstore || !getint)
+        {
+            genfb = 0;
+            return 0;
+        }
+    }
+    sg_image sgimg = {img};
+    sg_gl_image_info info = sg_gl_query_image_info(sgimg);
+    unsigned int tex = info.tex[info.active_slot];
+    if (!tex || !rgba || w <= 0 || h <= 0)
+        return 0;
+    int prevFb = 0;
+    getint(0x8CA6 /*GL_FRAMEBUFFER_BINDING*/, &prevFb);
+    unsigned int fb = 0;
+    genfb(1, &fb);
+    bindfb(0x8D40 /*GL_FRAMEBUFFER*/, fb);
+    fbtex(0x8D40, 0x8CE0 /*GL_COLOR_ATTACHMENT0*/, 0x0DE1 /*GL_TEXTURE_2D*/, tex, 0);
+    pixstore(0x0D05 /*GL_PACK_ALIGNMENT*/, 1);
+    readpix(0, 0, w, h, 0x1908 /*GL_RGBA*/, 0x1401 /*GL_UNSIGNED_BYTE*/, rgba);
+    bindfb(0x8D40, (unsigned int)prevFb);
+    delfb(1, &fb);
+    sg_reset_state_cache(); // sokol'un GL state cache'i bayat (fbo/pack state)
+    return 1;
+}
+#else
+SOKOL_API int de_sokol_read_image(unsigned int img, int w, int h, void *rgba)
+{
+    (void)img;
+    (void)w;
+    (void)h;
+    (void)rgba;
+    return 0;
+}
+#endif
+
+// ---------------------------------------------------------------------------
 // Shader builder — sg_shader_desc coklu-alanli oldugundan artimli setter'larla
 // bir scratch desc doldurulup end()'de sg_make_shader cagrilir. GL alanlari
 // (glsl_name / base_type / uniform layout) doldurulur; msl_*/hlsl_* GL'de yok sayilir.
@@ -1173,7 +1240,7 @@ SOKOL_API int de_font_vmetrics(const unsigned char *ttf, float pixelHeight, floa
 
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
-// Async asset IO: de_fs.c (platform-bagimsiz handle + job tablosu). Buradaki
+// Async asset IO: de_fs.c (platform-bagimsiz handle + de_async kuyrugu). Buradaki
 // de_asset_* sembolleri yalniz geriye uyum sarmalayicisidir (editor loose yol).
 // ---------------------------------------------------------------------------
 #include "de_fs.h"
@@ -1186,17 +1253,6 @@ SOKOL_API int de_asset_load_range(const char *path, long long offset, long long 
 SOKOL_API int de_asset_load(const char *path)
 {
     return de_fs_decode(-1, path, 0, 0, 0);
-}
-
-SOKOL_API int de_asset_poll(int job, void **pixels, int *w, int *h)
-{
-    long long len;
-    return de_job_poll(job, pixels, &len, w, h);
-}
-
-SOKOL_API void de_asset_free_job(int job)
-{
-    de_job_free(job);
 }
 
 #if defined(_WIN32)

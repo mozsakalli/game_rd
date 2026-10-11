@@ -40,6 +40,15 @@ public sealed class PreviewableAttribute : Attribute
 {
 }
 
+// Unity ExecuteInEditMode: isaretli component'in yasam dongusu (Awake/OnEnable/Start/
+// OnDisable/OnDestroy) EDIT sahnesinde de kosar. Isaretsiz component = oyun mantigi;
+// editor projeksiyonunda uyur (Awake'te SetActive(false) gibi yan etkiler sahneyi bozmaz).
+// Motorun kendi gorsel/yerlesim component'leri (LayoutBox, Camera, MovieClip...) isaretlidir.
+[AttributeUsage(AttributeTargets.Class, Inherited = true)]
+public sealed class ExecuteInEditModeAttribute : Attribute
+{
+}
+
 // Inspector'da kosullu gorunurluk: AYNI duzeydeki kardes serilesen alanin degerine
 // bagli. value verilirse esitlik (kanonik skaler kiyasi: enum adi, bool, sayi...);
 // value=null ise "truthy" testi (bool true / asset-ref dolu / sayi != 0 / string dolu).

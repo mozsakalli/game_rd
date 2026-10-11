@@ -1,11 +1,13 @@
 // ---------------------------------------------------------------------------
-// de_fs.c — stdio backend (Windows/macOS/Linux/iOS) + worker job tablosu
+// de_fs.c — stdio backend (Windows/macOS/Linux/iOS) + worker job kuyrugu
 // ---------------------------------------------------------------------------
 // Thread shim: Win32 (CreateThread/CRITICAL_SECTION/Semaphore) veya pthread.
 // Tek worker: FILE* handle'lari yalniz worker okur (ana thread acar/kapar;
 // kapatmadan once bagli job'lar bitmis olmali — managed sozlesme).
+// Sonuclar de_async kuyruguna yazilir (de_async.h); burada poll/slot tablosu yok.
 // ---------------------------------------------------------------------------
 #include "de_fs.h"
+#include "de_async.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -65,10 +67,8 @@ typedef volatile int de_state_t;
 #endif
 
 #define DE_MAX_HANDLES 32
-#define DE_MAX_JOBS 128
 #define DE_PATH_MAX 512
 
-enum { JOB_FREE = 0, JOB_QUEUED = 1, JOB_RUNNING = 2, JOB_DONE = 3, JOB_FAILED = 4 };
 enum { KIND_OPEN = 0, KIND_READ = 1, KIND_DECODE = 2 };
 
 typedef struct
@@ -78,20 +78,19 @@ typedef struct
     long long size;
 } de_handle_t;
 
-typedef struct
+// Kuyrukta bekleyen is (malloc'lu, worker bitirince free). Sonuc de_async'e gider.
+typedef struct de_job_s
 {
-    de_state_t state;
+    struct de_job_s *next;
+    int id;
     int kind;
     int handle;
     char path[DE_PATH_MAX];
     long long offset, length, rawLength;
-    unsigned char *data;
-    long long len;
-    int w, h;
 } de_job_t;
 
 static de_handle_t de_handles[DE_MAX_HANDLES];
-static de_job_t de_jobs[DE_MAX_JOBS];
+static de_job_t *de_q_head, *de_q_tail;
 static de_mutex_t de_lock;
 static int de_started;
 
@@ -260,32 +259,28 @@ static unsigned char *de_read_blob(de_job_t *job, long long *outLen)
     return result;
 }
 
+// Isi kosar, sonucu de_async'e yazar, job'u serbest birakir. code: 1 tamam, -1 hata; decode a=w b=h.
 static void de_run_job(de_job_t *job)
 {
     long long len = 0;
     unsigned char *blob = de_read_blob(job, &len);
     if (!blob)
+        de_async_complete(job->id, -1, NULL, 0, 0, 0);
+    else if (job->kind == KIND_READ)
+        de_async_complete(job->id, 1, blob, len, 0, 0);
+    else
     {
-        de_atomic_store(&job->state, JOB_FAILED);
-        return;
+        int w = 0, h = 0, comp = 0;
+        unsigned char *px = de_try_dtex(blob, len, &w, &h);
+        if (!px)
+            px = stbi_load_from_memory(blob, (int)len, &w, &h, &comp, 4); // stbi allocator = malloc
+        free(blob);
+        if (px)
+            de_async_complete(job->id, 1, px, (long long)w * h * 4, w, h);
+        else
+            de_async_complete(job->id, -1, NULL, 0, 0, 0);
     }
-    if (job->kind == KIND_READ)
-    {
-        job->data = blob;
-        job->len = len;
-        de_atomic_store(&job->state, JOB_DONE);
-        return;
-    }
-    int w = 0, h = 0, comp = 0;
-    unsigned char *px = de_try_dtex(blob, len, &w, &h);
-    if (!px)
-        px = stbi_load_from_memory(blob, (int)len, &w, &h, &comp, 4);
-    free(blob);
-    job->data = px;
-    job->len = px ? (long long)w * h * 4 : 0;
-    job->w = w;
-    job->h = h;
-    de_atomic_store(&job->state, px ? JOB_DONE : JOB_FAILED);
+    free(job);
 }
 
 #if defined(_WIN32)
@@ -298,15 +293,14 @@ static void *de_worker(void *arg)
     for (;;)
     {
         de_sem_wait();
-        de_job_t *job = NULL;
         de_mutex_lock(&de_lock);
-        for (int i = 0; i < DE_MAX_JOBS; i++)
-            if (de_jobs[i].state == JOB_QUEUED)
-            {
-                de_jobs[i].state = JOB_RUNNING;
-                job = &de_jobs[i];
-                break;
-            }
+        de_job_t *job = de_q_head;
+        if (job)
+        {
+            de_q_head = job->next;
+            if (!de_q_head)
+                de_q_tail = NULL;
+        }
         de_mutex_unlock(&de_lock);
         if (job)
             de_run_job(job);
@@ -325,7 +319,7 @@ static void de_ensure(void)
     for (int i = 0; i < DE_MAX_HANDLES; i++)
         de_handles[i].f = NULL;
     de_mutex_init(&de_lock);
-    de_sem_init(DE_MAX_JOBS);
+    de_sem_init(1 << 20);
 #if defined(__EMSCRIPTEN__)
     // Tarayici: pthread yok (tek thread); job'lar submit aninda senkron kosar (pak zaten MEMFS'te, bellek kopyasi).
 #elif defined(_WIN32)
@@ -337,54 +331,43 @@ static void de_ensure(void)
 #endif
 }
 
-// Kuyruga alinan job'u worker'a bildirir (web: hemen kosar).
-static void de_kick(int job)
-{
-#if defined(__EMSCRIPTEN__)
-    de_jobs[job].state = JOB_RUNNING;
-    de_run_job(&de_jobs[job]);
-#else
-    (void)job;
-    de_sem_post();
-#endif
-}
-
-// Bos slot alir ve doldurur; kuyruk doluysa -1. Yalniz ana thread.
+// Job'u kurar ve worker kuyruguna atar (web: hemen kosar). Donus job id; bellek yoksa -1. Yalniz ana thread.
 static int de_submit(int kind, int handle, const char *path, long long off, long long len, long long raw)
 {
     de_ensure();
-    int id = -1;
+    de_job_t *j = (de_job_t *)calloc(1, sizeof(de_job_t));
+    if (!j)
+        return -1;
+    j->id = de_async_new_job();
+    j->kind = kind;
+    j->handle = handle;
+    j->offset = off;
+    j->length = len;
+    j->rawLength = raw;
+    if (path)
+    {
+        strncpy(j->path, path, DE_PATH_MAX - 1);
+        j->path[DE_PATH_MAX - 1] = 0;
+    }
+    int id = j->id;
+#if defined(__EMSCRIPTEN__)
+    de_run_job(j); // tarayici: tek thread, senkron (pak MEMFS'te)
+#else
     de_mutex_lock(&de_lock);
-    for (int i = 0; i < DE_MAX_JOBS; i++)
-        if (de_jobs[i].state == JOB_FREE)
-        {
-            de_job_t *j = &de_jobs[i];
-            j->kind = kind;
-            j->handle = handle;
-            j->offset = off;
-            j->length = len;
-            j->rawLength = raw;
-            j->data = NULL;
-            j->len = 0;
-            j->w = j->h = 0;
-            if (path)
-            {
-                strncpy(j->path, path, DE_PATH_MAX - 1);
-                j->path[DE_PATH_MAX - 1] = 0;
-            }
-            else
-                j->path[0] = 0;
-            j->state = JOB_QUEUED;
-            id = i;
-            break;
-        }
+    if (de_q_tail)
+        de_q_tail->next = j;
+    else
+        de_q_head = j;
+    de_q_tail = j;
     de_mutex_unlock(&de_lock);
+    de_sem_post();
+#endif
     return id;
 }
 
 // ---- API ----
 
-// stdio: acma ana thread'de aninda biter (web backend'inde fetch job'u olur).
+// stdio: acma ana thread'de aninda biter (web backend'inde fetch job'u olur). Sonuc de_async: a = handle.
 DE_FS_API int de_fs_open(const char *path)
 {
     de_ensure();
@@ -395,10 +378,7 @@ DE_FS_API int de_fs_open(const char *path)
             h = i;
             break;
         }
-    int job = de_submit(KIND_OPEN, -1, path, 0, 0, 0);
-    if (job < 0)
-        return -1;
-    de_job_t *j = &de_jobs[job];
+    int job = de_async_new_job();
     FILE *f = NULL;
     long long base = 0, size = 0;
     if (h >= 0)
@@ -422,11 +402,10 @@ DE_FS_API int de_fs_open(const char *path)
         de_handles[h].base = base;
         de_handles[h].size = size;
         de_handles[h].f = f;
-        j->w = h;
-        de_atomic_store(&j->state, JOB_DONE);
+        de_async_complete(job, 1, NULL, 0, h, 0);
     }
     else
-        de_atomic_store(&j->state, JOB_FAILED);
+        de_async_complete(job, -1, NULL, 0, 0, 0);
     return job;
 }
 
@@ -447,47 +426,398 @@ DE_FS_API void de_fs_close(int handle)
 
 DE_FS_API int de_fs_read(int handle, const char *path, long long offset, long long length, long long rawLength)
 {
-    int job = de_submit(KIND_READ, handle, path, offset, length, rawLength);
-    if (job >= 0)
-        de_kick(job);
-    return job;
+    return de_submit(KIND_READ, handle, path, offset, length, rawLength);
 }
 
 DE_FS_API int de_fs_decode(int handle, const char *path, long long offset, long long length, long long rawLength)
 {
-    int job = de_submit(KIND_DECODE, handle, path, offset, length, rawLength);
-    if (job >= 0)
-        de_kick(job);
-    return job;
+    return de_submit(KIND_DECODE, handle, path, offset, length, rawLength);
 }
 
-DE_FS_API int de_job_poll(int job, void **data, long long *len, int *w, int *h)
+// ===========================================================================
+// PREFS — kalici anahtar/deger (Unity PlayerPrefs karsiligi; DigitoyEngine.PlayerPrefs)
+// ===========================================================================
+// Platformun KENDI deposu: iOS CFPreferences (NSUserDefaults), Android SharedPreferences
+// (JNI -> com.digitoy.host.Prefs), Web localStorage; Windows/macOS/Linux <root>/prefs.dat
+// (bellekte harita, Save'de atomik yazim). Degerler UTF-8 string; tip donusumu managed'da.
+// Tek thread (ana). Donen tamponlar malloc'lu -> de_prefs_free.
+
+static char *de_strdup(const char *s)
 {
-    if (job < 0 || job >= DE_MAX_JOBS)
-        return -1;
-    int s = (int)de_atomic_load(&de_jobs[job].state);
-    if (s == JOB_DONE)
-    {
-        if (data) *data = de_jobs[job].data;
-        if (len) *len = de_jobs[job].len;
-        if (w) *w = de_jobs[job].w;
-        if (h) *h = de_jobs[job].h;
-        return 1;
-    }
-    return s == JOB_FAILED ? -1 : 0;
+    size_t n = strlen(s) + 1;
+    char *d = (char *)malloc(n);
+    if (d) memcpy(d, s, n);
+    return d;
 }
 
-DE_FS_API void de_job_free(int job)
+#if defined(__APPLE__)
+#include <TargetConditionals.h>
+#if TARGET_OS_IPHONE
+#define DE_PREFS_CF 1
+#endif
+#endif
+
+#if defined(__EMSCRIPTEN__)
+// Anahtar oneki sayfa yoluna gore: ayni origin'deki farkli oyunlar carpismasin.
+#include <emscripten/emscripten.h>
+EM_JS(char *, de_js_prefs_get, (const char *key), {
+    var v = localStorage.getItem('de:' + location.pathname + ':' + UTF8ToString(key));
+    if (v === null) return 0;
+    var n = lengthBytesUTF8(v) + 1, p = _malloc(n);
+    stringToUTF8(v, p, n);
+    return p;
+});
+EM_JS(void, de_js_prefs_set, (const char *key, const char *value), {
+    try { localStorage.setItem('de:' + location.pathname + ':' + UTF8ToString(key), UTF8ToString(value)); } catch (e) {}
+});
+EM_JS(void, de_js_prefs_delete, (const char *key), {
+    localStorage.removeItem('de:' + location.pathname + ':' + UTF8ToString(key));
+});
+EM_JS(void, de_js_prefs_delete_all, (void), {
+    var pre = 'de:' + location.pathname + ':', dead = [];
+    for (var i = 0; i < localStorage.length; i++) { var k = localStorage.key(i); if (k && k.indexOf(pre) === 0) dead.push(k); }
+    dead.forEach(function (k) { localStorage.removeItem(k); });
+});
+
+DE_FS_API void de_prefs_set_root(const char *root) { (void)root; }
+DE_FS_API int de_prefs_get(const char *key, void **out, int *len)
 {
-    if (job < 0 || job >= DE_MAX_JOBS)
-        return;
-    int s = (int)de_atomic_load(&de_jobs[job].state);
-    if (s != JOB_DONE && s != JOB_FAILED)
-        return; // calisan job serbest birakilamaz
-    if (de_jobs[job].data)
-    {
-        free(de_jobs[job].data); // stbi default allocator = malloc/free
-        de_jobs[job].data = NULL;
-    }
-    de_atomic_store(&de_jobs[job].state, JOB_FREE);
+    *out = NULL; *len = 0;
+    char *v = de_js_prefs_get(key);
+    if (!v) return 0;
+    *out = v; *len = (int)strlen(v);
+    return 1;
 }
+DE_FS_API void de_prefs_set(const char *key, const char *value) { de_js_prefs_set(key, value ? value : ""); }
+DE_FS_API void de_prefs_delete(const char *key) { de_js_prefs_delete(key); }
+DE_FS_API void de_prefs_delete_all(void) { de_js_prefs_delete_all(); }
+DE_FS_API int de_prefs_has(const char *key)
+{
+    char *v = de_js_prefs_get(key);
+    if (!v) return 0;
+    free(v);
+    return 1;
+}
+DE_FS_API void de_prefs_save(void) {}
+
+#elif defined(__ANDROID__)
+// JNI -> com.digitoy.host.Prefs (SharedPreferences). Host JNI_OnLoad de_android_prefs_bind cagirir
+// (sinif APP classloader'indan; GL thread FindClass bulamaz). Baglanmamissa her sey yok/no-op.
+#include <jni.h>
+static JavaVM *de_pref_vm;
+static jclass de_pref_cls;
+static jmethodID de_pm_get, de_pm_set, de_pm_delete, de_pm_delete_all, de_pm_has, de_pm_save;
+
+DE_FS_API void de_android_prefs_bind(void *vm, void *env_, void *cls_)
+{
+    JNIEnv *env = (JNIEnv *)env_;
+    jclass cls = (jclass)cls_;
+    de_pref_vm = (JavaVM *)vm;
+    de_pref_cls = (jclass)(*env)->NewGlobalRef(env, cls);
+    de_pm_get = (*env)->GetStaticMethodID(env, cls, "get", "(Ljava/lang/String;)Ljava/lang/String;");
+    de_pm_set = (*env)->GetStaticMethodID(env, cls, "set", "(Ljava/lang/String;Ljava/lang/String;)V");
+    de_pm_delete = (*env)->GetStaticMethodID(env, cls, "delete", "(Ljava/lang/String;)V");
+    de_pm_delete_all = (*env)->GetStaticMethodID(env, cls, "deleteAll", "()V");
+    de_pm_has = (*env)->GetStaticMethodID(env, cls, "has", "(Ljava/lang/String;)Z");
+    de_pm_save = (*env)->GetStaticMethodID(env, cls, "save", "()V");
+    if ((*env)->ExceptionCheck(env)) { (*env)->ExceptionClear(env); de_pref_cls = NULL; }
+}
+static JNIEnv *de_pref_env(void)
+{
+    if (!de_pref_vm || !de_pref_cls) return NULL;
+    JNIEnv *env = NULL;
+    if ((*de_pref_vm)->GetEnv(de_pref_vm, (void **)&env, JNI_VERSION_1_6) == JNI_OK) return env;
+    return (*de_pref_vm)->AttachCurrentThread(de_pref_vm, &env, NULL) == JNI_OK ? env : NULL;
+}
+static void de_pref_clear(JNIEnv *env) { if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env); }
+
+DE_FS_API void de_prefs_set_root(const char *root) { (void)root; }
+DE_FS_API int de_prefs_get(const char *key, void **out, int *len)
+{
+    *out = NULL; *len = 0;
+    JNIEnv *env = de_pref_env();
+    if (!env) return 0;
+    jstring jk = (*env)->NewStringUTF(env, key);
+    jstring jv = (jstring)(*env)->CallStaticObjectMethod(env, de_pref_cls, de_pm_get, jk);
+    (*env)->DeleteLocalRef(env, jk);
+    de_pref_clear(env);
+    if (!jv) return 0;
+    const char *s = (*env)->GetStringUTFChars(env, jv, NULL);
+    if (s) { *out = de_strdup(s); *len = (int)strlen(s); (*env)->ReleaseStringUTFChars(env, jv, s); }
+    (*env)->DeleteLocalRef(env, jv);
+    return *out != NULL;
+}
+DE_FS_API void de_prefs_set(const char *key, const char *value)
+{
+    JNIEnv *env = de_pref_env();
+    if (!env) return;
+    jstring jk = (*env)->NewStringUTF(env, key), jv = (*env)->NewStringUTF(env, value ? value : "");
+    (*env)->CallStaticVoidMethod(env, de_pref_cls, de_pm_set, jk, jv);
+    (*env)->DeleteLocalRef(env, jk); (*env)->DeleteLocalRef(env, jv);
+    de_pref_clear(env);
+}
+DE_FS_API void de_prefs_delete(const char *key)
+{
+    JNIEnv *env = de_pref_env();
+    if (!env) return;
+    jstring jk = (*env)->NewStringUTF(env, key);
+    (*env)->CallStaticVoidMethod(env, de_pref_cls, de_pm_delete, jk);
+    (*env)->DeleteLocalRef(env, jk);
+    de_pref_clear(env);
+}
+DE_FS_API void de_prefs_delete_all(void)
+{
+    JNIEnv *env = de_pref_env();
+    if (!env) return;
+    (*env)->CallStaticVoidMethod(env, de_pref_cls, de_pm_delete_all);
+    de_pref_clear(env);
+}
+DE_FS_API int de_prefs_has(const char *key)
+{
+    JNIEnv *env = de_pref_env();
+    if (!env) return 0;
+    jstring jk = (*env)->NewStringUTF(env, key);
+    jboolean r = (*env)->CallStaticBooleanMethod(env, de_pref_cls, de_pm_has, jk);
+    (*env)->DeleteLocalRef(env, jk);
+    de_pref_clear(env);
+    return r ? 1 : 0;
+}
+DE_FS_API void de_prefs_save(void)
+{
+    JNIEnv *env = de_pref_env();
+    if (!env) return;
+    (*env)->CallStaticVoidMethod(env, de_pref_cls, de_pm_save);
+    de_pref_clear(env);
+}
+
+#elif defined(DE_PREFS_CF)
+// iOS: CFPreferences (NSUserDefaults'un C yuzeyi; ObjC gerekmez), uygulama alani.
+#include <CoreFoundation/CoreFoundation.h>
+static CFStringRef de_cf(const char *s) { return CFStringCreateWithCString(NULL, s ? s : "", kCFStringEncodingUTF8); }
+
+DE_FS_API void de_prefs_set_root(const char *root) { (void)root; }
+DE_FS_API int de_prefs_get(const char *key, void **out, int *len)
+{
+    *out = NULL; *len = 0;
+    CFStringRef k = de_cf(key);
+    CFPropertyListRef v = CFPreferencesCopyAppValue(k, kCFPreferencesCurrentApplication);
+    CFRelease(k);
+    if (!v) return 0;
+    if (CFGetTypeID(v) == CFStringGetTypeID())
+    {
+        CFIndex max = CFStringGetMaximumSizeForEncoding(CFStringGetLength((CFStringRef)v), kCFStringEncodingUTF8) + 1;
+        char *buf = (char *)malloc((size_t)max);
+        if (buf && CFStringGetCString((CFStringRef)v, buf, max, kCFStringEncodingUTF8)) { *out = buf; *len = (int)strlen(buf); }
+        else free(buf);
+    }
+    CFRelease(v);
+    return *out != NULL;
+}
+DE_FS_API void de_prefs_set(const char *key, const char *value)
+{
+    CFStringRef k = de_cf(key), v = de_cf(value);
+    CFPreferencesSetAppValue(k, v, kCFPreferencesCurrentApplication);
+    CFRelease(k); CFRelease(v);
+}
+DE_FS_API void de_prefs_delete(const char *key)
+{
+    CFStringRef k = de_cf(key);
+    CFPreferencesSetAppValue(k, NULL, kCFPreferencesCurrentApplication);
+    CFRelease(k);
+}
+DE_FS_API void de_prefs_delete_all(void)
+{
+    CFArrayRef keys = CFPreferencesCopyKeyList(kCFPreferencesCurrentApplication, kCFPreferencesCurrentUser, kCFPreferencesAnyHost);
+    if (!keys) return;
+    for (CFIndex i = 0; i < CFArrayGetCount(keys); i++)
+        CFPreferencesSetAppValue((CFStringRef)CFArrayGetValueAtIndex(keys, i), NULL, kCFPreferencesCurrentApplication);
+    CFRelease(keys);
+}
+DE_FS_API int de_prefs_has(const char *key)
+{
+    void *p; int n;
+    if (!de_prefs_get(key, &p, &n)) return 0;
+    free(p);
+    return 1;
+}
+DE_FS_API void de_prefs_save(void) { CFPreferencesAppSynchronize(kCFPreferencesCurrentApplication); }
+
+#else
+// Desktop (Windows/macOS/Linux): <root>/prefs.dat — satir basina "anahtar\tdeger\n" (\t \n \\ kacisli),
+// bellekte harita (tembel yukleme), Save'de .tmp + rename (atomik). root yoksa "." (cwd).
+#if defined(_WIN32)
+#include <direct.h>
+#define de_prefs_mkdir(p) _mkdir(p)
+#else
+#include <sys/stat.h>
+#define de_prefs_mkdir(p) mkdir(p, 0755)
+#endif
+
+typedef struct { char *key, *value; } de_pref_t;
+static de_pref_t *de_prefs;
+static int de_prefs_n, de_prefs_cap, de_prefs_loaded, de_prefs_dirty;
+static char de_prefs_root[1024] = ".";
+
+static void de_prefs_clear_mem(void)
+{
+    for (int i = 0; i < de_prefs_n; i++) { free(de_prefs[i].key); free(de_prefs[i].value); }
+    de_prefs_n = 0;
+}
+
+// \t \n \\ kacisi coz; yerinde yazar, uzunluk doner.
+static int de_prefs_unescape(char *s)
+{
+    char *w = s;
+    for (char *r = s; *r; r++)
+    {
+        if (*r == '\\' && r[1]) { r++; *w++ = *r == 't' ? '\t' : *r == 'n' ? '\n' : *r; }
+        else *w++ = *r;
+    }
+    *w = 0;
+    return (int)(w - s);
+}
+static void de_prefs_fput_escaped(FILE *f, const char *s)
+{
+    for (; *s; s++)
+    {
+        if (*s == '\t') fputs("\\t", f);
+        else if (*s == '\n') fputs("\\n", f);
+        else if (*s == '\\') fputs("\\\\", f);
+        else fputc(*s, f);
+    }
+}
+
+static void de_prefs_load(void)
+{
+    if (de_prefs_loaded) return;
+    de_prefs_loaded = 1;
+    char path[1200];
+    snprintf(path, sizeof path, "%s/prefs.dat", de_prefs_root);
+    FILE *f = fopen(path, "rb");
+    if (!f) return;
+    fseek(f, 0, SEEK_END);
+    long n = ftell(f);
+    fseek(f, 0, SEEK_SET);
+    if (n <= 0) { fclose(f); return; }
+    char *buf = (char *)malloc((size_t)n + 1);
+    if (!buf) { fclose(f); return; }
+    size_t got = fread(buf, 1, (size_t)n, f);
+    fclose(f);
+    buf[got] = 0;
+    char *line = buf;
+    while (line && *line)
+    {
+        char *nl = strchr(line, '\n');
+        if (nl) *nl = 0;
+        char *tab = strchr(line, '\t'); // kacissiz ilk tab = ayirici (anahtardaki tab \t olarak kacisli)
+        if (tab)
+        {
+            *tab = 0;
+            de_prefs_unescape(line);
+            de_prefs_unescape(tab + 1);
+            de_prefs_set(line, tab + 1);
+        }
+        line = nl ? nl + 1 : NULL;
+    }
+    free(buf);
+    de_prefs_dirty = 0;
+}
+
+static int de_prefs_find(const char *key)
+{
+    for (int i = 0; i < de_prefs_n; i++)
+        if (strcmp(de_prefs[i].key, key) == 0) return i;
+    return -1;
+}
+
+DE_FS_API void de_prefs_set_root(const char *root)
+{
+    // Root degisimi: bellekteki harita dusurulur, sonraki erisimde yeni kokten yuklenir (kaydedilmemis degisiklik GIDER).
+    de_prefs_clear_mem();
+    de_prefs_loaded = 0;
+    de_prefs_dirty = 0;
+    snprintf(de_prefs_root, sizeof de_prefs_root, "%s", root && *root ? root : ".");
+}
+DE_FS_API int de_prefs_get(const char *key, void **out, int *len)
+{
+    *out = NULL; *len = 0;
+    de_prefs_load();
+    int i = de_prefs_find(key);
+    if (i < 0) return 0;
+    *out = de_strdup(de_prefs[i].value);
+    *len = (int)strlen(de_prefs[i].value);
+    return *out != NULL;
+}
+DE_FS_API void de_prefs_set(const char *key, const char *value)
+{
+    if (!key) return;
+    de_prefs_load();
+    if (!value) value = "";
+    int i = de_prefs_find(key);
+    if (i >= 0)
+    {
+        if (strcmp(de_prefs[i].value, value) == 0) return;
+        free(de_prefs[i].value);
+        de_prefs[i].value = de_strdup(value);
+    }
+    else
+    {
+        if (de_prefs_n == de_prefs_cap)
+        {
+            de_prefs_cap = de_prefs_cap ? de_prefs_cap * 2 : 32;
+            de_prefs = (de_pref_t *)realloc(de_prefs, (size_t)de_prefs_cap * sizeof(de_pref_t));
+        }
+        de_prefs[de_prefs_n].key = de_strdup(key);
+        de_prefs[de_prefs_n].value = de_strdup(value);
+        de_prefs_n++;
+    }
+    de_prefs_dirty = 1;
+}
+DE_FS_API void de_prefs_delete(const char *key)
+{
+    de_prefs_load();
+    int i = de_prefs_find(key);
+    if (i < 0) return;
+    free(de_prefs[i].key); free(de_prefs[i].value);
+    de_prefs[i] = de_prefs[--de_prefs_n];
+    de_prefs_dirty = 1;
+}
+DE_FS_API void de_prefs_delete_all(void)
+{
+    de_prefs_load();
+    if (de_prefs_n) de_prefs_dirty = 1;
+    de_prefs_clear_mem();
+}
+DE_FS_API int de_prefs_has(const char *key)
+{
+    de_prefs_load();
+    return de_prefs_find(key) >= 0;
+}
+DE_FS_API void de_prefs_save(void)
+{
+    if (!de_prefs_loaded || !de_prefs_dirty) return;
+    char path[1200], tmp[1210];
+    snprintf(path, sizeof path, "%s/prefs.dat", de_prefs_root);
+    snprintf(tmp, sizeof tmp, "%s.tmp", path);
+    de_prefs_mkdir(de_prefs_root);
+    FILE *f = fopen(tmp, "wb");
+    if (!f) return;
+    for (int i = 0; i < de_prefs_n; i++)
+    {
+        de_prefs_fput_escaped(f, de_prefs[i].key);
+        fputc('\t', f);
+        de_prefs_fput_escaped(f, de_prefs[i].value);
+        fputc('\n', f);
+    }
+    int ok = fclose(f) == 0;
+    if (!ok) { remove(tmp); return; }
+#if defined(_WIN32)
+    if (!MoveFileExA(tmp, path, MOVEFILE_REPLACE_EXISTING)) { remove(tmp); return; }
+#else
+    if (rename(tmp, path) != 0) { remove(tmp); return; }
+#endif
+    de_prefs_dirty = 0;
+}
+#endif
+
+DE_FS_API void de_prefs_free(void *p) { free(p); }

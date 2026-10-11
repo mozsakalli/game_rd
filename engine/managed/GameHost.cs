@@ -87,9 +87,9 @@ public static class GameHost
         Screen.pixelRatio = scale;
 
         if (_assets != null)
-            _assets.Tick(); // job pompasi + biten texture'lari butceli bagla
+            _assets.Tick(2, dt); // async pompasi + biten texture'lari butceli bagla
         else
-            AsyncJobs.Pump();
+            NativeAsync.Pump(dt);
         Module.TickAll();
         // Async Boot'un hatasi Task'ta kalir; burada gozlenir ve yeniden firlatilir (sessiz kalma yok).
         if (_bootTask != null && _bootTask.IsFaulted)
@@ -119,11 +119,12 @@ public static class GameHost
         return true;
     }
 
-    public static void Pause() { _paused = true; Audio.Suspend(); }
+    public static void Pause() { _paused = true; Audio.Suspend(); PlayerPrefs.Save(); }
     public static void Resume() { _paused = false; Audio.Resume(); }
 
     public static void Shutdown()
     {
+        PlayerPrefs.Save();
         Audio.Shutdown();
         Sokol.Shutdown();
     }
@@ -172,7 +173,38 @@ public static class GameHost
             var mod = await Module.LoadAsync(autoload);
             Console.WriteLine(mod.IsLoaded ? "[host] autoload modul yuklendi: " + mod.Name : "[host] autoload modul HATA: " + mod.Error);
         }
+
+        // Dev/test kancasi (docs/network.md): PlayerPrefs "net.probe" = taban URL ise HTTP + WS round-trip dener ve loglar.
+        // Platform ag backend'lerinin (WinHTTP / fetch / OkHttp / NSURLSession) gercek cihazda dogrulanmasi icin.
+        string probeUrl = PlayerPrefs.GetString("net.probe", "");
+        if (!string.IsNullOrEmpty(probeUrl))
+            _ = NetProbe(probeUrl);
         return true;
+    }
+
+    static async Task NetProbe(string baseUrl)
+    {
+        try
+        {
+            var r = await Http.GetAsync(baseUrl + "/hello");
+            Console.WriteLine("[net-probe] GET " + r.Status + " ok=" + r.Ok + " text='" + r.Text + "' err=" + (r.Error ?? "-") + " X-Test=" + (r.Header("X-Test") ?? "-"));
+            var p = await Http.PostAsync(baseUrl + "/echo", "{\"probe\":1}");
+            Console.WriteLine("[net-probe] POST " + p.Status + " text='" + p.Text + "' ct=" + (p.Header("X-Content-Type") ?? "-"));
+            string wsUrl = baseUrl.StartsWith("https://") ? "wss://" + baseUrl.Substring(8) : "ws://" + baseUrl.Substring(7);
+            var ws = await WebSocket.ConnectAsync(wsUrl + "/ws");
+            ws.Send("ping");
+            var m = await ws.ReceiveAsync();
+            ws.Send(new byte[] { 1, 2, 3 });
+            var b = await ws.ReceiveAsync();
+            Console.WriteLine("[net-probe] WS text='" + m.Text + "' bin=" + b.Data.Length + " isText=" + b.IsText);
+            await ws.CloseAsync(1000, "bye");
+            Console.WriteLine("[net-probe] WS closed code=" + ws.CloseCode + " state=" + ws.State);
+            Console.WriteLine("[net-probe] DONE");
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine("[net-probe] HATA: " + e.Message);
+        }
     }
 
     // Katalog + sahne (bagimlilik grafigi hazir olunca Spawn).

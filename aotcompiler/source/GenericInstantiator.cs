@@ -45,6 +45,21 @@ namespace DigitoyEngine.Language
             finally { draining = false; }
         }
 
+        // Frontend: sablon govdesi cevrildi (ya da stub'landi) -> bekleyen klon govdeleri simdi doldurulur.
+        public static void MarkBodyReady(Code template)
+        {
+            template.BodyPending = false;
+            var pending = template.PendingClones;
+            if (pending == null) return;
+            template.PendingClones = null;
+            foreach (var o in pending)
+            {
+                var (shell, map, ctx) = ((Code, Dictionary<Primitive, Primitive>, Context))o;
+                pendingBodies.Add((shell, template, map, ctx));
+            }
+            if (instantiationDepth == 0) DrainBodies();
+        }
+
         public static string MangleName(string baseName, List<Primitive> typeArgs) =>
             $"{baseName}<{string.Join(",", typeArgs.Select(a => a.Name))}>";
 
@@ -221,7 +236,22 @@ namespace DigitoyEngine.Language
         static void CloneCodeBody(Context ctx, Code code, Code template, Dictionary<Primitive, Primitive> map)
         {
             if (code.BodyCloned) return;
+            if (template.BodyPending)
+            {
+                // Sablonun govdesi frontend'de henuz cevrilmedi (ornegin Task.WhenAll -> TCS<int> -> Task<int> somutlamasi
+                // Task<T>..ctor govdesinden ONCE istendi). Bos govde klonlamak yerine sablon hazir olunca doldur.
+                (template.PendingClones ??= new List<object>()).Add((code, map, ctx));
+                return;
+            }
             code.BodyCloned = true;
+            // Ertelenmis klon: kabuk, sablon cevrilmeden once kopyalandi -> Locals/LocalNames o zaman bostu; simdi tamamla.
+            if (code.Locals.Count < template.Locals.Count)
+            {
+                for (int i = code.Locals.Count; i < template.Locals.Count; i++)
+                    code.Locals.Add(Substitute(ctx, template.Locals[i], map));
+                code.LocalNames.Clear();
+                code.LocalNames.AddRange(template.LocalNames);
+            }
             // Sablon govdesi stub'landiysa (frontend hatasi) klon da stub: sessiz bos govde (tanimsiz donus) YASAK;
             // CTranspiler NotImplementedException firlatan govde uretir, RunPlayerBuild stub kapisi erisilebilirse build'i keser.
             if (template.UntranslatableReason != null) code.UntranslatableReason = template.UntranslatableReason;

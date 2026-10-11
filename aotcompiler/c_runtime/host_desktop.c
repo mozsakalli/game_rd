@@ -46,6 +46,8 @@ static void on_key(GLFWwindow* w, int key, int scancode, int action, int mods)
 
 static void on_char(GLFWwindow* w, unsigned int cp) { (void)w; push(DE_EV_TEXT, 0, 0, 0, (int)cp, 0); }
 static void on_focus(GLFWwindow* w, int focused) { (void)w; push(DE_EV_FOCUS, 0, 0, 0, focused, 0); }
+// Desktop'ta "arka plan" = simge durumuna kucultme (odak kaybi degil). Mobil host'larla ayni pause/resume yolu.
+static void on_iconify(GLFWwindow* w, int iconified) { (void)w; if (iconified) de_app_pause(); else de_app_resume(); }
 
 void de_host_set_title(const char* utf8) { if (g_window) glfwSetWindowTitle(g_window, utf8); }
 void de_host_log(int level, const char* utf8) { fprintf(level >= 2 ? stderr : stdout, "%s\n", utf8); }
@@ -87,6 +89,7 @@ int main(int argc, char** argv)
     glfwSetKeyCallback(g_window, on_key);
     glfwSetCharCallback(g_window, on_char);
     glfwSetWindowFocusCallback(g_window, on_focus);
+    glfwSetWindowIconifyCallback(g_window, on_iconify);
 
     int fbw, fbh; float scale;
     measure(&fbw, &fbh, &scale);

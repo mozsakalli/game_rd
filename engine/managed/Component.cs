@@ -23,8 +23,12 @@ public enum LifecycleFlags : ushort
     PointerClick = 2048,
     DragStart = 4096,
     Drag = 8192,
+    EditMode = 16384, // [ExecuteInEditMode]: edit sahnesinde de yasam dongusu alir
+    Validate = 32768, // OnValidate ya da OnAnimatedPropertiesApplied override edilmis (animasyon bildirimi gerekir)
 
     AnyPointer = PointerDown | PointerUp | PointerClick | DragStart | Drag,
+    // Edit sahnesinde isaretsiz component'ten kesilen kancalar.
+    EditGated = Awake | OnEnable | Start | OnDisable | OnDestroy,
 }
 
 // Unity Component/Behaviour karsiligi. Yasam dongusu Unity ile birebir:
@@ -62,6 +66,23 @@ public abstract class Component
     public bool isActiveAndEnabled
         => _enabled && !_destroyed && _gameObject != null && _gameObject.activeInHierarchy;
 
+    // Unity destroyCancellationToken: component yok edilince (OnDestroy sonrasi) iptal olur. Tembel: kullanilmazsa
+    // alloc yok. Async isler (Http/WebSocket/Frame.Next/Wait) bunu alirsa panel kapaninca kendiliginden duser.
+    internal System.Threading.CancellationTokenSource _destroyCts;
+    public System.Threading.CancellationToken destroyCancellationToken
+    {
+        get
+        {
+            if (_destroyCts == null)
+            {
+                _destroyCts = new System.Threading.CancellationTokenSource();
+                if (_destroyed) _destroyCts.Cancel();
+            }
+            return _destroyCts.Token;
+        }
+    }
+    internal void CancelDestroyToken() => _destroyCts?.Cancel();
+
     public T GetComponent<T>() where T : Component => _gameObject.GetComponent<T>();
 
     // protected internal: kullanici sinifi protected gibi override eder,
@@ -69,7 +90,15 @@ public abstract class Component
     protected internal virtual void Awake() { }
     // Editor bir alani dogrudan yazdiktan sonra cagirir (Unity OnValidate muadili;
     // lifecycle bayragi yok — yalniz editor patch yolundan dogrudan sanal cagri).
+    // SOZLESME: "alanlarim disaridan yazildi, turetilmis durumu tazele" (dirty bayragi
+    // kaldir, clamp). Yan etki burada, setter'da degil — animasyon da ayni kancadan gecer.
     protected internal virtual void OnValidate() { }
+    // Animasyon (Tween/MovieClip) bu frame'de alanlarima yazdi: Scene frame sonunda,
+    // dokunulan component basina BIR KEZ cagirir (Unity OnDidApplyAnimationProperties).
+    // Varsayilan OnValidate'e akar — component tek kanca yazar. Yalniz OnValidate'i
+    // pahali olan tipler (yapi yeniden kurma vb.) bunu ayrica override eder.
+    protected internal virtual void OnAnimatedPropertiesApplied() => OnValidate();
+    internal bool _animTouched; // Scene._animTouched listesinde (frame basina tek kayit)
     protected internal virtual void OnEnable() { }
     protected internal virtual void Start() { }
     protected internal virtual void Update() { }
@@ -119,6 +148,10 @@ public abstract class Component
         f |= OverridesPtr(t, "OnPointerClick", LifecycleFlags.PointerClick);
         f |= OverridesPtr(t, "OnDragStart", LifecycleFlags.DragStart);
         f |= OverridesPtr(t, "OnDrag", LifecycleFlags.Drag);
+        if (t.IsDefined(typeof(ExecuteInEditModeAttribute), inherit: true))
+            f |= LifecycleFlags.EditMode;
+        f |= Overrides(t, "OnValidate", LifecycleFlags.Validate);
+        f |= Overrides(t, "OnAnimatedPropertiesApplied", LifecycleFlags.Validate);
         return f;
     }
 

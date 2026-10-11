@@ -16,6 +16,7 @@ public static class PlayerApp
 {
     static IntPtr _window;
     static bool _mouseDown;
+    static bool _iconified;
     static float _mouseScale = 1f;
 
     public static void Main(string[] args)
@@ -48,6 +49,10 @@ public static class PlayerApp
 #endif
         GameHost.SetTitle = t => GLFW.SetWindowTitle(_window, t);
         GameHost.CatalogProvider = () => LoadCatalog(root);
+        // PlayerPrefs: proje-yerel Library/ (editorle AYNI dosya -> editorde kaydedilen ilerleme dev host'ta gorunur).
+        string prefsRoot = Path.Combine(root, "Library");
+        Directory.CreateDirectory(prefsRoot);
+        PlayerPrefs.SetRoot(prefsRoot);
 
         Measure(out int fbw, out int fbh, out float scale);
         if (File.Exists(Path.Combine(root, "Build", "game.pak")))
@@ -60,6 +65,7 @@ public static class PlayerApp
         {
             GLFW.PollEvents();
             Measure(out fbw, out fbh, out scale);
+            PollIconified();
             PollPointer();
             double t = GLFW.GetTime();
             float dt = last > 0 ? (float)(t - last) : 0f;
@@ -81,6 +87,17 @@ public static class PlayerApp
         GLFW.GetWindowSize(_window, out int winW, out _);
         float lw = fbw / scale;
         _mouseScale = winW > 0 && lw > 0 ? winW / lw : scale;
+    }
+
+    // Desktop'ta "arka plan" = simge durumuna kucultulmus pencere (odak kaybi degil: masaustu
+    // oyunu odak disinda da surer). Mobil host'larin pause/resume'u ile ayni GameHost yolu:
+    // ses cihazi kapanir, muzik duraklar, dt durur.
+    static void PollIconified()
+    {
+        bool iconified = GLFW.GetWindowAttrib(_window, GLFWConst.ICONIFIED) != 0;
+        if (iconified == _iconified) return;
+        _iconified = iconified;
+        if (iconified) GameHost.Pause(); else GameHost.Resume();
     }
 
     // GLFW callback'i yerine poll (dev host; marshal'siz). Mantiksal px'e cevrilip olay olarak verilir.

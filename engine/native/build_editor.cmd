@@ -33,6 +33,8 @@ if not exist "%OUTDIR%" mkdir "%OUTDIR%"
 set "SOURCES="
 set "SOURCES=%SOURCES% %HERE%sokol_shim.c"
 set "SOURCES=%SOURCES% %HERE%de_fs.c"
+set "SOURCES=%SOURCES% %HERE%de_async.c"
+set "SOURCES=%SOURCES% %HERE%de_net.c"
 set "SOURCES=%SOURCES% %HERE%audio_shim.c"
 set "SOURCES=%SOURCES% %HERE%glfw-master\src\context.c"
 set "SOURCES=%SOURCES% %HERE%glfw-master\src\init.c"
@@ -58,7 +60,7 @@ set "SOURCES=%SOURCES% %HERE%glfw-master\src\null_window.c"
 
 set "DEFINES=-DSOKOL_GLCORE -D_GLFW_WIN32 -D_GLFW_BUILD_DLL -DDE_BUILD_DLL -DSOKOL_IMPL -DSOKOL_GLCORE"
 set "INCLUDES=-I%HERE%"
-set "LIBS=-lopengl32 -lgdi32 -luser32 -lkernel32 -lshell32 -lole32 -loleaut32 -lmfplat -lmfuuid"
+set "LIBS=-lopengl32 -lgdi32 -luser32 -lkernel32 -lshell32 -lole32 -loleaut32 -lmfplat -lmfuuid -lwinhttp"
 
 echo [build_editor] clang: %CLANG%
 echo [build_editor] cikti: %OUT%

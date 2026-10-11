@@ -1,0 +1,14 @@
+{
+    "servers": {
+        "digitoy-editor": {
+            "type": "stdio",
+            "command": "dotnet",
+            "args": [
+                "${workspaceFolder}/tools/mcp-bridge/bin/Debug/net9.0/mcp-bridge.dll"
+            ],
+            "env": {
+                "DIGITOY_RPC_PORT": "5157"
+            }
+        }
+    }
+}

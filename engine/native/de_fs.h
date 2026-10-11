@@ -10,11 +10,12 @@
 //     web (wasm)    : fetch -> bellek, read = memcpy          [de_fs_web.c, ileride]
 //
 //   Is modeli: TUM IO ve decode worker'da, managed TEK thread. Her cagri aninda
-//   bir job id doner; sonucu ana thread her frame de_job_poll ile ceker. Bloklayan
-//   cagri YOK (web'de de ayni sozlesme: fetch callback'i job'i tamamlar).
+//   bir job id doner; sonucu de_async kuyruguna yazilir (de_async.h), ana thread
+//   her frame tek drain ile toplar. Bloklayan cagri YOK (web'de de ayni sozlesme).
 //
-//   de_fs_open da bir job'dur (web'de ag; desktop'ta aninda biter): poll sonucu
-//   *w = handle. Handle kapanmadan once ona bagli tum job'lar bitmis olmali.
+//   de_fs_open da bir job'dur (web'de ag; desktop'ta aninda biter): tamamlanma
+//   a = handle. Handle kapanmadan once ona bagli tum job'lar bitmis olmali.
+//   Tamamlanma: code 1 = tamam (read: data/len; decode: data=RGBA8 satir 0 altta, a=w b=h), -1 = hata.
 // ---------------------------------------------------------------------------
 #ifndef DE_FS_H
 #define DE_FS_H
@@ -29,7 +30,7 @@
 extern "C" {
 #endif
 
-// Dosya acar -> job. poll: 1 -> *w = handle (>= 0); -1 -> acilamadi.
+// Dosya acar -> job. Tamamlanma: code 1 -> a = handle (>= 0); -1 -> acilamadi.
 // Android: "asset:<ad>" yolu APK assets/ icinden fd+offset ile acilir (kopya yok; asset SIKISTIRILMAMIS
 // olmali — Gradle `noCompress`). Oncesinde de_fs_set_asset_manager cagrilmis olmali.
 DE_FS_API int de_fs_open(const char *path);
@@ -39,19 +40,29 @@ DE_FS_API void de_fs_set_asset_manager(void *aassetManager); // AAssetManager* (
 DE_FS_API long long de_fs_size(int handle);
 DE_FS_API void de_fs_close(int handle);
 
-// [offset, offset+length) araligini okur -> job; poll: *data/*len (malloc'lu, job ile serbest).
+// [offset, offset+length) araligini okur -> job; tamamlanma data/len (malloc'lu, de_async_free).
 // handle < 0 ise `path` kullanilir (editor loose dosyalari). length 0 = dosyanin tamami.
-// rawLength != length ise aralik zlib'lidir: worker inflate eder, *len = rawLength.
+// rawLength != length ise aralik zlib'lidir: worker inflate eder, len = rawLength.
 DE_FS_API int de_fs_read(int handle, const char *path, long long offset, long long length, long long rawLength);
 
 // Ayni okuma + piksel decode (DTEX hizli yol, degilse stb_image) -> job;
-// poll: *data = RGBA8 (satir 0 altta), *w/*h boyut.
+// tamamlanma data = RGBA8 (satir 0 altta), a/b = w/h.
 DE_FS_API int de_fs_decode(int handle, const char *path, long long offset, long long length, long long rawLength);
 
-// 0 = bekliyor, 1 = tamam, -1 = hata. Yalniz ana thread cagirir.
-DE_FS_API int de_job_poll(int job, void **data, long long *len, int *w, int *h);
-// Sonuc tamponunu serbest birakir ve slotu bosaltir (poll 1/-1 sonrasi SART).
-DE_FS_API void de_job_free(int job);
+// --- Kalici anahtar/deger (DigitoyEngine.PlayerPrefs) --------------------------------------
+// iOS CFPreferences, Android SharedPreferences (host JNI_OnLoad de_android_prefs_bind), Web
+// localStorage, desktop <root>/prefs.dat. Degerler UTF-8 string; tip donusumu managed'da.
+DE_FS_API void de_prefs_set_root(const char *root);              // desktop dosya koku (digerleri yok sayar)
+DE_FS_API int de_prefs_get(const char *key, void **out, int *len); // 1 = var (*out malloc'lu, de_prefs_free)
+DE_FS_API void de_prefs_free(void *p);
+DE_FS_API void de_prefs_set(const char *key, const char *value);
+DE_FS_API void de_prefs_delete(const char *key);
+DE_FS_API void de_prefs_delete_all(void);
+DE_FS_API int de_prefs_has(const char *key);
+DE_FS_API void de_prefs_save(void);                               // desktop: diske yaz; iOS: synchronize; Android: apply
+#if defined(__ANDROID__)
+DE_FS_API void de_android_prefs_bind(void *vm, void *env, void *cls); // com/digitoy/host/Prefs
+#endif
 
 #ifdef __cplusplus
 }

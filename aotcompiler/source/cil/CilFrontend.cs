@@ -449,6 +449,7 @@ namespace DigitoyEngine.Cil
                         methodMap[mh] = code;
                         methodDefs[mh] = m;
                         code.CilAttributes = (ushort)m.Attributes;
+                        code.BodyPending = true; // LoadBodies cevirene kadar bu sablondan klon govdesi alinmaz (GenericInstantiator)
                     }
                 }
                 // property metadata (reflection GetProperties + attribute'lar); get_/set_ metotlari zaten Code olarak kayitli
@@ -471,8 +472,12 @@ namespace DigitoyEngine.Cil
                             if (!anyAcc.IsNil) isStatic = (md.GetMethodDefinition(anyAcc).Attributes & MethodAttributes.Static) != 0;
                             p.Properties.Add(new PrimitiveProperty
                             {
-                                Name = md.GetString(pd.Name), Type = psig.ReturnType, IsStatic = isStatic,
-                                HasGet = !acc.Getter.IsNil, HasSet = !acc.Setter.IsNil, CilAttributes = (ushort)pd.Attributes,
+                                Name = md.GetString(pd.Name),
+                                Type = psig.ReturnType,
+                                IsStatic = isStatic,
+                                HasGet = !acc.Getter.IsNil,
+                                HasSet = !acc.Setter.IsNil,
+                                CilAttributes = (ushort)pd.Attributes,
                             });
                         }
                         catch (Exception ex) { diag.Add($"skip property {p.Name}: {ex.Message}"); }
@@ -578,6 +583,7 @@ namespace DigitoyEngine.Cil
                         // sentezleriz: ldarg.0; ldflda <ad>; ret. Erisim denetimi AOT'de yoktur.
                         try { SynthesizeUnsafeAccessor(m, code); }
                         catch (Exception ex) { StubBody(code, "UnsafeAccessor: " + ex.Message); }
+                        GenericInstantiator.MarkBodyReady(code);
                         continue; // abstract/iface: govdesiz
                     }
                     try
@@ -590,6 +596,7 @@ namespace DigitoyEngine.Cil
                         // Cevrilemeyen govde: derlenebilir stub (yalniz ilgili case uyusmaz, digerleri calisir).
                         StubBody(code, ex.Message);
                     }
+                    GenericInstantiator.MarkBodyReady(code); // bekleyen generic klonlar simdi bu govdeyi kopyalar
                 }
                 return result;
             }
@@ -1675,8 +1682,10 @@ namespace DigitoyEngine.Cil
                     {
                         OpType? neg = t switch
                         {
-                            OpType.Clt => OpType.Cge, OpType.Cle => OpType.Cgt,
-                            OpType.Cgt => OpType.Cle, OpType.Cge => OpType.Clt,
+                            OpType.Clt => OpType.Cge,
+                            OpType.Cle => OpType.Cgt,
+                            OpType.Cgt => OpType.Cle,
+                            OpType.Cge => OpType.Clt,
                             _ => null,
                         };
                         if (neg != null)

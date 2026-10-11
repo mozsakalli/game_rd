@@ -341,31 +341,28 @@ public static class EditorPixels
     public static byte[] DecodeFile(string file, out int w, out int h)
         => Await(Sokol.AssetLoad(file), out w, out h);
 
+    // Bloklayan bekleme: yalniz bu job'un sonucu kuyruktan cekilir (NativeAsync.TryTake), Pump kosmaz.
     public static byte[] Await(int job, out int w, out int h)
     {
         w = h = 0;
         if (job < 0)
             return null;
-        try
+        for (int i = 0; i < 1000; i++)
         {
-            for (int i = 0; i < 1000; i++)
+            if (NativeAsync.TryTake(job, out var c))
             {
-                int r = Sokol.AssetPoll(job, out var pixels, out w, out h);
-                if (r < 0)
-                    return null;
-                if (r == 1)
+                byte[] rgba = null;
+                if (c.Ok)
                 {
-                    var rgba = new byte[w * h * 4];
-                    Marshal.Copy(pixels, rgba, 0, rgba.Length);
-                    return rgba;
+                    w = c.A; h = c.B;
+                    rgba = new byte[w * h * 4];
+                    Marshal.Copy(c.Data, rgba, 0, rgba.Length);
                 }
-                System.Threading.Thread.Sleep(5);
+                NativeAsync.Free(c.Data);
+                return rgba;
             }
-            return null;
+            System.Threading.Thread.Sleep(5);
         }
-        finally
-        {
-            Sokol.AssetFreeJob(job);
-        }
+        return null;
     }
 }

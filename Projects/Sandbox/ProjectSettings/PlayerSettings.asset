@@ -13,5 +13,5 @@ fields:
   fullscreen: false
   resizableWindow: true
   targetFrameRate: 0
-  orientation: landscape
+  orientation: Landscape
   moduleHostDll: ''

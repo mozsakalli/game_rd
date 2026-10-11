@@ -48,6 +48,7 @@ static class PlayMode
             return;
         State = PlayState.Editing;
         DestroyPlayScene();
+        PlayerPrefs.Save(); // oyun kodunun kaydetmedigi prefs Stop'ta diske (release'teki Shutdown muadili)
         EditorWindow.GetWindow<SceneViewPanel>(); // Scene tab'i one
     }
 
@@ -67,7 +68,12 @@ static class PlayMode
         var s = Scene.Create(doc.Name + " (Oyun)");
         doc.InstantiateInto(s, App.Catalog, App.Assets); // aktif sahne = oyun
         PlayScene = s;
+        SpawnedDocVersion = App.EditScene.History.Version;
     }
+
+    // Oyun sahnesinin dogdugu andaki doc surumu: farkliysa play sahnesi BAYAT (doc degisti, HR kosmadi).
+    public static int SpawnedDocVersion { get; private set; }
+    public static bool PlaySceneStale => PlayScene != null && App.EditScene.History.Version != SpawnedDocVersion;
 
     static void DestroyPlayScene()
     {

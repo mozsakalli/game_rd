@@ -150,6 +150,7 @@ static class Program
         inputs.AddRange(SourceFiles("aotcompiler/source", "*.cs"));
         inputs.Add(Path.Combine(RepoRoot, "aotcompiler", "aotcompiler.csproj"));
         inputs.AddRange(SourceFiles("aotcompiler/c_runtime/corelib", "*.cs"));
+        inputs.AddRange(SourceFiles("tools/mcp-bridge", "*.cs", "*.csproj"));
         string h = HashFiles(inputs);
         string marker = Path.Combine(Pkg, "sdk");
         if (UpToDate(marker, h) && File.Exists(Path.Combine(Pkg, "DigitoyEditor.dll"))) { Skipped.Add("managed"); return; }
@@ -166,6 +167,9 @@ static class Program
             Run("dotnet", $"publish \"{Path.Combine(RepoRoot, "editor", "DigitoyEditor.csproj")}\" {edCommon} -r osx-arm64 --self-contained false -o \"{edMac}\"");
             string aotOut = Path.Combine(tmp, "aot");
             Run("dotnet", $"publish \"{Path.Combine(RepoRoot, "aotcompiler", "aotcompiler.csproj")}\" {common} -o \"{aotOut}\"");
+            // MCP koprusu (AI araclari): editor her proje acilisinda .vscode/mcp.json'u bu dll'e isaretler (IdeFiles).
+            string mcpOut = Path.Combine(tmp, "mcp");
+            Run("dotnet", $"publish \"{Path.Combine(RepoRoot, "tools", "mcp-bridge", "McpBridge.csproj")}\" {common} -o \"{mcpOut}\"");
             // Prebuilt IL (docs/platform-hosts.md H2): aotcompiler kendi Roslyn yoluyla CoreLib + Engine(DE_AOT) uretir;
             // aotcompiler.dll'in YANINA konur -> kurulu modda aotcompiler bunlari kaynak yerine kullanir.
             Run("dotnet", $"\"{Path.Combine(aotOut, "aotcompiler.dll")}\" sdk-il \"{aotOut}\"", Path.Combine(RepoRoot, "aotcompiler"));
@@ -183,8 +187,10 @@ static class Program
             string macHost = Path.Combine(edMac, "DigitoyEditor");
             if (File.Exists(macHost)) File.Copy(macHost, Path.Combine(Pkg, "DigitoyEditor"), true);
             CopyDir(aotOut, Path.Combine(Pkg, "sdk", "aotcompiler"));
+            Fresh(Path.Combine(Pkg, "tools"));
+            CopyDir(mcpOut, Path.Combine(Pkg, "tools", "mcp-bridge"));
             WriteManifest(marker, h, "dotnet " + DotnetVersion(), null);
-            Done.Add("managed (editor + apphost win/mac, sdk/aotcompiler + prebuilt CoreLib/Engine IL)");
+            Done.Add("managed (editor + apphost win/mac, sdk/aotcompiler + prebuilt CoreLib/Engine IL, tools/mcp-bridge)");
         }
         finally { try { Directory.Delete(tmp, true); } catch { } }
     }
@@ -245,7 +251,7 @@ static class Program
                 Run(ClangExe, $"-c -O1 -w -g -gcodeview {defines} {extra} -I\"{native}\" -I\"{crt}\" \"{src}\" -o \"{o}\"");
                 return o;
             }
-            foreach (var s in new[] { "sokol_shim", "audio_shim", "de_fs" }) objs.Add(Cc(Path.Combine(native, s + ".c"), "-DSOKOL_GLCORE -DSOKOL_IMPL -D_GLFW_WIN32"));
+            foreach (var s in new[] { "sokol_shim", "audio_shim", "de_fs", "de_async", "de_net" }) objs.Add(Cc(Path.Combine(native, s + ".c"), "-DSOKOL_GLCORE -DSOKOL_IMPL -D_GLFW_WIN32"));
             foreach (var g in GlfwWin) objs.Add(Cc(Path.Combine(native, "glfw-master", "src", g + ".c"), "-D_GLFW_WIN32"));
             foreach (var r in new[] { "vmrt", "corelib", "vmint" }) objs.Add(Cc(Path.Combine(crt, r + ".c"), ""));
             string lib = Path.Combine(dst, $"digitoyengine_static_{variant}.a");
@@ -270,10 +276,10 @@ static class Program
         if (UpToDate(marker, h) && File.Exists(dst)) { Skipped.Add("editor native (win)"); return; }
         Fresh(marker);
         string native = Path.Combine(RepoRoot, "engine", "native");
-        var srcs = new List<string> { "sokol_shim.c", "de_fs.c", "audio_shim.c" }.Select(s => Path.Combine(native, s)).ToList();
+        var srcs = new List<string> { "sokol_shim.c", "de_fs.c", "de_async.c", "de_net.c", "audio_shim.c" }.Select(s => Path.Combine(native, s)).ToList();
         srcs.AddRange(GlfwWin.Select(g => Path.Combine(native, "glfw-master", "src", g + ".c")));
         Run(ClangExe, $"-O1 -w -shared -DSOKOL_GLCORE -D_GLFW_WIN32 -D_GLFW_BUILD_DLL -DDE_BUILD_DLL -DSOKOL_IMPL -I\"{native}\" " +
-            string.Join(" ", srcs.Select(s => $"\"{s}\"")) + " -lopengl32 -lgdi32 -luser32 -lkernel32 -lshell32 -lole32 -loleaut32 -lmfplat -lmfuuid -luuid " +
+            string.Join(" ", srcs.Select(s => $"\"{s}\"")) + " -lopengl32 -lgdi32 -luser32 -lkernel32 -lshell32 -lole32 -loleaut32 -lmfplat -lmfuuid -luuid -lwinhttp " +
             $"-o \"{dst}\"");
         WriteManifest(marker, h, "llvm-mingw " + LlvmMingwTag, null);
         Done.Add("editor native (digitoyengine_native.dll)");
@@ -296,15 +302,17 @@ static class Program
         {
             string defs = "-DSOKOL_METAL -D_GLFW_COCOA -DSOKOL_IMPL";
             string incs = $"-I\"{native}\" -I\"{Path.Combine(native, "glfw-master", "include")}\"";
-            string shim = Path.Combine(tmp, "sokol_shim.o"), audio = Path.Combine(tmp, "audio_shim.o"), fs = Path.Combine(tmp, "de_fs.o");
+            string shim = Path.Combine(tmp, "sokol_shim.o"), audio = Path.Combine(tmp, "audio_shim.o"), fs = Path.Combine(tmp, "de_fs.o"), asy = Path.Combine(tmp, "de_async.o"), net = Path.Combine(tmp, "de_net.o");
             Run("clang", $"-O1 -w -c -fobjc-arc -x objective-c \"{Path.Combine(native, "sokol_shim.c")}\" {defs} {incs} -o \"{shim}\"");
-            Run("clang", $"-O1 -w -c \"{Path.Combine(native, "audio_shim.c")}\" {defs} {incs} -o \"{audio}\"");
+            Run("clang", $"-O1 -w -c -fobjc-arc -x objective-c \"{Path.Combine(native, "audio_shim.c")}\" {defs} {incs} -o \"{audio}\""); // muzik: AVFoundation (ObjC)
             Run("clang", $"-O1 -w -c \"{Path.Combine(native, "de_fs.c")}\" {defs} {incs} -o \"{fs}\"");
+            Run("clang", $"-O1 -w -c \"{Path.Combine(native, "de_async.c")}\" {defs} {incs} -o \"{asy}\"");
+            Run("clang", $"-O1 -w -c \"{Path.Combine(native, "de_net.c")}\" {defs} {incs} -o \"{net}\"");
             var glfw = new[] { "context.c", "init.c", "input.c", "monitor.c", "platform.c", "vulkan.c", "window.c", "egl_context.c", "osmesa_context.c",
                 "null_init.c", "null_joystick.c", "null_monitor.c", "null_window.c",
                 "cocoa_init.m", "cocoa_joystick.m", "cocoa_monitor.m", "cocoa_window.m", "nsgl_context.m", "macos_time.c", "posix_module.c", "posix_thread.c" };
-            string frameworks = "-framework Cocoa -framework IOKit -framework CoreFoundation -framework CoreGraphics -framework CoreVideo -framework AppKit -framework QuartzCore -framework Metal -framework MetalKit -framework AudioToolbox";
-            Run("clang", $"-O1 -w -dynamiclib -fvisibility=default -Wno-deprecated-declarations {defs} {incs} \"{shim}\" \"{audio}\" \"{fs}\" " +
+            string frameworks = "-framework Cocoa -framework IOKit -framework CoreFoundation -framework CoreGraphics -framework CoreVideo -framework AppKit -framework QuartzCore -framework Metal -framework MetalKit -framework AudioToolbox -framework AVFoundation -framework CoreMedia";
+            Run("clang", $"-O1 -w -dynamiclib -fvisibility=default -Wno-deprecated-declarations {defs} {incs} \"{shim}\" \"{audio}\" \"{fs}\" \"{asy}\" \"{net}\" " +
                 string.Join(" ", glfw.Select(g => $"\"{Path.Combine(src, g)}\"")) + $" {frameworks} -install_name \"@rpath/libdigitoyengine_native.dylib\" -o \"{dst}\"");
         }
         finally { try { Directory.Delete(tmp, true); } catch { } }

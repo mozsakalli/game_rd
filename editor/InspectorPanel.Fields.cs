@@ -455,7 +455,7 @@ public sealed partial class InspectorPanel
         return SerializedType.ShowIfMatch(f, sibling.Scalar ?? "");
     }
 
-    static DocNode CreateDefaultNode(SerializedType.Kind kind, Type valueType,
+    internal static DocNode CreateDefaultNode(SerializedType.Kind kind, Type valueType,
         SerializedType.Kind elementKind, Type elementType, SerializedType.FieldSchema[] nested)
     {
         if (kind == SerializedType.Kind.List)
@@ -478,7 +478,7 @@ public sealed partial class InspectorPanel
         return DocNode.Scal(SerializedType.Format(value, kind));
     }
 
-    static DocNode CreateDefaultFieldNode(SerializedType.FieldSchema field)
+    internal static DocNode CreateDefaultFieldNode(SerializedType.FieldSchema field)
     {
         try
         {

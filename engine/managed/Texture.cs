@@ -32,6 +32,7 @@ public unsafe class Texture : GpuResource
     // Offscreen pass hedefi icin attachment view'lar (yalniz render target'ta dolu).
     internal uint ColorAttachmentView => (uint)_colorAttachmentView;
     internal uint DepthAttachmentView => (uint)_depthAttachmentView;
+    internal uint ImageId => (uint)_texture; // editor readback (screenshot)
     public bool IsRenderTarget => _colorAttachmentView != 0;
 
     private Texture()

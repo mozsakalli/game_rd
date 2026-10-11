@@ -1,0 +1,1050 @@
+// ---------------------------------------------------------------------------
+// de_net.c — HTTP + WebSocket backend'leri (de_net.h). Sonuclar de_async kuyruguna.
+//   _WIN32          : WinHTTP async (HTTP + WinHttpWebSocket*, Win8.1+). TLS/proxy OS'un.
+//   diger platformlar: faz 2-4 (docs/network.md); simdilik "desteklenmiyor" tamamlanmasi.
+// Thread: WinHTTP callback'leri kendi thread havuzunda gelir; yalniz de_async_complete + kendi
+// baglam kilidi kullanilir, managed'a dokunulmaz. Baglam yasam suresi: HANDLE_CLOSING'de serbest.
+// ---------------------------------------------------------------------------
+#include "de_net.h"
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#define DE_NET_DEFAULT_TIMEOUT_MS 30000
+#define DE_NET_CHUNK 16384
+
+static void *de_net_memdup(const void *p, size_t n)
+{
+    void *d = malloc(n ? n : 1);
+    if (d && n)
+        memcpy(d, p, n);
+    return d;
+}
+
+static void de_net_fail(int job, const char *msg)
+{
+    size_t n = msg ? strlen(msg) : 0;
+    de_async_complete(job, -1, n ? de_net_memdup(msg, n) : NULL, (long long)n, 0, 0);
+}
+
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#include <winhttp.h>
+
+// ---- yardimcilar -------------------------------------------------------------------------
+static wchar_t *to_wide(const char *s)
+{
+    if (!s)
+        return NULL;
+    int n = MultiByteToWideChar(CP_UTF8, 0, s, -1, NULL, 0);
+    wchar_t *w = (wchar_t *)malloc((size_t)(n > 0 ? n : 1) * sizeof(wchar_t));
+    if (!w)
+        return NULL;
+    if (n > 0)
+        MultiByteToWideChar(CP_UTF8, 0, s, -1, w, n);
+    else
+        w[0] = 0;
+    return w;
+}
+
+// wide -> UTF-8 (malloc'lu, *outLen bayt; NUL eklenmez)
+static unsigned char *to_utf8(const wchar_t *w, int wlen, int *outLen)
+{
+    int n = WideCharToMultiByte(CP_UTF8, 0, w, wlen, NULL, 0, NULL, NULL);
+    unsigned char *u = (unsigned char *)malloc((size_t)(n > 0 ? n : 1));
+    if (u && n > 0)
+        WideCharToMultiByte(CP_UTF8, 0, w, wlen, (char *)u, n, NULL, NULL);
+    *outLen = n > 0 ? n : 0;
+    return u;
+}
+
+static void win_error_text(DWORD err, char *out, size_t cap)
+{
+    HMODULE mod = GetModuleHandleA("winhttp.dll");
+    DWORD flags = FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS | (mod ? FORMAT_MESSAGE_FROM_HMODULE : 0);
+    DWORD n = FormatMessageA(flags, mod, err, 0, out, (DWORD)cap, NULL);
+    if (n == 0)
+        snprintf(out, cap, "WinHTTP error %lu", (unsigned long)err);
+    else
+    {
+        while (n > 0 && (out[n - 1] == '\r' || out[n - 1] == '\n' || out[n - 1] == ' '))
+            out[--n] = 0;
+        size_t l = strlen(out);
+        snprintf(out + l, cap > l ? cap - l : 0, " (%lu)", (unsigned long)err);
+    }
+}
+
+typedef struct
+{
+    HINTERNET session, conn, req;
+    int secure;
+    wchar_t *path, *headers;
+} de_url_t;
+
+// URL'yi parcalar, session+connect+request acar. 0 = ok, aksi GetLastError.
+static DWORD open_request(const char *method, const char *url, const char *headers, int timeoutMs, int websocket, de_url_t *out)
+{
+    memset(out, 0, sizeof *out);
+    // WinHTTP ws:// / wss:// semalarini tanimaz: http(s) olarak parcala (upgrade istek secenegiyle yapilir)
+    char *mapped = NULL;
+    if (strncmp(url, "ws://", 5) == 0 || strncmp(url, "wss://", 6) == 0)
+    {
+        int wss = url[2] == 's';
+        const char *rest = url + (wss ? 6 : 5);
+        mapped = (char *)malloc(strlen(rest) + 9);
+        if (!mapped)
+            return ERROR_OUTOFMEMORY;
+        strcpy(mapped, wss ? "https://" : "http://");
+        strcat(mapped, rest);
+        url = mapped;
+    }
+    wchar_t *wurl = to_wide(url);
+    free(mapped);
+    if (!wurl)
+        return ERROR_OUTOFMEMORY;
+    URL_COMPONENTS uc;
+    memset(&uc, 0, sizeof uc);
+    uc.dwStructSize = sizeof uc;
+    uc.dwSchemeLength = uc.dwHostNameLength = uc.dwUrlPathLength = uc.dwExtraInfoLength = (DWORD)-1;
+    if (!WinHttpCrackUrl(wurl, 0, 0, &uc))
+    {
+        DWORD e = GetLastError();
+        free(wurl);
+        return e;
+    }
+    int secure = uc.nScheme == INTERNET_SCHEME_HTTPS;
+    wchar_t host[256];
+    size_t hl = uc.dwHostNameLength < 255 ? uc.dwHostNameLength : 255;
+    wcsncpy(host, uc.lpszHostName, hl);
+    host[hl] = 0;
+    size_t pl = uc.dwUrlPathLength + uc.dwExtraInfoLength;
+    out->path = (wchar_t *)malloc((pl + 2) * sizeof(wchar_t));
+    if (!out->path)
+    {
+        free(wurl);
+        return ERROR_OUTOFMEMORY;
+    }
+    if (pl)
+        wcsncpy(out->path, uc.lpszUrlPath, pl); // path+query bitisik
+    out->path[pl] = 0;
+    if (pl == 0)
+    {
+        out->path[0] = L'/';
+        out->path[1] = 0;
+    }
+    INTERNET_PORT port = uc.nPort;
+    free(wurl);
+
+    out->session = WinHttpOpen(L"DigitoyEngine/1.0", WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, WINHTTP_FLAG_ASYNC);
+    if (!out->session)
+        out->session = WinHttpOpen(L"DigitoyEngine/1.0", WINHTTP_ACCESS_TYPE_DEFAULT_PROXY, WINHTTP_NO_PROXY_NAME, WINHTTP_NO_PROXY_BYPASS, WINHTTP_FLAG_ASYNC);
+    if (!out->session)
+        return GetLastError();
+    if (timeoutMs <= 0)
+        timeoutMs = DE_NET_DEFAULT_TIMEOUT_MS;
+    WinHttpSetTimeouts(out->session, timeoutMs, timeoutMs, timeoutMs, websocket ? 86400000 : timeoutMs); // ws: alma pratikte suresiz
+    out->conn = WinHttpConnect(out->session, host, port, 0);
+    if (!out->conn)
+        return GetLastError();
+    wchar_t *wmethod = to_wide(method && *method ? method : "GET");
+    out->req = WinHttpOpenRequest(out->conn, wmethod, out->path, NULL, WINHTTP_NO_REFERER, WINHTTP_DEFAULT_ACCEPT_TYPES, secure ? WINHTTP_FLAG_SECURE : 0);
+    free(wmethod);
+    if (!out->req)
+        return GetLastError();
+    out->secure = secure;
+    if (headers && *headers)
+    {
+        // "K: V\n" -> "K: V\r\n" (WinHTTP CRLF ister)
+        size_t n = strlen(headers), j = 0;
+        char *crlf = (char *)malloc(n * 2 + 3);
+        if (!crlf)
+            return ERROR_OUTOFMEMORY;
+        for (size_t i = 0; i < n; i++)
+        {
+            if (headers[i] == '\r')
+                continue;
+            if (headers[i] == '\n')
+            {
+                crlf[j++] = '\r';
+                crlf[j++] = '\n';
+            }
+            else
+                crlf[j++] = headers[i];
+        }
+        if (j >= 2 && !(crlf[j - 2] == '\r' && crlf[j - 1] == '\n'))
+        {
+            crlf[j++] = '\r';
+            crlf[j++] = '\n';
+        }
+        crlf[j] = 0;
+        out->headers = to_wide(crlf);
+        free(crlf);
+    }
+    return 0;
+}
+
+static void close_url(de_url_t *u)
+{
+    if (u->conn)
+        WinHttpCloseHandle(u->conn);
+    if (u->session)
+        WinHttpCloseHandle(u->session);
+    free(u->path);
+    free(u->headers);
+    u->conn = u->session = NULL;
+    u->path = u->headers = NULL;
+}
+
+// ---- id -> baglam tablosu (ana thread yazar; callback'ler tabloya dokunmaz) --------------------
+#define DE_NET_MAX 256
+typedef struct
+{
+    int job;
+    void *ctx;
+} de_slot_t;
+static de_slot_t http_slots[DE_NET_MAX], ws_slots[DE_NET_MAX];
+static CRITICAL_SECTION net_lock;
+static int net_started;
+static void net_ensure(void)
+{
+    if (!net_started)
+    {
+        InitializeCriticalSection(&net_lock);
+        net_started = 1;
+    }
+}
+static int slot_put(de_slot_t *slots, int job, void *ctx)
+{
+    for (int i = 0; i < DE_NET_MAX; i++)
+        if (!slots[i].ctx)
+        {
+            slots[i].job = job;
+            slots[i].ctx = ctx;
+            return 1;
+        }
+    return 0;
+}
+static void *slot_get(de_slot_t *slots, int job)
+{
+    for (int i = 0; i < DE_NET_MAX; i++)
+        if (slots[i].ctx && slots[i].job == job)
+            return slots[i].ctx;
+    return NULL;
+}
+static void slot_del(de_slot_t *slots, void *ctx)
+{
+    for (int i = 0; i < DE_NET_MAX; i++)
+        if (slots[i].ctx == ctx)
+        {
+            slots[i].ctx = NULL;
+            return;
+        }
+}
+
+// =========================================================================================
+// HTTP
+// =========================================================================================
+typedef struct
+{
+    int job;
+    de_url_t u;
+    unsigned char *body; // istek govdesi kopyasi (SendRequest tamamlanana dek canli)
+    unsigned char *buf;  // [basliklar][yanit govdesi]
+    size_t len, cap;
+    int headerLen, status;
+    unsigned char chunk[DE_NET_CHUNK];
+    volatile LONG done; // tamamlanma yazildi (ya da iptal) -> callback'ler API cagirmaz
+} http_t;
+
+static int http_append(http_t *h, const void *p, size_t n)
+{
+    if (h->len + n > h->cap)
+    {
+        size_t cap = h->cap ? h->cap * 2 : 65536;
+        while (cap < h->len + n)
+            cap *= 2;
+        unsigned char *nb = (unsigned char *)realloc(h->buf, cap);
+        if (!nb)
+            return 0;
+        h->buf = nb;
+        h->cap = cap;
+    }
+    memcpy(h->buf + h->len, p, n);
+    h->len += n;
+    return 1;
+}
+
+static void http_finish(http_t *h, int ok, DWORD err)
+{
+    if (InterlockedExchange(&h->done, 1))
+        return;
+    if (ok)
+    {
+        de_async_complete(h->job, 1, h->buf, (long long)h->len, h->status, h->headerLen);
+        h->buf = NULL;
+        h->len = h->cap = 0;
+    }
+    else
+    {
+        char msg[512];
+        win_error_text(err, msg, sizeof msg);
+        de_net_fail(h->job, msg);
+    }
+    WinHttpCloseHandle(h->u.req); // -> HANDLE_CLOSING: kalan kaynaklar
+}
+
+static void CALLBACK http_cb(HINTERNET hReq, DWORD_PTR ctx, DWORD status, LPVOID info, DWORD infoLen)
+{
+    http_t *h = (http_t *)ctx;
+    if (!h)
+        return;
+    if (status == WINHTTP_CALLBACK_STATUS_HANDLE_CLOSING)
+    {
+        EnterCriticalSection(&net_lock);
+        slot_del(http_slots, h);
+        LeaveCriticalSection(&net_lock);
+        h->u.req = NULL;
+        close_url(&h->u);
+        free(h->body);
+        free(h->buf);
+        free(h);
+        return;
+    }
+    if (h->done)
+        return;
+    switch (status)
+    {
+    case WINHTTP_CALLBACK_STATUS_SENDREQUEST_COMPLETE:
+        if (!WinHttpReceiveResponse(hReq, NULL))
+            http_finish(h, 0, GetLastError());
+        break;
+    case WINHTTP_CALLBACK_STATUS_HEADERS_AVAILABLE:
+    {
+        DWORD code = 0, sz = sizeof code;
+        WinHttpQueryHeaders(hReq, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX, &code, &sz, WINHTTP_NO_HEADER_INDEX);
+        h->status = (int)code;
+        DWORD hsz = 0;
+        WinHttpQueryHeaders(hReq, WINHTTP_QUERY_RAW_HEADERS_CRLF, WINHTTP_HEADER_NAME_BY_INDEX, NULL, &hsz, WINHTTP_NO_HEADER_INDEX);
+        if (hsz > 0)
+        {
+            wchar_t *wh = (wchar_t *)malloc(hsz);
+            if (wh && WinHttpQueryHeaders(hReq, WINHTTP_QUERY_RAW_HEADERS_CRLF, WINHTTP_HEADER_NAME_BY_INDEX, wh, &hsz, WINHTTP_NO_HEADER_INDEX))
+            {
+                int ulen = 0;
+                unsigned char *u = to_utf8(wh, (int)(hsz / sizeof(wchar_t)) - 1, &ulen);
+                if (u)
+                {
+                    http_append(h, u, (size_t)ulen);
+                    h->headerLen = ulen;
+                    free(u);
+                }
+            }
+            free(wh);
+        }
+        if (!WinHttpQueryDataAvailable(hReq, NULL))
+            http_finish(h, 0, GetLastError());
+        break;
+    }
+    case WINHTTP_CALLBACK_STATUS_DATA_AVAILABLE:
+    {
+        DWORD avail = info ? *(DWORD *)info : 0;
+        if (avail == 0)
+        {
+            http_finish(h, 1, 0);
+            break;
+        }
+        if (avail > DE_NET_CHUNK)
+            avail = DE_NET_CHUNK;
+        if (!WinHttpReadData(hReq, h->chunk, avail, NULL))
+            http_finish(h, 0, GetLastError());
+        break;
+    }
+    case WINHTTP_CALLBACK_STATUS_READ_COMPLETE:
+        if (infoLen == 0)
+        {
+            http_finish(h, 1, 0);
+            break;
+        }
+        if (!http_append(h, h->chunk, infoLen))
+        {
+            http_finish(h, 0, ERROR_OUTOFMEMORY);
+            break;
+        }
+        if (!WinHttpQueryDataAvailable(hReq, NULL))
+            http_finish(h, 0, GetLastError());
+        break;
+    case WINHTTP_CALLBACK_STATUS_REQUEST_ERROR:
+    {
+        WINHTTP_ASYNC_RESULT *r = (WINHTTP_ASYNC_RESULT *)info;
+        http_finish(h, 0, r ? r->dwError : ERROR_WINHTTP_INTERNAL_ERROR);
+        break;
+    }
+    default:
+        break;
+    }
+}
+
+DE_NET_API int de_http_request(const char *method, const char *url, const char *headers, const void *body, int bodyLen, int timeoutMs)
+{
+    net_ensure();
+    int job = de_async_new_job();
+    http_t *h = (http_t *)calloc(1, sizeof(http_t));
+    if (!h)
+    {
+        de_net_fail(job, "out of memory");
+        return job;
+    }
+    h->job = job;
+    DWORD err = open_request(method, url, headers, timeoutMs, 0, &h->u);
+    if (err == 0 && body && bodyLen > 0)
+    {
+        h->body = (unsigned char *)de_net_memdup(body, (size_t)bodyLen);
+        if (!h->body)
+            err = ERROR_OUTOFMEMORY;
+    }
+    if (err == 0)
+    {
+        EnterCriticalSection(&net_lock);
+        int ok = slot_put(http_slots, job, h);
+        LeaveCriticalSection(&net_lock);
+        if (!ok)
+            err = ERROR_TOO_MANY_OPEN_FILES;
+    }
+    if (err != 0)
+    {
+        char msg[512];
+        win_error_text(err, msg, sizeof msg);
+        de_net_fail(job, msg);
+        if (h->u.req)
+            WinHttpCloseHandle(h->u.req);
+        close_url(&h->u);
+        free(h->body);
+        free(h);
+        return job;
+    }
+    WinHttpSetStatusCallback(h->u.req, http_cb, WINHTTP_CALLBACK_FLAG_ALL_NOTIFICATIONS, 0);
+    if (!WinHttpSendRequest(h->u.req, h->u.headers ? h->u.headers : WINHTTP_NO_ADDITIONAL_HEADERS, h->u.headers ? (DWORD)-1L : 0,
+                            h->body, (DWORD)(h->body ? bodyLen : 0), (DWORD)(h->body ? bodyLen : 0), (DWORD_PTR)h))
+        http_finish(h, 0, GetLastError()); // HANDLE_CLOSING temizler
+    return job;
+}
+
+DE_NET_API void de_http_cancel(int job)
+{
+    net_ensure();
+    EnterCriticalSection(&net_lock);
+    http_t *h = (http_t *)slot_get(http_slots, job);
+    LeaveCriticalSection(&net_lock);
+    if (!h)
+        return;
+    if (InterlockedExchange(&h->done, 1))
+        return; // zaten bitti (tamamlanma kuyrukta; managed dusurur)
+    WinHttpCloseHandle(h->u.req);
+}
+
+// =========================================================================================
+// WEBSOCKET
+// =========================================================================================
+typedef struct ws_send_s
+{
+    struct ws_send_s *next;
+    unsigned char *data;
+    int len;
+    int isText;
+} ws_send_t;
+
+typedef struct
+{
+    int job;
+    de_url_t u;
+    HINTERNET ws;
+    unsigned char *rbuf;
+    size_t rlen, rcap; // parcali mesaj birikimi
+    unsigned char rchunk[DE_NET_CHUNK];
+    CRITICAL_SECTION lock;
+    ws_send_t *sq_head, *sq_tail, *sending; // gonderim kuyrugu + ucan yazim
+    volatile LONG finished;                 // CLOSE ya da -1 yazildi
+    volatile LONG freeReq;                  // de_ws_free cagrildi: tum handle'lar kapaninca baglam serbest
+    int closeSent;                          // biz Shutdown gonderdik
+    int haveClose;                          // closeCode/closeReason dolu (CLOSE frame'inden okundu)
+    USHORT closeCode;
+    char closeReason[124];
+    DWORD closeReasonLen;
+} ws_t;
+
+static void ws_destroy(ws_t *w)
+{
+    EnterCriticalSection(&net_lock);
+    slot_del(ws_slots, w);
+    LeaveCriticalSection(&net_lock);
+    close_url(&w->u);
+    for (ws_send_t *s = w->sq_head; s;)
+    {
+        ws_send_t *n = s->next;
+        free(s->data);
+        free(s);
+        s = n;
+    }
+    if (w->sending)
+    {
+        free(w->sending->data);
+        free(w->sending);
+    }
+    free(w->rbuf);
+    DeleteCriticalSection(&w->lock);
+    free(w);
+}
+
+static void ws_fail(ws_t *w, DWORD err)
+{
+    if (InterlockedExchange(&w->finished, 1))
+        return;
+    char msg[512];
+    win_error_text(err, msg, sizeof msg);
+    de_net_fail(w->job, msg);
+}
+
+// Kapanis kodu/sebebi: CLOSE frame'i geldikten sonra sorgulanabilir; bir kez okunur, saklanir.
+static void ws_query_close(ws_t *w)
+{
+    if (w->haveClose || !w->ws)
+        return;
+    USHORT code = 0;
+    DWORD consumed = 0;
+    if (WinHttpWebSocketQueryCloseStatus(w->ws, &code, w->closeReason, sizeof w->closeReason, &consumed) == NO_ERROR) // DWORD doner, BOOL degil
+    {
+        w->closeCode = code;
+        w->closeReasonLen = consumed;
+        w->haveClose = 1;
+    }
+}
+
+static void ws_closed(ws_t *w)
+{
+    if (InterlockedExchange(&w->finished, 1))
+        return;
+    ws_query_close(w);
+    USHORT code = w->haveClose ? w->closeCode : 1006; // 1006: el sikisma tamamlanmadan koptu
+    DWORD n = w->haveClose ? w->closeReasonLen : 0;
+    de_async_complete(w->job, DE_WS_CLOSE, n ? de_net_memdup(w->closeReason, n) : NULL, n, code, 0);
+}
+
+static void ws_pump_send(ws_t *w)
+{
+    // lock tutulurken cagrilir; ucan yazim yoksa kuyruktan birini ucurur
+    if (w->sending || !w->sq_head || !w->ws || w->finished)
+        return;
+    ws_send_t *s = w->sq_head;
+    w->sq_head = s->next;
+    if (!w->sq_head)
+        w->sq_tail = NULL;
+    w->sending = s;
+    DWORD r = WinHttpWebSocketSend(w->ws, s->isText ? WINHTTP_WEB_SOCKET_UTF8_MESSAGE_BUFFER_TYPE : WINHTTP_WEB_SOCKET_BINARY_MESSAGE_BUFFER_TYPE, s->data, (DWORD)s->len);
+    if (r != NO_ERROR)
+    {
+        free(s->data);
+        free(s);
+        w->sending = NULL;
+        ws_fail(w, r);
+    }
+}
+
+static void ws_receive(ws_t *w)
+{
+    DWORD r = WinHttpWebSocketReceive(w->ws, w->rchunk, DE_NET_CHUNK, NULL, NULL);
+    if (r != NO_ERROR && r != ERROR_INVALID_OPERATION)
+        ws_fail(w, r);
+}
+
+static void CALLBACK ws_cb(HINTERNET h, DWORD_PTR ctx, DWORD status, LPVOID info, DWORD infoLen)
+{
+    ws_t *w = (ws_t *)ctx;
+    if (!w)
+        return;
+    if (status == WINHTTP_CALLBACK_STATUS_HANDLE_CLOSING)
+    {
+        int last;
+        EnterCriticalSection(&w->lock);
+        if (h == w->u.req)
+            w->u.req = NULL;
+        if (h == w->ws)
+            w->ws = NULL;
+        last = !w->u.req && !w->ws && w->freeReq;
+        LeaveCriticalSection(&w->lock);
+        if (last)
+            ws_destroy(w);
+        return;
+    }
+    switch (status)
+    {
+    case WINHTTP_CALLBACK_STATUS_SENDREQUEST_COMPLETE:
+        if (!WinHttpReceiveResponse(h, NULL))
+            ws_fail(w, GetLastError());
+        break;
+    case WINHTTP_CALLBACK_STATUS_HEADERS_AVAILABLE:
+    {
+        DWORD code = 0, sz = sizeof code;
+        WinHttpQueryHeaders(h, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER, WINHTTP_HEADER_NAME_BY_INDEX, &code, &sz, WINHTTP_NO_HEADER_INDEX);
+        if (code != 101)
+        {
+            ws_fail(w, ERROR_WINHTTP_INVALID_SERVER_RESPONSE);
+            break;
+        }
+        HINTERNET ws = WinHttpWebSocketCompleteUpgrade(h, (DWORD_PTR)w);
+        if (!ws)
+        {
+            ws_fail(w, GetLastError());
+            break;
+        }
+        WinHttpSetStatusCallback(ws, ws_cb, WINHTTP_CALLBACK_FLAG_ALL_NOTIFICATIONS, 0);
+        EnterCriticalSection(&w->lock);
+        w->ws = ws;
+        LeaveCriticalSection(&w->lock);
+        WinHttpCloseHandle(h); // istek handle'i bitti (HANDLE_CLOSING -> req=NULL)
+        de_async_complete(w->job, DE_WS_OPEN, NULL, 0, 0, 0);
+        EnterCriticalSection(&w->lock);
+        ws_pump_send(w); // baglanmadan once kuyruga alinanlar
+        LeaveCriticalSection(&w->lock);
+        ws_receive(w);
+        break;
+    }
+    case WINHTTP_CALLBACK_STATUS_READ_COMPLETE:
+    {
+        WINHTTP_WEB_SOCKET_STATUS *st = (WINHTTP_WEB_SOCKET_STATUS *)info;
+        if (!st || w->finished)
+            break;
+        if (st->eBufferType == WINHTTP_WEB_SOCKET_CLOSE_BUFFER_TYPE)
+        {
+            ws_query_close(w);
+            if (!w->closeSent)
+            {
+                // Karsi taraf kapatti: ayni kodla yanit ver (Shutdown: bekleyen alma ile uyumlu, SHUTDOWN_COMPLETE gelir)
+                w->closeSent = 1;
+                WinHttpWebSocketShutdown(w->ws, w->haveClose ? w->closeCode : WINHTTP_WEB_SOCKET_SUCCESS_CLOSE_STATUS, NULL, 0);
+            }
+            ws_closed(w);
+            break;
+        }
+        DWORD n = st->dwBytesTransferred;
+        if (n)
+        {
+            if (w->rlen + n > w->rcap)
+            {
+                size_t cap = w->rcap ? w->rcap * 2 : 65536;
+                while (cap < w->rlen + n)
+                    cap *= 2;
+                unsigned char *nb = (unsigned char *)realloc(w->rbuf, cap);
+                if (!nb)
+                {
+                    ws_fail(w, ERROR_OUTOFMEMORY);
+                    break;
+                }
+                w->rbuf = nb;
+                w->rcap = cap;
+            }
+            memcpy(w->rbuf + w->rlen, w->rchunk, n);
+            w->rlen += n;
+        }
+        if (st->eBufferType == WINHTTP_WEB_SOCKET_UTF8_MESSAGE_BUFFER_TYPE || st->eBufferType == WINHTTP_WEB_SOCKET_BINARY_MESSAGE_BUFFER_TYPE)
+        {
+            int isText = st->eBufferType == WINHTTP_WEB_SOCKET_UTF8_MESSAGE_BUFFER_TYPE;
+            de_async_complete(w->job, DE_WS_MESSAGE, w->rbuf ? w->rbuf : de_net_memdup("", 0), (long long)w->rlen, isText, 0);
+            w->rbuf = NULL;
+            w->rlen = w->rcap = 0;
+        }
+        ws_receive(w);
+        break;
+    }
+    case WINHTTP_CALLBACK_STATUS_WRITE_COMPLETE:
+        EnterCriticalSection(&w->lock);
+        if (w->sending)
+        {
+            free(w->sending->data);
+            free(w->sending);
+            w->sending = NULL;
+        }
+        ws_pump_send(w);
+        LeaveCriticalSection(&w->lock);
+        break;
+    case WINHTTP_CALLBACK_STATUS_CLOSE_COMPLETE:
+    case WINHTTP_CALLBACK_STATUS_SHUTDOWN_COMPLETE:
+        if (w->closeSent && w->haveClose)
+            ws_closed(w); // karsi tarafin CLOSE'u zaten geldiyse bitir; yoksa alma tamamlanmasini bekle
+        break;
+    case WINHTTP_CALLBACK_STATUS_REQUEST_ERROR:
+    {
+        WINHTTP_ASYNC_RESULT *r = (WINHTTP_ASYNC_RESULT *)info;
+        DWORD err = r ? r->dwError : ERROR_WINHTTP_INTERNAL_ERROR;
+        if (w->finished)
+            break;
+        if (w->closeSent && w->ws)
+        {
+            ws_closed(w);
+            break;
+        } // kapanis sirasinda ucan alma iptali: kapanis olarak raporla
+        ws_fail(w, err);
+        break;
+    }
+    default:
+        break;
+    }
+}
+
+DE_NET_API int de_ws_open(const char *url, const char *headers)
+{
+    net_ensure();
+    int job = de_async_new_job();
+    ws_t *w = (ws_t *)calloc(1, sizeof(ws_t));
+    if (!w)
+    {
+        de_net_fail(job, "out of memory");
+        return job;
+    }
+    w->job = job;
+    InitializeCriticalSection(&w->lock);
+    DWORD err = open_request("GET", url, headers, 0, 1, &w->u);
+    if (err == 0 && !WinHttpSetOption(w->u.req, WINHTTP_OPTION_UPGRADE_TO_WEB_SOCKET, NULL, 0))
+        err = GetLastError();
+    if (err == 0)
+    {
+        EnterCriticalSection(&net_lock);
+        int ok = slot_put(ws_slots, job, w);
+        LeaveCriticalSection(&net_lock);
+        if (!ok)
+            err = ERROR_TOO_MANY_OPEN_FILES;
+    }
+    if (err != 0)
+    {
+        ws_fail(w, err);
+        if (w->u.req)
+        {
+            WinHttpCloseHandle(w->u.req);
+            w->u.req = NULL;
+        }
+        w->freeReq = 1; // handle yok: de_ws_free hemen yok eder; tabloya girmediyse burada
+        EnterCriticalSection(&net_lock);
+        int inTable = slot_get(ws_slots, job) == w;
+        LeaveCriticalSection(&net_lock);
+        if (!inTable)
+        {
+            ws_destroy(w);
+        }
+        return job;
+    }
+    WinHttpSetStatusCallback(w->u.req, ws_cb, WINHTTP_CALLBACK_FLAG_ALL_NOTIFICATIONS, 0);
+    if (!WinHttpSendRequest(w->u.req, w->u.headers ? w->u.headers : WINHTTP_NO_ADDITIONAL_HEADERS, w->u.headers ? (DWORD)-1L : 0, NULL, 0, 0, (DWORD_PTR)w))
+        ws_fail(w, GetLastError());
+    return job;
+}
+
+static ws_t *ws_get(int ws)
+{
+    net_ensure();
+    EnterCriticalSection(&net_lock);
+    ws_t *w = (ws_t *)slot_get(ws_slots, ws);
+    LeaveCriticalSection(&net_lock);
+    return w;
+}
+
+DE_NET_API int de_ws_send(int ws, const void *data, int len, int isText)
+{
+    ws_t *w = ws_get(ws);
+    if (!w || w->finished)
+        return -1;
+    ws_send_t *s = (ws_send_t *)calloc(1, sizeof(ws_send_t));
+    if (!s)
+        return -1;
+    s->data = (unsigned char *)de_net_memdup(data, (size_t)(len > 0 ? len : 0));
+    s->len = len > 0 ? len : 0;
+    s->isText = isText;
+    EnterCriticalSection(&w->lock);
+    if (w->sq_tail)
+        w->sq_tail->next = s;
+    else
+        w->sq_head = s;
+    w->sq_tail = s;
+    ws_pump_send(w); // baglanti henuz yoksa kuyrukta bekler, OPEN'da ucar
+    LeaveCriticalSection(&w->lock);
+    return 0;
+}
+
+DE_NET_API void de_ws_close(int ws, int code, const char *reason)
+{
+    ws_t *w = ws_get(ws);
+    if (!w || w->finished)
+        return;
+    EnterCriticalSection(&w->lock);
+    HINTERNET h = w->ws;
+    int already = w->closeSent;
+    w->closeSent = 1;
+    LeaveCriticalSection(&w->lock);
+    if (already)
+        return;
+    if (!h)
+    {
+        ws_fail(w, ERROR_WINHTTP_OPERATION_CANCELLED);
+        return;
+    } // daha baglanmadi: vazgec
+    size_t rl = reason ? strlen(reason) : 0;
+    if (rl > 123)
+        rl = 123;
+    // Shutdown: CLOSE frame'i gonderir, bekleyen WinHttpWebSocketReceive acik kalir; karsi tarafin CLOSE'u
+    // o alma ile gelir (READ_COMPLETE/CLOSE tipi) -> ws_closed. (WinHttpWebSocketClose bekleyen alma varken hata verir.)
+    DWORD r = WinHttpWebSocketShutdown(h, (USHORT)(code > 0 ? code : WINHTTP_WEB_SOCKET_SUCCESS_CLOSE_STATUS), rl ? (PVOID)reason : NULL, (DWORD)rl);
+    if (r != NO_ERROR)
+        ws_fail(w, r);
+}
+
+DE_NET_API void de_ws_free(int ws)
+{
+    ws_t *w = ws_get(ws);
+    if (!w)
+        return;
+    InterlockedExchange(&w->finished, 1);
+    EnterCriticalSection(&w->lock);
+    w->freeReq = 1;
+    HINTERNET hw = w->ws, hr = w->u.req;
+    LeaveCriticalSection(&w->lock);
+    if (hw)
+        WinHttpCloseHandle(hw);
+    if (hr)
+        WinHttpCloseHandle(hr);
+    if (!hw && !hr)
+        ws_destroy(w);
+}
+
+#elif defined(__EMSCRIPTEN__)
+// ---- Web: fetch + WebSocket (tarayici; TLS/CORS tarayicinin). Tek thread: callback'ler ana thread'de
+// ama yine de de_async kuyruguna yazilir (ayni sozlesme: managed yalniz Pump'ta gorur).
+// Baslik destegi: fetch istek basliklari OK; WebSocket'te tarayici ozel baslik vermez (yok sayilir).
+#include <emscripten/emscripten.h>
+// EM_JS govdeleri JS'tir: formatter `===`i bolup calisma zamani soz dizimi hatasi uretti; bu bolge formatlanmaz.
+// clang-format off
+
+// JS -> C geri cagri (EM_JS 64-bit len tasiyamaz: int). KEEPALIVE: `_de_net_done` olarak gorunur.
+EMSCRIPTEN_KEEPALIVE void de_net_done(int job, int code, void *data, int len, int a, int b)
+{
+    de_async_complete(job, code, data, (long long)len, a, b);
+}
+
+EM_JS(void, de_js_net_init, (void), {
+    if (Module.deNet)
+        return;
+    Module.deNet = {http : {}, ws : {}};
+    Module.deNet.bytes = function(u8)
+    {
+        var p = _malloc(u8.length || 1);
+        HEAPU8.set(u8, p);
+        return p;
+    };
+    Module.deNet.str = function(s)
+    {
+        var n = lengthBytesUTF8(s);
+        var p = _malloc(n + 1);
+        stringToUTF8(s, p, n + 1);
+        return [ p, n ];
+    };
+    Module.deNet.fail = function(job, msg)
+    {
+        var r = Module.deNet.str(String(msg));
+        _de_net_done(job, -1, r[0], r[1], 0, 0);
+    };
+});
+
+EM_JS(void, de_js_http, (int job, const char *method, const char *url, const char *headers, const void *body, int bodyLen, int timeoutMs), {
+    var N = Module.deNet;
+    var ctl = new AbortController();
+    var init = {method : UTF8ToString(method), signal : ctl.signal, headers : {}};
+    if (headers)
+    {
+        UTF8ToString(headers).split('\n').forEach(function(line) {
+            var i = line.indexOf(':');
+            if (i > 0)
+                init.headers[line.substring(0, i).trim()] = line.substring(i + 1).trim();
+        });
+    }
+    if (body && bodyLen > 0)
+        init.body = HEAPU8.slice(body, body + bodyLen);
+    var timer = setTimeout(function() { ctl.abort('timeout'); }, timeoutMs > 0 ? timeoutMs : 30000);
+    N.http[job] = ctl;
+    var status = 0, hdr = '';
+    fetch(UTF8ToString(url), init).then(function(res) {
+                                      status = res.status;
+                                      hdr = 'HTTP/1.1 ' + res.status + ' ' + res.statusText + '\r\n';
+                                      res.headers.forEach(function(v, k) { hdr += k + ': ' + v + '\r\n'; });
+                                      hdr += '\r\n';
+                                      return res.arrayBuffer();
+                                  })
+        .then(function(ab) {
+            clearTimeout(timer);
+            if (!N.http[job])
+                return; // iptal edildi
+            delete N.http[job];
+            var h = new TextEncoder().encode(hdr), b = new Uint8Array(ab);
+            var all = new Uint8Array(h.length + b.length);
+            all.set(h, 0);
+            all.set(b, h.length);
+            _de_net_done(job, 1, N.bytes(all), all.length, status, h.length);
+        })
+        .catch(function(e) {
+            clearTimeout(timer);
+            if (!N.http[job])
+                return;
+            delete N.http[job];
+            N.fail(job, e && e.message ? e.message : e);
+        });
+});
+
+EM_JS(void, de_js_http_cancel, (int job), {
+    var N = Module.deNet, c = N.http[job];
+    if (c)
+    {
+        delete N.http[job];
+        c.abort('canceled');
+    }
+});
+
+EM_JS(void, de_js_ws_open, (int job, const char *url), {
+    var N = Module.deNet;
+    var ws;
+    try { ws = new WebSocket(UTF8ToString(url)); }
+    catch(e)
+    {
+        N.fail(job, e && e.message ? e.message : e);
+        return;
+    }
+    ws.binaryType = 'arraybuffer';
+    N.ws[job] = ws;
+    ws.onopen = function()
+    {
+        if (N.ws[job])
+            _de_net_done(job, 0x40000001, 0, 0, 0, 0);
+    };
+    ws.onmessage = function(ev)
+    {
+        if (!N.ws[job])
+            return;
+        if (typeof ev.data === 'string')
+        {
+            var r = N.str(ev.data);
+            _de_net_done(job, 0x40000002, r[0], r[1], 1, 0);
+        }
+        else
+        {
+            var u = new Uint8Array(ev.data);
+            _de_net_done(job, 0x40000002, N.bytes(u), u.length, 0, 0);
+        }
+    };
+    ws.onerror = function(){}; // tarayici ardindan hep close(1006) verir
+    ws.onclose = function(ev)
+    {
+        if (!N.ws[job])
+            return;
+        delete N.ws[job];
+        var r = N.str(ev.reason || '');
+        _de_net_done(job, 2, r[0], r[1], ev.code || 1006, 0);
+    };
+});
+
+EM_JS(int, de_js_ws_send, (int ws, const void *data, int len, int isText), {
+    var s = Module.deNet.ws[ws];
+    if (!s || s.readyState > 1)
+        return -1;
+    try
+    {
+        if (isText)
+            s.send(UTF8ToString(data, len));
+        else
+            s.send(HEAPU8.slice(data, data + len));
+    }
+    catch(e) { return -1; }
+    return 0;
+});
+
+EM_JS(void, de_js_ws_close, (int ws, int code, const char *reason), {
+    var s = Module.deNet.ws[ws];
+    if (!s)
+        return;
+    try { s.close(code, UTF8ToString(reason)); }
+    catch(e)
+    {
+        try { s.close(); }
+        catch(e2) {}
+    } // tarayici yalniz 1000/3000-4999 kabul eder
+});
+
+EM_JS(void, de_js_ws_free, (int ws), {
+    var N = Module.deNet, s = N.ws[ws];
+    if (!s)
+        return;
+    delete N.ws[ws];
+    try { s.close(); }
+    catch(e) {}
+});
+
+DE_NET_API int de_http_request(const char *method, const char *url, const char *headers, const void *body, int bodyLen, int timeoutMs)
+{
+    de_js_net_init();
+    int job = de_async_new_job();
+    de_js_http(job, method && *method ? method : "GET", url, headers, body, bodyLen, timeoutMs);
+    return job;
+}
+DE_NET_API void de_http_cancel(int job)
+{
+    de_js_net_init();
+    de_js_http_cancel(job);
+}
+DE_NET_API int de_ws_open(const char *url, const char *headers)
+{
+    (void)headers;
+    de_js_net_init();
+    int job = de_async_new_job();
+    de_js_ws_open(job, url);
+    return job;
+}
+DE_NET_API int de_ws_send(int ws, const void *data, int len, int isText) { return de_js_ws_send(ws, data, len, isText); }
+DE_NET_API void de_ws_close(int ws, int code, const char *reason) { de_js_ws_close(ws, code, reason ? reason : ""); }
+DE_NET_API void de_ws_free(int ws) { de_js_ws_free(ws); }
+// clang-format on
+
+#else // ---- diger platformlar: faz 3-4 ----------------------------------------------------------
+
+DE_NET_API int de_http_request(const char *method, const char *url, const char *headers, const void *body, int bodyLen, int timeoutMs)
+{
+    (void)method;
+    (void)url;
+    (void)headers;
+    (void)body;
+    (void)bodyLen;
+    (void)timeoutMs;
+    int job = de_async_new_job();
+    de_net_fail(job, "de_net: bu platformda henuz desteklenmiyor");
+    return job;
+}
+DE_NET_API void de_http_cancel(int job) { (void)job; }
+DE_NET_API int de_ws_open(const char *url, const char *headers)
+{
+    (void)url;
+    (void)headers;
+    int job = de_async_new_job();
+    de_net_fail(job, "de_net: bu platformda henuz desteklenmiyor");
+    return job;
+}
+DE_NET_API int de_ws_send(int ws, const void *data, int len, int isText)
+{
+    (void)ws;
+    (void)data;
+    (void)len;
+    (void)isText;
+    return -1;
+}
+DE_NET_API void de_ws_close(int ws, int code, const char *reason)
+{
+    (void)ws;
+    (void)code;
+    (void)reason;
+}
+DE_NET_API void de_ws_free(int ws) { (void)ws; }
+
+#endif

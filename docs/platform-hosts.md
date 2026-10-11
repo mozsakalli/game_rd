@@ -93,7 +93,7 @@ Aynı kural `Build/ios/`, `Build/wasm/` için.
     (texture/atlas yeniden yükleme: AssetDatabase'de "GPU kaynaklarını yeniden bağla" yolu gerekir — **ayrı iş**, ilk dilimde kabul edilen kısıt).
   - `game.pak` APK `assets/`'inde sıkıştırılmadan (`noCompress "pak"`) → `AAssetManager_openFileDescriptor` ile offset+len alıp mevcut
     `de_fs` dosya yolu (fd + offset) kullanılır; ya da ilk açılışta files dizinine kopya (basit, 2 kat disk). İlki hedef.
-  - Ses: SFX sokol_audio → OpenSLES/AAudio hazır. Müzik → host MediaPlayer.
+  - Ses: SFX sokol_audio → AAudio hazır. Müzik → `Music.kt` (MediaPlayer; JNI köprüsü `audio_shim.c` `__ANDROID__` + `host_android.c` JNI_OnLoad) — BİTTİ (cihaz testi bekliyor).
 - **iOS**: dinamik .so/.dylib yok (App Store) → `libgame.a` Xcode target'ı olarak statik. Metal backend var (editörde kullanılıyor). Pak bundle
   resource. `CADisplayLink` → `de_app_frame`; `touchesBegan/Moved/Ended/Cancelled` → kuyruk. Arka plan: `applicationWillResignActive` → pause.
 - **wasm**: emsdk Platform Support olarak indirilir (llvm-mingw gibi cache'te). Tek thread, `emscripten_set_main_loop` → `de_app_frame`.
@@ -149,7 +149,7 @@ Aynı kural `Build/ios/`, `Build/wasm/` için.
   home→geri dönüş sorunsuz. Release = `assembleRelease` (NDK -O3, strip); debug varyantı -O1 (CMake `$<CONFIG:Debug>`).
   **Güncel (registry-removal D):** `generated/cpp` silinmez, `gen/` tip başına `.c/.h` (değişmeyen dosyaya dokunulmaz), derleme listesi
   `gen_sources.cmake` (GLOB yok), `-O1` override'ları kalktı; arm64 Debug temiz 56 s, değişiklik yok 0 s (önce `generated.c.o` 984 s).
-- **Android kalanlar (sırayla)**: (1) multitouch → `Pointer` id'li; (2) `de_music_*` → MediaPlayer köprüsü (H3 mesaj kanalı/`de_host_*` ile);
+- **Android kalanlar (sırayla)**: (1) multitouch → `Pointer` id'li; (2) ~~`de_music_*` → MediaPlayer köprüsü~~ BİTTİ (`Music.kt`, cihaz testi bekliyor);
   (3) klavye/EV_TEXT → soft keyboard; (4) GL context kaybı → GPU kaynak yenileme (H7); (5) splash;
   (6) izin/manifest meta-data listesi (tek `main` manifest → H3 kancalarıyla manifest merge).
 - **H5.2 pak kopyasız okuma BİTTİ**: `PakInstaller` kalktı. Pak APK'da `assets/Build/game.pak` (sıkıştırılmadan, `noCompress "pak"`); Kotlin
@@ -182,6 +182,6 @@ Aynı kural `Build/ios/`, `Build/wasm/` için.
   uyuşmazlığı / `out IntPtr` 8-bayt slota 4-bayt yazım. Çözüm: extern'ler `void*`/`byte*`, dışa dönük yüzey IntPtr sarmalayıcı (Module/Sokol/Audio/NativeFs).
   (2) Komut akışı hizasız; `SetUniforms` verisi WebGL'de 4-bayt hizalı olmalı → shim hizalı tampona kopyalar. Doğrulama: Sandbox tarayıcıda
   (Chromium) pak→registry→16 asset→sahne, sprite+SDF yazı çizimi OK; 5.2 MB wasm (-O2), ilk tam derleme ~70 s, artımlı ~30 s.
-  Kalanlar: editörden "Run in Browser" (HttpListener statik sunucu; `file://` çalışmaz), `de_music_*` HTMLAudio shim, crash dump → JS hook,
+  Kalanlar: editörden "Run in Browser" (HttpListener statik sunucu; `file://` çalışmaz), ~~`de_music_*` HTMLAudio shim~~ (BİTTİ: EM_JS `HTMLAudioElement`, pak aralığı Blob; tarayıcı testi bekliyor), crash dump → JS hook,
   IndexedDB kalıcı kayıt, mobil soft keyboard.
 - Sırada: H3 (proje üretim altyapısı + kancalar), editor-distribution Faz 1 kalanları, Faz 4.

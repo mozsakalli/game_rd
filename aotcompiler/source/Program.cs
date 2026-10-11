@@ -295,7 +295,7 @@ public static class Program
     {
         var staticLib = BuildNativeStaticLib(Path.Combine(workDir, "native-static"));
         var defines = "-DSOKOL_GLCORE" + (Environment.GetEnvironmentVariable("AOT_GCPOISON") == "1" ? " -DDIGITOYENGINE_GC_POISON" : "");
-        var libs = "-lopengl32 -lgdi32 -luser32 -lkernel32 -lshell32 -lole32 -loleaut32 -lmfplat -lmfuuid -luuid";
+        var libs = "-lopengl32 -lgdi32 -luser32 -lkernel32 -lshell32 -lole32 -loleaut32 -lmfplat -lmfuuid -luuid -lwinhttp";
         Directory.CreateDirectory(Path.GetDirectoryName(outExe));
         // Release: uretilen + runtime -O2 (dosya basina derleme sayesinde maliyet dusuk), fonksiyon/veri bolumleri + --gc-sections
         // (basvurulmayan kod/veri atilir), -s (COFF sembol tablosu exe'de tasinmaz; ~%30 boyut).
@@ -558,8 +558,9 @@ public static class Program
         var items = srcs.Select(s => new DigitoyEngine.Build.CcBuild.Item { Source = s }).ToList();
         foreach (var n in new[] { "vmrt.c", "corelib.c", "vmint.c", "de_app.c", "host_wasm.c" })
             items.Add(new DigitoyEngine.Build.CcBuild.Item { Source = Path.Combine(CRuntimeDir, n) });
-        foreach (var n in new[] { "sokol_shim.c", "audio_shim.c", "de_fs.c" })
-            items.Add(new DigitoyEngine.Build.CcBuild.Item { Source = Path.Combine(EngineNativeDir, n), ExtraFlags = "-DSOKOL_IMPL" });
+        // DE_NO_DECODERS: mp3/ogg/wav decoder'lari yalniz editor importer'i icin; player PCM alir, release'ten duser.
+        foreach (var n in new[] { "sokol_shim.c", "audio_shim.c", "de_fs.c", "de_async.c", "de_net.c" })
+            items.Add(new DigitoyEngine.Build.CcBuild.Item { Source = Path.Combine(EngineNativeDir, n), ExtraFlags = "-DSOKOL_IMPL -DDE_NO_DECODERS" });
         var emcc = new DigitoyEngine.Build.CcBuild.Tool { Key = "emcc:" + DigitoyEngine.Build.EmsdkToolchain.Key, Start = DigitoyEngine.Build.EmsdkToolchain.Emcc };
         string common = $"-w -DSOKOL_GLES3 {NativeIncludes} " + (debug ? "-O0 -g -DDIGITOYENGINE_DEBUG" : "-O2");
         var res = DigitoyEngine.Build.CcBuild.Compile(emcc, objDir, common, items, Console.WriteLine);
@@ -620,13 +621,16 @@ public static class Program
     {
         string lib = Path.Combine(outDir, "digitoyengine_native_static.a");
         string clang = ClangPath();
-        // Cache anahtari: kaynak/header mtime'lari + TOOLCHAIN (MSVC-hedef clang ile mingw nesneleri karismasin: __chkstk/_fltused).
+        // DE_NO_DECODERS: mp3/ogg/wav decoder'lari yalniz editor importer'i icin; player PCM alir, release'ten duser.
+        const string defines = "-DSOKOL_GLCORE -D_GLFW_WIN32 -DSOKOL_IMPL -DDE_NO_DECODERS";
+        // Cache anahtari: kaynak/header mtime'lari + TOOLCHAIN + define'lar (MSVC-hedef clang ile mingw nesneleri karismasin: __chkstk/_fltused).
         string stamp = Path.Combine(outDir, ".toolchain");
+        string stampValue = clang + "\n" + defines;
         var sources = new List<string>();
-        foreach (var n in new[] { "sokol_shim.c", "audio_shim.c", "de_fs.c" }) sources.Add(Path.Combine(EngineNativeDir, n));
+        foreach (var n in new[] { "sokol_shim.c", "audio_shim.c", "de_fs.c", "de_async.c", "de_net.c" }) sources.Add(Path.Combine(EngineNativeDir, n));
         foreach (var g in GlfwWin32Sources) sources.Add(Path.Combine(EngineNativeDir, "glfw-master", "src", g + ".c"));
         var inputs = sources.Concat(Directory.GetFiles(EngineNativeDir, "*.h", SearchOption.AllDirectories)).ToList();
-        bool sameToolchain = File.Exists(stamp) && File.ReadAllText(stamp) == clang;
+        bool sameToolchain = File.Exists(stamp) && File.ReadAllText(stamp) == stampValue;
         if (sameToolchain && File.Exists(lib) && inputs.All(f => File.Exists(f) && File.GetLastWriteTimeUtc(f) <= File.GetLastWriteTimeUtc(lib)))
             return lib;
         Console.WriteLine($"native statik lib eski/yok -> {sources.Count} kaynak derleniyor ({EngineNativeDir})");
@@ -638,14 +642,14 @@ public static class Program
         foreach (var src in sources)
         {
             string obj = Path.Combine(outDir, Path.GetFileNameWithoutExtension(src) + ".o");
-            var (e, o) = RunProcess(clang, $"-O2 -w -c -DSOKOL_GLCORE -D_GLFW_WIN32 -DSOKOL_IMPL {NativeIncludes} {Quote(src)} -o {Quote(obj)}");
+            var (e, o) = RunProcess(clang, $"-O2 -w -c {defines} {NativeIncludes} {Quote(src)} -o {Quote(obj)}");
             if (e != 0) throw new Exception($"native derleme basarisiz: {src}\n{o}");
             objs.Add(obj);
         }
         if (File.Exists(lib)) File.Delete(lib);
         var (ae, ao) = RunProcess(ar, $"rcs {Quote(lib)} {string.Join(" ", objs.Select(Quote))}");
         if (ae != 0) throw new Exception($"native arsiv olusturulamadi:\n{ao}");
-        File.WriteAllText(stamp, clang);
+        File.WriteAllText(stamp, stampValue);
         return lib;
     }
 

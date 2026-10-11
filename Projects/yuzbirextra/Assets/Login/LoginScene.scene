@@ -31,6 +31,223 @@ objects:
           color: '#ffffffff'
           color2: '#00000000'
         border: 1 1 1 1
+      - type: MovieClip
+        Fps: 60
+        FrameCount: 96
+        PlayOnStart: true
+        Loop: false
+        Tracks:
+          - Keys:
+              - Frame: 0
+                Value: 1 1 1 0
+              - Ease: OutQuad
+                Frame: 18
+                Value: 1 1 1 0
+              - Ease: InOutSine
+                Frame: 22
+                Value: 1.05 1.05 1 0
+              - Frame: 34
+                Value: 1 1 1 0
+            Path: Scale
+            Target: '11:Transform:0'
+          - Keys:
+              - Ease: InSine
+                Frame: 0
+                Value: 0.3 0.3 1 0
+              - Ease: OutExpo
+                Frame: 18
+                Value: 0.6 0.6 1 0
+              - Frame: 42
+                Value: 2 2 1 0
+            Path: Scale
+            Target: '8:Transform:0'
+          - Keys:
+              - Ease: InCubic
+                Frame: 0
+                Value: 2 2 1 0
+              - Ease: OutQuad
+                Frame: 18
+                Value: 0.94 0.94 1 0
+              - Frame: 26
+                Value: 1 1 1 0
+            Path: Scale
+            Target: '12:Transform:0'
+          - Keys:
+              - Frame: 0
+                Mode: Hold
+                Value: 0 0 1 0
+              - Ease: OutBack
+                Frame: 34
+                Value: 0 0 1 0
+              - Frame: 54
+                Value: 1 1 1 0
+            Path: Scale
+            Target: '3:Transform:0'
+          - Keys:
+              - Frame: 0
+                Mode: Hold
+                Value: 0 0 1 0
+              - Ease: OutBack
+                Frame: 40
+                Value: 0 0 1 0
+              - Frame: 60
+                Value: 1 1 1 0
+            Path: Scale
+            Target: '5:Transform:0'
+          - Keys:
+              - Frame: 0
+                Mode: Hold
+                Value: 0 0 1 0
+              - Ease: OutBack
+                Frame: 46
+                Value: 0 0 1 0
+              - Frame: 66
+                Value: 1 1 1 0
+            Path: Scale
+            Target: '6:Transform:0'
+          - Keys:
+              - Frame: 0
+                Mode: Hold
+                Value: 0 0 1 0
+              - Ease: OutBack
+                Frame: 52
+                Value: 0 0 1 0
+              - Frame: 72
+                Value: 1 1 1 0
+            Path: Scale
+            Target: '7:Transform:0'
+          - Keys:
+              - Frame: 0
+                Mode: Hold
+                Value: 255 255 255 0
+              - Ease: OutSine
+                Frame: 60
+                Value: 255 255 255 0
+              - Frame: 84
+                Value: 255 255 255 255
+            Path: textFill.color
+            Target: '16:LayoutBox:0'
+          - Keys:
+              - Frame: 0
+                Mode: Hold
+                Value: 255 255 255 0
+              - Ease: OutSine
+                Frame: 60
+                Value: 255 255 255 0
+              - Frame: 84
+                Value: 255 255 255 255
+            Path: textFill.color
+            Target: '15:LayoutBox:0'
+          - Keys:
+              - Frame: 0
+                Mode: Hold
+                Value: 255 255 255 0
+              - Ease: OutSine
+                Frame: 60
+                Value: 255 255 255 0
+              - Frame: 84
+                Value: 255 255 255 255
+            Path: textFill.color
+            Target: '18:LayoutBox:0'
+          - Keys:
+              - Frame: 0
+                Mode: Hold
+                Value: 255 255 255 0
+              - Ease: OutSine
+                Frame: 60
+                Value: 255 255 255 0
+              - Frame: 84
+                Value: 255 255 255 255
+            Path: textFill.color
+            Target: '17:LayoutBox:0'
+          - Keys:
+              - Frame: 0
+                Mode: Hold
+                Value: 255 255 255 0
+              - Ease: OutSine
+                Frame: 60
+                Value: 255 255 255 0
+              - Frame: 84
+                Value: 255 255 255 255
+            Path: textFill.color
+            Target: '19:LayoutBox:0'
+          - Keys:
+              - Frame: 0
+                Mode: Hold
+                Value: 0 0 0 0
+              - Ease: OutSine
+                Frame: 60
+                Value: 0 0 0 0
+              - Frame: 84
+                Value: 0 0 0 255
+            Path: textShadowColor
+            Target: '16:LayoutBox:0'
+          - Keys:
+              - Frame: 0
+                Mode: Hold
+                Value: 0 0 0 0
+              - Ease: OutSine
+                Frame: 60
+                Value: 0 0 0 0
+              - Frame: 84
+                Value: 0 0 0 255
+            Path: textShadowColor
+            Target: '15:LayoutBox:0'
+          - Keys:
+              - Frame: 0
+                Mode: Hold
+                Value: 0 0 0 0
+              - Ease: OutSine
+                Frame: 60
+                Value: 0 0 0 0
+              - Frame: 84
+                Value: 0 0 0 255
+            Path: textShadowColor
+            Target: '18:LayoutBox:0'
+          - Keys:
+              - Frame: 0
+                Mode: Hold
+                Value: 0 0 0 0
+              - Ease: OutSine
+                Frame: 60
+                Value: 0 0 0 0
+              - Frame: 84
+                Value: 0 0 0 255
+            Path: textShadowColor
+            Target: '17:LayoutBox:0'
+          - Keys:
+              - Frame: 0
+                Mode: Hold
+                Value: 0 0 0 0
+              - Ease: OutSine
+                Frame: 60
+                Value: 0 0 0 0
+              - Frame: 84
+                Value: 0 0 0 255
+            Path: textShadowColor
+            Target: '19:LayoutBox:0'
+          - Keys:
+              - Frame: 0
+                Mode: Hold
+                Value: 255 255 255 0
+              - Ease: OutSine
+                Frame: 60
+                Value: 255 255 255 0
+              - Frame: 84
+                Value: 255 255 255 255
+            Path: borderFill.color
+            Target: '15:LayoutBox:0'
+          - Keys:
+              - Frame: 0
+                Mode: Hold
+                Value: 255 255 255 0
+              - Ease: OutSine
+                Frame: 60
+                Value: 255 255 255 0
+              - Frame: 84
+                Value: 255 255 255 255
+            Path: borderFill.color
+            Target: '17:LayoutBox:0'
   - id: 4
     parent: 1
     name: BUTTONS
@@ -46,6 +263,7 @@ objects:
         pivot: 0.5 1
         anchoredPos: 0 -100
         alignChildren: Center
+        SortingOrder: 1
   - id: 3
     parent: 4
     name: FACEBOOK
@@ -67,6 +285,9 @@ objects:
         textShadowOffset: 0 1
         shadowColor: '#000000ff'
         textSize: 60
+        BlocksRaycast: true
+      - type: Button
+        buttonId: facebook
   - id: 5
     parent: 4
     name: GUEST
@@ -92,6 +313,9 @@ objects:
         radius: 20 20 20 20
         shadowColor: '#000000ff'
         textSize: 60
+        BlocksRaycast: true
+      - type: Button
+        buttonId: guest
   - id: 6
     parent: 4
     name: OR
@@ -102,7 +326,9 @@ objects:
       - type: LayoutBox
         font: dd3069bf887d44eb80d125c87f3eda93
         text: VEYA
-        textSize: 22
+        textSize: 30
+      - type: PlatformFilter
+        platforms: IOS
   - id: 7
     parent: 4
     name: APPLE
@@ -127,28 +353,11 @@ objects:
           color2: '#ffffffff'
         shadowColor: '#000000ff'
         textSize: 60
-  - id: 13
-    parent: 11
-    name: GameObject (2)
-    pos: -279.09442 -235.80319 0
-    rot: 0 0 0
-    scale: 1 1 1
-    components:
-      - type: SpriteRenderer
-        Sprite: 62239607f52740079b96f31df484b4e8
-        Width: 325
-        Height: 316
-  - id: 14
-    parent: 11
-    name: GameObject (3)
-    pos: -308.60004 297.9585 0
-    rot: 0 0 0
-    scale: 1 1 1
-    components:
-      - type: SpriteRenderer
-        Sprite: d9c0c4053b6a4247bb3844c72574e02a
-        Width: 402
-        Height: 197
+        BlocksRaycast: true
+      - type: Button
+        buttonId: apple
+      - type: PlatformFilter
+        platforms: IOS
   - id: 8
     parent: 11
     name: BG
@@ -169,94 +378,25 @@ objects:
     components:
       - type: LayoutBox
         font: d486343bc94940e3bed6cd5ef1f70231
-        text: Giriş tuşlarına basarak Hizmet Politikamızı ve
+        text: ''
         pivot: 0.5 1
         anchorMin: 0.5 1
         anchorMax: 0.5 1
         textShadowColor: '#000000ff'
         anchoredPos: 0 -14.900001
         textSize: 38
+        layout: Horizontal
+        spacing: 9
+        alignChildren: Center
   - id: 11
     parent: 1
-    name: GameObject
+    name: LOGO_GROUP
     pos: 0 -90 0
     rot: 0 0 0
     scale: 1 1 1
-    components:
-      - type: MovieClip
-        Fps: 45
-        FrameCount: 30
-        Loop: false
-        PlayOnStart: true
-        Interpolate: true
-        Speed: 1
-        Tracks:
-          - Target: '8:Transform:0'
-            Path: Scale
-            Mask: 15
-            Keys:
-              - Frame: 4
-                Mode: Tween
-                Ease: OutBack
-                Value: 1 1 1 0
-                Ref: ''
-              - Frame: 14
-                Mode: Tween
-                Ease: Linear
-                Value: 2 2 1 0
-                Ref: ''
-          - Target: '12:Transform:0'
-            Path: Scale
-            Mask: 15
-            Keys:
-              - Frame: 0
-                Mode: Tween
-                Ease: Linear
-                Value: 2 2 1 0
-                Ref: ''
-              - Frame: 9
-                Mode: Tween
-                Ease: Linear
-                Value: 1 1 1 0
-                Ref: ''
-          - Target: '13:Transform:0'
-            Path: Position
-            Mask: 15
-            Keys:
-              - Frame: 4
-                Mode: Tween
-                Ease: OutBack
-                Value: -233.86841 -219.84113 0 0
-                Ref: ''
-              - Frame: 9
-                Mode: Tween
-                Ease: Linear
-                Value: -279.09442 -235.80319 0 0
-                Ref: ''
-          - Target: '13:SpriteRenderer:0'
-            Path: Color
-            Mask: 15
-            Keys:
-              - Frame: 0
-                Mode: Tween
-                Ease: Linear
-                Value: 255 255 255 0
-                Ref: ''
-              - Frame: 4
-                Mode: Tween
-                Ease: Linear
-                Value: 255 255 255 0
-                Ref: ''
-              - Frame: 6
-                Mode: Tween
-                Ease: Linear
-                Value: 255 255 255 255
-                Ref: ''
-        Labels:
-        Actions:
   - id: 12
     parent: 11
-    name: GameObject (1)
+    name: LOGO
     pos: 0 0 0
     rot: 0 0 0
     scale: 1 1 1
@@ -265,3 +405,81 @@ objects:
         Sprite: ab6a232641514e3381cde052b7edc231
         Width: 583
         Height: 450
+  - id: 16
+    parent: 10
+    name: TXT1
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        text: Giriş tuşlarına basarak
+        font: d486343bc94940e3bed6cd5ef1f70231
+        textSize: 38
+        textShadowColor: '#000000ff'
+  - id: 15
+    parent: 10
+    name: TERMS
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        textSize: 38
+        text: Hizmet Koşullarımızı
+        font: dd3069bf887d44eb80d125c87f3eda93
+        textShadowColor: '#000000ff'
+        border: 0 0 0 2
+        BlocksRaycast: true
+        borderFill:
+          type: Solid
+          direction: Vertical
+          color: '#ffffffff'
+          color2: '#00000000'
+      - type: PolicyLink
+        linkId: terms
+  - id: 18
+    parent: 10
+    name: TXT2
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        text: ve
+        font: d486343bc94940e3bed6cd5ef1f70231
+        textSize: 38
+        textShadowColor: '#000000ff'
+  - id: 17
+    parent: 10
+    name: PRIVACY
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        text: Gizlilik Politikamızı
+        font: dd3069bf887d44eb80d125c87f3eda93
+        textSize: 38
+        textShadowColor: '#000000ff'
+        border: 0 0 0 2
+        BlocksRaycast: true
+        borderFill:
+          type: Solid
+          direction: Vertical
+          color: '#ffffffff'
+          color2: '#00000000'
+      - type: PolicyLink
+        linkId: privacy
+  - id: 19
+    parent: 10
+    name: TXT3
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        text: kabul etmiş olursunuz.
+        textSize: 38
+        font: d486343bc94940e3bed6cd5ef1f70231
+        textShadowColor: '#000000ff'

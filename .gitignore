@@ -13,6 +13,9 @@ engine/native/build/
 Projects/*/Library/
 Projects/*/Build/
 Projects/*/UserSettings/
+# makineye ozel IDE/AI dosyalari: editor her acilista yeniden uretir (IdeFiles)
+Projects/*/*.Game.csproj
+Projects/*/.vscode/mcp.json
 
 # --- Android Studio / Gradle (uretilen projelerin icinde) ---
 .gradle/

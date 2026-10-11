@@ -29,6 +29,7 @@ public static class MovieClipTests
         NestedViaFrameProperty(s);
         KindsAndDedup(s);
         TweenGeneric(s);
+        AnimatedWriteNotifies(s);
         RoundTrip(s, catalog);
         ZeroAlloc(s);
 
@@ -309,6 +310,39 @@ public static class MovieClipTests
         s.Update(1f);
         Check(t.Width == 11f && t.Fill.Tint.r == 100, "tween tamamlanir");
         GameObject.Destroy(go);
+        s.Update(0f);
+    }
+
+    // Animasyon alana dogrudan yazar (property setter yok) → turetilmis durum
+    // OnAnimatedPropertiesApplied (→ OnValidate → MarkDirty) ile ayni frame'de cozulmeli.
+    // LayoutBox: 'width' alani tween/clip ile yazilinca RectWidth guncellenir.
+    static void AnimatedWriteNotifies(Scene s)
+    {
+        var go = new GameObject("lb");
+        var box = go.AddComponent<LayoutBox>();
+        box.Width = 100f; box.Height = 20f;
+        s.Update(0f);
+        Check(box.RectWidth == 100f, "layout baslangic cozumu");
+
+        box.Tween("width", 200f, 1f);
+        s.Update(1f);
+        Check(box.RectWidth == 200f, "Tween alan yazimi → OnValidate → layout cozuldu (RectWidth)");
+
+        var clipGo = new GameObject("lbclip");
+        var clip = clipGo.AddComponent<MovieClip>();
+        clip.Fps = 10; clip.FrameCount = 11; clip.PlayOnStart = false;
+        clip.Tracks.Add(Track(box, "width", (0, new AnimValue(200f)), (10, new AnimValue(300f))));
+        clip.Rebuild();
+        clip.GotoAndStop(10);
+        s.Update(0f);
+        Check(box.RectWidth == 300f, "MovieClip alan yazimi → layout cozuldu (RectWidth)");
+        // Edit modu (simulate=false): preview paneli SampleFrame ile yazar; flush yine kosar.
+        clip.SampleFrame(0);
+        s.Update(0f, simulate: false);
+        Check(box.RectWidth == 200f, "edit modunda SampleFrame → layout cozuldu");
+
+        GameObject.Destroy(go);
+        GameObject.Destroy(clipGo);
         s.Update(0f);
     }
 

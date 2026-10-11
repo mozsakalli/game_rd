@@ -24,6 +24,7 @@ public enum CameraClearFlags
     DontClear,  // hicbir sey
 }
 
+[ExecuteInEditMode]
 public sealed class CameraComponent : Component
 {
     // Birden fazla kamera varsa en dusuk depth "main" secilir (Unity Camera.depth).

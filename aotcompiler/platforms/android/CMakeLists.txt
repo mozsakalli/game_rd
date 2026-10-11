@@ -6,7 +6,7 @@ cmake_minimum_required(VERSION 3.22.1)
 project(game C)
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/gen_sources.cmake) # DE_GEN_SOURCES (her build yeniden uretilir)
-set(DE_SHIM native/sokol_shim.c native/audio_shim.c native/de_fs.c)
+set(DE_SHIM native/sokol_shim.c native/audio_shim.c native/de_fs.c native/de_async.c native/de_net.c)
 add_library(game SHARED
     ${DE_GEN_SOURCES}
     c_runtime/vmrt.c c_runtime/corelib.c c_runtime/vmint.c
@@ -15,7 +15,8 @@ add_library(game SHARED
 
 target_include_directories(game PRIVATE c_runtime gen native)
 target_compile_definitions(game PRIVATE SOKOL_GLES3)
-set_source_files_properties(${DE_SHIM} PROPERTIES COMPILE_DEFINITIONS "SOKOL_IMPL")
+# DE_NO_DECODERS: mp3/ogg/wav decoder'lari yalniz editor importer'i icin; player PCM alir, release'ten duser.
+set_source_files_properties(${DE_SHIM} PROPERTIES COMPILE_DEFINITIONS "SOKOL_IMPL;DE_NO_DECODERS")
 # Release: NDK varsayilani (-O3 -DNDEBUG) — tam optimizasyon, override yok. Debug varyantinda -O0 yerine -O1:
 # AOT runtime (GC) -O0'da oynanamaz; debug sembolleri (-g) korunur.
 target_compile_options(game PRIVATE -w -ffunction-sections -fdata-sections $<$<CONFIG:Debug>:-O1>)

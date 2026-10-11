@@ -143,6 +143,16 @@ static void Sleep_ms_1(void) { Sleep(1); }
 static void Sleep_ms_1(void) { struct timespec ts = { 0, 1000000 }; nanosleep(&ts, NULL); }
 #endif
 
+// Muzik backend basliklari (platform native player).
+#if defined(__EMSCRIPTEN__)
+#include <emscripten/emscripten.h>
+#include <stdio.h>
+#elif defined(__ANDROID__)
+#include <jni.h>
+#elif defined(__APPLE__) && defined(__OBJC__)
+#import <AVFoundation/AVFoundation.h>
+#endif
+
 // Ertelenmis klip serbest birakma: callback STOP_CLIP'i isleyene kadar bellek
 // yasar. Komut ring'i tuketilince (tail >= seq) free edilir.
 typedef struct
@@ -1212,7 +1222,478 @@ DE_API void de_music_shutdown(void)
     }
 }
 
-#else // !_WIN32 — macOS/iOS (AVPlayer), Android (MediaPlayer), Web (HTMLAudio): sonraki dilim.
+#elif defined(__EMSCRIPTEN__)
+// Web: HTMLAudioElement (tarayici decode + ag akisi). Handle = JS tarafindaki dizi indeksi;
+// durum JS'te tutulur (olaylar ana thread'de, tek thread). Pak araligi: baytlar C'de okunup
+// Blob'a kopyalanir (MEMFS'te zaten bellekte; FS export'una bagimlilik yok). Autoplay
+// politikasi: play() reddedilirse wantPlay kalir, ilk kullanici jestinde (pointerdown/
+// touchend/keydown) yeniden denenir — oyun kodu bir sey yapmaz.
+EM_JS(void, de_js_music_init, (void), {
+    if (Module.deMusic) return;
+    var M = Module.deMusic = { items: [] };
+    M.unlock = function () {
+        for (var i = 0; i < M.items.length; i++) {
+            var it = M.items[i];
+            if (it && it.wantPlay && it.el.paused) it.el.play().catch(function () {});
+        }
+    };
+    ['pointerdown', 'touchend', 'keydown'].forEach(function (ev) { document.addEventListener(ev, M.unlock, true); });
+});
+EM_JS(int, de_js_music_open, (const char *url, const void *bytes, int len), {
+    var M = Module.deMusic;
+    var el = new Audio();
+    var it = { el: el, state: 0, wantPlay: false, blobUrl: null };
+    el.preload = 'auto';
+    el.addEventListener('loadedmetadata', function () { if (it.state === 0) it.state = 1; });
+    el.addEventListener('canplay', function () { if (it.state === 0) it.state = 1; });
+    el.addEventListener('playing', function () { it.state = 2; });
+    el.addEventListener('pause', function () { if (it.state === 2) it.state = 1; });
+    el.addEventListener('ended', function () { if (!el.loop) { it.state = 3; it.wantPlay = false; } });
+    el.addEventListener('error', function () { it.state = -1; it.wantPlay = false; });
+    if (url) el.src = UTF8ToString(url);
+    else {
+        it.blobUrl = URL.createObjectURL(new Blob([HEAPU8.slice(bytes, bytes + len)]));
+        el.src = it.blobUrl;
+    }
+    el.load();
+    var h = M.items.indexOf(null);
+    if (h < 0) { h = M.items.length; M.items.push(it); } else M.items[h] = it;
+    return h;
+});
+EM_JS(void, de_js_music_close, (int h), {
+    var M = Module.deMusic, it = M.items[h];
+    if (!it) return;
+    it.wantPlay = false;
+    it.el.pause();
+    it.el.removeAttribute('src');
+    it.el.load();
+    if (it.blobUrl) URL.revokeObjectURL(it.blobUrl);
+    M.items[h] = null;
+});
+EM_JS(void, de_js_music_play, (int h), {
+    var it = Module.deMusic.items[h];
+    if (!it) return;
+    it.wantPlay = true;
+    if (it.state === 3) { it.el.currentTime = 0; it.state = 1; }
+    it.el.play().catch(function () {});
+});
+EM_JS(void, de_js_music_pause, (int h), {
+    var it = Module.deMusic.items[h];
+    if (!it) return;
+    it.wantPlay = false;
+    it.el.pause();
+});
+EM_JS(void, de_js_music_set_volume, (int h, float v), {
+    var it = Module.deMusic.items[h];
+    if (it) it.el.volume = v < 0 ? 0 : (v > 1 ? 1 : v);
+});
+EM_JS(void, de_js_music_set_loop, (int h, int loop), {
+    var it = Module.deMusic.items[h];
+    if (it) it.el.loop = !!loop;
+});
+EM_JS(int, de_js_music_state, (int h), {
+    var it = Module.deMusic.items[h];
+    return it ? it.state : -1;
+});
+EM_JS(double, de_js_music_position, (int h), {
+    var it = Module.deMusic.items[h];
+    return it ? it.el.currentTime : 0;
+});
+EM_JS(double, de_js_music_duration, (int h), {
+    var it = Module.deMusic.items[h];
+    if (!it) return 0;
+    var d = it.el.duration;
+    return isFinite(d) ? d : -1;
+});
+EM_JS(void, de_js_music_seek, (int h, double sec), {
+    var it = Module.deMusic.items[h];
+    if (it) it.el.currentTime = sec;
+});
+EM_JS(void, de_js_music_shutdown, (void), {
+    var M = Module.deMusic;
+    if (!M) return;
+    for (var i = 0; i < M.items.length; i++) {
+        var it = M.items[i];
+        if (!it) continue;
+        it.el.pause();
+        it.el.removeAttribute('src');
+        if (it.blobUrl) URL.revokeObjectURL(it.blobUrl);
+    }
+    M.items = [];
+});
+
+static int de_is_url(const char *s)
+{
+    return (strncmp(s, "http://", 7) == 0) || (strncmp(s, "https://", 8) == 0);
+}
+
+DE_API int de_music_open(const char *pathOrUrl, long long offset, long long length)
+{
+    if (!pathOrUrl)
+        return -1;
+    de_js_music_init();
+    if (de_is_url(pathOrUrl))
+        return de_js_music_open(pathOrUrl, NULL, 0);
+    FILE *f = fopen(pathOrUrl, "rb");
+    if (!f)
+        return -1;
+    fseek(f, 0, SEEK_END);
+    long long size = ftell(f);
+    if (length <= 0 || offset + length > size)
+        length = size - offset;
+    if (offset < 0 || length <= 0 || length > 0x7FFFFFFF) { fclose(f); return -1; }
+    unsigned char *buf = (unsigned char *)malloc((size_t)length);
+    if (!buf) { fclose(f); return -1; }
+    fseek(f, (long)offset, SEEK_SET);
+    size_t got = fread(buf, 1, (size_t)length, f);
+    fclose(f);
+    int h = got == (size_t)length ? de_js_music_open(NULL, buf, (int)length) : -1;
+    free(buf); // Blob kopyaladi
+    return h;
+}
+DE_API void de_music_close(int h) { if (h >= 0) de_js_music_close(h); }
+DE_API void de_music_play(int h) { if (h >= 0) de_js_music_play(h); }
+DE_API void de_music_pause(int h) { if (h >= 0) de_js_music_pause(h); }
+DE_API void de_music_set_volume(int h, float v) { if (h >= 0) de_js_music_set_volume(h, v); }
+DE_API void de_music_set_loop(int h, int loop) { if (h >= 0) de_js_music_set_loop(h, loop); }
+DE_API int de_music_state(int h) { return h >= 0 ? de_js_music_state(h) : -1; }
+DE_API double de_music_position(int h) { return h >= 0 ? de_js_music_position(h) : 0.0; }
+DE_API double de_music_duration(int h) { return h >= 0 ? de_js_music_duration(h) : 0.0; }
+DE_API void de_music_seek(int h, double sec) { if (h >= 0) de_js_music_seek(h, sec); }
+DE_API void de_music_shutdown(void) { de_js_music_shutdown(); }
+
+#elif defined(__ANDROID__)
+// Android: JNI -> com.digitoy.host.Music (Kotlin, android.media.MediaPlayer). Handle tablosu ve
+// durum Kotlin'de (MediaPlayer olaylari ana thread'de, alanlar @Volatile). Host JNI_OnLoad'da
+// de_android_music_bind(vm, env, cls) cagirir: sinif global ref'i APP classloader'indan cozulur
+// (GL thread'inden FindClass app siniflarini goremez). Baglanmamissa her sey -1/no-op.
+// Pak araligi: "asset:/Build/game.pak" + offset/len -> Kotlin AssetManager.openFd; duz dosya ->
+// FileInputStream fd; http(s) -> dogrudan URL.
+static JavaVM *de_jvm;
+static jclass de_music_cls;
+static jmethodID de_jm_open, de_jm_close, de_jm_play, de_jm_pause, de_jm_volume, de_jm_loop,
+    de_jm_state, de_jm_position, de_jm_duration, de_jm_seek, de_jm_shutdown;
+
+DE_API void de_android_music_bind(void *vm, void *env_, void *cls_)
+{
+    JNIEnv *env = (JNIEnv *)env_;
+    jclass cls = (jclass)cls_;
+    de_jvm = (JavaVM *)vm;
+    de_music_cls = (jclass)(*env)->NewGlobalRef(env, cls);
+    de_jm_open = (*env)->GetStaticMethodID(env, cls, "open", "(Ljava/lang/String;JJ)I");
+    de_jm_close = (*env)->GetStaticMethodID(env, cls, "close", "(I)V");
+    de_jm_play = (*env)->GetStaticMethodID(env, cls, "play", "(I)V");
+    de_jm_pause = (*env)->GetStaticMethodID(env, cls, "pause", "(I)V");
+    de_jm_volume = (*env)->GetStaticMethodID(env, cls, "setVolume", "(IF)V");
+    de_jm_loop = (*env)->GetStaticMethodID(env, cls, "setLoop", "(IZ)V");
+    de_jm_state = (*env)->GetStaticMethodID(env, cls, "state", "(I)I");
+    de_jm_position = (*env)->GetStaticMethodID(env, cls, "position", "(I)D");
+    de_jm_duration = (*env)->GetStaticMethodID(env, cls, "duration", "(I)D");
+    de_jm_seek = (*env)->GetStaticMethodID(env, cls, "seek", "(ID)V");
+    de_jm_shutdown = (*env)->GetStaticMethodID(env, cls, "shutdown", "()V");
+    if ((*env)->ExceptionCheck(env))
+    {
+        (*env)->ExceptionClear(env);
+        de_music_cls = NULL; // imza uyusmazligi: kopru kapali, sessiz stub
+    }
+}
+
+static JNIEnv *de_jni_env(void)
+{
+    if (!de_jvm || !de_music_cls)
+        return NULL;
+    JNIEnv *env = NULL;
+    if ((*de_jvm)->GetEnv(de_jvm, (void **)&env, JNI_VERSION_1_6) == JNI_OK)
+        return env;
+    // GL thread Java tarafinda yaratilmistir (zaten bagli); yine de guvenlik icin bagla.
+    return (*de_jvm)->AttachCurrentThread(de_jvm, &env, NULL) == JNI_OK ? env : NULL;
+}
+
+static void de_jni_clear(JNIEnv *env)
+{
+    if ((*env)->ExceptionCheck(env))
+        (*env)->ExceptionClear(env);
+}
+
+DE_API int de_music_open(const char *pathOrUrl, long long offset, long long length)
+{
+    JNIEnv *env = de_jni_env();
+    if (!env || !pathOrUrl)
+        return -1;
+    jstring js = (*env)->NewStringUTF(env, pathOrUrl);
+    if (!js) { de_jni_clear(env); return -1; }
+    jint h = (*env)->CallStaticIntMethod(env, de_music_cls, de_jm_open, js, (jlong)offset, (jlong)length);
+    (*env)->DeleteLocalRef(env, js);
+    de_jni_clear(env);
+    return h;
+}
+#define DE_JNI_VOID(mid, ...)                                                       \
+    do {                                                                            \
+        JNIEnv *env = de_jni_env();                                                 \
+        if (!env) return;                                                           \
+        (*env)->CallStaticVoidMethod(env, de_music_cls, mid, ##__VA_ARGS__);        \
+        de_jni_clear(env);                                                          \
+    } while (0)
+DE_API void de_music_close(int h) { DE_JNI_VOID(de_jm_close, (jint)h); }
+DE_API void de_music_play(int h) { DE_JNI_VOID(de_jm_play, (jint)h); }
+DE_API void de_music_pause(int h) { DE_JNI_VOID(de_jm_pause, (jint)h); }
+DE_API void de_music_set_volume(int h, float v) { DE_JNI_VOID(de_jm_volume, (jint)h, (jfloat)v); }
+DE_API void de_music_set_loop(int h, int loop) { DE_JNI_VOID(de_jm_loop, (jint)h, (jboolean)(loop ? JNI_TRUE : JNI_FALSE)); }
+DE_API void de_music_seek(int h, double sec) { DE_JNI_VOID(de_jm_seek, (jint)h, (jdouble)sec); }
+DE_API void de_music_shutdown(void) { DE_JNI_VOID(de_jm_shutdown); }
+DE_API int de_music_state(int h)
+{
+    JNIEnv *env = de_jni_env();
+    if (!env) return -1;
+    jint s = (*env)->CallStaticIntMethod(env, de_music_cls, de_jm_state, (jint)h);
+    de_jni_clear(env);
+    return s;
+}
+DE_API double de_music_position(int h)
+{
+    JNIEnv *env = de_jni_env();
+    if (!env) return 0.0;
+    jdouble d = (*env)->CallStaticDoubleMethod(env, de_music_cls, de_jm_position, (jint)h);
+    de_jni_clear(env);
+    return d;
+}
+DE_API double de_music_duration(int h)
+{
+    JNIEnv *env = de_jni_env();
+    if (!env) return 0.0;
+    jdouble d = (*env)->CallStaticDoubleMethod(env, de_music_cls, de_jm_duration, (jint)h);
+    de_jni_clear(env);
+    return d;
+}
+
+#elif defined(__APPLE__) && defined(__OBJC__)
+// macOS / iOS (Objective-C olarak derlenir: -x objective-c -fobjc-arc, -framework AVFoundation).
+// Yerel dosya / pak araligi -> AVAudioPlayer (bellekteki NSData'dan: aralik tek kopya, format
+// tanima OS'ta; AVPlayer dosya ARALIGI calamaz). http(s) URL -> AVPlayer (ag akisi/radyo).
+// Olaylar ana kuyrukta gelir; durum atomic. Tek handle tablosu, iki motor.
+typedef struct
+{
+    int alive;
+    _Atomic int state;
+    float volume;
+    int loop;
+    AVAudioPlayer *player;      // dosya/aralik
+    AVPlayer *stream;           // URL
+    id endObserver;             // AVPlayerItemDidPlayToEndTimeNotification
+    id observer;                // AVAudioPlayerDelegate (dosya) / KVO gozlemcisi (akis)
+} de_music_t;
+
+static de_music_t de_music[DE_MUSIC_MAX];
+
+@interface DeMusicDelegate : NSObject <AVAudioPlayerDelegate>
+@property(nonatomic) de_music_t *owner;
+@end
+@implementation DeMusicDelegate
+- (void)audioPlayerDidFinishPlaying:(AVAudioPlayer *)player successfully:(BOOL)flag
+{
+    (void)player; (void)flag;
+    if (_owner && _owner->alive) atomic_store(&_owner->state, 3);
+}
+- (void)audioPlayerDecodeErrorDidOccur:(AVAudioPlayer *)player error:(NSError *)error
+{
+    (void)player; (void)error;
+    if (_owner && _owner->alive) atomic_store(&_owner->state, -1);
+}
+@end
+
+// AVPlayerItem.status KVO gozlemcisi.
+@interface DeStreamObserver : NSObject
+@property(nonatomic) de_music_t *owner;
+@end
+@implementation DeStreamObserver
+- (void)observeValueForKeyPath:(NSString *)keyPath ofObject:(id)object change:(NSDictionary *)change context:(void *)context
+{
+    (void)keyPath; (void)change; (void)context;
+    de_music_t *m = _owner;
+    if (!m || !m->alive) return;
+    AVPlayerItem *item = (AVPlayerItem *)object;
+    if (item.status == AVPlayerItemStatusFailed) atomic_store(&m->state, -1);
+    else if (item.status == AVPlayerItemStatusReadyToPlay && atomic_load(&m->state) == 0)
+        atomic_store(&m->state, m->stream.rate > 0 ? 2 : 1);
+}
+@end
+
+static void de_music_free(de_music_t *m)
+{
+    if (m->player)
+    {
+        [m->player stop];
+        m->player.delegate = nil;
+        m->player = nil;
+    }
+    if (m->stream)
+    {
+        [m->stream pause];
+        if (m->endObserver)
+            [[NSNotificationCenter defaultCenter] removeObserver:m->endObserver];
+        if (m->observer && m->stream.currentItem)
+            [m->stream.currentItem removeObserver:(NSObject *)m->observer forKeyPath:@"status"];
+        m->stream = nil;
+    }
+    m->endObserver = nil;
+    m->observer = nil;
+    m->alive = 0;
+}
+
+static de_music_t *de_music_get(int h)
+{
+    return (h >= 0 && h < DE_MUSIC_MAX && de_music[h].alive) ? &de_music[h] : NULL;
+}
+
+DE_API int de_music_open(const char *pathOrUrl, long long offset, long long length)
+{
+    if (!pathOrUrl)
+        return -1;
+    int slot = -1;
+    for (int i = 0; i < DE_MUSIC_MAX; i++)
+        if (!de_music[i].alive) { slot = i; break; }
+    if (slot < 0)
+        return -1;
+    de_music_t *m = &de_music[slot];
+    memset(m, 0, sizeof(*m));
+    m->alive = 1;
+    m->volume = 1.0f;
+    atomic_store(&m->state, 0);
+    @autoreleasepool
+    {
+        NSString *s = [NSString stringWithUTF8String:pathOrUrl];
+        if ([s hasPrefix:@"http://"] || [s hasPrefix:@"https://"])
+        {
+            NSURL *url = [NSURL URLWithString:s];
+            if (!url) { m->alive = 0; return -1; }
+            AVPlayerItem *item = [AVPlayerItem playerItemWithURL:url];
+            m->stream = [AVPlayer playerWithPlayerItem:item];
+            DeStreamObserver *obs = [DeStreamObserver new];
+            obs.owner = m;
+            m->observer = obs;
+            [item addObserver:obs forKeyPath:@"status" options:NSKeyValueObservingOptionNew context:NULL];
+            de_music_t *mm = m;
+            m->endObserver = [[NSNotificationCenter defaultCenter]
+                addObserverForName:AVPlayerItemDidPlayToEndTimeNotification object:item queue:[NSOperationQueue mainQueue]
+                usingBlock:^(NSNotification *n) {
+                    (void)n;
+                    if (!mm->alive) return;
+                    if (mm->loop) { [mm->stream seekToTime:kCMTimeZero]; [mm->stream play]; }
+                    else atomic_store(&mm->state, 3);
+                }];
+            return slot;
+        }
+        NSData *data = [NSData dataWithContentsOfFile:s options:NSDataReadingMappedIfSafe error:nil];
+        if (!data) { m->alive = 0; return -1; }
+        long long size = (long long)data.length;
+        if (length <= 0 || offset + length > size)
+            length = size - offset;
+        if (offset < 0 || length <= 0) { m->alive = 0; return -1; }
+        if (offset != 0 || length != size)
+            data = [data subdataWithRange:NSMakeRange((NSUInteger)offset, (NSUInteger)length)];
+        NSError *err = nil;
+        m->player = [[AVAudioPlayer alloc] initWithData:data error:&err];
+        if (!m->player) { m->alive = 0; return -1; }
+        DeMusicDelegate *d = [DeMusicDelegate new];
+        d.owner = m;
+        m->observer = d;
+        m->player.delegate = d;
+        [m->player prepareToPlay];
+        atomic_store(&m->state, 1); // bellekten: aninda hazir
+        return slot;
+    }
+}
+
+DE_API void de_music_close(int h)
+{
+    de_music_t *m = de_music_get(h);
+    if (m) de_music_free(m);
+}
+DE_API void de_music_play(int h)
+{
+    de_music_t *m = de_music_get(h);
+    if (!m) return;
+    if (m->player)
+    {
+        if (atomic_load(&m->state) == 3) m->player.currentTime = 0;
+        m->player.numberOfLoops = m->loop ? -1 : 0;
+        if ([m->player play]) atomic_store(&m->state, 2);
+    }
+    else if (m->stream)
+    {
+        if (atomic_load(&m->state) == 3) [m->stream seekToTime:kCMTimeZero];
+        [m->stream play];
+        if (atomic_load(&m->state) != 0) atomic_store(&m->state, 2); // Opening'de KVO hazir olunca 2 yazar
+    }
+}
+DE_API void de_music_pause(int h)
+{
+    de_music_t *m = de_music_get(h);
+    if (!m) return;
+    if (m->player) [m->player pause];
+    else if (m->stream) [m->stream pause];
+    if (atomic_load(&m->state) == 2) atomic_store(&m->state, 1);
+}
+DE_API void de_music_set_volume(int h, float v)
+{
+    de_music_t *m = de_music_get(h);
+    if (!m) return;
+    m->volume = v < 0 ? 0 : (v > 1 ? 1 : v);
+    if (m->player) m->player.volume = m->volume;
+    else if (m->stream) m->stream.volume = m->volume;
+}
+DE_API void de_music_set_loop(int h, int loop)
+{
+    de_music_t *m = de_music_get(h);
+    if (!m) return;
+    m->loop = loop;
+    if (m->player) m->player.numberOfLoops = loop ? -1 : 0;
+}
+DE_API int de_music_state(int h)
+{
+    de_music_t *m = de_music_get(h);
+    // AVPlayer ag tamponlamasi rate=0 yapar ama kullanici duraklatmadi -> hala Playing.
+    return m ? atomic_load(&m->state) : -1;
+}
+DE_API double de_music_position(int h)
+{
+    de_music_t *m = de_music_get(h);
+    if (!m) return 0.0;
+    if (m->player) return m->player.currentTime;
+    if (m->stream) { CMTime t = m->stream.currentTime; return CMTIME_IS_NUMERIC(t) ? CMTimeGetSeconds(t) : 0.0; }
+    return 0.0;
+}
+DE_API double de_music_duration(int h)
+{
+    de_music_t *m = de_music_get(h);
+    if (!m) return 0.0;
+    if (m->player) return m->player.duration;
+    if (m->stream && m->stream.currentItem)
+    {
+        CMTime d = m->stream.currentItem.duration;
+        if (CMTIME_IS_INDEFINITE(d)) return -1.0; // canli akis
+        return CMTIME_IS_NUMERIC(d) ? CMTimeGetSeconds(d) : 0.0;
+    }
+    return 0.0;
+}
+DE_API void de_music_seek(int h, double sec)
+{
+    de_music_t *m = de_music_get(h);
+    if (!m) return;
+    if (m->player) m->player.currentTime = sec;
+    else if (m->stream) [m->stream seekToTime:CMTimeMakeWithSeconds(sec, 1000)];
+}
+DE_API void de_music_shutdown(void)
+{
+    for (int i = 0; i < DE_MUSIC_MAX; i++)
+        if (de_music[i].alive)
+            de_music_free(&de_music[i]);
+}
+
+#else // bilinmeyen platform (ya da Apple'da duz C derleme): sessiz stub.
+#if defined(__APPLE__)
+#warning "audio_shim.c: Apple'da muzik icin Objective-C olarak derleyin (-x objective-c -fobjc-arc, AVFoundation) — de_music_* stub"
+#endif
 
 DE_API int de_music_open(const char *pathOrUrl, long long offset, long long length)
 { (void)pathOrUrl; (void)offset; (void)length; return -1; }

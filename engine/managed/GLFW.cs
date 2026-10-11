@@ -257,6 +257,7 @@ public static class GLFWConst
     public const int VISIBLE = 0x00020004;
     public const int DECORATED = 0x00020005;
     public const int FOCUSED = 0x00020001;
+    public const int ICONIFIED = 0x00020002;
     public const int FLOATING = 0x00020007;
     public const int MAXIMIZED = 0x00020008;
     public const int FOCUS_ON_SHOW = 0x0002000C;

@@ -32,11 +32,14 @@ public sealed class LoadProgress
 // texture gelene kadar 1x1 beyaz placeholder cizilir, oyun dongusu takilmaz.
 public sealed class AssetDatabase
 {
-    struct Pending
+    // Bekleyen texture yuklemesi; tamamlanma Pump'ta (Listen) buraya duser, Tick butceli baglar.
+    sealed class Pending
     {
         public int Job;
         public Texture Target;
         public LoadOp Op;
+        public bool Done;
+        public Completion Result;
     }
 
     readonly string _root; // yalniz loose kaynakta dolu (editor yollari icin)
@@ -429,6 +432,9 @@ public sealed class AssetDatabase
 
     public bool HasRegion(string name) => _regions.ContainsKey(name);
 
+    // Atlas uyeligi + bolge verisi (editor tooling: boyut sorgusu dokuyu yuklemeden).
+    public bool TryGetRegion(string name, out AtlasRegion region) => _regions.TryGetValue(name, out region);
+
     public IEnumerable<string> LoadedAtlases => _atlases.Keys;
 
     // Atlas artifact'ini (DATL "main" + "pageN" DPIX) yukler; bolgeleri tabloya
@@ -715,8 +721,15 @@ public sealed class AssetDatabase
             if (op != null) { op.IsDone = true; op.Failed = true; }
             return t;
         }
-        _pending.Add(new Pending { Job = job, Target = t, Op = op });
+        Track(job, t, op);
         return t;
+    }
+
+    void Track(int job, Texture t, LoadOp op)
+    {
+        var p = new Pending { Job = job, Target = t, Op = op };
+        NativeAsync.Listen(job, c => { p.Done = true; p.Result = c; });
+        _pending.Add(p);
     }
 
     // Prefab = alt agac. Pak'ta pismis bayt (SceneBinary), loose'ta YAML SceneDoc;
@@ -775,7 +788,7 @@ public sealed class AssetDatabase
         int job = _source.StartLoad(relPath);
         if (job < 0)
             return false;
-        _pending.Add(new Pending { Job = job, Target = t });
+        Track(job, t, null);
         return true;
     }
 
@@ -806,22 +819,21 @@ public sealed class AssetDatabase
     }
 
     // Frame basi cagrilir; frame basina en fazla `budget` sonuc baglanir
-    // (yavas cihazda spike yerine birkac frame'e yayilir). Job->Task koprusunu de pompalar.
-    public void Tick(int budget = 2)
+    // (yavas cihazda spike yerine birkac frame'e yayilir). Async kuyrugunu da pompalar (dt: Wait zamanlayicilari).
+    public void Tick(int budget = 2, float dt = 0f)
     {
-        AsyncJobs.Pump();
+        NativeAsync.Pump(dt);
         for (int i = _pending.Count - 1; i >= 0 && budget > 0; i--)
         {
             var p = _pending[i];
-            int r = NativeFs.Poll(p.Job, out var pixels, out _, out int w, out int h);
-            if (r == 0)
+            if (!p.Done)
                 continue;
-            if (r == 1)
-                p.Target._AttachPixels(pixels, w, h);
+            if (p.Result.Ok)
+                p.Target._AttachPixels(p.Result.Data, p.Result.A, p.Result.B);
             else
                 p.Target.Loading = false; // hata: placeholder'da kalir
-            NativeFs.Free(p.Job);
-            Complete(p.Op, r < 0);
+            NativeAsync.Free(p.Result.Data);
+            Complete(p.Op, !p.Result.Ok);
             _pending.RemoveAt(i);
             budget--;
         }

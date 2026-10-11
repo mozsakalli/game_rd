@@ -181,6 +181,8 @@ public sealed partial class InspectorPanel : EditorWindow
                 if (!DocVisible(f, cd))
                     continue;
                 DrawField(es, g, cd, f, ref y, w, prefabComp, prefabMap);
+                if (NativeSizeTargets(entry.Schema, f, out var widthField, out var heightField))
+                    DrawSetNativeSize(es, g, cd, f, widthField, heightField, ref y, w);
             }
             y += 6;
             compIndex++;
@@ -253,14 +255,26 @@ public sealed partial class InspectorPanel : EditorWindow
     string _aPath;
     bool _aIsMeta; // importer ayarlari (.meta "importer:" blogu) duzenleniyor
     int _aSeenChange = -1;
+    AssetImporter _aPreview; // onizleme cizen importer (secim degisince HidePreview)
+    string _aPreviewRel;
     readonly ObjectDrawer _aDrawer = new() { KeyPrefix = "a:" };
     object _aObj => _aDrawer.Target;
+
+    void HideAssetPreview()
+    {
+        _aPreview?.HidePreview();
+        _aPreview = null;
+        _aPreviewRel = null;
+    }
 
     bool DrawAssetInspector(in Rect vis)
     {
         string path = Selection.AssetPath;
         if (path == null)
+        {
+            HideAssetPreview();
             return false;
+        }
         bool isAsset = path.EndsWith(".asset", StringComparison.OrdinalIgnoreCase);
         ImportPipeline.Entry importer = null;
         string rel = null;
@@ -269,7 +283,10 @@ public sealed partial class InspectorPanel : EditorWindow
             rel = RelAssetPath(path);
             importer = rel != null ? ImportPipeline.ImporterFor(rel) : null;
             if (importer?.SettingsType == null)
+            {
+                HideAssetPreview();
                 return false;
+            }
         }
         // Dosya diskte degistiyse (watcher) cache dusur: taze degerler gorunsun.
         if (_aSeenChange != AssetWatcher.AssetChangeVersion)
@@ -284,6 +301,8 @@ public sealed partial class InspectorPanel : EditorWindow
             _aPath = path;
             _aIsMeta = !isAsset;
             _aDrawer.Unbind();
+            if (_aPreviewRel != rel)
+                HideAssetPreview();
             if (isAsset)
             {
                 string tn = ObjectSerializer.TypeNameOf(path);
@@ -300,7 +319,8 @@ public sealed partial class InspectorPanel : EditorWindow
                 _aDrawer.Bind(ImportPipeline.LoadSettings(rel, importer));
             }
         }
-        float contentHeight = 4 + HeaderH + 6 + _aDrawer.Measure() + 8;
+        float previewH = _aIsMeta && rel != null ? importer.Instance.PreviewHeight(rel) : 0f;
+        float contentHeight = 4 + HeaderH + 6 + _aDrawer.Measure() + 8 + (previewH > 0 ? previewH + 8 : 0);
         _assetScroll = Gui.BeginScrollView(new Rect(0, 0, vis.width, vis.height), _assetScroll,
             new Rect(0, 0, vis.width - 20, contentHeight));
         float w = vis.width - 24;
@@ -321,6 +341,17 @@ public sealed partial class InspectorPanel : EditorWindow
         }
         if (_aDrawer.Draw(ref y, w, SaveAssetNow))
             SaveAssetNow();
+        if (previewH > 0)
+        {
+            if (_aPreview != importer.Instance)
+            {
+                HideAssetPreview();
+                _aPreview = importer.Instance;
+            }
+            _aPreviewRel = rel;
+            y += 8;
+            importer.Instance.DrawPreview(rel, new Rect(4, y, w + 4, previewH));
+        }
         Gui.EndScrollView();
         return true;
     }
@@ -517,6 +548,61 @@ public sealed partial class InspectorPanel : EditorWindow
     static DocNode FindProp(SceneDoc.CompDoc cd, SerializedType.FieldSchema f)
         => EditorScene.FindProp(cd, f);
 
+    // Sema konvansiyonu (tip-ozel kod yok): Sprite tipli asset alaninin kardesleri
+    // arasinda float Width/Height (buyuk-kucuk harf duyarsiz; LayoutBox width/height)
+    // varsa sprite satirinin altina "Set Native Size" satiri gelir. Olcum ve cizim
+    // AYNI kosulu kullanmali.
+    static bool NativeSizeTargets(SerializedType.FieldSchema[] schema, SerializedType.FieldSchema f,
+        out SerializedType.FieldSchema widthField, out SerializedType.FieldSchema heightField)
+    {
+        widthField = heightField = null;
+        if (f.Kind != SerializedType.Kind.Asset || f.FieldType != typeof(Sprite))
+            return false;
+        foreach (var sibling in schema)
+        {
+            if (sibling.Kind != SerializedType.Kind.Float)
+                continue;
+            if (string.Equals(sibling.Name, "Width", StringComparison.OrdinalIgnoreCase))
+                widthField = sibling;
+            else if (string.Equals(sibling.Name, "Height", StringComparison.OrdinalIgnoreCase))
+                heightField = sibling;
+        }
+        return widthField != null && heightField != null;
+    }
+
+    void DrawSetNativeSize(EditorScene es, SceneDoc.GoDoc g, SceneDoc.CompDoc cd,
+        SerializedType.FieldSchema spriteField, SerializedType.FieldSchema widthField,
+        SerializedType.FieldSchema heightField, ref float y, float w)
+    {
+        string guid = FindProp(cd, spriteField)?.Scalar;
+        var sprite = string.IsNullOrEmpty(guid) ? null
+            : App.Assets?.LoadAsset(guid, typeof(Sprite)) as Sprite;
+        // Async yukleme bitmeden LogicalWidth 0 olabilir: buton yine cizilir, tiklama etkisizdir.
+        bool ready = sprite != null && sprite.LogicalWidth > 0;
+        float bw = Math.Min(w - LabelW - 12, 120f);
+        if (Gui.Button(new Rect(12 + LabelW, y, bw, 18), "Set Native Size") && ready)
+        {
+            string width = sprite.LogicalWidth.ToString(CultureInfo.InvariantCulture);
+            string height = sprite.LogicalHeight.ToString(CultureInfo.InvariantCulture);
+            var oldW = FindProp(cd, widthField);
+            var oldH = FindProp(cd, heightField);
+            if (oldW?.Scalar != width)
+                es.SetProp(g, cd, widthField, oldW?.Scalar, width);
+            if (oldH?.Scalar != height)
+                es.SetProp(g, cd, heightField, oldH?.Scalar, height);
+        }
+        if (Event.Current.Type == EventType.Repaint && sprite != null && ready)
+        {
+            Span<char> buf = stackalloc char[32];
+            sprite.LogicalWidth.TryFormat(buf, out int n, default, CultureInfo.InvariantCulture);
+            buf[n++] = ' '; buf[n++] = '\u00d7'; buf[n++] = ' ';
+            sprite.LogicalHeight.TryFormat(buf.Slice(n), out int m, default, CultureInfo.InvariantCulture);
+            GuiRenderer.DrawTextIn(new Rect(12 + LabelW + bw + 6, y, w - LabelW - bw - 18, 18),
+                buf.Slice(0, n + m), SmallFont, LabelDimColor, false, 2);
+        }
+        y += RowH;
+    }
+
     // Ref alaninin okunur gosterimi: Texture=yol, GoRef=ad, CompRef=ad:Tip.
     static string RefDisplay(in SerializedType.FieldSchema f, string s)
     {
@@ -682,6 +768,8 @@ public sealed partial class InspectorPanel : EditorWindow
                         continue;
                     h += MeasureDocField(field, FindProp(cd, field),
                         "c:" + g.Id + ":" + componentIndex + ":" + field.Name);
+                    if (NativeSizeTargets(entry.Schema, field, out _, out _))
+                        h += RowH;
                 }
             }
             if (entry != null && entry.Previewable)

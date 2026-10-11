@@ -95,7 +95,8 @@ public unsafe class App
         projectPath = System.IO.Path.GetFullPath(projectPath);
         { var prefs = EditorPrefs.Load(); prefs.Touch(projectPath); prefs.Save(); }
         _window = window;
-        GLFW.SetWindowTitle(window, "Editor - " + System.IO.Path.GetFileName(projectPath.TrimEnd('\\', '/')));
+        _projectFolder = System.IO.Path.GetFileName(projectPath.TrimEnd('\\', '/'));
+        GLFW.SetWindowTitle(window, "Editor - " + _projectFolder);
         _layoutPath = System.IO.Path.Combine(projectPath, "UserSettings", "Layout.txt");
         if (!GuiDock.LoadLayout(_layoutPath))
         {
@@ -123,11 +124,14 @@ public unsafe class App
         ImportPipeline.Init(_project);
         _assets.ArtifactResolver = ImportPipeline.ResolveArtifact; // import'lu asset'ler Library'den
         Audio.Source = _assets.Source; // muzik anahtarlari loose dosyadan
+        PlayerPrefs.SetRoot(_project.LibraryPath); // oyun PlayerPrefs'i proje-yerel (Library/prefs.dat; git'e girmez)
         AssetDatabase.LogWarning = EditorLog.Warning;
         PixelEffect.LogError = EditorLog.Error; // fx derleme hatalari Console paneline
         _gameCode = new GameCode();
         try { GameCode.WriteIdeProject(_project); } // IDE csproj (proje koku), derlemeden bagimsiz
         catch (Exception e) { EditorLog.Warning("[gamecode] IDE csproj yazilamadi: " + e.Message); }
+        try { IdeFiles.Write(_project); } // .vscode/mcp.json + AI kurallari sablonu + .gitignore
+        catch (Exception e) { EditorLog.Warning("[project] IDE dosyalari yazilamadi: " + e.Message); }
         _gameCode.CompileAndLoad(_project, _assets);
         RebuildCatalog();
 #if DE_EDITOR
@@ -138,7 +142,12 @@ public unsafe class App
         InspectorTests.Run();
         LayoutTests.Run(_catalog);
         PointerTests.Run(_catalog);
+        RenderGroupTests.Run(_catalog);
         PixelEffectTests.Run();
+        AudioTests.Run(_catalog);
+        PlayerPrefsTests.Run(projectPath);
+        AsyncQueueTests.Run();
+        NetTests.Run();
         ProgressTests.Run(_catalog);
         CatalogTests.Run(_catalog);
 #endif
@@ -153,6 +162,7 @@ public unsafe class App
         catch { }
         PlayMode.HotReload = Settings.hotReload;
         Gui.FontSize = Math.Clamp(Settings.uiFontSize, 10f, 24f);
+        GameOutput.SetDevice(Settings.deviceW, Settings.deviceH, Settings.devicePixelRatio, Settings.deviceName);
         if (Settings.sceneCamZoom > 0)
             _sceneView.SetView(new Vec2(Settings.sceneCamX, Settings.sceneCamY), Settings.sceneCamZoom);
         if (Settings.lastScene.Length > 0)
@@ -187,7 +197,7 @@ public unsafe class App
             GLFW.GetWindowContentScale(window, out float uiScale, out _);
             if (uiScale <= 0) uiScale = 1f;
             Gui.Scale = uiScale;
-            Screen.pixelRatio = uiScale; // GameOutput RT fiziksel, ViewW/H mantiksal
+            Screen.pixelRatio = GameOutput.PixelRatio; // cihaz profili varsa onun, yoksa pencerenin
             float lw = fbw / uiScale, lh = fbh / uiScale;
 
             // Fare bolen'i: GLFW imlec konumu PENCERE (screen-coord) uzayinda gelir;
@@ -212,7 +222,7 @@ public unsafe class App
             // oyun sahnesi (varsa) UpdateAll'da simule olur. Ekran = oyun cikti boyutu.
             float dt = _lastUpdateT > 0 ? (float)(t - _lastUpdateT) : 0f;
             _lastUpdateT = t;
-            _assets.Tick(); // biten async yuklemeleri butceli bagla
+            _assets.Tick(2, dt); // async pompasi + biten async yuklemeleri butceli bagla
             var editLive = _editScene.LiveScene;
             if (editLive != null)
             {
@@ -352,6 +362,7 @@ public unsafe class App
         }
         // Secim preview sahibinden ayrildiysa oturum ortulu biter (izler reload'la olur).
         PreviewSession.Tick(Selection.DocId);
+        UpdateWindowTitle();
 
         // Ust toolbar: Play/Pause/Stop + hot reload modu (Kapali/Kaydette/Aninda).
         if (e.Type == EventType.Repaint)
@@ -457,6 +468,10 @@ public unsafe class App
         if (_settingsPath == null)
             return;
         Settings.hotReload = PlayMode.HotReload;
+        Settings.deviceW = GameOutput.ForcedW;
+        Settings.deviceH = GameOutput.ForcedH;
+        Settings.devicePixelRatio = GameOutput.Forced ? GameOutput.PixelRatio : 0f;
+        Settings.deviceName = GameOutput.ForcedName;
         if (_sceneView != null)
         {
             Settings.sceneCamX = _sceneView.Center.x;
@@ -546,6 +561,28 @@ public unsafe class App
     static string DefaultProjectPath => System.IO.Path.Combine(RepoRoot, "Projects", "Sandbox");
 
     static IntPtr _window;
+    static string _projectFolder = "";
+    // Baslik durumu: (sahne yolu, dirty, play) degisince bir kez yazilir — frame'de alloc yok.
+    static string _titleScenePath;
+    static bool _titleDirty, _titlePlaying;
+
+    // "Editor - <proje> - <Sahne>[*]  (Playing)": acik sahne ve kaydedilmemis degisiklik gostergesi.
+    static void UpdateWindowTitle()
+    {
+        if (_window == IntPtr.Zero || _editScene == null)
+            return;
+        string scenePath = _editScene.Path;
+        bool dirty = _editScene.Dirty;
+        bool playing = PlayMode.State != PlayState.Editing;
+        if (ReferenceEquals(scenePath, _titleScenePath) && dirty == _titleDirty && playing == _titlePlaying)
+            return;
+        _titleScenePath = scenePath;
+        _titleDirty = dirty;
+        _titlePlaying = playing;
+        string scene = scenePath == null ? "(untitled)" : System.IO.Path.GetFileNameWithoutExtension(scenePath);
+        GLFW.SetWindowTitle(_window, "Editor - " + _projectFolder + " - " + scene
+            + (dirty ? "*" : "") + (playing ? "  (Playing)" : ""));
+    }
     // Proje degistirme: pencereyi kapat (cikis yolu RPC/layout/ayarlari kaydeder); yeni surec zaten baslatildi.
     internal static void RequestClose() => GLFW.SetWindowShouldClose(_window, GLFWConst.TRUE);
 

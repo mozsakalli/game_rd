@@ -135,6 +135,8 @@ class GameView(context: Context) : GLSurfaceView(context) {
             w = width; h = height
             if (!ready) {
                 // game.pak APK assets/Build/ icinde; native taraf AssetManager fd+offset ile dogrudan okur (kopya yok).
+                Music.assets = context.assets // de_music_* pak araligi icin (audio_shim.c -> Music.kt)
+                Prefs.init(context)           // PlayerPrefs -> SharedPreferences (de_fs.c -> Prefs.kt)
                 GameLib.init(context.assets, context.filesDir.path, w, h, density)
                 ready = true
             } else {

@@ -41,6 +41,13 @@ public abstract class AssetImporter
     // Girdiyi YUTAN importer (atlas: uyeler sayfada yasar) DependsOn yerine Absorbs
     // bildirir — pak builder uyeyi tek basina paketlemez, tuketiciye kenar yazar.
     public virtual void CollectDependencies(DependencyContext ctx) { }
+
+    // Inspector onizlemesi (import ayarlarinin altinda): 0 = yok. IMGUI sozlesmesi: ayni asset
+    // icin kontrol sayisi sabit kalmali. HidePreview secim degisince/panel kapaninca gelir —
+    // calan sesi durdur, acik kaynaklari birak.
+    public virtual float PreviewHeight(string assetPath) => 0f;
+    public virtual void DrawPreview(string assetPath, in Rect rect) { }
+    public virtual void HidePreview() { }
 }
 
 // Artifact'in pak'taki kaderi. Importer bildirir, builder format bilmeden uygular.

@@ -100,6 +100,17 @@ public sealed class AnimProperty
     public Func<Component, AnimValue> Get;   // Trigger: null
     public Action<Component, AnimValue> Set; // Trigger: cagri (deger yok sayilir)
 
+    // Animasyon yazimi: alani yaz + sahneye "dokunuldu" bildir (frame sonunda
+    // OnAnimatedPropertiesApplied bir kez). Tween/MovieClip HEP bunu kullanir;
+    // ciplak Set yalniz test/tooling. Trigger'lar alan yazmaz, bildirim yok.
+    // Validate bayragi yoksa (Transform, SpriteRenderer...) bildirim tamamen atlanir — sifir ek is.
+    public void Apply(Component c, in AnimValue v)
+    {
+        Set(c, v);
+        if (Kind != AnimKind.Trigger && c != null && (c._flags & LifecycleFlags.Validate) != 0)
+            c._gameObject?._scene?.NoteAnimated(c);
+    }
+
     public override string ToString() => OwnerType?.Name + "." + Path;
 }
 

@@ -158,7 +158,7 @@ public static class RpcRegistry
         try
         {
             if (t == typeof(DocNode))
-                return RpcJson.ToDocNode(je);
+                return je.ValueKind == JsonValueKind.Null ? null : RpcJson.ToDocNode(je); // JSON null = "yok" (default'a don / eleman sil)
             if (t == typeof(string))
                 return je.ValueKind == JsonValueKind.String ? je.GetString() : je.GetRawText();
             if (t == typeof(int))

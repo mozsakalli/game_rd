@@ -28,6 +28,15 @@ public sealed class Scene
     // Son Update'in simulate degeri (editor edit modu = false): component'ler oyun
     // zamani davranisini (PlayOnStart gibi) buna gore atlar — Unity Application.isPlaying.
     public bool Simulating { get; private set; } = true;
+    // Editor projeksiyon sahnesi: [ExecuteInEditMode] olmayan component'lerin yasam dongusu
+    // (Awake/OnEnable/Start/OnDisable/OnDestroy) KOSMAZ — oyun mantigi doc gorunumunu bozamaz.
+    // Spawn'dan ONCE ayarlanir (Awake spawn aninda); Update(simulate:false) ile birlikte kullanilir.
+    public bool EditMode;
+
+    bool Runs(Component c, LifecycleFlags hook)
+        => (c._flags & hook) != 0 && (!EditMode || (c._flags & LifecycleFlags.EditMode) != 0);
+
+    internal bool RunsHook(Component c, LifecycleFlags hook) => Runs(c, hook);
     // Sonraki N Update dt=0 kosar: Spawn cevresindeki yukleme/kurulum frame'lerinin suresi
     // yeni dogan nesnelere (MovieClip/tween) buyuk adim olarak gecmesin (SceneLoader yazar).
     public int DiscardDeltaFrames;
@@ -232,6 +241,37 @@ public sealed class Scene
     GameObject[] _destroyGos = new GameObject[32];
     int _destroyGoCount;
 
+    // Animasyonun bu frame'de alan yazdigi component'ler (tekil; bayrak component'te).
+    // Flush frame sonunda, layout sweep'inden ONCE: dirty kaldirilsin ki ayni frame cozulsun.
+    Component[] _animTouched = new Component[32];
+    int _animTouchedCount;
+
+    internal void NoteAnimated(Component c)
+    {
+        if (c._animTouched)
+            return;
+        c._animTouched = true;
+        if (_animTouchedCount == _animTouched.Length) Array.Resize(ref _animTouched, _animTouchedCount * 2);
+        _animTouched[_animTouchedCount++] = c;
+    }
+
+    void FlushAnimated()
+    {
+        // Sinir baslangicta sabit: kanca icinde yeni animasyon yazimi sonraki frame'e kalir.
+        int n = _animTouchedCount;
+        for (int i = 0; i < n; i++)
+        {
+            var c = _animTouched[i];
+            _animTouched[i] = null;
+            c._animTouched = false;
+            if (!c._destroyed)
+                c.OnAnimatedPropertiesApplied();
+        }
+        if (_animTouchedCount > n)
+            Array.Copy(_animTouched, n, _animTouched, 0, _animTouchedCount - n);
+        _animTouchedCount -= n;
+    }
+
     // --- Sahne sistemleri (ISceneSystem): custom isler (layout vb.) core'a ---
     // --- sizmadan faz kancalarina takilir. Kayit sirasi = cagri sirasi.     ---
     ISceneSystem[] _systems = new ISceneSystem[4];
@@ -261,7 +301,7 @@ public sealed class Scene
         if (!c._awakeCalled)
         {
             c._awakeCalled = true;
-            if ((c._flags & LifecycleFlags.Awake) != 0)
+            if (Runs(c, LifecycleFlags.Awake))
                 c.Awake();
         }
         if (c._enabled)
@@ -292,14 +332,14 @@ public sealed class Scene
             _renderers[_rendererCount] = r;
             r._rendererSlot = _rendererCount++;
         }
-        if (!c._started && !c._startQueued && (c._flags & LifecycleFlags.Start) != 0)
+        if (!c._started && !c._startQueued && Runs(c, LifecycleFlags.Start))
         {
             c._startQueued = true;
             if (_pendingStartCount == _pendingStart.Length) Array.Resize(ref _pendingStart, _pendingStartCount * 2);
             _pendingStart[_pendingStartCount++] = c;
         }
 
-        if ((c._flags & LifecycleFlags.OnEnable) != 0)
+        if (Runs(c, LifecycleFlags.OnEnable))
             c.OnEnable(); // en son: kendini disable ederse listelerden duser
     }
 
@@ -328,7 +368,7 @@ public sealed class Scene
             r._rendererSlot = -1;
         }
 
-        if ((c._flags & LifecycleFlags.OnDisable) != 0)
+        if (Runs(c, LifecycleFlags.OnDisable))
             c.OnDisable();
     }
 
@@ -403,6 +443,11 @@ public sealed class Scene
             }
         }
 
+        // Animasyon yazimlarinin bildirimi (OnAnimatedPropertiesApplied → OnValidate:
+        // LayoutBox.MarkDirty vb.) — layout sweep'i ayni frame'de gorsun. Edit modunda da
+        // kosar (preview paneli SampleFrame ile yazar).
+        FlushAnimated();
+
         // Sistem sweep'leri (layout vb.) render'dan once — edit modunda da kosar.
         for (int i = 0; i < _systemCount; i++)
             _systems[i].AfterUpdate(this);
@@ -418,14 +463,16 @@ public sealed class Scene
     // layerMask: bit i = layer i cizilir (kamera cullingMask'i; -1 = hepsi).
     // Submit sirasi = hiyerarsi DFS (kok sirasi, sonra kardes sirasi, derinlemesine):
     // ayni katmanda parent altta, cocuk ustte, sonraki kardes oncekinin ustunde.
-    // Ayni yuruyuste SortingOrder cozulur (Relative: parent + kendi; Absolute: kendi).
+    // Ayni yuruyuste SortingOrder cozulur (Relative: parent + kendi; Absolute: kendi)
+    // ve RenderGroup alfasi carpilarak iner (cache/dirty yok: yuruyus zaten her frame).
     public void Render(RenderQueue queue, int layerMask = -1)
     {
         for (int i = 0; i < _systemCount; i++)
             _systems[i].BeginRender(this, queue);
         int paint = 0;
         for (int i = 0; i < _rootCount; i++)
-            WalkRenderers(_roots[i], 0, queue, layerMask, ref paint);
+            WalkRenderers(_roots[i], 0, 1f, queue, layerMask, ref paint);
+        queue.GroupAlpha = 1f; // sistem/overlay cizimleri son renderer'in alfasini miras almasin
         for (int i = 0; i < _systemCount; i++)
             _systems[i].EndRender(this, queue);
     }
@@ -436,16 +483,27 @@ public sealed class Scene
     {
         int paint = 0;
         for (int i = 0; i < _rootCount; i++)
-            WalkRenderers(_roots[i], 0, null, 0, ref paint);
+            WalkRenderers(_roots[i], 0, 1f, null, 0, ref paint);
     }
 
-    void WalkRenderers(GameObject go, int parentOrder, RenderQueue queue, int layerMask, ref int paint)
+    void WalkRenderers(GameObject go, int parentOrder, float parentAlpha, RenderQueue queue, int layerMask, ref int paint)
     {
         if (!go.activeInHierarchy)
             return;
+        int n = go.ComponentCount;
+        // Grup once cozulur: component sirasi (RenderGroup renderer'dan sonra da olabilir) sonucu etkilemez.
+        float alpha = parentAlpha;
+        for (int i = 0; i < n; i++)
+        {
+            if (go.ComponentAt(i) is not RenderGroup g || !g._enabled || g._destroyed)
+                continue;
+            alpha = g.IgnoreParentAlpha ? g.Alpha : parentAlpha * g.Alpha;
+            if (alpha < 0f) alpha = 0f;
+            else if (alpha > 1f) alpha = 1f;
+            break;
+        }
         int childOrder = parentOrder;
         bool first = true;
-        int n = go.ComponentCount;
         for (int i = 0; i < n; i++)
         {
             if (go.ComponentAt(i) is not Renderer r || r._rendererSlot < 0 || r._destroyed)
@@ -454,16 +512,20 @@ public sealed class Scene
                 ? r.SortingOrder : parentOrder + r.SortingOrder;
             r._effectiveOrder = eff;
             r._paintOrder = paint++;  // mask'ten bagimsiz: Pointer tum kameralarda ayni sirayi gorur
+            r._effectiveAlpha = alpha;
             if (first)
             {
                 childOrder = eff; // cocuklar GO'nun ilk renderer'ina goreli
                 first = false;
             }
-            if (queue != null && (layerMask & (1 << go.layer)) != 0)
+            if (queue != null && alpha > 0f && (layerMask & (1 << go.layer)) != 0)
+            {
+                queue.GroupAlpha = alpha;
                 r.Encode(queue);
+            }
         }
         for (var t = go.transform.FirstChild; t != null; t = t.NextSibling)
-            WalkRenderers(t._gameObject, childOrder, queue, layerMask, ref paint);
+            WalkRenderers(t._gameObject, childOrder, alpha, queue, layerMask, ref paint);
     }
 
     void FlushDestroyed()
@@ -490,8 +552,9 @@ public sealed class Scene
     void DestroyComponentNow(Component c)
     {
         DisableComponent(c);
-        if (c._awakeCalled && (c._flags & LifecycleFlags.OnDestroy) != 0)
+        if (c._awakeCalled && Runs(c, LifecycleFlags.OnDestroy))
             c.OnDestroy();
+        c.CancelDestroyToken();
         c._gameObject?.RemoveComponent(c);
     }
 
@@ -512,9 +575,10 @@ public sealed class Scene
         {
             var c = go.ComponentAt(i);
             DisableComponent(c);
-            if (c._awakeCalled && (c._flags & LifecycleFlags.OnDestroy) != 0)
+            if (c._awakeCalled && Runs(c, LifecycleFlags.OnDestroy))
                 c.OnDestroy();
             c._destroyed = true;
+            c.CancelDestroyToken();
         }
         go.MarkDestroyed();
     }

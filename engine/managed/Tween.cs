@@ -172,7 +172,7 @@ public sealed class TweenPool
         var v = AnimValue.Lerp(s.From, s.To, e, s.Kind);
         if (s.Mask != AnimValue.MaskAll && s.Prop.Get != null)
             v = AnimValue.Merge(s.Prop.Get(s.Target), v, s.Mask);
-        s.Prop.Set(s.Target, v);
+        s.Prop.Apply(s.Target, v);
     }
 
     void Kill(ref Slot s, int index)
@@ -315,6 +315,10 @@ public static class TweenExtensions
 
     public static TweenHandle TweenScale(this Transform tr, float to, float duration)
         => Start(tr, AnimRegistry.TransformScale, AnimValue.MaskXY, new AnimValue(to, to), duration);
+
+    // Non-uniform hedef (taban olcek * carpan gibi): x ve y ayri.
+    public static TweenHandle TweenScale(this Transform tr, Vec2 to, float duration)
+        => Start(tr, AnimRegistry.TransformScale, AnimValue.MaskXY, new AnimValue(to.x, to.y), duration);
 
     public static TweenHandle TweenAlpha(this SpriteRenderer sr, float to01, float duration)
         => Start(sr, Resolve(sr, nameof(SpriteRenderer.Color)), AnimValue.MaskW, new AnimValue(0, 0, 0, to01 * 255f), duration);

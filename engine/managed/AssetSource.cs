@@ -16,7 +16,7 @@ public abstract class AssetSource
     // Async piksel decode isi baslatir (native worker). Donus: job id, dolu: -1.
     public abstract int StartLoad(string key);
 
-    // Ham baytlar (zlib acilmis) â€” job'u AsyncJobs.Pump tamamlar. Yoksa null.
+    // Ham baytlar (zlib acilmis) — job'u NativeAsync.Pump tamamlar. Yoksa null.
     public abstract Task<byte[]> ReadBytesAsync(string key);
 
 #if DE_EDITOR

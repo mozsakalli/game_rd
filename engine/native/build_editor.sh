@@ -73,6 +73,8 @@ FRAMEWORKS=(
     -framework Metal
     -framework MetalKit
     -framework AudioToolbox
+    -framework AVFoundation
+    -framework CoreMedia
 )
 
 echo "[build_editor] clang: $CLANG"
@@ -84,6 +86,8 @@ echo "[build_editor] cikti: $OUT"
 SHIM_OBJ="$OUTDIR/sokol_shim.o"
 AUDIO_OBJ="$OUTDIR/audio_shim.o"
 FS_OBJ="$OUTDIR/de_fs.o"
+ASYNC_OBJ="$OUTDIR/de_async.o"
+NET_OBJ="$OUTDIR/de_net.o"
 
 "$CLANG" -O1 -w -c \
     -fobjc-arc \
@@ -91,21 +95,24 @@ FS_OBJ="$OUTDIR/de_fs.o"
     "${DEFINES[@]}" "${INCLUDES[@]}" \
     -o "$SHIM_OBJ"
 
-# Ses: sokol_audio CoreAudio impl'i macOS'ta duz C (iOS'ta ObjC gerekir) + SFX mixer
-# + editor decoder'lari. Muzik player (AVPlayer) macOS'ta sonraki dilim (stub).
+# Ses: sokol_audio CoreAudio impl + SFX mixer + editor decoder'lari + muzik (AVAudioPlayer/AVPlayer).
+# Muzik backend'i Objective-C ister -> ARC ile ObjC olarak derlenir (AVFoundation framework'u linkte).
 "$CLANG" -O1 -w -c \
-    "$HERE/audio_shim.c" \
+    -fobjc-arc \
+    -x objective-c "$HERE/audio_shim.c" \
     "${DEFINES[@]}" "${INCLUDES[@]}" \
     -o "$AUDIO_OBJ"
 
-# Depolama + async job tablosu (pthread backend)
+# Depolama (pthread worker) + tek async tamamlanma kuyrugu
 "$CLANG" -O1 -w -c "$HERE/de_fs.c" "${DEFINES[@]}" "${INCLUDES[@]}" -o "$FS_OBJ"
+"$CLANG" -O1 -w -c "$HERE/de_async.c" "${DEFINES[@]}" "${INCLUDES[@]}" -o "$ASYNC_OBJ"
+"$CLANG" -O1 -w -c "$HERE/de_net.c" "${DEFINES[@]}" "${INCLUDES[@]}" -o "$NET_OBJ"
 
 "$CLANG" -O1 -w -dynamiclib \
     -fvisibility=default \
     -Wno-deprecated-declarations \
     "${DEFINES[@]}" "${INCLUDES[@]}" \
-    "$SHIM_OBJ" "$AUDIO_OBJ" "$FS_OBJ" \
+    "$SHIM_OBJ" "$AUDIO_OBJ" "$FS_OBJ" "$ASYNC_OBJ" "$NET_OBJ" \
     "${SOURCES[@]}" \
     "${FRAMEWORKS[@]}" \
     -install_name "@rpath/libdigitoyengine_native.dylib" \

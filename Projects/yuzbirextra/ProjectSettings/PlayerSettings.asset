@@ -7,12 +7,12 @@ fields:
   scenes:
     - Login/LoginScene.scene
   startScene: Login/LoginScene.scene
-  defaultWidth: 1280
-  defaultHeight: 720
+  defaultWidth: 720
+  defaultHeight: 1280
   fullscreen: false
   resizableWindow: true
   targetFrameRate: 0
-  orientation: landscape
+  orientation: Landscape
   moduleHostDll: ''
   android:
     packageName: ''

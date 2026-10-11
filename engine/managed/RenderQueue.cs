@@ -52,10 +52,40 @@ public sealed unsafe class RenderQueue
     }
 
     // Frame basi: kuyrugu sifirla (tamponlar yeniden kullanilir).
-    public void Begin() => _count = 0;
+    public void Begin()
+    {
+        _count = 0;
+        GroupAlpha = 1f;
+    }
 
     // Biriken draw sayisi (testler quad emisyonunu dogrular).
     internal int Count => _count;
+
+    // Test: i. draw'in tint0 alfasi (grup alfasi uygulanmis).
+    internal byte TintAlphaAt(int i) => _instances[i].tint0.a;
+
+    // Grup alfasi (RenderGroup zinciri): Scene her Encode'dan once basar, DrawMesh kose
+    // alfalarini carpar. Cikis premultiplied oldugundan (wrapper rgb*a) yalniz alfa
+    // carpmak her BlendMode'da dogru solar. 8.8 sabit nokta: 256 = carpma yok.
+    int _alphaScale = 256;
+    float _groupAlpha = 1f;
+    internal float GroupAlpha
+    {
+        get => _groupAlpha;
+        set
+        {
+            if (_groupAlpha == value)
+                return;
+            _groupAlpha = value;
+            _alphaScale = value >= 1f ? 256 : value <= 0f ? 0 : (int)(value * 256f + 0.5f);
+        }
+    }
+
+    static Color ScaleAlpha(Color c, int scale)
+    {
+        c.a = (byte)((c.a * scale + 128) >> 8);
+        return c;
+    }
 
     public void DrawMesh(
         Mesh mesh, Material material, in Mat4 model, Color tint,
@@ -105,6 +135,14 @@ public sealed unsafe class RenderQueue
         inst->uvRect[1] = v0;
         inst->uvRect[2] = u1 - u0;
         inst->uvRect[3] = v1 - v0;
+        int sc = _alphaScale;
+        if (sc != 256)
+        {
+            tint0 = ScaleAlpha(tint0, sc);
+            tint1 = ScaleAlpha(tint1, sc);
+            tint2 = ScaleAlpha(tint2, sc);
+            tint3 = ScaleAlpha(tint3, sc);
+        }
         inst->tint0 = tint0;
         inst->tint1 = tint1;
         inst->tint2 = tint2;

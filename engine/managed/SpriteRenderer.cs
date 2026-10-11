@@ -12,6 +12,9 @@ public abstract class Renderer : Component
     // DFS sirasi. Encode layer'i ve Pointer tie-break'i buradan okur (cizim = tiklama).
     internal int _effectiveOrder;
     internal int _paintOrder;
+    // Ayni yuruyuste yazilan grup alfasi (RenderGroup zincirinin carpimi, 1 = yok).
+    // Encode'da RenderQueue.GroupAlpha'ya basilir; 0 = cizilmez ve tiklanmaz.
+    internal float _effectiveAlpha = 1f;
     // Tum renderer'larda AYNI blend alani/tablosu (sprite/kutu/metin ayrismaz).
     public BlendMode BlendMode;
     // Pixel-effect zinciri (.fx asset'leri, sira = uygulama sirasi). null = sifir maliyet.

@@ -238,6 +238,8 @@ public sealed class PointerInput
                 var r = _scene.RendererAt(i);
                 if (r == null || r._destroyed || !r._enabled)
                     continue;
+                if (r._effectiveAlpha <= 0f)
+                    continue; // grup alfasiyla gorunmez: cizim = tiklama
                 if ((mask & (1 << r._gameObject.layer)) == 0)
                     continue;
                 if (!r.BlocksRaycast && !HasHandlerInChain(r._gameObject))

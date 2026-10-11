@@ -29,10 +29,51 @@ public static class LifecycleTests
         InactiveParentChain(s);
         InstantiateDuringUpdate(s);
         TweenChainSurvivesKill(s);
+        EditModeGatesGameLogic();
 
         Scene.SetActive(prev);
         Scene.Unload(s);
         Console.WriteLine($"[lifecycle] {_pass} PASS, {_fail} FAIL");
+    }
+
+    [ExecuteInEditMode]
+    sealed class EditRecorder : Component
+    {
+        readonly StringBuilder _log = new();
+        public string Log => _log.ToString();
+        protected internal override void Awake() => _log.Append('A');
+        protected internal override void OnEnable() => _log.Append('E');
+        protected internal override void Start() => _log.Append('S');
+        protected internal override void OnDisable() => _log.Append('D');
+        protected internal override void OnDestroy() => _log.Append('X');
+    }
+
+    // Edit sahnesi (EditMode=true): isaretsiz component'in Awake/OnEnable/Start/OnDisable/
+    // OnDestroy'u KOSMAZ (Awake'te SetActive(false) gibi oyun mantigi projeksiyonu bozamaz);
+    // [ExecuteInEditMode] olan tam dongu alir. Renderer kaydi gate'ten bagimsiz.
+    static void EditModeGatesGameLogic()
+    {
+        var prev = Scene.Active;
+        var es = Scene.Create("lifecycle-edit");
+        es.Catalog = prev.Catalog;
+        es.EditMode = true;
+        Scene.SetActive(es);
+        var go = new GameObject("edit");
+        var game = go.AddComponent<Recorder>();
+        var edit = go.AddComponent<EditRecorder>();
+        go.AddComponent<SpriteRenderer>();
+        es.Update(0f, simulate: false);
+        Check(game.Log == "", "edit modunda oyun component'i uyur (log bos: '" + game.Log + "')");
+        Check(edit.Log == "AES", "[ExecuteInEditMode] tam dongu (AES: '" + edit.Log + "')");
+        Check(es.RendererCount == 1, "renderer kaydi gate'ten bagimsiz");
+        go.SetActive(false);
+        go.SetActive(true);
+        Check(game.Log == "" && edit.Log == "AESDE", "disable/enable: yalniz isaretli (edit '" + edit.Log + "')");
+        GameObject.Destroy(go);
+        es.Update(0f, simulate: false);
+        Check(game.Log == "" && edit.Log == "AESDEDX", "destroy: yalniz isaretli (edit '" + edit.Log + "')");
+        Scene.SetActive(prev);
+        Scene.Unload(es);
     }
 
     static void Check(bool cond, string name)

@@ -33,12 +33,16 @@ set "SOURCES="
 set "SOURCES=%SOURCES% sokol_shim.c"
 set "SOURCES=%SOURCES% audio_shim.c"
 set "SOURCES=%SOURCES% de_fs.c"
+set "SOURCES=%SOURCES% de_async.c"
+set "SOURCES=%SOURCES% de_net.c"
 for %%G in (context init input monitor platform vulkan window win32_init win32_joystick win32_module win32_monitor win32_time win32_thread win32_window wgl_context egl_context osmesa_context null_init null_joystick null_monitor null_window) do (
     set "SOURCES=!SOURCES! glfw-master\src\%%G.c"
 )
 
 REM DE_BUILD_DLL YOK: dllexport gereksiz (statik). _GLFW_BUILD_DLL yok.
-set "DEFINES=-DSOKOL_GLCORE -D_GLFW_WIN32 -DSOKOL_IMPL"
+REM DE_NO_DECODERS: mp3/ogg/wav decoder'lari (dr_mp3/stb_vorbis/dr_wav) yalniz editor importer'i icin;
+REM player klipleri import'ta cozulmus PCM alir -> release binary'sinden duser (de_audio_decode stub).
+set "DEFINES=-DSOKOL_GLCORE -D_GLFW_WIN32 -DSOKOL_IMPL -DDE_NO_DECODERS"
 set "INCLUDES=-I%HERE%"
 
 echo [build_native_static] clang: %CLANG%

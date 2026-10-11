@@ -66,6 +66,7 @@ public static class TransformDriver
 // katmani (USER.z), AA fwidth'ten her olcekte ~1px. Ayri batch sistemi YOK —
 // ayni materyali paylasan bitisik quad'lar RenderQueue'da kendiliginden tek
 // instanced draw'a merge olur (sprite yoluyla ayni mekanizma).
+[ExecuteInEditMode]
 public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
 {
     // --- serilesen veri (backing alanlar; degisim property'lerden kirletir) ---

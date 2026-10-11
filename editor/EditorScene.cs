@@ -61,6 +61,7 @@ public sealed class EditorScene
         fresh.Catalog = catalog;
         fresh.Assets = assets;
         fresh.ExternallyDriven = true; // UpdateAll atlar; EditorApp elle surer (simulate: false)
+        fresh.EditMode = true; // oyun mantigi (ExecuteInEditMode'suz) projeksiyonda uyur
         Scene.SetActive(fresh); // Spawn aktif sahneye dogar
         Doc.Spawn(null, catalog, assets, _live);
         if (!oldWasActive && prevActive != null)
@@ -257,11 +258,25 @@ public sealed class EditorScene
         }
     }
 
-    public SceneDoc.GoDoc AddGameObject(int parentId)
+    // insertBeforeId: yeni GO bu id'li kardesin ONUNE girer (0 = listenin sonu).
+    // Paralel RPC cagrilarinda varis sirasi belirsiz oldugundan siranin acikca verilebilmesi gerekir.
+    public SceneDoc.GoDoc AddGameObject(int parentId, int insertBeforeId = 0)
     {
         var g = new SceneDoc.GoDoc { Id = NextId(), Parent = parentId, Name = UniqueName("GameObject") };
-        History.Push(new AddGoOp { Doc = g, Index = Doc.Objects.Count });
-        Doc.Objects.Add(g);
+        int index = Doc.Objects.Count;
+        if (insertBeforeId != 0)
+        {
+            for (int i = 0; i < Doc.Objects.Count; i++)
+            {
+                if (Doc.Objects[i].Id == insertBeforeId)
+                {
+                    index = i;
+                    break;
+                }
+            }
+        }
+        History.Push(new AddGoOp { Doc = g, Index = index });
+        Doc.Objects.Insert(index, g);
         RefreshLive();
         return g;
     }

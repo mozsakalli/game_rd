@@ -91,6 +91,7 @@ public static class ClipHash
 }
 
 [Previewable]
+[ExecuteInEditMode]
 public sealed class MovieClip : Component
 {
     public static readonly int CompleteEvent = ClipHash.Of("@complete");
@@ -211,6 +212,10 @@ public sealed class MovieClip : Component
     {
         Rebuild(); // edit modunda ornekleme yok (preview paneli playhead'ini kendi yazar)
     }
+
+    // Animatable skalerlerim (Frame/Speed/Loop...) yapiyi degistirmez: Rebuild (alloc)
+    // animasyon kancasina girmesin — nested clip'in Frame'i her frame yazilir.
+    protected internal override void OnAnimatedPropertiesApplied() { }
 
     protected internal override void Update()
     {
@@ -395,7 +400,7 @@ public sealed class MovieClip : Component
             v = AnimValue.Merge(T.Prop.Get(T.Target), v, T.Mask);
         if (T.HasLast && T.Last.Same(v))
             return; // dedup: degismeyen deger yazilmaz (dirty yayilimi yok)
-        T.Prop.Set(T.Target, v);
+        T.Prop.Apply(T.Target, v);
         T.Last = v;
         T.HasLast = true;
     }

@@ -397,6 +397,7 @@ public struct FrameModule
 // emisyon frame'de SIFIR alloc; cizim = parcacik basina Mesh.Quad instanced
 // DrawMesh (ayni materyal/doku = RenderQueue merge ile TEK draw call).
 [Previewable]
+[ExecuteInEditMode]
 public sealed unsafe class ParticleSystem : Renderer, IEditorPreview
 {
     // --- Ana ---

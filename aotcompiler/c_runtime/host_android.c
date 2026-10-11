@@ -50,6 +50,23 @@ void de_host_log(int level, const char* utf8) { __android_log_write(level >= 2 ?
 
 #define JNI_FN(name) JNIEXPORT JNICALL Java_com_digitoy_host_GameLib_##name
 
+// Muzik koprusu (audio_shim.c __ANDROID__): Music sinifi APP classloader'indan burada cozulur
+// (JNI_OnLoad System.loadLibrary'yi cagiran loader'la kosar; GL thread'inden FindClass bulamaz).
+void de_android_music_bind(void* vm, void* env, void* cls);
+JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved)
+{
+    (void)reserved;
+    JNIEnv* env = NULL;
+    if ((*vm)->GetEnv(vm, (void**)&env, JNI_VERSION_1_6) != JNI_OK) return JNI_ERR;
+    jclass cls = (*env)->FindClass(env, "com/digitoy/host/Music");
+    if (cls) { de_android_music_bind(vm, env, cls); (*env)->DeleteLocalRef(env, cls); }
+    else { (*env)->ExceptionClear(env); __android_log_write(ANDROID_LOG_WARN, TAG, "Music sinifi yok: de_music_* kapali"); }
+    jclass pcls = (*env)->FindClass(env, "com/digitoy/host/Prefs");
+    if (pcls) { de_android_prefs_bind(vm, env, pcls); (*env)->DeleteLocalRef(env, pcls); }
+    else { (*env)->ExceptionClear(env); __android_log_write(ANDROID_LOG_WARN, TAG, "Prefs sinifi yok: PlayerPrefs kapali"); }
+    return JNI_VERSION_1_6;
+}
+
 // game.pak APK assets/Build/game.pak icinde (sikistirilmadan). dataRoot = "asset:" -> GameHost "asset:/Build/game.pak"
 // acar; de_fs bunu AAssetManager fd+offset ile okur (filesDir'e kopya yok). AssetManager global ref: AAssetManager*
 // Java nesnesi yasadikca gecerli; surec omurlu tutuyoruz (Activity yok olunca surec zaten biter).

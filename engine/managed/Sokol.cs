@@ -66,7 +66,7 @@ public static unsafe class Sokol
     extern public static void RenderExecuteDbg(byte* stream, int length, int maxDraws,
         uint overrideColorView, uint overrideDepthView);
 
-    // --- Async asset IO (worker thread native'de; managed tek thread kalir) ---
+    // --- Async asset IO (worker thread native'de; managed tek thread kalir). Sonuc de_async -> NativeAsync. ---
 
     [DllImport(Lib, EntryPoint = "de_asset_load")]
     extern public static int AssetLoad([MarshalAs(UnmanagedType.LPUTF8Str)] string path);
@@ -75,19 +75,6 @@ public static unsafe class Sokol
     // ise aralik zlib'li, once inflate sonra decode.
     [DllImport(Lib, EntryPoint = "de_asset_load_range")]
     extern public static int AssetLoadRange([MarshalAs(UnmanagedType.LPUTF8Str)] string path, long offset, long length, long rawLength);
-
-    [DllImport(Lib, EntryPoint = "de_asset_poll")]
-    extern static int de_asset_poll(int job, void** pixels, int* w, int* h);
-    public static int AssetPoll(int job, out IntPtr pixels, out int w, out int h)
-    {
-        void* p = null; int ww = 0, hh = 0;
-        int r = de_asset_poll(job, &p, &ww, &hh);
-        pixels = (IntPtr)p; w = ww; h = hh;
-        return r;
-    }
-
-    [DllImport(Lib, EntryPoint = "de_asset_free_job")]
-    extern public static void AssetFreeJob(int job);
 
     // --- Raster glyph (UI text; fontstash modeli) ---
 

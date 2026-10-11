@@ -3,6 +3,8 @@ using System.Collections.Generic;
 
 namespace DigitoyEngine;
 
+public enum ScreenOrientation { Landscape, Portrait, Auto }
+
 // Unity PlayerSettings karsiligi: oyunun YAYIN kimligi ve calisma zamani varsayilanlari.
 // Proje-genis tek kayit: ProjectSettings/PlayerSettings.asset (git'e girer; kullanici
 // ayarlari UserSettings/EditorSettings'ten ayridir). Standart: [Serializable] saf veri
@@ -32,8 +34,9 @@ public class PlayerSettings
     // 0 = platform varsayilani (vsync).
     public int targetFrameRate;
 
-    // Mobil ekran yonu: "auto" | "landscape" | "portrait" (Android manifest / iOS Info.plist; proje kabugu ilk uretimde yazilir).
-    public string orientation = "landscape";
+    // Mobil ekran yonu (Android manifest / iOS Info.plist; proje kabugu ilk uretimde yazilir).
+    // Editor Game View cihaz profili de buna gore doner (view.device).
+    public ScreenOrientation orientation = ScreenOrientation.Landscape;
 
     // Dinamik modul (Build > Module): bu proje bir host oyuna karsi modul olarak publish ediliyorsa, host'un AOT
     // player assembly'si (player/bin/Release/net9.0/DigitoyPlayer.dll gibi) — host tipleri "provided" sayilir,
