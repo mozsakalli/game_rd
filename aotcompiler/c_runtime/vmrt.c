@@ -508,8 +508,8 @@ static void trace_vmarray(GCHeader *h)
     for (int i = 0; i < a->len; i++)
         gc_shade(e[i]);
 }
-Type vmarray_ref_type = {trace_vmarray, finalize_vmarray, sizeof(VmArray), 0}; /* base: digitoyengine_array_init (System.Array) */
-Type vmarray_val_type = {0, finalize_vmarray, sizeof(VmArray), 1};
+Type vmarray_ref_type = {trace_vmarray, finalize_vmarray, sizeof(VmArray), 0, .vtable = vmobject_vtable, .nvtable = 3}; /* base: digitoyengine_array_init (System.Array) */
+Type vmarray_val_type = {0, finalize_vmarray, sizeof(VmArray), 1, .vtable = vmobject_vtable, .nvtable = 3};
 void digitoyengine_array_init(const Type *arrayBase)
 {
     vmarray_ref_type.base = arrayBase;
@@ -567,8 +567,28 @@ void digitoyengine_delegate_trace(GCHeader *o)
     if (d->right)
         gc_shade(&d->right->gc);
 }
-Type vmdelegate_type = {0, 0, 0, 1, &vmobject_type, &dg_name, 0, 0, 0, 0, 17};
-Type vmmulticastdelegate_type = {0, 0, 0, 1, &vmdelegate_type, &mdg_name, 0, 0, 0, 0, 18};
+// Delegate esitligi (.NET Delegate.Equals): ayni tip + ayni hedef/metot; multicast'ta liste eleman eleman.
+static int dg_eq(const VmDelegate *a, const VmDelegate *b)
+{
+    if (a == b)
+        return 1;
+    if (!a || !b || a->gc.type != b->gc.type)
+        return 0;
+    if (a->left || b->left)
+        return a->left && b->left && dg_eq(a->left, b->left) && dg_eq(a->right, b->right) && a->skip_start == b->skip_start && a->skip_count == b->skip_count;
+    return a->fn == b->fn && a->target == b->target;
+}
+int digitoyengine_delegate_eq(VmObject *a0, VmObject *a1) { return dg_eq((const VmDelegate *)a0, (const VmDelegate *)a1); }
+int digitoyengine_delegate_hash(VmObject *a0)
+{
+    const VmDelegate *d = (const VmDelegate *)a0;
+    size_t h = (size_t)d->fn * 31u ^ (size_t)d->target;
+    return (int)(h & 0x7FFFFFFF);
+}
+struct VmString *System_Object_ToString(VmObject *a0); // corelib.c
+const void *const digitoyengine_delegate_vtable[3] = {(const void *)&digitoyengine_delegate_hash, (const void *)&digitoyengine_delegate_eq, (const void *)&System_Object_ToString};
+Type vmdelegate_type = {0, 0, 0, 1, &vmobject_type, &dg_name, digitoyengine_delegate_vtable, 3, 0, 0, 17};
+Type vmmulticastdelegate_type = {0, 0, 0, 1, &vmdelegate_type, &mdg_name, digitoyengine_delegate_vtable, 3, 0, 0, 18};
 VmDelegate *digitoyengine_delegate_new(const Type *t, const void *fn, GCHeader *target)
 {
     VmDelegate *d = (VmDelegate *)gc_alloc(t);
@@ -2218,6 +2238,8 @@ const Type *digitoyengine_array_type(const Type *elem, int rank)
     s->type.size = sizeof(VmArray);
     s->type.base = vmarray_ref_type.base ? vmarray_ref_type.base : &vmobject_type; /* System.Array (init sonrasi) */
     s->type.flags = DIGITOYENGINE_TYPE_ARRAY | DIGITOYENGINE_TYPE_SYNTH_ARRAY;
+    s->type.vtable = vmobject_vtable;
+    s->type.nvtable = 3; /* Equals/GetHashCode/ToString: Object varsayilani */
     s->type.elem_type = elem;
     s->type.rank = (unsigned char)rank;
     s->type.name = digitoyengine_type_name(elem); /* ad: eleman adi (Type.Name "[]" ekler); lazy generic ad burada kurulur */

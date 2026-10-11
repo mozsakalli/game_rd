@@ -380,11 +380,13 @@ public sealed unsafe partial class LayoutBox
             cOut = MathF.Max(cFill - textOutlineWidth / scale / TextSdfSpread, 0.05f);
 
         // Painter sirasi ayni layer'da submit sirasi: golge -> kontur -> dolgu.
+        // Golge/kontur USER.y NEGATIF: MSDF sayfada gercek SDF (.a) okunur — kenardan
+        // uzak/kaydirilmis esikler median'da guvenilir degil; R8 sayfada isaret yok sayilir.
         if (textShadowColor.a > 0)
         {
             float s = textShadowBlur > 0
                 ? textShadowBlur * 0.5f / scale / TextSdfSpread : 0f;
-            var user = new Vec4(s, cOut > 0 ? cOut : cFill, 0f, 0f); // kontur varsa golge silueti kontur kenarindan
+            var user = new Vec4(s, -(cOut > 0 ? cOut : cFill), 0f, 0f); // kontur varsa golge silueti kontur kenarindan
             float sx = ox + textShadowOffset.x, sy = oy + textShadowOffset.y;
             for (int i = 0; i < _tqCount; i++)
             {
@@ -395,7 +397,7 @@ public sealed unsafe partial class LayoutBox
         }
         if (cOut > 0)
         {
-            var user = new Vec4(0f, cOut, 0f, 0f);
+            var user = new Vec4(0f, -cOut, 0f, 0f);
             bool oh = textOutline.IsHorizontal;
             for (int i = 0; i < _tqCount; i++)
             {

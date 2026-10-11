@@ -271,3 +271,13 @@ Invariantlar:
 - Yeni policy parcasi eklenince ek track GEREKMEZ (RenderGroup kapsar) — onceki "2-3 renk track'i" invarianti gecersiz.
 - Son key Alpha 1 = statik gorunum; POLICY.RenderGroup.Alpha doc degeri 1 kalir.
 Dogrulama: iphone-14 landscape; f50 policy gorunmez; f72 soluk (golge/altcizgi birlikte); f100 = statik, tam gorunur.
+
+## 2026-10-11 — Policy fade-in RenderGroup ile YENIDEN uygulandi (onceki kayit diske yansimamisti; SAHNE KAYDEDILMEDI; undo'lu)
+Prompt: "acilis animasyon policy alpha rendergroup kullansin yapmistik kaydolmamis tekrar yap"
+Durum: Diskteki sahne 19 track'li (12 renk track'i T7..T18) eski haldeydi; POLICY'de RenderGroup yoktu.
+Yapi (ROOT(1) MovieClip comp[1]): T18..T7 Tracks[i]=null ile silindi; POLICY(10) comp[1] RenderGroup eklendi (Alpha doc'ta default 1);
+yeni T7: Target 10:RenderGroup:0, Path Alpha, Keys 0@0 Mode Hold -> 60@0 OutSine -> 84@1. Toplam 8 track.
+Not: Edit sahnesinde canli dump RenderGroup.Alpha=0 gosterir (MovieClip frame 0 onizlemesi); doc degeri 1'dir.
+Invariantlar: 2026-10-11 ilk kaydin invariantlari aynen gecerli (policy girisi = POLICY.RenderGroup.Alpha f60-84 OutSine;
+cocuklarin renk alanlari anime EDILMEZ; yeni policy parcasi icin ek track gerekmez).
+Dogrulama: iphone-14 landscape; f50 policy gorunmez; f72 soluk (metin+golge+altcizgi birlikte); f100 = statik, tam gorunur.

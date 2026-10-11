@@ -1085,14 +1085,14 @@ public sealed unsafe class ParticleSystem : Renderer, IEditorPreview
         return new Vec3(r * MathF.Cos(a), r * MathF.Sin(a), z);
     }
 
-    // xorshift32: [0,1) 24-bit hassasiyet, alloc'suz, deterministik (seed).
-    internal static float Rand01(ref uint s)
+    internal static float Rand01(ref uint s) => (float)System.Random.Shared.NextDouble();
+    /*
     {
         s ^= s << 13;
         s ^= s >> 17;
         s ^= s << 5;
         return (s >> 8) * (1f / 16777216f);
-    }
+    }*/
 
     internal static int CurveSignature(Curve c)
     {

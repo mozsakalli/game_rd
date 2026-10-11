@@ -31,6 +31,7 @@ namespace System
         public extern static bool IsWindows();
         public extern static bool IsMacOS();
         public extern static bool IsIOS();
+        public extern static bool IsMacCatalyst();
         public extern static bool IsAndroid();
         public extern static bool IsLinux();
         public extern static bool IsBrowser();

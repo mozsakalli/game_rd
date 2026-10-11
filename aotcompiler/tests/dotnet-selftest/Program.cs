@@ -2,7 +2,7 @@ using System;
 
 internal static class Program
 {
-    private const int CaseCount = 60;
+    private const int CaseCount = 73;
 
     // CIL frontend dostu dispatch: delegate dizisi/generic yok, duz switch.
     private static int RunCase(int number)
@@ -68,6 +68,19 @@ internal static class Program
             case 58: return Demo58.App58.Run();
             case 59: return Demo59.App59.Run();
             case 60: return Demo60.App60.Run();
+            case 61: return Demo61.App61.Run();
+            case 62: return Demo62.App62.Run();
+            case 63: return Demo63.App63.Run();
+            case 64: return Demo64.App64.Run();
+            case 65: return Demo65.App65.Run();
+            case 66: return Demo66.App66.Run();
+            case 67: return Demo67.App67.Run();
+            case 68: return Demo68.App68.Run();
+            case 69: return Demo69.App69.Run();
+            case 70: return Demo70.App70.Run();
+            case 71: return Demo71.App71.Run();
+            case 72: return Demo72.App72.Run();
+            case 73: return Demo73.App73.Run();
             default: return 0;
         }
     }

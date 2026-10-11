@@ -31,10 +31,10 @@ namespace DigitoyEngine.Cil
         // singleton'larina baglanir (uyeler onlara eklenir); govdesiz (RVA=0) metotlar extern = C govdesi corelib.c'de.
         public static List<Code> Compile(Context ctx, string dllPath, out Code entryPoint, bool isCoreLib)
         {
-            using var pe = new PEReader(File.OpenRead(dllPath));
+            var pe = new PEReader(File.OpenRead(dllPath)); // ornek cevirileri daha sonra da IL okur -> acik kalir (surec omru)
             var md = pe.GetMetadataReader();
             var pdb = OpenPdb(pe, dllPath, out var pdbProvider);
-            using var _pdbDispose = pdbProvider;
+            keepAlive.Add(pdbProvider); // ornek cevirileri seq-point icin pdb okur; surec omru boyunca acik
 
             var t = new Loader { ctx = ctx, md = md, pdb = pdb, PE = pe, isCoreLib = isCoreLib };
             t.LoadTypes();
@@ -48,6 +48,29 @@ namespace DigitoyEngine.Cil
             if (ep != 0 && t.methodMap.TryGetValue(MetadataTokens.MethodDefinitionHandle(ep), out var e))
                 entryPoint = e;
             return codes;
+        }
+
+        // Bir metodun IL kaynagi: sablon ve ornekleri ayni govdeyi paylasir (Code.IlSource).
+        public sealed class IlRef { public Loader Loader; public MethodDefinitionHandle Handle; }
+
+        // GENERICS-S1: generic ornek kabugunun govdesini IL'den SOMUT baglamla cevir (sablon IR'i yok, klon yok).
+        // TypeParams = sahibin somut tip argumanlari, MethodParams = metot orneklemesinin argumanlari.
+        // Donus false: IL kaynaginin assembly'si henuz yuklenmedi (LoadMembers suruyor) -> cagiran bekletir.
+        public static bool TranslateInstance(Context ctx, Code shell)
+        {
+            var root = GenericInstantiator.RootTemplate(shell);
+            if (root.IlSource is not IlRef src) { shell.UntranslatableReason = "generic ornek: IL kaynagi yok (" + root.EncodeName() + ")"; return true; }
+            if (!src.Loader.Ready) return false;
+            var owner = shell.Owner;
+            IReadOnlyList<Primitive> typeParams = owner == null ? null : owner.InstantiatedFrom != null ? owner.TypeArguments : owner.GenericParameters;
+            if (owner != null && owner.InstantiatedFrom != null && owner.TypeArguments.Any(GenericInstantiator.ContainsGenericParameter))
+                throw new Exception("generic ornek acik tip argumani tasiyor: " + owner.Name);
+            var gc = new GenCtx { TypeParams = typeParams, MethodParams = shell.MethodTypeArguments };
+            if (root.GenericParameters.Count > 0 && (shell.MethodTypeArguments == null || shell.MethodTypeArguments.Count != root.GenericParameters.Count))
+                throw new Exception($"generic metot ornegi arguman sayisi uyusmuyor: {shell.EncodeName()} ({shell.MethodTypeArguments?.Count ?? 0}/{root.GenericParameters.Count})");
+            shell.Locals.Clear(); shell.LocalNames.Clear(); shell.Operations.Clear();
+            src.Loader.TranslateBody(shell, src.Handle, gc);
+            return true;
         }
 
         static MetadataReader OpenPdb(PEReader pe, string dllPath, out IDisposable provider)
@@ -70,7 +93,8 @@ namespace DigitoyEngine.Cil
             return null; // PDB yok: satir bilgisiz devam (trace'ler satirsiz)
         }
 
-        class Loader
+        static readonly List<IDisposable> keepAlive = new List<IDisposable>();
+        public class Loader
         {
             public Context ctx;
             public MetadataReader md;
@@ -262,8 +286,15 @@ namespace DigitoyEngine.Cil
                     {
                         try
                         {
-                            var baseName = RefName(td.BaseType);
-                            p.Parent = baseName == "System.Object" || baseName == null ? Primitive.Object : ResolveName(baseName);
+                            // generic taban ornegi (Derived<T> : Base<T>, Foo : Bar<int>) TypeSpec gelir -> Apply node / somut ornek
+                            // (eskiden sessizce Object'e dusuyordu: taban alanlari/vtable kayboluyordu; S3 matrisi yakaladi)
+                            if (!td.BaseType.IsNil && td.BaseType.Kind == HandleKind.TypeSpecification)
+                                p.Parent = DecodeTypeSpecHandle((TypeSpecificationHandle)td.BaseType, new GenCtx { TypeParams = p.GenericParameters });
+                            else
+                            {
+                                var baseName = RefName(td.BaseType);
+                                p.Parent = baseName == "System.Object" || baseName == null ? Primitive.Object : ResolveName(baseName);
+                            }
                         }
                         catch (Exception ex) { diag.Add($"skip base of {p.Name}: {ex.Message}"); p.Parent = Primitive.Object; }
                         foreach (var ih in td.GetInterfaceImplementations())
@@ -449,7 +480,7 @@ namespace DigitoyEngine.Cil
                         methodMap[mh] = code;
                         methodDefs[mh] = m;
                         code.CilAttributes = (ushort)m.Attributes;
-                        code.BodyPending = true; // LoadBodies cevirene kadar bu sablondan klon govdesi alinmaz (GenericInstantiator)
+                        code.IlSource = new IlRef { Loader = this, Handle = mh }; // ornekler ayni IL'den somut baglamla cevrilir
                     }
                 }
                 // property metadata (reflection GetProperties + attribute'lar); get_/set_ metotlari zaten Code olarak kayitli
@@ -577,28 +608,39 @@ namespace DigitoyEngine.Cil
                     var m = methodDefs[kv.Key];
                     var code = kv.Value;
                     result.Add(code);
-                    if (m.RelativeVirtualAddress == 0)
-                    {
-                        // [UnsafeAccessor(Field)] extern ref-thunk (CatalogWriter): govde yok, biz
-                        // sentezleriz: ldarg.0; ldflda <ad>; ret. Erisim denetimi AOT'de yoktur.
-                        try { SynthesizeUnsafeAccessor(m, code); }
-                        catch (Exception ex) { StubBody(code, "UnsafeAccessor: " + ex.Message); }
-                        GenericInstantiator.MarkBodyReady(code);
-                        continue; // abstract/iface: govdesiz
-                    }
-                    try
-                    {
-                        var body = PE.GetMethodBody(m.RelativeVirtualAddress);
-                        new BodyTranslator { loader = this, md = md, pdb = pdb, code = code, mh = kv.Key }.Translate(body);
-                    }
-                    catch (Exception ex)
-                    {
-                        // Cevrilemeyen govde: derlenebilir stub (yalniz ilgili case uyusmaz, digerleri calisir).
-                        StubBody(code, ex.Message);
-                    }
-                    GenericInstantiator.MarkBodyReady(code); // bekleyen generic klonlar simdi bu govdeyi kopyalar
+                    // SABLON (generic metot ya da generic sinif uyesi): govdesi IR'a CEVRILMEZ (acik T ile indirgeme yok);
+                    // her ornegi TranslateInstance ile somut baglamda cevrilir (GENERICS-S1).
+                    if (code.GenericParameters.Count > 0 || (code.Owner != null && code.Owner.IsGeneric)) continue;
+                    TranslateBody(code, kv.Key, null);
                 }
+                Ready = true;
+                GenericInstantiator.LoaderReady(); // bu assembly'nin sablonlarindan bekleyen ornek govdeleri
                 return result;
+            }
+            public bool Ready; // LoadBodies bitti: IL govdeleri ve tum uye kayitlari hazir (ornek cevirisi yapilabilir)
+
+            // Tek govde cevirisi: gc null -> kodun kendi parametreleri (non-generic), degilse somut ornek baglami.
+            public void TranslateBody(Code code, MethodDefinitionHandle mh, GenCtx? gc)
+            {
+                var m = methodDefs[mh];
+                if (m.RelativeVirtualAddress == 0)
+                {
+                    // [UnsafeAccessor(Field)] extern ref-thunk (CatalogWriter): govde yok, biz
+                    // sentezleriz: ldarg.0; ldflda <ad>; ret. Erisim denetimi AOT'de yoktur.
+                    try { SynthesizeUnsafeAccessor(m, code); }
+                    catch (Exception ex) { StubBody(code, "UnsafeAccessor: " + ex.Message); }
+                    return; // abstract/iface/extern: govdesiz
+                }
+                try
+                {
+                    var body = PE.GetMethodBody(m.RelativeVirtualAddress);
+                    new BodyTranslator { loader = this, md = md, pdb = pdb, code = code, mh = mh, gcOverride = gc }.Translate(body);
+                }
+                catch (Exception ex)
+                {
+                    // Cevrilemeyen govde: derlenebilir stub (yalniz ilgili case uyusmaz, digerleri calisir).
+                    StubBody(code, ex.Message);
+                }
             }
 
             // Govde cevrilemediginde: op'lari temizle, CTranspiler tipe uygun sifir stub uretsin.
@@ -777,8 +819,9 @@ namespace DigitoyEngine.Cil
                     var applied = DecodeTypeSpecHandle((TypeSpecificationHandle)mr.Parent, gc);
                     var template = applied.GenericTemplate ?? applied;
                     typeArgs.AddRange(applied.TypeArguments);
-                    // uye imzasini sablonun kendi generic parametreleriyle coz (mangle eslesmesi icin)
-                    var s2 = mr.DecodeMethodSignature(sig, new GenCtx { TypeParams = template.GenericParameters });
+                    // uye imzasini sablonun kendi generic parametreleriyle coz (mangle eslesmesi icin); generic METOT uyesinde
+                    // !!N icin cagri baglaminin somut metot argumanlari (MethodSpec'ten) -> FindGenericMethod unify ile sablonu bulur
+                    var s2 = mr.DecodeMethodSignature(sig, new GenCtx { TypeParams = template.GenericParameters, MethodParams = gc.MethodParams });
                     var simple2 = name == ".ctor" ? "ctor" : OperatorRemap(name);
                     return FindCode(template, simple2, s2.ParameterTypes);
                 }
@@ -978,7 +1021,7 @@ namespace DigitoyEngine.Cil
         }
 
         // imza cozucu: metadata tip kodlari -> bizim Primitive'ler (generic Apply node / ptr byref)
-        class SigTypes : ISignatureTypeProvider<Primitive, GenCtx>, ICustomAttributeTypeProvider<Primitive>
+        public class SigTypes : ISignatureTypeProvider<Primitive, GenCtx>, ICustomAttributeTypeProvider<Primitive>
         {
             public Loader loader;
             static readonly Dictionary<Primitive, Primitive> arrayCache = new Dictionary<Primitive, Primitive>();
@@ -1082,6 +1125,7 @@ namespace DigitoyEngine.Cil
             int curLine;
             bool unreachable;
             GenCtx gc; // bu govdenin generic baglami (sinif + method tip parametreleri)
+            public GenCtx? gcOverride; // ornek cevirisi: SOMUT tip argumanlari (TranslateInstance)
 
             // istisna bolgeleri (try/catch): IL EH -> yapisal TryBegin/TryEnd/ExIs/ExBind/Rethrow modeli
             class EhCatch { public Primitive type; public int handlerOff; public Label sec; }
@@ -1366,7 +1410,7 @@ namespace DigitoyEngine.Cil
 
             public void Translate(MethodBodyBlock body)
             {
-                gc = new GenCtx
+                gc = gcOverride ?? new GenCtx
                 {
                     TypeParams = code.Owner != null ? code.Owner.GenericParameters : null,
                     MethodParams = code.GenericParameters.Count > 0 ? code.GenericParameters : null
@@ -2020,21 +2064,38 @@ namespace DigitoyEngine.Cil
                                 {
                                     var ctpl = ct.GenericTemplate ?? ct;
                                     var ctArgs = ct.TypeArguments != null ? new List<Primitive>(ct.TypeArguments) : new List<Primitive>();
-                                    var cm = loader.FindCode(ctpl, cname == ".ctor" ? "ctor" : Loader.OperatorRemap(cname), csig.ParameterTypes);
-                                    for (int i = 0; i < cm.Arguments.Count; i++) Pop(); // this(ptr) + arglar
-                                    var cop = new Op { Type = OpType.Call, Code = cm };
-                                    if (ctArgs.Count > 0) cop.TypeArguments = ctArgs;
-                                    EmitOp(cop);
-                                    if (cm.ReturnType != Primitive.Void) Push(loader.ConcreteType(cm, ctArgs, cm.ReturnType));
-                                    return p + 4;
+                                    Code cm = null;
+                                    try { cm = loader.FindCode(ctpl, cname == ".ctor" ? "ctor" : Loader.OperatorRemap(cname), csig.ParameterTypes); }
+                                    catch (Exception) when (ctpl.Parent == null || ctpl.Parent == Primitive.ValueType) { cm = null; }
+                                    if (cm != null && cm.Owner != null && cm.Owner.IsStruct)
+                                    {
+                                        for (int i = 0; i < cm.Arguments.Count; i++) Pop(); // this(ptr) + arglar
+                                        var cop = new Op { Type = OpType.Call, Code = cm };
+                                        if (ctArgs.Count > 0) cop.TypeArguments = ctArgs;
+                                        EmitOp(cop);
+                                        if (cm.ReturnType != Primitive.Void) Push(loader.ConcreteType(cm, ctArgs, cm.ReturnType));
+                                        return p + 4;
+                                    }
+                                    // Struct uyeyi override etmemis (Object.Equals/GetHashCode/ToString): .NET gibi KUTULA + sanal cagri
+                                    // (kutu vtable'i ValueType varsayilanina ya da override'a gider). Alici ptr arglarin altinda -> spill.
+                                    int nargs = csig.ParameterTypes.Length;
+                                    var tmpArgs = new int[nargs];
+                                    for (int i = nargs - 1; i >= 0; i--) tmpArgs[i] = SpillLocal(stack[stack.Count - 1]);
+                                    EmitOp(new Op { Type = OpType.LoadInd }); Pop(); Push(ct);
+                                    EmitOp(new Op { Type = OpType.Box, PrimitiveRef = ct }); Pop(); Push(Primitive.Object);
+                                    for (int i = 0; i < nargs; i++) PushLocal(tmpArgs[i], csig.ParameterTypes[i]);
+                                    // dusme: asagidaki genel yol Object sanalini callvirt eder
                                 }
-                                // referans tip / generic parametre: alici ptr (ldloca/ldelema/ldarga) kalir; deref'i CTranspiler
-                                // CallVirtual'da yapar (alici slotunu bilir — argumanli cagrida stack tepesi alici DEGILDIR).
-                                int recvDepth = csig.ParameterTypes.Length; // alici = tepe - arg sayisi
-                                if (stack.Count > recvDepth)
+                                else
                                 {
-                                    var rt = stack[stack.Count - 1 - recvDepth];
-                                    if (rt != null && rt.Type == PrimitiveType.Pointer) stack[stack.Count - 1 - recvDepth] = ct;
+                                    // referans tip: alici ptr (ldloca/ldelema/ldarga) kalir; deref'i CTranspiler
+                                    // CallVirtual'da yapar (alici slotunu bilir — argumanli cagrida stack tepesi alici DEGILDIR).
+                                    int recvDepth = csig.ParameterTypes.Length; // alici = tepe - arg sayisi
+                                    if (stack.Count > recvDepth)
+                                    {
+                                        var rt = stack[stack.Count - 1 - recvDepth];
+                                        if (rt != null && rt.Type == PrimitiveType.Pointer) stack[stack.Count - 1 - recvDepth] = ct;
+                                    }
                                 }
                             }
                             // corelib icinde Type.GetTypeFromHandle ayni assembly'de (MethodDef): ldtoken zaten TypeOf uretti, cagri yutulur.
@@ -2328,7 +2389,7 @@ namespace DigitoyEngine.Cil
                         {
                             var ut = DecodeTypeTok(il, p);
                             Pop();
-                            if (ut.Type == PrimitiveType.Model && !ut.IsStruct) // unbox.any ref tipte = castclass
+                            if (!TypeShape.IsValueLike(ut)) // unbox.any referans tipte (class/iface/delegate/dizi) = castclass
                                 EmitOp(new Op { Type = OpType.CastClass, PrimitiveRef = ut });
                             else
                                 EmitOp(new Op { Type = OpType.Unbox, PrimitiveRef = ut });
@@ -2349,7 +2410,7 @@ namespace DigitoyEngine.Cil
                             Pop();
                             EmitOp(new Op { Type = OpType.AsType, PrimitiveRef = it }); // C# is/as: null testi IL'de devaminda
                             // deger tipi isinst: boxed referans (veya null) birakir -> Object; devaminda null-check / unbox.any
-                            Push(it.Type == PrimitiveType.Model && !it.IsStruct ? it : Primitive.Object);
+                            Push(TypeShape.IsValueLike(it) ? Primitive.Object : it);
                             return p + 4;
                         }
                     case ILOpCode.Ldtoken:

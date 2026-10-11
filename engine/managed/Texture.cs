@@ -17,6 +17,10 @@ public unsafe class Texture : GpuResource
     public int Width { get; private set; }
     public int Height { get; private set; }
 
+    // Piksel formati kanal sayisi: 1 = R8 (tek kanal SDF/alpha), 4 = RGBA8. Font
+    // sayfasinin shader secimi (R8 .r vs RGBA median/alpha) buradan okunur.
+    public int Channels { get; private set; } = 4;
+
     // Bu dokuda (atlas sayfasi / font sheet) UiPieces bolgesi varsa orijini;
     // -1 = yok. LayoutBox kutu parcalarini icerigiyle ayni sayfadan orneklesin diye.
     public int PiecesX { get; internal set; } = -1;
@@ -133,6 +137,7 @@ public unsafe class Texture : GpuResource
         var t = new Texture();
         t.Width = width;
         t.Height = height;
+        t.Channels = 1;
         t._texture = (int)Sokol.MakeImage(
             width, height, SG.PixelFormatR8, 1, 1, 0 /*immutable(data)*/, pixels, width * height);
         t._textureView = (int)Sokol.MakeView((uint)t._texture, SG.ViewTexture);
@@ -145,6 +150,7 @@ public unsafe class Texture : GpuResource
         var t = new Texture { Persistent = true };
         t.Width = width;
         t.Height = height;
+        t.Channels = 1;
         t._texture = (int)Sokol.MakeImage(
             width, height, SG.PixelFormatR8, 1, 1, 1 /*dynamic*/, null, 0);
         t._textureView = (int)Sokol.MakeView((uint)t._texture, SG.ViewTexture);

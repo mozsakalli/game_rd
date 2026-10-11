@@ -10,24 +10,37 @@ namespace DigitoyEditor;
 // Font import ayarlari (.meta "importer:" blogu; Inspector duzenler).
 // charset: virgullu liste — "32-126" / "U+00A0-U+017F" araliklari, "U+20AC" tekil
 // codepoint, ya da dogrudan karakterler ("ĞğİıŞş€"). ' ' ve '?' her zaman eklenir.
+// mode: Sdf = tek kanal (R8 sheet, stb_truetype), Msdf = MTSDF (RGBA sheet; rgb msdf
+// keskin kose, a gercek sdf — golge/kontur/kalinlik oradan). Kutu/metrik/deger uzayi
+// iki modda da ayni; yalniz sheet formati degisir (shader secimi sayfadan).
+public enum FontSdfMode { Sdf, Msdf }
+
 [Serializable]
 public sealed class FontImportSettings
 {
     public string charset = "32-126,160-383"; // ASCII + Latin-1 + Latin Extended-A (Turkce dahil)
     public int sdfSize = 32;                   // SDF taban puntosu (px); buyuk = daha keskin buyuk metin, daha cok alan
+    public FontSdfMode mode = FontSdfMode.Sdf;
 }
 
-// TTF -> prebaked SDF font: glyph'ler TEK TEK pisirilir (native stb_truetype), ortak
-// paketleyiciyle bir "sheet"e dizilir. Ciktilar:
-//   main    : DFNT v3 (metrikler + glyph tablosu + kerning; doku YOK)
-//   sheet   : DPIX R8 glyph sayfasi (+ UiPieces bandi) — Standalone: gruba alinmamis font bunu kullanir
+// TTF -> prebaked SDF font: glyph'ler TEK TEK pisirilir (native stb_truetype ya da
+// msdfgen), ortak paketleyiciyle bir "sheet"e dizilir. Ciktilar:
+//   main    : DFNT (metrikler + glyph tablosu + kerning; doku YOK)
+//   sheet   : DPIX glyph sayfasi R8 (Sdf) / RGBA8 (Msdf) (+ UiPieces bandi) — Standalone:
+//             gruba alinmamis font bunu kullanir
 //   regions : bolge manifestosu — Editor: AtlasImporter glyph'leri kendi sayfasina tasir
 // Pak'a ttf girmez, runtime bake yok.
-[AssetImporter(".ttf", ".otf", Version = 7, Settings = typeof(FontImportSettings))]
+[AssetImporter(".ttf", ".otf", Version = 8, Settings = typeof(FontImportSettings))]
 public sealed unsafe class FontImporter : AssetImporter
 {
     const int SheetMaxSize = 4096;
     const int GlyphPad = 1; // SDF bitmap'i kendi 6px pad'ini tasir; bilinear icin 1px yeter
+
+    // Shim bake sabitleri (sokol_shim.c DE_FONT_SDF_PAD / DE_FONT_SDF_SPREAD): Msdf yolu
+    // ayni kutu ve deger uzayini uretsin diye buradan verilir.
+    const int BakePad = 6;
+    const float BakePixelDistScale = 21f;
+    const double MsdfAngleThreshold = 3.0; // msdfgen onerisi (radyan)
 
     public override void Import(ImportContext ctx)
     {
@@ -41,25 +54,33 @@ public sealed unsafe class FontImporter : AssetImporter
         }
 
         byte[] ttf = File.ReadAllBytes(ctx.SourcePath);
-        IntPtr font;
+        IntPtr font, msdf = IntPtr.Zero;
         fixed (byte* p = ttf)
-            font = Sokol.SdfFontOpen(p, ttf.Length);
-        if (font == IntPtr.Zero)
         {
+            font = Sokol.SdfFontOpen(p, ttf.Length);
+            if (font != IntPtr.Zero && settings.mode == FontSdfMode.Msdf)
+                msdf = Sokol.MsdfFontOpen(p, ttf.Length);
+        }
+        if (font == IntPtr.Zero || (settings.mode == FontSdfMode.Msdf && msdf == IntPtr.Zero))
+        {
+            if (font != IntPtr.Zero)
+                Sokol.SdfFontClose(font);
             ctx.Fail("font acilamadi (gecersiz/desteklenmeyen ttf)");
             return;
         }
         try
         {
-            Bake(ctx, font, sdfSize, codepoints);
+            Bake(ctx, font, msdf, sdfSize, codepoints);
         }
         finally
         {
             Sokol.SdfFontClose(font);
+            if (msdf != IntPtr.Zero)
+                Sokol.MsdfFontClose(msdf);
         }
     }
 
-    void Bake(ImportContext ctx, IntPtr font, float sdfSize, List<int> codepoints)
+    void Bake(ImportContext ctx, IntPtr font, IntPtr msdf, float sdfSize, List<int> codepoints)
     {
         float* metrics = stackalloc float[5];
         if (Sokol.SdfFontMetrics(font, sdfSize, metrics) == 0)
@@ -68,23 +89,27 @@ public sealed unsafe class FontImporter : AssetImporter
             return;
         }
 
+        int channels = msdf != IntPtr.Zero ? 4 : 1;
         int n = codepoints.Count;
         var glyphs = new Font.Glyph[n];
         var sources = new List<RegionSource>(n);
-        var buf = new byte[1 << 20];
+        var buf = new byte[(1 << 20) * channels];
         float* g5 = stackalloc float[5];
         fixed (byte* pBuf = buf)
         {
             for (int i = 0; i < n; i++)
             {
                 int cp = codepoints[i];
-                if (Sokol.SdfFontGlyph(font, cp, sdfSize, pBuf, buf.Length, g5) == 0)
+                int ok = channels == 4
+                    ? Sokol.MsdfFontGlyph(msdf, cp, sdfSize, BakePad, BakePixelDistScale, MsdfAngleThreshold, pBuf, buf.Length, g5)
+                    : Sokol.SdfFontGlyph(font, cp, sdfSize, pBuf, buf.Length, g5);
+                if (ok == 0)
                 {
                     ctx.Fail($"glyph pisirilemedi: U+{cp:X4} (sdfSize {sdfSize} cok buyuk olabilir)");
                     return;
                 }
                 int w = (int)g5[3], h = (int)g5[4];
-                InkExtents(buf, w, h, out float inkL, out float inkR);
+                InkExtents(buf, w, h, channels, out float inkL, out float inkR);
                 glyphs[i] = new Font.Glyph
                 {
                     Codepoint = cp,
@@ -98,10 +123,10 @@ public sealed unsafe class FontImporter : AssetImporter
                 };
                 if (w > 0 && h > 0)
                 {
-                    var px = new byte[w * h];
+                    var px = new byte[w * h * channels];
                     Buffer.BlockCopy(buf, 0, px, 0, px.Length);
                     var s = RegionSource.FromBuffer(ctx.AssetPath + "#" + AtlasData.GlyphName(cp),
-                        RegionKind.Sdf, px, 1, w, 0, 0, w, h);
+                        RegionKind.Sdf, px, channels, w, 0, 0, w, h);
                     s.Pad = GlyphPad;
                     s.Unit = 0;
                     sources.Add(s);
@@ -115,7 +140,7 @@ public sealed unsafe class FontImporter : AssetImporter
         fixed (short* pk = kern)
             Sokol.SdfFontKernTable(font, pc, n, pk);
 
-        var pages = RegionPacker.Pack(sources, SheetMaxSize, 1, uiPieces: true, out string err);
+        var pages = RegionPacker.Pack(sources, SheetMaxSize, channels, uiPieces: true, out string err);
         if (err != null || pages.Count != 1)
         {
             ctx.Fail(err ?? $"glyph seti tek sheet'e sigmadi ({pages.Count} sayfa; charset'i kucultun veya sdfSize'i dusurun)");
@@ -150,24 +175,26 @@ public sealed unsafe class FontImporter : AssetImporter
 
         ctx.AddArtifact("main", Font.WriteArtifact(metrics[0], metrics[1], metrics[2], metrics[3], metrics[4],
             page.Width, page.Height, page.PiecesX, page.PiecesY, glyphs, kern));
-        ctx.AddArtifact("sheet", PixelBlob.Build(1, page.Width, page.Height, page.Pixels), ArtifactScope.Standalone);
+        ctx.AddArtifact("sheet", PixelBlob.Build(channels, page.Width, page.Height, page.Pixels), ArtifactScope.Standalone);
         ctx.AddArtifact("regions", manifest.Write(), ArtifactScope.Editor);
     }
 
     // SDF bitmap'inden gorunen murekkebin sol/sag kenari (bitmap px, alt-piksel):
     // kolon maksimumlari uzerinde esik 128'in lineer kesisimi (SDF degeri mesafede
-    // lineer; bbox floor/ceil yuvarlamasi ve pad bu sayede elenir).
-    static void InkExtents(byte[] sdf, int w, int h, out float left, out float right)
+    // lineer; bbox floor/ceil yuvarlamasi ve pad bu sayede elenir). channels=4
+    // (MTSDF) ise gercek mesafe A kanalindan okunur.
+    static void InkExtents(byte[] sdf, int w, int h, int channels, out float left, out float right)
     {
         left = 0f;
         right = w;
         if (w <= 0 || h <= 0)
             return;
+        int off = channels - 1; // R8: 0, RGBA: alpha
         Span<int> colMax = w <= 512 ? stackalloc int[w] : new int[w];
         for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++)
             {
-                int v = sdf[y * w + x];
+                int v = sdf[(y * w + x) * channels + off];
                 if (v > colMax[x]) colMax[x] = v;
             }
         int c0 = 0;

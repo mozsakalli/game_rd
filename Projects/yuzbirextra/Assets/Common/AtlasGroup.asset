@@ -1,0 +1,11 @@
+type: AtlasGroup
+fields:
+  folders:
+  fonts:
+    - dd3069bf887d44eb80d125c87f3eda93
+    - d486343bc94940e3bed6cd5ef1f70231
+    - 6d494a8fcc794696b62e3675d4754847
+  padding: 2
+  maxSize: 2048
+  format: Auto
+  uiPieces: true

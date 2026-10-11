@@ -144,7 +144,6 @@ public unsafe class App
         PointerTests.Run(_catalog);
         RenderGroupTests.Run(_catalog);
         PixelEffectTests.Run();
-        AudioTests.Run(_catalog);
         PlayerPrefsTests.Run(projectPath);
         AsyncQueueTests.Run();
         NetTests.Run();
@@ -173,7 +172,8 @@ public unsafe class App
         }
         AssetWatcher.Start(AssetsPath); // degisiklikler otomatik derleme/refresh tetikler
         AtlasSystem.RefreshAll(); // atlas gruplari: import (stamp kapisi) + sayfalar baglanir
-        RpcHost.Start(); // AI/otomasyon komut kanali (localhost, satir-bazli JSON)
+        // AI/otomasyon komut kanali (localhost, satir-bazli JSON); ayni port Build/wasm'i HTTP ile de sunar.
+        RpcHost.Start(staticRoot: System.IO.Path.Combine(projectPath, "Build", "wasm"));
 
         while (GLFW.WindowShouldClose(window) == GLFWConst.FALSE)
         {

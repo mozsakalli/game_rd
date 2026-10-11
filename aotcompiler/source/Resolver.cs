@@ -46,7 +46,20 @@ namespace DigitoyEngine.Language
                 for (int i = 0; i < primitive.Interfaces.Count; i++)
                     primitive.Interfaces[i] = Concretize(ctx, primitive.Interfaces[i]);
             }
-            foreach (var code in codes)
+            // SABIT NOKTA: monomorphization yeni ornek kodlari (IL'den cevrilmis govdeler) kaydeder; onlar da ayni
+            // cozumden (alan remap, Apply -> ornek, TypeArguments, label) gecmeli -> yeni kod kalmayana dek dongu.
+            var done = new HashSet<Code>();
+            while (true)
+            {
+                var batch = ctx.AllCodes.Where(c => !done.Contains(c)).ToList();
+                if (batch.Count == 0) break;
+                foreach (var code in batch) { done.Add(code); ResolveCodeBody(ctx, code); }
+            }
+            FinishHierarchy(ctx);
+        }
+
+        static void ResolveCodeBody(Context ctx, Code code)
+        {
             {
                 code.Owner = ResolvePrimitive(ctx, code.Owner);
                 // template kodlar (generic method ya da generic sinif uyesi) SOMUTLASTIRILMAZ:
@@ -82,7 +95,10 @@ namespace DigitoyEngine.Language
                             foreach (var arg in op.TypeArguments)
                                 resolvedArgs.Add(Concretize(ctx, arg));
                             if (op.Code != null)
+                            {
                                 op.Code = GenericInstantiator.ResolveCallTarget(ctx, op.Code, resolvedArgs);
+                                if (op.PrimitiveRef != null) op.PrimitiveRef = Concretize(ctx, op.PrimitiveRef); // DelegateNew: delegate tipi Apply -> ornek
+                            }
                             else if (op.PrimitiveRef != null)
                                 op.PrimitiveRef = GenericInstantiator.InstantiatePrimitive(ctx, ResolvePrimitive(ctx, op.PrimitiveRef), resolvedArgs);
                             if (op.Field != null && op.Field.Owner != null && op.Field.Owner.IsGeneric)
@@ -91,6 +107,7 @@ namespace DigitoyEngine.Language
                                 var inst = GenericInstantiator.InstantiatePrimitive(ctx, op.Field.Owner, resolvedArgs.GetRange(0, classArgCount));
                                 op.Field = FindField(inst, op.Field.Name);
                             }
+                            // NOT: TypeArguments temizlenmez — frontend New+Call(ctor) op'lari AYNI listeyi paylasir; kod zaten bir kez islenir.
                         }
                         else if (op.PrimitiveRef != null)
                             op.PrimitiveRef = Concretize(ctx, op.PrimitiveRef); // Apply node (orn. is/as Box<int>) somutlanir
@@ -106,7 +123,10 @@ namespace DigitoyEngine.Language
                 }
 
             }
+        }
 
+        static void FinishHierarchy(Context ctx)
+        {
             // 4.5. pass: somut tiplerin alan/parent tiplerindeki Apply node'lari somutlanir
             // (orn. "class Holder { Box<int> b; }" - Box<int> hic New'lenmese bile tip var olmali).
             foreach (var p in ctx.AllPrimitives.ToList()) // Concretize yeni kayit ekler -> snapshot

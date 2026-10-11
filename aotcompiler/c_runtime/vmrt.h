@@ -517,6 +517,10 @@ typedef struct VmDelegate
 extern Type vmdelegate_type;          // System.Delegate (soyut zincir halkasi)
 extern Type vmmulticastdelegate_type; // System.MulticastDelegate (uretilen delegate'lerin base'i - C# zinciri)
 void digitoyengine_delegate_trace(GCHeader *o);
+// delegate vtable'i (Object slot sozlesmesi: hash/eq/ToString); uretilen delegate descriptor'lari paylasir
+extern const void *const digitoyengine_delegate_vtable[3];
+int digitoyengine_delegate_eq(struct VmObject *a0, struct VmObject *a1);
+int digitoyengine_delegate_hash(struct VmObject *a0);
 VmDelegate *digitoyengine_delegate_new(const Type *t, const void *fn, GCHeader *target);
 VmDelegate *digitoyengine_delegate_combine(VmDelegate *left, VmDelegate *right);
 VmDelegate *digitoyengine_delegate_remove(VmDelegate *left, VmDelegate *right);
@@ -527,6 +531,9 @@ VmString *vmstring_from_cstr(const char *ascii);           // C-string koprusu (
 int vmstring_eq_utf8(const VmString *s, const char *utf8); // UTF-16 string == UTF-8 C-string (reflection ad karsilastirmasi)
 // Trace sahibi: metodun tipi; generic ornekleme ise sablon adi (List<T>) — orneklemeler paylasilan yalin adla yazilir.
 const struct VmString *digitoyengine_method_owner_name(const MethodInfo *mi);
+// kutulu struct vtable varsayilanlari (corelib.c): payload esitligi / hash
+int digitoyengine_valuetype_eq(struct VmObject *a0, struct VmObject *a1);
+int digitoyengine_valuetype_hash(struct VmObject *a0);
 // Tip adi. Generic orneklemelerde descriptor'a ad YAZILMAZ (boyut): ilk istekte generic_def + generic_args'tan
 // "List<int>" kurulur, descriptor'a cache'lenir (immortal kok). Alloc yapabilir: sicak yolda / crash handler'da KULLANMA.
 const struct VmString *digitoyengine_type_name(const Type *t);

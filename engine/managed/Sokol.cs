@@ -147,6 +147,26 @@ public static unsafe class Sokol
     extern static int de_sdf_font_kern_table(void* handle, int* codepoints, int count, short* outTable);
     public static int SdfFontKernTable(IntPtr handle, int* codepoints, int count, short* outTable) => de_sdf_font_kern_table((void*)handle, codepoints, count, outTable);
 
+#if DE_EDITOR // msdfgen yalniz editor native'inde (msdf_shim.cpp); player kaynak listesinde yok
+    [DllImport(Lib, EntryPoint = "de_msdf_font_open")]
+    extern static void* de_msdf_font_open(byte* ttf, int length);
+    public static IntPtr MsdfFontOpen(byte* ttf, int length) => (IntPtr)de_msdf_font_open(ttf, length);
+
+    [DllImport(Lib, EntryPoint = "de_msdf_font_close")]
+    extern static void de_msdf_font_close(void* handle);
+    public static void MsdfFontClose(IntPtr handle) => de_msdf_font_close((void*)handle);
+
+    // MTSDF glyph: out5 = advance, xoff, yoff, w, h (de_sdf_font_glyph ile ayni kutu);
+    // buffer'a w*h*4 RGBA bayti (rgb msdf, a sdf; satir 0 ustte). pixelDistScale ve pad
+    // stbtt ile ayni anlam; angleThreshold kose esigi (radyan, 3.0 onerilir).
+    [DllImport(Lib, EntryPoint = "de_msdf_font_glyph")]
+    extern static int de_msdf_font_glyph(void* handle, int codepoint, float sdfSize, int pad, float pixelDistScale,
+        double angleThreshold, byte* buffer, int bufferSize, float* out5);
+    public static int MsdfFontGlyph(IntPtr handle, int codepoint, float sdfSize, int pad, float pixelDistScale,
+        double angleThreshold, byte* buffer, int bufferSize, float* out5)
+        => de_msdf_font_glyph((void*)handle, codepoint, sdfSize, pad, pixelDistScale, angleThreshold, buffer, bufferSize, out5);
+#endif
+
     [DllImport(Lib, EntryPoint = "de_sokol_commit")]
     extern public static void Commit();
 

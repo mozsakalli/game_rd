@@ -251,10 +251,12 @@ public static class RegionPacker
         return s;
     }
 
+    // Sayfa R8 olabilir mi: her kaynak tek kanalli SDF olmali (MTSDF glyph 4 kanal ->
+    // RGBA sayfa gerekir; kind yine Sdf, kanal sayisi belirleyici).
     public static bool AllSdf(IReadOnlyList<RegionSource> sources)
     {
         foreach (var s in sources)
-            if (s.Kind != RegionKind.Sdf)
+            if (s.Kind != RegionKind.Sdf || s.Channels != 1)
                 return false;
         return true;
     }

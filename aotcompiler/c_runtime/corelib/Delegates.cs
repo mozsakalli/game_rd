@@ -1,6 +1,6 @@
 // corelib: standart delegate aileleri (C# yuzeyi birebir). Generic sablonlar - kullanildikca
 // monomorphize edilir (Action`1 gibi arity-suffix'li kayit; Action ve Action<T> ayri tipler).
-// Multicast (+/-) ve lambda YOK - bilincli sinir (dilim 1: method group + cagri).
+// Multicast (+/-/event): Delegate.Combine/Remove (roslyn/WellKnownTypes.cs) -> vmrt liste; CallIndirect listeyi dolasir.
 namespace System
 {
     public delegate void Action();

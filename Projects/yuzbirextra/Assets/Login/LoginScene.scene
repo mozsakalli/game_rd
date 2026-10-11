@@ -116,138 +116,31 @@ objects:
                 Value: 1 1 1 0
             Path: Scale
             Target: '7:Transform:0'
-          - Keys:
+          - Target: '10:RenderGroup:0'
+            Path: Alpha
+            Mask: 15
+            Keys:
               - Frame: 0
                 Mode: Hold
-                Value: 255 255 255 0
-              - Ease: OutSine
-                Frame: 60
-                Value: 255 255 255 0
+                Ease: Linear
+                Value: 0
+                Ref: ''
+              - Frame: 60
+                Mode: Tween
+                Ease: OutSine
+                Value: 0
+                Ref: ''
               - Frame: 84
-                Value: 255 255 255 255
-            Path: textFill.color
-            Target: '16:LayoutBox:0'
-          - Keys:
-              - Frame: 0
-                Mode: Hold
-                Value: 255 255 255 0
-              - Ease: OutSine
-                Frame: 60
-                Value: 255 255 255 0
-              - Frame: 84
-                Value: 255 255 255 255
-            Path: textFill.color
-            Target: '15:LayoutBox:0'
-          - Keys:
-              - Frame: 0
-                Mode: Hold
-                Value: 255 255 255 0
-              - Ease: OutSine
-                Frame: 60
-                Value: 255 255 255 0
-              - Frame: 84
-                Value: 255 255 255 255
-            Path: textFill.color
-            Target: '18:LayoutBox:0'
-          - Keys:
-              - Frame: 0
-                Mode: Hold
-                Value: 255 255 255 0
-              - Ease: OutSine
-                Frame: 60
-                Value: 255 255 255 0
-              - Frame: 84
-                Value: 255 255 255 255
-            Path: textFill.color
-            Target: '17:LayoutBox:0'
-          - Keys:
-              - Frame: 0
-                Mode: Hold
-                Value: 255 255 255 0
-              - Ease: OutSine
-                Frame: 60
-                Value: 255 255 255 0
-              - Frame: 84
-                Value: 255 255 255 255
-            Path: textFill.color
-            Target: '19:LayoutBox:0'
-          - Keys:
-              - Frame: 0
-                Mode: Hold
-                Value: 0 0 0 0
-              - Ease: OutSine
-                Frame: 60
-                Value: 0 0 0 0
-              - Frame: 84
-                Value: 0 0 0 255
-            Path: textShadowColor
-            Target: '16:LayoutBox:0'
-          - Keys:
-              - Frame: 0
-                Mode: Hold
-                Value: 0 0 0 0
-              - Ease: OutSine
-                Frame: 60
-                Value: 0 0 0 0
-              - Frame: 84
-                Value: 0 0 0 255
-            Path: textShadowColor
-            Target: '15:LayoutBox:0'
-          - Keys:
-              - Frame: 0
-                Mode: Hold
-                Value: 0 0 0 0
-              - Ease: OutSine
-                Frame: 60
-                Value: 0 0 0 0
-              - Frame: 84
-                Value: 0 0 0 255
-            Path: textShadowColor
-            Target: '18:LayoutBox:0'
-          - Keys:
-              - Frame: 0
-                Mode: Hold
-                Value: 0 0 0 0
-              - Ease: OutSine
-                Frame: 60
-                Value: 0 0 0 0
-              - Frame: 84
-                Value: 0 0 0 255
-            Path: textShadowColor
-            Target: '17:LayoutBox:0'
-          - Keys:
-              - Frame: 0
-                Mode: Hold
-                Value: 0 0 0 0
-              - Ease: OutSine
-                Frame: 60
-                Value: 0 0 0 0
-              - Frame: 84
-                Value: 0 0 0 255
-            Path: textShadowColor
-            Target: '19:LayoutBox:0'
-          - Keys:
-              - Frame: 0
-                Mode: Hold
-                Value: 255 255 255 0
-              - Ease: OutSine
-                Frame: 60
-                Value: 255 255 255 0
-              - Frame: 84
-                Value: 255 255 255 255
-            Path: borderFill.color
-            Target: '15:LayoutBox:0'
-          - Keys:
-              - Frame: 0
-                Mode: Hold
-                Value: 255 255 255 0
-              - Ease: OutSine
-                Frame: 60
-                Value: 255 255 255 0
-              - Frame: 84
-                Value: 255 255 255 255
-            Path: borderFill.color
-            Target: '17:LayoutBox:0'
+                Mode: Tween
+                Ease: Linear
+                Value: 1
+                Ref: ''
+  - id: 11
+    parent: 1
+    name: LOGO_GROUP
+    pos: 0 -105.066666 0
+    rot: 0 0 0
+    scale: 1 1 1
   - id: 4
     parent: 1
     name: BUTTONS
@@ -261,7 +154,7 @@ objects:
         anchorMin: 0.5 1
         anchorMax: 0.5 1
         pivot: 0.5 1
-        anchoredPos: 0 -100
+        anchoredPos: 0 -152.93335
         alignChildren: Center
         SortingOrder: 1
   - id: 3
@@ -278,14 +171,24 @@ objects:
           type: Linear
           direction: Vertical
           color: '#486bffff'
-          color2: '#3d57c9ff'
+          color2: '#15297eff'
         radius: 20 20 20 20
         padding: 50 15 50 15
         textShadowColor: '#0000005e'
-        textShadowOffset: 0 1
+        textShadowOffset: 0 2
         shadowColor: '#000000ff'
-        textSize: 60
+        textSize: 70
         BlocksRaycast: true
+        border: 2 2 2 2
+        borderFill:
+          type: Solid
+          direction: Vertical
+          color: '#7a93ffb2'
+          color2: '#00000000'
+        textShadowBlur: 8
+        width: 300
+        textWrap: false
+        textAlign: Center
       - type: Button
         buttonId: facebook
   - id: 5
@@ -312,7 +215,7 @@ objects:
         border: 2 2 2 2
         radius: 20 20 20 20
         shadowColor: '#000000ff'
-        textSize: 60
+        textSize: 70
         BlocksRaycast: true
       - type: Button
         buttonId: guest
@@ -326,7 +229,7 @@ objects:
       - type: LayoutBox
         font: dd3069bf887d44eb80d125c87f3eda93
         text: VEYA
-        textSize: 30
+        textSize: 40
       - type: PlatformFilter
         platforms: IOS
   - id: 7
@@ -352,7 +255,7 @@ objects:
           color: '#000000ff'
           color2: '#ffffffff'
         shadowColor: '#000000ff'
-        textSize: 60
+        textSize: 70
         BlocksRaycast: true
       - type: Button
         buttonId: apple
@@ -383,17 +286,12 @@ objects:
         anchorMin: 0.5 1
         anchorMax: 0.5 1
         textShadowColor: '#000000ff'
-        anchoredPos: 0 -14.900001
+        anchoredPos: 0 -30.56667
         textSize: 38
         layout: Horizontal
         spacing: 9
         alignChildren: Center
-  - id: 11
-    parent: 1
-    name: LOGO_GROUP
-    pos: 0 -90 0
-    rot: 0 0 0
-    scale: 1 1 1
+      - type: RenderGroup
   - id: 12
     parent: 11
     name: LOGO
@@ -425,7 +323,7 @@ objects:
     scale: 1 1 1
     components:
       - type: LayoutBox
-        textSize: 38
+        textSize: 40
         text: Hizmet Koşullarımızı
         font: dd3069bf887d44eb80d125c87f3eda93
         textShadowColor: '#000000ff'
@@ -438,6 +336,8 @@ objects:
           color2: '#00000000'
       - type: PolicyLink
         linkId: terms
+      - type: Button
+        buttonId: terms_link
   - id: 18
     parent: 10
     name: TXT2
@@ -460,7 +360,7 @@ objects:
       - type: LayoutBox
         text: Gizlilik Politikamızı
         font: dd3069bf887d44eb80d125c87f3eda93
-        textSize: 38
+        textSize: 40
         textShadowColor: '#000000ff'
         border: 0 0 0 2
         BlocksRaycast: true
@@ -471,6 +371,8 @@ objects:
           color2: '#00000000'
       - type: PolicyLink
         linkId: privacy
+      - type: Button
+        buttonId: privacy_link
   - id: 19
     parent: 10
     name: TXT3
@@ -480,6 +382,6 @@ objects:
     components:
       - type: LayoutBox
         text: kabul etmiş olursunuz.
-        textSize: 38
+        textSize: 42
         font: d486343bc94940e3bed6cd5ef1f70231
         textShadowColor: '#000000ff'

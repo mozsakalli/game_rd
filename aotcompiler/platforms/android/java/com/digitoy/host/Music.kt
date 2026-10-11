@@ -26,7 +26,8 @@ object Music {
         val slot = items.indexOfFirst { it == null }
         if (slot < 0) return -1
         val mp = MediaPlayer()
-        val it = Item(mp)
+        // Lambda'larin ortuk `it` parametresiyle golgelenmesin diye `item`.
+        val item = Item(mp)
         try {
             mp.setAudioAttributes(AudioAttributes.Builder()
                 .setUsage(AudioAttributes.USAGE_GAME)
@@ -38,29 +39,29 @@ object Music {
                     val afd = am.openFd(pathOrUrl.removePrefix("asset:").trimStart('/'))
                     val len = if (length > 0) length else afd.length - offset
                     mp.setDataSource(afd.fileDescriptor, afd.startOffset + offset, len)
-                    it.fd = afd
+                    item.fd = afd
                 }
                 else -> {
                     val fis = FileInputStream(pathOrUrl)
                     val len = if (length > 0) length else fis.channel.size() - offset
                     mp.setDataSource(fis.fd, offset, len)
-                    it.fd = fis
+                    item.fd = fis
                 }
             }
             mp.setOnPreparedListener { p ->
-                if (it.state == 0) {
-                    it.state = 1
-                    p.isLooping = it.loop
-                    if (it.wantPlay) { p.start(); it.state = 2 }
+                if (item.state == 0) {
+                    item.state = 1
+                    p.isLooping = item.loop
+                    if (item.wantPlay) { p.start(); item.state = 2 }
                 }
             }
-            mp.setOnCompletionListener { if (!it.loop) { it.state = 3; it.wantPlay = false } }
-            mp.setOnErrorListener { _, _, _ -> it.state = -1; it.wantPlay = false; true }
+            mp.setOnCompletionListener { _ -> if (!item.loop) { item.state = 3; item.wantPlay = false } }
+            mp.setOnErrorListener { _, _, _ -> item.state = -1; item.wantPlay = false; true }
             mp.prepareAsync()
         } catch (e: Exception) {
             return fail(mp)
         }
-        items[slot] = it
+        items[slot] = item
         return slot
     }
 

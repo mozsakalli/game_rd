@@ -17,9 +17,12 @@ namespace System
     public struct RuntimeMethodHandle { }
 
     // Delegate kokleri: runtime temsili VmDelegate (vmrt.h); C# `delegate` bildirimleri Roslyn'de
-    // MulticastDelegate'ten turer. Uyeler runtime'da (Invoke/BeginInvoke uretilmez, CallIndirect).
+    // MulticastDelegate'ten turer. Invoke/BeginInvoke uretilmez (CallIndirect). Combine/Remove: Roslyn'in
+    // field-like event (+=/-=) icin ZORUNLU tuttugu uyeler; govde corelib.c -> vmrt delegate listesi.
     public abstract class Delegate
     {
+        public static extern Delegate Combine(Delegate a, Delegate b);
+        public static extern Delegate Remove(Delegate source, Delegate value);
     }
     public abstract class MulticastDelegate : Delegate
     {

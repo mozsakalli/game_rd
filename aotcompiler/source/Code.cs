@@ -133,11 +133,11 @@ namespace DigitoyEngine.Language
         public string SourceFile;   // kaynak dosya adi (MethodInfo.file; debugger file:line eslesmesi)
         public string DisplayName;  // C# sozdizimli uye gosterimi: "Deep(int[], int)" / ".ctor(int)" / "Finalize()"
         public string UntranslatableReason; // null degilse: govde cevrilemedi, CTranspiler tipe uygun sifir stub uretir
-        public bool BodyCloned; // gecici: monomorphization iki-fazli klonda govde doldurma bir kez yapilsin (serialize edilmez)
-        // Frontend govdeyi henuz cevirmedi (LoadMembers/LoadBodies sirasi): bu sablondan istenen klon govdeleri
-        // GenericInstantiator.PendingClones'ta bekler, MarkBodyReady ile doldurulur. Yoksa bos govde klonlanirdi.
-        public bool BodyPending;
-        public List<object> PendingClones;
+        public bool BodyCloned; // monomorphization: ornek govdesi IL'den bir kez cevrildi (serialize edilmez)
+        // IL kaynagi (CilFrontend.IlRef): sablon ve tum ornekleri AYNI IL govdesini tasir; ornek govdesi klonlanmaz,
+        // SOMUT generic baglamla (Owner.TypeArguments + MethodTypeArguments) IL'den yeniden cevrilir (docs/engine-notes.md GENERICS-S1).
+        public object IlSource;
+        public List<Primitive> MethodTypeArguments; // generic METHOD orneklemesi: sablonun GenericParameters sirasiyla somut argumanlar
         public ushort CilAttributes; // System.Reflection.MethodAttributes
         public List<PrimitiveAttribute> Attributes = new List<PrimitiveAttribute>(); // custom attribute'lar (reflection tablosu)
 

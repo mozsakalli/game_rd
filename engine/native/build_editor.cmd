@@ -5,7 +5,8 @@ REM ---------------------------------------------------------------------------
 REM Editor C# tarafi (JIT/.NET) bu DLL'i [DllImport("digitoyengine_native")] ile
 REM yukler. Icerik: sokol_gfx (sokol_impl.c) + sokol shim (sokol_shim.c) + Win32
 REM host (host_win32.c) + ses (audio_shim.c: sokol_audio WASAPI mixer + Media
-REM Foundation muzik player + editor decoder'lari). clang ile paylasimli kutuphane (-shared) olarak derlenir,
+REM Foundation muzik player + editor decoder'lari) + msdfgen (msdf_shim.cpp,
+REM editor-only MTSDF font bake). clang ile paylasimli kutuphane (-shared) olarak derlenir,
 REM tum semboller export edilir; cikti build\digitoyengine_native.dll.
 REM ===========================================================================
 setlocal enabledelayedexpansion
@@ -65,7 +66,22 @@ set "LIBS=-lopengl32 -lgdi32 -luser32 -lkernel32 -lshell32 -lole32 -loleaut32 -l
 echo [build_editor] clang: %CLANG%
 echo [build_editor] cikti: %OUT%
 
-"%CLANG%" -O1 -w -shared %DEFINES% %INCLUDES% %SOURCES% ^
+REM --- EDITOR-ONLY C++ parcasi: msdfgen core + msdf_shim.cpp (FontImporter Msdf modu).
+REM C kaynaklariyla ayni komutta -std=c++17 verilemez; once nesneye derlenir, linke eklenir.
+REM Player derlemeleri (aotcompiler/Android CMake) acik kaynak listesi kullanir, bu kod oraya girmez.
+set "CXXOBJ=%OUTDIR%\obj_msdf"
+if not exist "%CXXOBJ%" mkdir "%CXXOBJ%"
+set "CXXOBJS="
+for %%f in ("%HERE%msdf_shim.cpp" "%HERE%msdfgen\core\*.cpp") do (
+    "%CLANG%" -O2 -w -std=c++17 -c -DMSDFGEN_PUBLIC= %INCLUDES% "%%~f" -o "%CXXOBJ%\%%~nf.o"
+    if errorlevel 1 (
+        echo [HATA] C++ derlemesi basarisiz: %%~nxf
+        exit /b 1
+    )
+    set "CXXOBJS=!CXXOBJS! "%CXXOBJ%\%%~nf.o""
+)
+
+"%CLANG%" -O1 -w -shared %DEFINES% %INCLUDES% %SOURCES% %CXXOBJS% ^
     -Wl,-export-all-symbols %LIBS% -o "%OUT%"
 
 if errorlevel 1 (

@@ -862,8 +862,10 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
         var page = sprite?.Page;
         if (page != null && page.HasPieces)
         {
-            mat = UiPieces.TexturedMaterial.ForBlend(BlendMode).ForEffects(Effects);
-            mat.MainTexture = page;
+            var baseMat = UiPieces.TexturedMaterial;
+            baseMat.MainTexture = page;
+            baseMat.Shader = UiPieces.ShaderFor(page);
+            mat = baseMat.ForBlend(BlendMode).ForEffects(Effects);
             return new UiAtlas(page, page.PiecesX, page.PiecesY);
         }
         f = UiPieces.DefaultFont;
@@ -1058,22 +1060,14 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
         float ix0 = x0 + b, ix1 = x1 - b, iy0 = y0 + b, iy1 = y1 - b;
         if (ix1 <= ix0 || iy1 <= iy0)
             return;
-        float sTL = MathF.Max(rtl - b, 0), sTR = MathF.Max(rtr - b, 0);
-        float sBR = MathF.Max(rbr - b, 0), sBL = MathF.Max(rbl - b, 0);
-        float tT = MathF.Max(sTL, sTR), tB = MathF.Max(sBL, sBR);
         void Solid(float ax0, float ay0, float ax1, float ay1)
         {
             if (ax1 <= ax0 || ay1 <= ay0)
                 return;
             EmitQuad(q, mat, wm, ax0, ay0, ax1, ay1, su0, sv0, su1, sv1, col, col, false, default, layer);
         }
-        Solid(ix0 + sTL, iy0, ix1 - sTR, iy0 + tT);
-        if (sTL < tT) Solid(ix0, iy0 + sTL, ix0 + sTL, iy0 + tT);
-        if (sTR < tT) Solid(ix1 - sTR, iy0 + sTR, ix1, iy0 + tT);
-        Solid(ix0, iy0 + tT, ix1, iy1 - tB);
-        Solid(ix0 + sBL, iy1 - tB, ix1 - sBR, iy1);
-        if (sBL < tB) Solid(ix0, iy1 - tB, ix0 + sBL, iy1 - sBL);
-        if (sBR < tB) Solid(ix1 - sBR, iy1 - tB, ix1, iy1 - sBR);
+        SolidInterior(Solid, x0 + rtl, y0 + rtl, x1 - rtr, y0 + rtr, x1 - rbr, y1 - rbr, x0 + rbl, y1 - rbl,
+            ix0, iy0, ix1, iy1);
     }
 
     // Tek katman rounded-rect: 4 SDF kose hucresi + 4 kenar falloff seridi +
@@ -1122,6 +1116,8 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
         // farLeft/farTop = kutu kosesinin hucre icindeki yonu.
         void Cell(float cx0, float cy0, float cx1, float cy1, float r, bool farLeft, bool farTop, float bC)
         {
+            if (ring && bC <= 0f)
+                return; // sifir kalinlikta ring: smoothstep carpimi yine de AA genisliginde iz birakir
             float m = MathF.Min(AaOut, 0.4f * r);
             float pFar = (r + m) * pieceR / r;
             if (farLeft) cx0 -= m; else cx1 += m;
@@ -1144,7 +1140,7 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
         // Yatay kenar seridi: parca kesiti (sutun x~0.7px, d≈y) dikeyde falloff.
         void HEdge(float xa, float xb, float ye, bool outUp, float b)
         {
-            if (xb <= xa)
+            if (xb <= xa || (ring && b <= 0f))
                 return;
             float m = AaOut, inTh, qp, c2 = 0f;
             if (ring) { inTh = b + m; qp = (S * 0.5f) / (m + b); c2 = 0.5f + b * qp / S; }
@@ -1162,7 +1158,7 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
         // Dikey kenar seridi: ayni kesit satirdan (y~0.7px, d≈x) yatay falloff.
         void VEdge(float ya, float yb, float xe, bool outLeft, float b)
         {
-            if (yb <= ya)
+            if (yb <= ya || (ring && b <= 0f))
                 return;
             float m = AaOut, inTh, qp, c2 = 0f;
             if (ring) { inTh = b + m; qp = (S * 0.5f) / (m + b); c2 = 0.5f + b * qp / S; }
@@ -1185,26 +1181,39 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
         if (ring)
             return;
 
-        // Ic dolgu: kenar seritlerinin ici, kose hucreleriyle cakismadan.
+        // Ic dolgu: kenar seritlerinin ici, kose hucreleriyle cakismadan. Hucre ic
+        // kenarlari hucrelerle AYNI ifadeyle (x0 + rtl vb.) uretilir — bit-esit dikis.
         float ix0 = x0 + EdgeIn, ix1 = x1 - EdgeIn, iy0 = y0 + EdgeIn, iy1 = y1 - EdgeIn;
         if (ix1 <= ix0 || iy1 <= iy0)
             return;
-        float sTL = MathF.Max(rtl - EdgeIn, 0), sTR = MathF.Max(rtr - EdgeIn, 0);
-        float sBR = MathF.Max(rbr - EdgeIn, 0), sBL = MathF.Max(rbl - EdgeIn, 0);
-        float tT = MathF.Max(sTL, sTR), tB = MathF.Max(sBL, sBR);
         void Solid(float ax0, float ay0, float ax1, float ay1)
         {
             if (ax1 <= ax0 || ay1 <= ay0)
                 return;
             EmitQuad(q, mat, wm, ax0, ay0, ax1, ay1, su0, sv0, su1, sv1, At(gh ? ax0 : ay0), At(gh ? ax1 : ay1), gh, default, layer);
         }
-        Solid(ix0 + sTL, iy0, ix1 - sTR, iy0 + tT);
-        if (sTL < tT) Solid(ix0, iy0 + sTL, ix0 + sTL, iy0 + tT);
-        if (sTR < tT) Solid(ix1 - sTR, iy0 + sTR, ix1, iy0 + tT);
-        Solid(ix0, iy0 + tT, ix1, iy1 - tB);
-        Solid(ix0 + sBL, iy1 - tB, ix1 - sBR, iy1);
-        if (sBL < tB) Solid(ix0, iy1 - tB, ix0 + sBL, iy1 - sBL);
-        if (sBR < tB) Solid(ix1 - sBR, iy1 - tB, ix1, iy1 - sBR);
+        SolidInterior(Solid, x0 + rtl, y0 + rtl, x1 - rtr, y0 + rtr, x1 - rbr, y1 - rbr, x0 + rbl, y1 - rbl,
+            ix0, iy0, ix1, iy1);
+    }
+
+    // Kose hucreleri disinda kalan ic alan: ust bant (+kose altlari), orta, alt bant.
+    // Kose ic kenarlari cagirandan hazir gelir (hucre quad'lariyla ayni float).
+    static void SolidInterior(Action<float, float, float, float> solid,
+        float tlX, float tlY, float trX, float trY, float brX, float brY, float blX, float blY,
+        float ix0, float iy0, float ix1, float iy1)
+    {
+        tlX = MathF.Max(tlX, ix0); tlY = MathF.Max(tlY, iy0);
+        trX = MathF.Min(trX, ix1); trY = MathF.Max(trY, iy0);
+        brX = MathF.Min(brX, ix1); brY = MathF.Min(brY, iy1);
+        blX = MathF.Max(blX, ix0); blY = MathF.Min(blY, iy1);
+        float topY = MathF.Max(tlY, trY), botY = MathF.Min(blY, brY);
+        solid(tlX, iy0, trX, topY);
+        if (tlY < topY) solid(ix0, tlY, tlX, topY);
+        if (trY < topY) solid(trX, trY, ix1, topY);
+        solid(ix0, topY, ix1, botY);
+        solid(blX, botY, brX, iy1);
+        if (blY > botY) solid(ix0, botY, blX, blY);
+        if (brY > botY) solid(brX, botY, ix1, brY);
     }
 
     // Dokulu kutu: stretch tek quad / slice9 3x3 grid. UI shader'in dokulu gecis
@@ -1222,8 +1231,10 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
             uu0 = sprite.X / aw; uuS = sprite.W / aw;
             vv0 = sprite.Y / ah; vvS = sprite.H / ah;
         }
-        var mat = UiPieces.TexturedMaterial.ForBlend(BlendMode).ForEffects(Effects);
-        mat.MainTexture = tex; // TexView DrawMesh aninda yakalanir (paylasilan materyal deseni)
+        var baseMat = UiPieces.TexturedMaterial;
+        baseMat.MainTexture = tex; // TexView DrawMesh aninda yakalanir (paylasilan materyal deseni)
+        baseMat.Shader = UiPieces.ShaderFor(tex); // varyantlar ForBlend/ForEffects'te tabandan kopyalanir
+        var mat = baseMat.ForBlend(BlendMode).ForEffects(Effects);
         var user = UiPieces.TexturedUser;
         bool tinted = fill.Visible;
         bool gh = fill.IsHorizontal;
@@ -1310,11 +1321,25 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
         Mat4 m = world;
         float cx = (qx0 + qx1) * 0.5f, cy = (qy0 + qy1) * 0.5f;
         float sx = qx1 - qx0, sy = qy1 - qy0;
-        m.m[12] += m.m[0] * cx + m.m[4] * cy;
-        m.m[13] += m.m[1] * cx + m.m[5] * cy;
-        m.m[14] += m.m[2] * cx + m.m[6] * cy;
-        m.m[0] *= sx; m.m[1] *= sx; m.m[2] *= sx;
-        m.m[4] *= sy; m.m[5] *= sy; m.m[6] *= sy;
+        if (world.m[1] == 0f && world.m[4] == 0f && world.m[2] == 0f && world.m[6] == 0f)
+        {
+            // Eksen-hizali: komsu quad'larin ORTAK kenari GPU'da merkez±boyut/2 olarak ayri
+            // ayri hesaplanir; bit-esit cikmazsa alt-piksel izgarasinda farkli hucreye dusup
+            // 1px boslukbirakir. Koseleri dunya uzayinda 2^-10 izgaraya oturtunca merkez/boyut
+            // toplamlari float'ta TAM olur -> ayni lokal kenar iki quad'da ayni biti verir.
+            float wx0 = Snap(world.m[0] * qx0 + world.m[12]), wx1 = Snap(world.m[0] * qx1 + world.m[12]);
+            float wy0 = Snap(world.m[5] * qy0 + world.m[13]), wy1 = Snap(world.m[5] * qy1 + world.m[13]);
+            m.m[0] = wx1 - wx0; m.m[5] = wy1 - wy0;
+            m.m[12] = (wx0 + wx1) * 0.5f; m.m[13] = (wy0 + wy1) * 0.5f;
+        }
+        else
+        {
+            m.m[12] += m.m[0] * cx + m.m[4] * cy;
+            m.m[13] += m.m[1] * cx + m.m[5] * cy;
+            m.m[14] += m.m[2] * cx + m.m[6] * cy;
+            m.m[0] *= sx; m.m[1] *= sx; m.m[2] *= sx;
+            m.m[4] *= sy; m.m[5] *= sy; m.m[6] *= sy;
+        }
         // LOCALUV penceresi: parca kutu icinde nerede (uv.y=1 ust kenar; golge
         // parcalari kutu disina tasabilir -> 0..1 disi degerler normal).
         var fxRect = new Vec4((qx0 - _fxX0) * _fxInvW, (_fxY1 - qy1) * _fxInvH, sx * _fxInvW, sy * _fxInvH);
@@ -1324,6 +1349,10 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
         else
             q.DrawMesh(Mesh.Quad(), mat, in m, c1, c1, c0, c0, in user, in FxParams, in fxRect, u0, v0, u1, v1, layer);
     }
+
+    const float SnapGrid = 1024f; // 2^10: |deger| < 8192 iken izgara toplamlari tam
+
+    static float Snap(float v) => MathF.Round(v * SnapGrid) * (1f / SnapGrid);
 
     static Color LerpC(Color a, Color b, float t) => new(
         (byte)(a.r + (b.r - a.r) * t),

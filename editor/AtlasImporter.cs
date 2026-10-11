@@ -188,7 +188,7 @@ public sealed class AtlasImporter : AssetImporter
         };
         if (channels == 1 && !RegionPacker.AllSdf(sources))
         {
-            ctx.Fail("format R8 ama renkli uye var (png); Auto veya RGBA8 secin");
+            ctx.Fail("format R8 ama renkli ya da MTSDF uye var; Auto veya RGBA8 secin");
             return;
         }
 

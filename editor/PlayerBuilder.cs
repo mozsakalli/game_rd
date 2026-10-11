@@ -149,7 +149,7 @@ public static class PlayerBuilder
         if (ok && exe.EndsWith("CMakeLists.txt"))
             EditorLog.Info($"[player-build] OK -> Android Studio projesi: {Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(exe)))} ({sw.Elapsed.TotalSeconds:F0} s)");
         else if (ok && exe.EndsWith(".wasm"))
-            EditorLog.Info($"[player-build] OK -> web: {Path.GetDirectoryName(exe)} ({new FileInfo(exe).Length / 1024} KB wasm, {sw.Elapsed.TotalSeconds:F0} s) — HTTP sunucudan acin");
+            EditorLog.Info($"[player-build] OK -> web: {Path.GetDirectoryName(exe)} ({new FileInfo(exe).Length / 1024} KB wasm, {sw.Elapsed.TotalSeconds:F0} s) — http://localhost:{RpcHost.DefaultPort}/");
         else if (ok)
             EditorLog.Info($"[player-build] OK -> {exe} ({new FileInfo(exe).Length / 1024} KB, {sw.Elapsed.TotalSeconds:F0} s)");
         else

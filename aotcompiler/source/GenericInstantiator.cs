@@ -5,24 +5,27 @@ namespace DigitoyEngine.Language
 {
     // Generic Primitive/Code'lari somut tiplere gore tek seferlik "monomorphize" eder.
     // VM hicbir zaman generic gormez; her New/Call somutlastirilmis (IsGeneric=false) hedefe baglanir.
+    // GOVDE KURALI (GENERICS-S1, .NET/IL2CPP modeli): sablon govdesi HICBIR ZAMAN IR'a cevrilmez ve klonlanmaz;
+    // ornek kabugu (imza) burada kurulur, govdesi CilFrontend.TranslateInstance ile SOMUT generic baglamda IL'den cevrilir.
     public static class GenericInstantiator
     {
-        // GOVDE ERTELEME KUYRUGU: iki-fazli klonlamanin tipler-ARASI reentrancy acigi icin.
-        // Bir tipin FAZ 1'i (kabuklar) surerken ic ice tetiklenen bir CloneCodeBody, henuz kabugu
-        // kayitli olmayan uyeyi arayabilir (MemberOf patlar) ve FAZ 1'i yarida keser -> tip sonsuza
-        // dek uyesiz cache'te kalirdi. Govdeler artik kuyruga alinir, en distaki somutlama bitince bosalir.
-        static readonly List<(Code shell, Code template, Dictionary<Primitive, Primitive> map, Context ctx)> pendingBodies
-            = new List<(Code, Code, Dictionary<Primitive, Primitive>, Context)>();
+        // GOVDE KUYRUGU: tip somutlama (kabuk kurulumu) surerken govde cevirisi ertelenir; en distaki somutlama bitince
+        // bosalir. IL kaynagi henuz hazir olmayan (LoadMembers suren assembly) kabuklar loader hazir olana dek bekler.
+        static readonly List<(Code shell, Context ctx)> pendingBodies = new List<(Code, Context)>();
+        static readonly List<(Code shell, Context ctx)> waitingLoader = new List<(Code, Context)>();
         static int instantiationDepth;
         static bool draining;
 
-        static void EnqueueBody(Context ctx, Code shell, Code template, Dictionary<Primitive, Primitive> map)
+        static void EnqueueBody(Context ctx, Code shell)
         {
-            pendingBodies.Add((shell, template, map, ctx));
+            pendingBodies.Add((shell, ctx));
             if (instantiationDepth == 0) DrainBodies();
         }
 
-        static void DrainBodies()
+        // Bir assembly'nin govdeleri hazir oldugunda (Loader.LoadBodies sonu) bekleyenler yeniden denenir.
+        public static void LoaderReady() { pendingBodies.AddRange(waitingLoader); waitingLoader.Clear(); if (instantiationDepth == 0) DrainBodies(); }
+
+        public static void DrainBodies()
         {
             if (draining) return;
             draining = true;
@@ -30,34 +33,24 @@ namespace DigitoyEngine.Language
             {
                 while (pendingBodies.Count > 0)
                 {
-                    var (shell, template, map, ctx) = pendingBodies[0];
+                    var (shell, ctx) = pendingBodies[0];
                     pendingBodies.RemoveAt(0);
-                    try { CloneCodeBody(ctx, shell, template, map); }
+                    if (shell.BodyCloned) continue;
+                    try
+                    {
+                        if (!Cil.CilFrontend.TranslateInstance(ctx, shell)) { waitingLoader.Add((shell, ctx)); continue; }
+                    }
                     catch (System.Exception ex)
                     {
-                        // tek uye govdesi cevrilemedi: kabuk stub kalir, diger klonlar etkilenmez
+                        // tek ornek govdesi cevrilemedi: kabuk stub kalir, digerleri etkilenmez
                         shell.Operations.Clear();
                         shell.UntranslatableReason = ex.Message;
-                        System.Console.Error.WriteLine($"[clone-stub] {shell.EncodeName()}: {ex.Message.Split('\n')[0]}");
+                        System.Console.Error.WriteLine($"[inst-stub] {shell.EncodeName()}: {ex.Message.Split('\n')[0]}");
                     }
+                    shell.BodyCloned = true;
                 }
             }
             finally { draining = false; }
-        }
-
-        // Frontend: sablon govdesi cevrildi (ya da stub'landi) -> bekleyen klon govdeleri simdi doldurulur.
-        public static void MarkBodyReady(Code template)
-        {
-            template.BodyPending = false;
-            var pending = template.PendingClones;
-            if (pending == null) return;
-            template.PendingClones = null;
-            foreach (var o in pending)
-            {
-                var (shell, map, ctx) = ((Code, Dictionary<Primitive, Primitive>, Context))o;
-                pendingBodies.Add((shell, template, map, ctx));
-            }
-            if (instantiationDepth == 0) DrainBodies();
         }
 
         public static string MangleName(string baseName, List<Primitive> typeArgs) =>
@@ -151,10 +144,11 @@ namespace DigitoyEngine.Language
                 foreach (var iface in template.Interfaces)
                     instance.Interfaces.Add(Substitute(ctx, iface, map));
 
-                // FAZ 2: govdeler ERTELENIR - en distaki somutlama bitince kuyruk bosalir
-                // (vtable/itable dogrulugu icin kabuklar zaten eksiksiz kayitli).
-                for (int i = 0; i < memberShells.Count; i++)
-                    EnqueueBody(ctx, memberShells[i], memberTemplates[i], map);
+                // FAZ 2: govdeler ERTELENIR - en distaki somutlama bitince kuyruk bosalir; govde IL'den somut baglamla cevrilir
+                // (vtable/itable dogrulugu icin kabuklar zaten eksiksiz kayitli). Kendi generic parametresi kalan uye (generic
+                // sinifin generic metodu) sablondur: govdesi InstantiateCode ile somutlaninca cevrilir.
+                foreach (var shell in memberShells)
+                    if (shell.GenericParameters.Count == 0 && !shell.BodyCloned) EnqueueBody(ctx, shell);
                 return instance;
             }
             finally
@@ -187,18 +181,16 @@ namespace DigitoyEngine.Language
             return InstantiateCode(ctx, target, typeArgs);
         }
 
-        // ortak klon: generic METHOD somutlastirma (yeni ad, ayni owner) ve generic CLASS uyesi
-        // klonlama (ayni ad, yeni owner) ayni mekanik. op.Field'lar yeni owner'in alanlarina remap edilir.
-        // IKI FAZLI: once imza kabugu (CloneCodeShell) kaydedilir, sonra govde (CloneCodeBody) doldurulur -
-        // dongusel uye bagimliliklari (List<->ListEnumerator<->ListInterfaceEnumerator) icin kabuk yeter.
+        // ortak kabuk: generic METHOD somutlastirma (yeni ad, ayni owner) ve generic CLASS uyesi (ayni ad, yeni owner) ayni
+        // mekanik. Govde: IL'den somut baglamla (CilFrontend.TranslateInstance), op klonu YOK.
         static Code CloneCode(Context ctx, Code template, Dictionary<Primitive, Primitive> map, string newName, Primitive newOwner)
         {
             var shell = CloneCodeShell(ctx, template, map, newName, newOwner);
-            if (!shell.BodyCloned) EnqueueBody(ctx, shell, template, map); // somutlama sirasinda ertele (reentrancy)
+            if (shell.GenericParameters.Count == 0 && !shell.BodyCloned) EnqueueBody(ctx, shell); // somutlama sirasinda ertele (reentrancy)
             return shell;
         }
 
-        // FAZ 1: imza kabugu (Owner/Name/arg/local/return) olustur + kaydet. GOVDE YOK.
+        // Imza kabugu (Owner/Name/arg/return) olustur + kaydet. Locals/govde: IL cevirisi doldurur.
         static Code CloneCodeShell(Context ctx, Code template, Dictionary<Primitive, Primitive> map, string newName, Primitive newOwner)
         {
             var probe = new Code { Owner = newOwner, Name = newName };
@@ -210,100 +202,46 @@ namespace DigitoyEngine.Language
                 Name = newName,
                 Assembly = template.Assembly,
                 Template = template,
+                IlSource = template.IlSource,
                 DisplayName = template.DisplayName,
                 SourceFile = template.SourceFile,
                 IsStatic = template.IsStatic,
                 IsVirtual = template.IsVirtual,
                 IsOverride = template.IsOverride,
+                IsExternal = template.IsExternal,
+                ExternalSymbol = template.ExternalSymbol,
+                NativeBody = template.NativeBody,
+                NativeHeader = template.NativeHeader,
+                CilAttributes = template.CilAttributes,
                 ExplicitInterface = Substitute(ctx, template.ExplicitInterface, map),
                 ReturnType = Substitute(ctx, template.ReturnType, map)
             };
+            code.Attributes.AddRange(template.Attributes);
+            // generic METHOD argumanlari: kok sablonun parametre sirasiyla (map'ten; ic ice kabukta onceki kabugun listesinden)
+            var root = RootTemplate(template);
+            var margs = new List<Primitive>();
+            for (int i = 0; i < root.GenericParameters.Count; i++)
+            {
+                var gp = root.GenericParameters[i];
+                if (map.TryGetValue(gp, out var m)) margs.Add(m);
+                else if (template.MethodTypeArguments != null && i < template.MethodTypeArguments.Count) margs.Add(template.MethodTypeArguments[i]);
+                else { margs = null; break; }
+            }
             foreach (var gp in template.GenericParameters)
                 if (!map.ContainsKey(gp))
-                    code.GenericParameters.Add(gp); // generic sinifin generic method'u: kendi parametreleri klonda kalir
+                    code.GenericParameters.Add(gp); // generic sinifin generic method'u: kendi parametreleri kabukta kalir (sablon)
+            if (margs != null && margs.Count > 0 && code.GenericParameters.Count == 0) code.MethodTypeArguments = margs;
             foreach (var arg in template.Arguments)
             {
                 var at = arg.Name == "this" && arg.Type == template.Owner ? newOwner : Substitute(ctx, arg.Type, map);
                 code.Arguments.Add(new Argument { Name = arg.Name, Type = at, IsRef = arg.IsRef, IsOut = arg.IsOut });
             }
-            foreach (var local in template.Locals)
-                code.Locals.Add(Substitute(ctx, local, map));
             ctx.RegisterCode(code); // self-recursive generic fonksiyonlar icin once kaydet
             return code;
         }
 
-        // FAZ 2: kabuga op govdesini bir kez klonla.
-        static void CloneCodeBody(Context ctx, Code code, Code template, Dictionary<Primitive, Primitive> map)
-        {
-            if (code.BodyCloned) return;
-            if (template.BodyPending)
-            {
-                // Sablonun govdesi frontend'de henuz cevrilmedi (ornegin Task.WhenAll -> TCS<int> -> Task<int> somutlamasi
-                // Task<T>..ctor govdesinden ONCE istendi). Bos govde klonlamak yerine sablon hazir olunca doldur.
-                (template.PendingClones ??= new List<object>()).Add((code, map, ctx));
-                return;
-            }
-            code.BodyCloned = true;
-            // Ertelenmis klon: kabuk, sablon cevrilmeden once kopyalandi -> Locals/LocalNames o zaman bostu; simdi tamamla.
-            if (code.Locals.Count < template.Locals.Count)
-            {
-                for (int i = code.Locals.Count; i < template.Locals.Count; i++)
-                    code.Locals.Add(Substitute(ctx, template.Locals[i], map));
-                code.LocalNames.Clear();
-                code.LocalNames.AddRange(template.LocalNames);
-            }
-            // Sablon govdesi stub'landiysa (frontend hatasi) klon da stub: sessiz bos govde (tanimsiz donus) YASAK;
-            // CTranspiler NotImplementedException firlatan govde uretir, RunPlayerBuild stub kapisi erisilebilirse build'i keser.
-            if (template.UntranslatableReason != null) code.UntranslatableReason = template.UntranslatableReason;
-            var newOwner = code.Owner;
-            foreach (var op in template.Operations)
-            {
-                var newOp = new Op { Type = op.Type, Slot = op.Slot, Line = op.Line, Field = op.Field, Value = op.Value, Label = op.Label };
-                var argTypes = op.TypeArguments.Select(a => Substitute(ctx, a, map)).ToList();
-                if (op.PrimitiveRef != null)
-                    // DelegateNew: PrimitiveRef = delegate tipi (hedefin closure argumanlariyla ILGISIZ) -> duz ikame
-                    newOp.PrimitiveRef = argTypes.Count > 0 && op.Type != OpType.DelegateNew ? InstantiatePrimitive(ctx, op.PrimitiveRef, argTypes) : Substitute(ctx, op.PrimitiveRef, map);
-                if (newOp.Type == OpType.GenericCast)
-                {
-                    var target = newOp.PrimitiveRef;
-                    bool scalar = target.Type != PrimitiveType.Model && target.Type != PrimitiveType.Array
-                        && target.Type != PrimitiveType.FixedArray && target.Type != PrimitiveType.Pointer && target.Type != PrimitiveType.Void;
-                    if (scalar)
-                        newOp.Type = OpType.Unbox;
-                    else if (target.Type == PrimitiveType.Model && !target.IsStruct)
-                        newOp.Type = OpType.CastClass;
-                    else
-                        throw new System.Exception($"generic cast somut tipi desteklenmiyor: object -> {target.Name}");
-                }
-                if (op.Code != null)
-                {
-                    if (argTypes.Count > 0)
-                        newOp.Code = ResolveCallTarget(ctx, op.Code, argTypes);
-                    else if (op.Code.Owner == template.Owner && newOwner != template.Owner) // ayni sinifin uyesine cagri -> klon esine
-                    {
-                        var member = new Code { Owner = newOwner, Name = op.Code.Name };
-                        // Uye listesi kaynak sirasi semantik olamaz: hedef henuz klonlanmamissa
-                        // yerinde klonla. CloneCode once kayit yaptigi icin karsilikli cagrilar da cozulur.
-                        newOp.Code = ctx.TryGetCode(member.EncodeName(), out var cachedMember)
-                            ? cachedMember
-                            : CloneCode(ctx, op.Code, map, op.Code.Name, newOwner);
-                    }
-                    else
-                        newOp.Code = op.Code;
-                }
-                if (op.Field != null && op.Field.Owner != null && op.Field.Owner.IsGeneric)
-                {
-                    // generic sinif alani: kendi sinifimizsa klon owner'a, degilse TypeArguments'la somutlastirilana
-                    var fieldOwner = op.Field.Owner == template.Owner && newOwner != template.Owner
-                        ? newOwner
-                        : argTypes.Count > 0 ? InstantiatePrimitive(ctx, op.Field.Owner, argTypes) : null;
-                    if (fieldOwner != null)
-                        newOp.Field = FieldOf(fieldOwner, op.Field.Name, op.Field.IsStatic);
-                }
-                code.Operations.Add(newOp);
-            }
-            Linker.LinkLabels(code); // template'in kendi label'lari klonlandi, bu kopya icin index'e cozulur
-        }
+        // Kabuk zincirinin kokundeki sablon (IL govdesinin sahibi): Derived<int>.M<string> -> Derived<T>.M<U>
+        public static Code RootTemplate(Code c) { while (c.Template != null) c = c.Template; return c; }
 
         public static Code MemberOf(Context ctx, Primitive owner, string methodName)
         {

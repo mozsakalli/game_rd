@@ -209,6 +209,7 @@ public static class RpcHost
     }
 
     static TcpListener _listener;
+    static string _staticRoot; // HTTP ile servis edilen dizin (<proje>/Build/wasm); null = kapali
     static readonly ConcurrentQueue<Request> _queue = new();
     static readonly List<Client> _clients = new(); // yalniz teshis; lock'lu
 
@@ -231,10 +232,13 @@ public static class RpcHost
     // Handler icinden: yaniti erteler. poll ana thread'de her frame kosar.
     public static void Defer(Func<DocNode> poll) => _deferredPoll = poll;
 
-    public static void Start(int port = 0)
+    // staticRoot: ayni port ilk satiri "GET /... HTTP/1.x" olan baglantilari HTTP statik
+    // dosya sunucusu olarak karsilar (wasm build'i tarayicida acmak icin ayri sunucu gerekmez).
+    public static void Start(int port = 0, string staticRoot = null)
     {
         if (_listener != null)
             return;
+        _staticRoot = staticRoot != null ? Path.GetFullPath(staticRoot) : null;
         if (port <= 0)
             port = Environment.GetEnvironmentVariable("DIGITOY_RPC_PORT") is { } s
                 && int.TryParse(s, out int p) ? p : DefaultPort;
@@ -251,7 +255,8 @@ public static class RpcHost
         }
         var accept = new System.Threading.Thread(AcceptLoop) { IsBackground = true, Name = "rpc-accept" };
         accept.Start();
-        EditorLog.Info($"[rpc] dinleniyor: localhost:{port}");
+        EditorLog.Info($"[rpc] dinleniyor: localhost:{port}"
+            + (_staticRoot != null ? $"  (http://localhost:{port}/ -> {_staticRoot})" : ""));
     }
 
     public static void Stop()
@@ -288,10 +293,17 @@ public static class RpcHost
         {
             using var sr = new StreamReader(client.Stream, Encoding.UTF8, false, 4096, leaveOpen: true);
             string line;
+            bool first = true;
             while ((line = sr.ReadLine()) != null)
             {
                 if (line.Length == 0)
                     continue;
+                if (first && _staticRoot != null && IsHttpRequestLine(line))
+                {
+                    ServeHttp(client, sr, line); // tek istek, Connection: close
+                    return;
+                }
+                first = false;
                 _queue.Enqueue(new Request(client, line));
             }
         }
@@ -302,6 +314,98 @@ public static class RpcHost
                 _clients.Remove(client);
             try { client.Tcp.Close(); } catch { }
         }
+    }
+
+    static bool IsHttpRequestLine(string line) =>
+        (line.StartsWith("GET ", StringComparison.Ordinal) || line.StartsWith("HEAD ", StringComparison.Ordinal))
+        && (line.EndsWith(" HTTP/1.1", StringComparison.Ordinal) || line.EndsWith(" HTTP/1.0", StringComparison.Ordinal));
+
+    // Okuyucu thread'de kosar (dosya IO, ana thread'e ihtiyac yok). Yol _staticRoot disina cikamaz.
+    static void ServeHttp(Client client, StreamReader sr, string requestLine)
+    {
+        // Basliklari tuket (bos satira kadar); icerikleri kullanilmiyor.
+        string h;
+        while ((h = sr.ReadLine()) != null && h.Length > 0) { }
+
+        var parts = requestLine.Split(' ');
+        bool head = parts[0] == "HEAD";
+        string target = parts.Length > 1 ? parts[1] : "/";
+        int q = target.IndexOf('?');
+        if (q >= 0)
+            target = target.Substring(0, q);
+        target = Uri.UnescapeDataString(target);
+        if (target.EndsWith("/"))
+            target += "index.html";
+
+        string full = null;
+        try
+        {
+            full = Path.GetFullPath(Path.Combine(_staticRoot, target.TrimStart('/').Replace('/', Path.DirectorySeparatorChar)));
+            if (!full.StartsWith(_staticRoot + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(full, _staticRoot, StringComparison.OrdinalIgnoreCase))
+                full = null;
+        }
+        catch { full = null; }
+
+        if (full == null)
+        {
+            WriteHttp(client, "403 Forbidden", "text/plain; charset=utf-8", Encoding.UTF8.GetBytes("forbidden"), head);
+            return;
+        }
+        if (!File.Exists(full))
+        {
+            string msg = $"not found: {target}\n(root: {_staticRoot})\nonce Project/Build Web (wasm) calistirin";
+            WriteHttp(client, "404 Not Found", "text/plain; charset=utf-8", Encoding.UTF8.GetBytes(msg), head);
+            return;
+        }
+        byte[] body;
+        try { body = File.ReadAllBytes(full); }
+        catch (IOException ex)
+        {
+            WriteHttp(client, "503 Service Unavailable", "text/plain; charset=utf-8", Encoding.UTF8.GetBytes(ex.Message), head);
+            return;
+        }
+        WriteHttp(client, "200 OK", MimeFor(full), body, head);
+    }
+
+    static string MimeFor(string path) => Path.GetExtension(path).ToLowerInvariant() switch
+    {
+        ".html" or ".htm" => "text/html; charset=utf-8",
+        ".js" or ".mjs" => "text/javascript; charset=utf-8",
+        ".wasm" => "application/wasm",
+        ".json" => "application/json; charset=utf-8",
+        ".css" => "text/css; charset=utf-8",
+        ".png" => "image/png",
+        ".jpg" or ".jpeg" => "image/jpeg",
+        ".svg" => "image/svg+xml",
+        ".ico" => "image/x-icon",
+        ".txt" or ".map" => "text/plain; charset=utf-8",
+        _ => "application/octet-stream", // .data (emscripten paketi) vb.
+    };
+
+    static void WriteHttp(Client client, string status, string contentType, byte[] body, bool head)
+    {
+        var sb = new StringBuilder();
+        sb.Append("HTTP/1.1 ").Append(status).Append("\r\n");
+        sb.Append("Content-Type: ").Append(contentType).Append("\r\n");
+        sb.Append("Content-Length: ").Append(body.Length.ToString(CultureInfo.InvariantCulture)).Append("\r\n");
+        sb.Append("Cache-Control: no-store\r\n"); // her build'de taze dosya
+        // SharedArrayBuffer (pthread'li wasm) icin cross-origin izolasyon basliklari.
+        sb.Append("Cross-Origin-Opener-Policy: same-origin\r\n");
+        sb.Append("Cross-Origin-Embedder-Policy: require-corp\r\n");
+        sb.Append("Connection: close\r\n\r\n");
+        var header = Encoding.ASCII.GetBytes(sb.ToString());
+        try
+        {
+            lock (client.WriteLock)
+            {
+                client.Stream.Write(header, 0, header.Length);
+                if (!head)
+                    client.Stream.Write(body, 0, body.Length);
+                client.Stream.Flush();
+            }
+        }
+        catch { }
     }
 
     // ANA THREAD, frame basinda (jest yokken) cagrilir: biriken istekleri kosar.

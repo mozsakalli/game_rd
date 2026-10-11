@@ -164,11 +164,12 @@ public static unsafe class GuiRenderer
     // --- SDF text ---
 
     // Eski imgui_font.c SDF efekti; R8 atlas oldugu icin .r kanalindan okur.
+    // Kenar: 1 ekran px lineer rampa (TMP_SDF modeli; UiPieces.SdfFragment ile ayni).
     const string _sdfFragment =
         "VEC4 fs_main(VEC2 uv, VEC4 color) {\n" +
         "  FLOAT distance = SAMPLE(tex, uv).r;\n" +
-        "  FLOAT smoothing = FWIDTH(distance);\n" +
-        "  FLOAT alpha = smoothstep(0.5 - smoothing, 0.5 + smoothing, distance);\n" +
+        "  FLOAT w = max(FWIDTH(distance), 1e-5);\n" +
+        "  FLOAT alpha = SATURATE((distance - 0.5) / w + 0.5);\n" +
         "  return VEC4(color.rgb, alpha * color.a);\n}"; // duz renk; premultiply wrapper'da
 
     static Shader _sdfShader;

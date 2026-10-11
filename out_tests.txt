@@ -11,9 +11,7 @@
 [audio] 33 PASS, 0 FAIL
 [prefs] 15 PASS, 0 FAIL
 [async] 28 PASS, 0 FAIL
-[net] test sunucusu acik kaliyor: http://127.0.0.1:18500
 [net] 18 PASS, 0 FAIL
 [progress] 11 PASS, 0 FAIL
 [catalogtest] 13 PASS 0 FAIL
 [info] [rpc] dinleniyor: localhost:5157
-Draggable: click (surukleme sayilmadi)

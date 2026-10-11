@@ -21,5 +21,9 @@ namespace System
         public T GetValueOrDefault(T defaultValue) { return hasValue ? value : defaultValue; }
         public static implicit operator Nullable<T>(T value) { return new Nullable<T>(value); }
         public static explicit operator T(Nullable<T> value) { return value.Value; }
+        // .NET: kutusu T kutusudur (CTranspiler.BoxValue); bu override'lar constrained cagri (T? uzerinden) icin.
+        public override bool Equals(object other) { return hasValue ? other != null && value.Equals(other) : other == null; }
+        public override int GetHashCode() { return hasValue ? value.GetHashCode() : 0; }
+        public override string ToString() { return hasValue ? value.ToString() : ""; }
     }
 }

@@ -804,6 +804,7 @@ public sealed class AssetDatabase
     {
         _ = Shader.Default;
         _ = UiPieces.UiShader;
+        _ = UiPieces.UiShaderMsdf;
         var list = new List<Texture>(); // bekleme sirasinda sozlukler degisebilir: once topla
         foreach (var t in _textures.Values)
             if (t.NeedsUpload) list.Add(t);

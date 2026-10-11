@@ -1,7 +1,7 @@
 [host] pak: ../Build/game.pak
-[host] katalog: reflection (AOT), 13 component tipi
+[host] katalog: reflection (AOT), 16 component tipi
 [host] yukleniyor 0/17
-[host] yukleniyor 1/17
+[host] yukleniyor 2/17
 [host] yukleniyor 13/17
 [host] yukleniyor 16/17
 [host] yukleniyor 17/17

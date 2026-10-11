@@ -127,27 +127,59 @@ public static unsafe class UiPieces
     }
 
     // Ortak UI shader'i: USER.x = smoothing (0 = fwidth keskin), USER.y =
-    // kenar merkezi (0 = 0.5), USER.z > 0 = ic kenar bandi (border RINGI icin;
-    // alpha dista 0 - kenarda 1 - USER.z'de tekrar 0), USER.w > 0 = ham rampa
-    // (alpha = d dogrudan; radyal gradient), USER.w < 0 = DOKULU gecis (duz
-    // sprite: SAMPLE * color — ayni sayfadaki ikon kutu/metinle tek draw'a girer).
-    // SDF .r'den okunur: R8 sayfada tek kanal, RGBA sayfada deger dort kanala kopyali.
-    public const string SdfFragment =
+    // kenar merkezi (0 = 0.5; ISARET = mesafe kaynagi, asagi bak), USER.z > 0 = ic
+    // kenar bandi (border RINGI icin; alpha dista 0 - kenarda 1 - USER.z'de tekrar 0),
+    // USER.w > 0 = ham rampa (alpha = d dogrudan; radyal gradient), USER.w < 0 =
+    // DOKULU gecis (duz sprite: SAMPLE * color — ayni sayfadaki ikon kutu/metinle
+    // tek draw'a girer).
+    // Keskin yol (USER.x == 0) TMP_SDF ile ayni: kenar etrafinda TAM 1 ekran px
+    // LINEER rampa (saturate((d-c)/fwidth + 0.5)). Eski smoothstep(c∓fwidth) 2 px
+    // genislik + S-egrisi veriyordu -> metin yumusak/bulanik gorunuyordu.
+    // Acik smoothing (golge blur) smoothstep'te kalir — orada yumusaklik amac.
+    //
+    // IKI VARYANT, sayfa piksel formatina gore (UiPieces.ShaderFor(page)):
+    //   R8   (SdfFragment):  d = .r (tek kanal SDF).
+    //   RGBA (MsdfFragment): d = median(r,g,b) (MTSDF: keskin kose), USER.y < 0 ise
+    //        d = .a (gercek SDF; golge/kontur gibi kenardan uzak okumalar — msdf
+    //        median'i kenardan uzakta guvenilir degildir). Kenar merkezi |USER.y|.
+    //        Tek kanal SDF iceren bolgeler (UiPieces, R8'den kopyalanan glyph'ler) dort
+    //        kanala kopyali -> median == a, her iki okuma da dogru.
+    // Instance verisi iki varyantta AYNI anlamda; metin yayicilari golge/konturda -c yazar.
+    const string _fragHead =
         "VEC4 fs_main(VEC2 uv, VEC4 color) {\n" +
-        "  if (USER.w < 0.0) return SAMPLE(tex, uv) * color;\n" +
-        "  FLOAT d = SAMPLE(tex, uv).r;\n" +
+        "  if (USER.w < 0.0) return SAMPLE(tex, uv) * color;\n";
+    const string _fragTail =
         "  if (USER.w > 0.0) return VEC4(color.rgb, d * color.a);\n" +
-        "  FLOAT s = USER.x > 0.0 ? USER.x : FWIDTH(d);\n" +
-        "  FLOAT c = USER.y > 0.0 ? USER.y : 0.5;\n" +
-        "  FLOAT a = smoothstep(c - s, c + s, d);\n" +
-        "  if (USER.z > 0.0) a *= 1.0 - smoothstep(USER.z - s, USER.z + s, d);\n" +
+        "  FLOAT c = USER.y != 0.0 ? abs(USER.y) : 0.5;\n" +
+        "  FLOAT a;\n" +
+        "  if (USER.x > 0.0) {\n" +
+        "    FLOAT s = USER.x;\n" +
+        "    a = smoothstep(c - s, c + s, d);\n" +
+        "    if (USER.z > 0.0) a *= 1.0 - smoothstep(USER.z - s, USER.z + s, d);\n" +
+        "  } else {\n" +
+        "    FLOAT w = max(FWIDTH(d), 1e-5);\n" +
+        "    a = SATURATE((d - c) / w + 0.5);\n" +
+        "    if (USER.z > 0.0) a *= 1.0 - SATURATE((d - USER.z) / w + 0.5);\n" +
+        "  }\n" +
         "  return VEC4(color.rgb, a * color.a);\n}"; // duz renk; premultiply wrapper'da
+
+    public const string SdfFragment = _fragHead +
+        "  FLOAT d = SAMPLE(tex, uv).r;\n" + _fragTail;
+
+    public const string MsdfFragment = _fragHead +
+        "  VEC4 t = SAMPLE(tex, uv);\n" +
+        "  FLOAT d = USER.y < 0.0 ? t.a : max(min(t.r, t.g), min(max(t.r, t.g), t.b));\n" + _fragTail;
 
     // Dokulu gecis modunun USER degeri (LayoutBox sprite yolu).
     public static readonly Vec4 TexturedUser = new(0f, 0f, 0f, -1f);
 
-    static Shader _shader;
+    static Shader _shader, _msdfShader;
     public static Shader UiShader => _shader ??= Shader.CreateEffect(SdfFragment);
+    public static Shader UiShaderMsdf => _msdfShader ??= Shader.CreateEffect(MsdfFragment);
+
+    // Sayfanin formatina gore UI shader'i (R8 -> .r, RGBA -> median/alpha).
+    public static Shader ShaderFor(Texture page)
+        => page != null && page.Channels == 4 ? UiShaderMsdf : UiShader;
 
     static Material _material;
 
@@ -161,8 +193,8 @@ public static unsafe class UiPieces
 
     static Material _textured;
 
-    // Dokulu kutu materyali: ayni UI shader, doku cizim aninda atanir (paylasilan
-    // materyal deseni — TexView DrawMesh aninda yakalanir).
+    // Dokulu kutu materyali: doku VE shader cizim aninda sayfaya gore atanir
+    // (paylasilan materyal deseni — TexView DrawMesh aninda yakalanir).
     public static Material TexturedMaterial => _textured ??= new Material
     {
         MainTexture = Fallback.Tex,

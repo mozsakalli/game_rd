@@ -88,7 +88,7 @@ namespace DigitoyEngine.Language
                         }
                         // Kullanici struct descriptor'i: typeof + kutulama/kutudan cikarma hedefleri
                         // (Box/Unbox/UnboxOrDefault/AsType/CastClass/IsType) — box helper'i &X_type ister.
-                        bool structRef = op.PrimitiveRef != null && op.PrimitiveRef.Type == PrimitiveType.Model && op.PrimitiveRef.IsStruct && !op.PrimitiveRef.IsGenericParameter;
+                        bool structRef = op.PrimitiveRef != null && TypeShape.IsStructModel(op.PrimitiveRef) && !op.PrimitiveRef.IsGenericParameter;
                         bool structOp = op.Type == OpType.TypeOf || op.Type == OpType.Box || op.Type == OpType.Unbox || op.Type == OpType.UnboxOrDefault
                             || op.Type == OpType.AsType || op.Type == OpType.CastClass || op.Type == OpType.IsType;
                         if (structRef && structOp)
@@ -106,7 +106,7 @@ namespace DigitoyEngine.Language
             // Tum somut kullanici struct'lari kutulanabilir: descriptor hepsine (corelib MiniCs yolu
             // `object o = item` icin acik Box op'u uretmez, Coerce'ta kutular -> &X_type hazir olmali).
             foreach (var p in ctx.AllPrimitives)
-                if (p.Type == PrimitiveType.Model && p.IsStruct && p.GenericTemplate == null && p.GenericParameters.Count == 0
+                if (TypeShape.IsStructModel(p) && p.GenericTemplate == null && p.GenericParameters.Count == 0
                     && !p.IsGenericParameter && !HasOpenTypeArgs(p) && p != Primitive.ValueType)
                 {
                     var key = CName(p.Name);
@@ -367,12 +367,17 @@ namespace DigitoyEngine.Language
             if (t == Primitive.Object) return "VmObject*"; // runtime koku (struct uretilmez)
             if (t == Primitive.String) return "VmString*"; // runtime string (struct uretilmez)
             if (t == Primitive.ValueType) return "VmObject*"; // boxed value type runtime koku
-            if (t.IsDelegate) return "VmDelegate*";        // runtime delegate (struct uretilmez)
-            if (t.Type == PrimitiveType.Model) return t.IsStruct ? $"struct {CName(t.Name)}" : $"struct {CName(t.Name)}*";
-            if (t.Type == PrimitiveType.Array) return "VmArray*"; // GC'li dinamik dizi (len tasir, data ayri tampon)
-            if (t.Type == PrimitiveType.FixedArray) return ScalarCType(t.ElementType) + "*";
-            if (t.Type == PrimitiveType.Pointer) return CType(t.ElementType) + "*"; // ham pointer, GC disi
-            return ScalarCType(t);
+            switch (TypeShape.Of(t))
+            {
+                case Shape.Delegate: return "VmDelegate*";                       // runtime delegate (struct uretilmez)
+                case Shape.Struct: return $"struct {CName(t.Name)}";
+                case Shape.Class: case Shape.Interface: return $"struct {CName(t.Name)}*";
+                case Shape.Array: return "VmArray*";                              // GC'li dinamik dizi (len tasir, data ayri tampon)
+                case Shape.FixedArray: return ScalarCType(t.ElementType) + "*";
+                case Shape.Pointer: return CType(t.ElementType) + "*";           // ham pointer, GC disi
+                case Shape.GenericParam: return $"struct {CName(t.Name)}*"; // S1 oncesi: acik T sablon kodunda gorulebilir (emit edilmez)
+                default: return ScalarCType(t);
+            }
         }
 
         static string ArrayIndexSetup(CVal array, List<CVal> indices, string arrayName, int line)
@@ -414,7 +419,7 @@ namespace DigitoyEngine.Language
         {
             if (!IsEmittableModel(p) || p.IsDelegate || !emitted.Add(p)) return;
             foreach (var field in p.Fields)
-                if (field.Type.Type == PrimitiveType.Model && field.Type.IsStruct)
+                if (TypeShape.IsStructModel(field.Type))
                     EmitStructOrdered(sb, field.Type, emitted);
             sb.Append(EmitStruct(p));
         }
@@ -472,7 +477,28 @@ namespace DigitoyEngine.Language
                     sb.Append($"    gc_shade((GCHeader*){path});\n");
                 sb.Append("}\n");
             }
-            sb.Append($"Type {cn}_type = {{ {traceFn}, 0, sizeof(GCHeader) + sizeof(struct {cn}), {(paths.Count > 0 ? 0 : 1)}, &vmvaluetype_type, {TypeNameRef(type)}, 0, 0, 0, 0, 0, 0, {(HasReflectionMembers(type) ? cn + "_members" : "0")}, {ReflectionMemberCount(type)}, {genericArgs}, {genericArgCount}{TypeMetaTail(type)}{(StructArrayTypeSym(type) is string ats ? $", .array_of = &{ats}" : "")} }};\n");
+            // Kutu vtable'i (Object slot sozlesmesi: 0=GetHashCode 1=Equals 2=ToString): struct override'i varsa kutuyu acan
+            // thunk, yoksa ValueType varsayilani (payload memcmp/hash; ToString = tip adi). `((object)s).Equals(x)` ve
+            // constrained fallback (kutula + callvirt) buradan dispatch eder.
+            var vt = new List<string>();
+            for (int i = 0; i < Primitive.Object.VTable.Count; i++)
+            {
+                var slotName = Primitive.Object.VTable[i].Name;
+                var ov = EmitCtx.AllCodes.FirstOrDefault(c => c.Owner == type && c.Name == slotName && c.IsOverride && IsEmittableCode(c));
+                if (ov != null)
+                {
+                    var an = CArgNames(ov, new HashSet<string>());
+                    var pars = string.Join("", ov.Arguments.Skip(1).Select((a, k) => $", {ParamCType(a)} {an[k + 1]}"));
+                    var args = string.Join("", ov.Arguments.Skip(1).Select((a, k) => $", {an[k + 1]}"));
+                    sb.Append($"static {CType(ov.ReturnType)} {cn}_boxvt{i}(VmObject* o{pars}) {{ return {CSym(ov)}((struct {cn}*)((char*)o + sizeof(GCHeader)){args}); }}\n");
+                    vt.Add($"(const void*)&{cn}_boxvt{i}");
+                }
+                else vt.Add(slotName == "GetHashCode" ? "(const void*)&digitoyengine_valuetype_hash"
+                    : slotName.StartsWith("Equals", StringComparison.Ordinal) ? "(const void*)&digitoyengine_valuetype_eq"
+                    : $"(const void*)&{CName(Primitive.Object.VTable[i].EncodeName())}");
+            }
+            sb.Append($"static const void* const {cn}_vtable[{vt.Count}] = {{ {string.Join(", ", vt)} }};\n");
+            sb.Append($"Type {cn}_type = {{ {traceFn}, 0, sizeof(GCHeader) + sizeof(struct {cn}), {(paths.Count > 0 ? 0 : 1)}, &vmvaluetype_type, {TypeNameRef(type)}, {cn}_vtable, {vt.Count}, 0, 0, 0, 0, {(HasReflectionMembers(type) ? cn + "_members" : "0")}, {ReflectionMemberCount(type)}, {genericArgs}, {genericArgCount}{TypeMetaTail(type)}{(StructArrayTypeSym(type) is string ats ? $", .array_of = &{ats}" : "")} }};\n");
             return sb.ToString();
         }
 
@@ -497,9 +523,10 @@ namespace DigitoyEngine.Language
             }
         }
 
-        // delegate descriptor'i: paylasimli VmDelegate yerlesimi, trace runtime'da; C# zinciri MulticastDelegate->Delegate->Object
+        // delegate descriptor'i: paylasimli VmDelegate yerlesimi, trace runtime'da; C# zinciri MulticastDelegate->Delegate->Object;
+        // vtable = runtime delegate vtable'i (Equals = hedef+metot, GetHashCode, ToString)
         static string EmitDelegateType(Primitive p) =>
-            $"Type {CName(p.Name)}_type = {{ digitoyengine_delegate_trace, 0, sizeof(VmDelegate), 0, &vmmulticastdelegate_type, &{strPool[p.Display]}, 0, 0, 0, 0, 0{TypeMetaTail(p)} }};\n";
+            $"Type {CName(p.Name)}_type = {{ digitoyengine_delegate_trace, 0, sizeof(VmDelegate), 0, &vmmulticastdelegate_type, &{strPool[p.Display]}, digitoyengine_delegate_vtable, 3, 0, 0, 0{TypeMetaTail(p)} }};\n";
 
         // enum descriptor'i: ToString uye adi dondurur (dotnet Enum.ToString; tanimsiz deger -> sayi),
         // hash/eq ortak govdeler (corelib.c), alias = underlying int (unbox denkligi).
@@ -535,7 +562,7 @@ namespace DigitoyEngine.Language
         static readonly Dictionary<string, Primitive> structArrayTypes = new Dictionary<string, Primitive>();
         static string StructArrayTypeSym(Primitive elem)
         {
-            if (elem == null || elem.Type != PrimitiveType.Model || !elem.IsStruct) return null;
+            if (elem == null || !TypeShape.IsStructModel(elem)) return null;
             var paths = new List<string>();
             CollectGcRefPaths(elem, "e", paths);
             if (paths.Count == 0) return null;
@@ -553,7 +580,7 @@ namespace DigitoyEngine.Language
             sb.Append($"    for (int i = 0; i < a->len; i++) {{ ");
             foreach (var pth in paths) sb.Append($"gc_shade((GCHeader*){pth}); ");
             sb.Append("}\n}\n");
-            sb.Append($"Type arr_{cn}_type = {{ trace_arr_{cn}, finalize_vmarray, sizeof(VmArray), 0, {ArrayBaseSym()} }};\n");
+            sb.Append($"Type arr_{cn}_type = {{ trace_arr_{cn}, finalize_vmarray, sizeof(VmArray), 0, {ArrayBaseSym()}, 0, vmobject_vtable, 3 }};\n");
             return sb.ToString();
         }
 
@@ -583,6 +610,38 @@ namespace DigitoyEngine.Language
             return $"({{ struct {cn} __bx = {expr}; (VmObject*)digitoyengine_box_struct(&{cn}_type, &__bx, (int)sizeof(struct {cn})); }})";
         }
 
+        // Deger tipi kutulama TEK kapi (enum / skaler helper / struct / Nullable<T>). .NET: Nullable<T> kutusu T kutusudur
+        // (HasValue=false -> null); runtime'da Nullable kutusu HIC olmaz.
+        static string BoxValue(Primitive type, string expr)
+        {
+            if (type.IsEnum) return $"digitoyengine_ebox_{CName(type.Name)}({expr})";
+            if (BoxHelperFor(type) is string helper) return $"{helper}({expr})";
+            if (NullableValueType(type, out var inner))
+                return $"({{ {CType(type)} __nb = {expr}; __nb.hasValue ? (VmObject*){BoxValue(inner, "__nb.value")} : (VmObject*)0; }})";
+            if (TypeShape.IsStructModel(type)) return BoxStruct(type, expr);
+            throw new Exception($"boxing desteklenmeyen tip: {type.Name}");
+        }
+        // Kutudan deger: Nullable<T> hedefi null kutuyu {0} yapar, T kutusunu sarar.
+        static string UnboxValue(Primitive type, string objExpr)
+        {
+            if (NullableValueType(type, out var inner))
+                return $"({{ VmObject* __ub = (VmObject*)({objExpr}); __ub ? ({CType(type)}){{ 1, {UnboxValue(inner, "__ub")} }} : ({CType(type)}){{0}}; }})";
+            string ct = TypeShape.IsStructModel(type) ? $"struct {CName(type.Name)}" : ScalarCType(type);
+            return $"(*({ct}*)digitoyengine_unbox((GCHeader*)({objExpr}), &{TypeSym(type)}))";
+        }
+        // is/as hedefi deger tipiyse kutunun RUNTIME tipi: Nullable<T> -> T
+        static Primitive BoxedTypeOf(Primitive t) => NullableValueType(t, out var inner) ? inner : t;
+        // Nullable<T> yerlesim sozlesmesi (corelib Nullable.cs): {hasValue, value}
+        static bool NullableValueType(Primitive type, out Primitive valueType)
+        {
+            valueType = null;
+            if (type == null || !TypeShape.IsStructModel(type) || !type.Name.StartsWith(WellKnown.Nullable + "`1<")) return false;
+            var field = type.Fields.FirstOrDefault(f => f.Name == "value");
+            if (field == null) return false;
+            valueType = field.Type;
+            return true;
+        }
+
         // deger tipi -> box helper (corelib.c); enum/model/dizi icin null
         static string BoxHelperFor(Primitive p)
         {
@@ -610,7 +669,7 @@ namespace DigitoyEngine.Language
         static string TypeTest(Primitive target, string typeExpr, string objExpr = null) =>
             target.Type == PrimitiveType.Array ? $"digitoyengine_is_array((const GCHeader*){objExpr}, {ExportTypeSym(target.ElementType)}, {Math.Max(1, target.ArrayRank)})"
             : target.IsInterface ? $"DIGITOYENGINE_implements({typeExpr}, &{TypeSym(target)})"
-                                 : $"DIGITOYENGINE_is({typeExpr}, &{TypeSym(target)})";
+                                 : $"DIGITOYENGINE_is({typeExpr}, &{TypeSym(BoxedTypeOf(target))})"; // Nullable<T> kutusu = T kutusu
 
         // digitoyengine_init: (1) class-ref static'leri GC koku olarak kaydet, (2) cctor'lari kayit sirasiyla kos.
         // Host main'i baska bir sey yapmadan ONCE cagirmali.
@@ -756,12 +815,12 @@ namespace DigitoyEngine.Language
         // GC'ye gorunen alanlar: dogrudan class/array referanslari ve struct icindeki tum referans yolları.
         static void CollectGcRefPaths(Primitive type, string path, List<string> paths)
         {
-            if ((type.Type == PrimitiveType.Model && !type.IsStruct) || type.Type == PrimitiveType.Array)
+            if (TypeShape.IsGcRef(type))
             {
                 paths.Add(path);
                 return;
             }
-            if (type.Type != PrimitiveType.Model || !type.IsStruct) return;
+            if (!TypeShape.IsStructModel(type)) return;
             foreach (var field in Hierarchy.AllFields(type))
                 CollectGcRefPaths(field.Type, path + "." + CName(field.Name), paths);
         }
@@ -871,14 +930,14 @@ namespace DigitoyEngine.Language
 
         static string ReflectionTypeSym(Primitive type) =>
             (type.Type == PrimitiveType.Array || type.Type == PrimitiveType.FixedArray || type.Type == PrimitiveType.Pointer) ? "0" :
-            (type.Type == PrimitiveType.Model && type.IsStruct) ? (reflectedValueStructs.ContainsKey(CName(type.Name)) ? "&" + TypeSym(type) : "0") :
+            (TypeShape.IsStructModel(type)) ? (reflectedValueStructs.ContainsKey(CName(type.Name)) ? "&" + TypeSym(type) : "0") :
             "&" + TypeSym(type);
 
         // Struct alanlari: kutu kopyasi (descriptor varsa); FieldInfo.GetValue .NET'te de kutular. Struct ifadesi rvalue
         // olabilir (property getter cagrisi) -> geciciye alinir.
         static string ReflectGetValue(Primitive type, string expr) =>
             type.Type == PrimitiveType.FixedArray || type.Type == PrimitiveType.Pointer ? "digitoyengine_reflect_unsupported()" :
-            type.Type == PrimitiveType.Model && type.IsStruct ? (reflectedValueStructs.ContainsKey(CName(type.Name)) ? $"({{ {CType(type)} __rv = {expr}; (GCHeader*)digitoyengine_box_struct(&{TypeSym(type)}, &__rv, sizeof({CType(type)})); }})" : "digitoyengine_reflect_unsupported()") :
+            TypeShape.IsStructModel(type) ? (reflectedValueStructs.ContainsKey(CName(type.Name)) ? $"({{ {CType(type)} __rv = {expr}; (GCHeader*)digitoyengine_box_struct(&{TypeSym(type)}, &__rv, sizeof({CType(type)})); }})" : "digitoyengine_reflect_unsupported()") :
             type.IsEnum ? $"(GCHeader*)digitoyengine_ebox_{CName(type.Name)}({expr})" :
             BoxHelperFor(type) != null ? $"(GCHeader*){BoxHelperFor(type)}({expr})" :
             $"(GCHeader*)({expr})";
@@ -886,12 +945,12 @@ namespace DigitoyEngine.Language
         static string ReflectSetValue(Primitive type, string value) =>
             BoxHelperFor(type) != null || type.IsEnum
                 ? $"*({ScalarCType(type)}*)digitoyengine_unbox({value}, &{TypeSym(type)})"
-                : type.Type == PrimitiveType.Model && type.IsStruct ? $"*({CType(type)}*)digitoyengine_unbox({value}, &{TypeSym(type)})"
+                : TypeShape.IsStructModel(type) ? $"*({CType(type)}*)digitoyengine_unbox({value}, &{TypeSym(type)})"
                 : type.Type == PrimitiveType.Array ? $"({CType(type)}){value}"
                 : $"({CType(type)})digitoyengine_reflect_ref({value}, &{TypeSym(type)})";
 
         static string ReflectSetStatement(string access, Primitive type, string value) =>
-            type.Type == PrimitiveType.FixedArray || type.Type == PrimitiveType.Pointer || (type.Type == PrimitiveType.Model && type.IsStruct && !reflectedValueStructs.ContainsKey(CName(type.Name)))
+            type.Type == PrimitiveType.FixedArray || type.Type == PrimitiveType.Pointer || (TypeShape.IsStructModel(type) && !reflectedValueStructs.ContainsKey(CName(type.Name)))
                 ? "digitoyengine_reflect_unsupported();"
                 : $"{access} = {ReflectSetValue(type, value)};";
 
@@ -991,7 +1050,7 @@ namespace DigitoyEngine.Language
             t.Type == PrimitiveType.Byte ? 'b' : t.Type == PrimitiveType.Bool ? 'B' :
             t.Type == PrimitiveType.UInt ? 'u' : t.Type == PrimitiveType.ULong ? 'q' :
             t.Type == PrimitiveType.UShort ? 'H' : t.Type == PrimitiveType.SByte ? 'z' :
-            t.Type == PrimitiveType.Model && t.IsStruct ? 'v' :
+            TypeShape.IsStructModel(t) ? 'v' :
             t.Type == PrimitiveType.Model || t.Type == PrimitiveType.Array ? 'o' : '?';
 
         // debug local/arg tablosu: #ifdef DIGITOYENGINE_DEBUG blogu (release preprocessing'te tamamen yok olur
@@ -1020,9 +1079,7 @@ namespace DigitoyEngine.Language
 
         static Primitive Promote(Primitive a, Primitive b) => Primitive.PromoteNumeric(a, b);
 
-        static bool IsNumericVal(Primitive t) =>
-            t != null && t.Type != PrimitiveType.Model && t.Type != PrimitiveType.Array &&
-            t.Type != PrimitiveType.FixedArray && t.Type != PrimitiveType.Pointer && t.Type != PrimitiveType.Void;
+        static bool IsNumericVal(Primitive t) => TypeShape.IsScalar(t); // skaler/enum (TypeShape tek kapi)
 
         // sayisal ikili islem: operandlar C# terfi tipine ACIKCA cast edilir (uint+int -> long gibi
         // C'nin kendi terfisiyle AYRISAN durumlar bit dogru kalir; gereksiz cast'i clang atar)
@@ -1239,19 +1296,15 @@ namespace DigitoyEngine.Language
                     if (v.Type == Primitive.Void) return $"(struct {CName(target.Name)}){{0}}";
                     return $"(struct {CName(target.Name)}){{ 1, ({CType(nullableValue)})({v.Expr}) }}";
                 }
-                if (target != null && target.Type == PrimitiveType.Model && !target.IsStruct && v.Type != null && v.Type != target)
+                if (target != null && TypeShape.IsClassModel(target) && v.Type != null && v.Type != target)
                 {
-                    if (v.Type.IsEnum) return $"(({CType(target)})digitoyengine_ebox_{CName(v.Type.Name)}({v.Expr}))";
-                    var bh = BoxHelperFor(v.Type);
-                    if (bh != null) return $"(({CType(target)}){bh}({v.Expr}))";
-                    if (v.Type.Type == PrimitiveType.Model && v.Type.IsStruct)
+                    if (TypeShape.IsValueLike(v.Type))
                     {
-                        // Ortuk kutulama (generic T=struct: object parametresi / IList<object> gibi yollar).
-                        // Descriptor pre-pass'te toplanmamis olabilir -> burada kaydet (EmitValueStructType sonra yazar).
-                        var key = CName(v.Type.Name);
-                        if (!reflectedValueStructs.ContainsKey(key))
+                        // Ortuk kutulama (generic T=struct: object parametresi / IList<object> gibi yollar); tek kapi BoxValue
+                        // (enum/skaler/struct/Nullable). Descriptor pre-pass'te toplanmis olmali.
+                        if (TypeShape.IsStructModel(v.Type) && !reflectedValueStructs.ContainsKey(CName(BoxedTypeOf(v.Type).Name)) && !TypeShape.IsScalar(BoxedTypeOf(v.Type)))
                             throw new Exception($"struct kutulama descriptor'suz: {v.Type.Name} (pre-pass kacirdi)");
-                        return $"(({CType(target)}){BoxStruct(v.Type, v.Expr)})";
+                        return $"(({CType(target)}){BoxValue(v.Type, v.Expr)})";
                     }
                     return $"({CType(target)})({v.Expr})";
                 }
@@ -1264,15 +1317,7 @@ namespace DigitoyEngine.Language
                 return v.Expr;
             }
 
-            bool NullableValueType(Primitive type, out Primitive valueType)
-            {
-                valueType = null;
-                if (type == null || type.Type != PrimitiveType.Model || !type.IsStruct || !type.Name.StartsWith(WellKnown.Nullable + "`1<")) return false;
-                var field = type.Fields.FirstOrDefault(f => f.Name == "value");
-                if (field == null) return false;
-                valueType = field.Type;
-                return true;
-            }
+            // NullableValueType: static helper (BoxValue/UnboxValue da kullanir)
 
             var openTries = new List<int>(); // compile-time TryBegin/TryEnd eslesmesi (LIFO)
             int publishedLine = 0; // DIGITOYENGINE_SETLINE dedup (jump hedefinde sifirlanir: gelen yol bilinmez)
@@ -1469,7 +1514,7 @@ namespace DigitoyEngine.Language
                             var dims = new List<CVal>();
                             for (int ii = 0; ii < rank; ii++) dims.Insert(0, Pop());
                             var elem = op.PrimitiveRef;
-                            int isref = (elem.Type == PrimitiveType.Model && !elem.IsStruct) || elem.Type == PrimitiveType.Array ? 1 : 0;
+                            int isref = TypeShape.IsGcRef(elem) ? 1 : 0;
                             var dn = $"__dims{tempCounter++}";
                             // ref tasiyan struct eleman: uretilen dizi Type'i (GC eleman eleman tarar); yoksa runtime ref/atomic tipleri.
                             // Eleman descriptor'u (is T[] / GetType / Array.GetValue): ExportTypeSym; jagged/pointer eleman -> 0 (bilinmiyor).
@@ -1513,7 +1558,7 @@ namespace DigitoyEngine.Language
                             var sourceType = op.PrimitiveRef;
                             if (sourceType.IsGenericParameter)
                                 throw new Exception($"IsValueType somutlastirilmamis tip parametresi: {sourceType.Name}");
-                            bool isValueType = IsNumericVal(sourceType) || (sourceType.Type == PrimitiveType.Model && sourceType.IsStruct);
+                            bool isValueType = TypeShape.IsValueLike(sourceType);
                             Push(new CVal($"((void)({value.Expr}), {(isValueType ? 1 : 0)})", Primitive.Bool));
                             break;
                         }
@@ -1522,29 +1567,18 @@ namespace DigitoyEngine.Language
                             var o = Pop();
                             if (o.Type.IsGenericParameter)
                                 throw new Exception($"AsType somutlastirilmamis tip parametresi: {o.Type.Name}");
-                            bool sourceIsValueType = IsNumericVal(o.Type) || (o.Type.Type == PrimitiveType.Model && o.Type.IsStruct);
+                            bool sourceIsValueType = TypeShape.IsValueLike(o.Type);
                             if (sourceIsValueType)
                             {
                                 if (op.PrimitiveRef == Primitive.Object || op.PrimitiveRef == Primitive.ValueType)
-                                {
-                                    string boxed;
-                                    if (o.Type.IsEnum)
-                                        boxed = $"digitoyengine_ebox_{CName(o.Type.Name)}({o.Expr})";
-                                    else if (BoxHelperFor(o.Type) is string helper)
-                                        boxed = $"{helper}({o.Expr})";
-                                    else if (o.Type.Type == PrimitiveType.Model && o.Type.IsStruct)
-                                        boxed = BoxStruct(o.Type, o.Expr);
-                                    else
-                                        throw new Exception($"as boxing desteklenmeyen tip: {o.Type.Name}");
-                                    Push(new CVal($"(({CType(op.PrimitiveRef)}){boxed})", op.PrimitiveRef));
-                                }
+                                    Push(new CVal($"(({CType(op.PrimitiveRef)}){BoxValue(o.Type, o.Expr)})", op.PrimitiveRef));
                                 else
                                     Push(new CVal($"((void)({o.Expr}), ({CType(op.PrimitiveRef)})0)", op.PrimitiveRef));
                                 break;
                             }
                             var t = $"__t{tempCounter++}";
                             sb.Append($"    {CType(o.Type)} {t} = {o.Expr};\n");
-                            bool targetIsValueType = IsNumericVal(op.PrimitiveRef) || op.PrimitiveRef.IsEnum || (op.PrimitiveRef.Type == PrimitiveType.Model && op.PrimitiveRef.IsStruct);
+                            bool targetIsValueType = TypeShape.IsValueLike(op.PrimitiveRef);
                             if (targetIsValueType)
                             {
                                 // CIL isinst deger-tip: boxed referans tip tutarsa aynen (null test/unbox.any devaminda), yoksa null
@@ -1559,12 +1593,10 @@ namespace DigitoyEngine.Language
                             EmitLine(op); // unbox / cast_fail firlatabilir
                             // Generic sablonda `(T)obj` = unbox.any !T -> frontend T'yi referans sayip CastClass uretir; T deger
                             // tipine somutlasinca (int/enum/struct) bu bir UNBOX'tir (pointer->int cast degil).
-                            if (IsNumericVal(op.PrimitiveRef) || op.PrimitiveRef.IsEnum || (op.PrimitiveRef.Type == PrimitiveType.Model && op.PrimitiveRef.IsStruct))
+                            if (TypeShape.IsValueLike(op.PrimitiveRef))
                             {
                                 var ov = Pop();
-                                var ut = op.PrimitiveRef;
-                                string uct = ut.Type == PrimitiveType.Model && ut.IsStruct ? $"struct {CName(ut.Name)}" : ScalarCType(ut);
-                                Push(new CVal($"(*({uct}*)digitoyengine_unbox((GCHeader*)({ov.Expr}), &{TypeSym(ut)}))", ut));
+                                Push(new CVal(UnboxValue(op.PrimitiveRef, ov.Expr), op.PrimitiveRef));
                                 break;
                             }
                             var o = Pop();
@@ -1586,7 +1618,7 @@ namespace DigitoyEngine.Language
                     case OpType.Default:
                         {
                             var zt = op.PrimitiveRef;
-                            var zx = zt.Type == PrimitiveType.Model && zt.IsStruct ? $"(struct {CName(zt.Name)}){{0}}" : $"(({CType(zt)})0)";
+                            var zx = TypeShape.IsStructModel(zt) ? $"(struct {CName(zt.Name)}){{0}}" : $"(({CType(zt)})0)";
                             Push(new CVal(zx, zt));
                             break;
                         }
@@ -1601,18 +1633,19 @@ namespace DigitoyEngine.Language
                             var v = Pop();
                             var sourceType = op.PrimitiveRef;
                             string bx;
-                            if (sourceType.IsEnum)
-                                bx = $"digitoyengine_ebox_{CName(sourceType.Name)}({v.Expr})";
-                            else if (BoxHelperFor(sourceType) is string helper)
-                                bx = $"{helper}({v.Expr})";
-                            else if (sourceType.Type == PrimitiveType.Array || (sourceType.Type == PrimitiveType.Model && !sourceType.IsStruct))
+                            if (!TypeShape.IsGcRef(sourceType))
+                            {
+                                Push(new CVal(BoxValue(sourceType, v.Expr), Primitive.Object)); // tek kapi: enum/skaler/struct/Nullable
+                                break;
+                            }
+                            else if (TypeShape.IsGcRef(sourceType))
                             {
                                 // referans tipte box = kimlik (C# ox !!T, T sinif kisitli: alan erisimi oncesi).
                                 // Statik tipi KORU: ardindan gelen ldfld/call dogru struct'a gitsin.
                                 Push(new CVal(v.Expr, sourceType));
                                 break;
                             }
-                            else if (sourceType.Type == PrimitiveType.Model && sourceType.IsStruct)
+                            else if (TypeShape.IsStructModel(sourceType))
                                 bx = BoxStruct(sourceType, v.Expr);
                             else
                                 throw new Exception($"boxing desteklenmeyen tip: {sourceType.Name}");
@@ -1624,8 +1657,7 @@ namespace DigitoyEngine.Language
                             EmitLine(op);
                             var o = Pop();
                             var ut = op.PrimitiveRef;
-                            string ct = ut.Type == PrimitiveType.Model && ut.IsStruct ? $"struct {CName(ut.Name)}" : ScalarCType(ut);
-                            Push(new CVal($"(*({ct}*)digitoyengine_unbox((GCHeader*)({o.Expr}), &{TypeSym(ut)}))", ut));
+                            Push(new CVal(UnboxValue(ut, o.Expr), ut));
                             break;
                         }
                     case OpType.UnboxOrDefault:
@@ -1634,14 +1666,8 @@ namespace DigitoyEngine.Language
                             var t = $"__t{tempCounter++}";
                             sb.Append($"    {CType(o.Type)} {t} = {o.Expr};\n");
                             var ut = op.PrimitiveRef;
-                            if (ut.Type == PrimitiveType.Model && ut.IsStruct)
-                            {
-                                var sct = $"struct {CName(ut.Name)}";
-                                Push(new CVal($"(({t} && {t}->gc.type == &{TypeSym(ut)}) ? *({sct}*)((char*){t} + sizeof(GCHeader)) : ({sct}){{0}})", ut));
-                                break;
-                            }
-                            var sct2 = ScalarCType(ut);
-                            Push(new CVal($"(({t} && {t}->gc.type == &{TypeSym(ut)}) ? *({sct2}*)((char*){t} + sizeof(GCHeader)) : ({sct2})0)", ut));
+                            var zero = TypeShape.IsStructModel(ut) ? $"(struct {CName(ut.Name)}){{0}}" : $"({ScalarCType(ut)})0";
+                            Push(new CVal($"(({t} && {t}->gc.type == &{TypeSym(BoxedTypeOf(ut))}) ? {UnboxValue(ut, t)} : {zero})", ut));
                             break;
                         }
                     case OpType.NullableWrap:

@@ -142,7 +142,13 @@ namespace DigitoyEngine.Language
                 if (m.IsOverride)
                 {
                     int slot = SlotOf(p.VTable, m.Name);
-                    if (slot < 0) throw new System.Exception($"override edilecek virtual yok: {p.Name}.{m.Name}");
+                    if (slot < 0)
+                    {
+                        var par = p.Parent;
+                        string pinfo = par == null ? "parent=null" :
+                            $"parent={par.Name} unresolved={par.Unresolved} template={(par.GenericTemplate != null ? par.GenericTemplate.Name : "-")} vtable=[{string.Join(",", par.VTable.Select(v => v.Name))}] uyeler={(methodsByOwner.TryGetValue(par, out var pm) ? pm.Count : 0)}";
+                        throw new System.Exception($"override edilecek virtual yok: {p.Name}.{m.Name} ({pinfo})");
+                    }
                     p.VTable[slot] = m;
                 }
                 else if (m.IsVirtual)

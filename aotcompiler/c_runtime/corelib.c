@@ -14,9 +14,54 @@ int System_Object_Equals_System_Object(VmObject *a0, VmObject *a1)
 {
     return a0 == a1; // default: referans esitligi
 }
+static void sb_reset(void);
+static void sb_ascii(const char *s);
+static void sb_utf16(const unsigned short *s, int n);
+static VmString *sb_final(void);
 VmString *System_Object_ToString(VmObject *a0)
 {
-    return (VmString *)digitoyengine_type_name(((GCHeader *)a0)->type); // havuzda ya da bir kez kurulup cache'li: tekrar alloc yok
+    const Type *t = ((GCHeader *)a0)->type;
+    if ((t->flags & DIGITOYENGINE_TYPE_ARRAY) || t == &vmarray_ref_type || t == &vmarray_val_type)
+    {
+        // .NET Array.ToString = "System.Int32[]": tahsis tipinin adi yok/eleman adi -> VmArray.elem'den kur
+        const VmArray *a = (const VmArray *)a0;
+        const VmString *en = a->elem ? digitoyengine_type_name(a->elem) : 0;
+        if (en)
+        {
+            sb_reset();
+            sb_utf16(en->data, en->length);
+            sb_ascii("[");
+            for (int i = 1; i < a->rank; i++)
+                sb_ascii(",");
+            sb_ascii("]");
+            return sb_final();
+        }
+    }
+    return (VmString *)digitoyengine_type_name(t); // havuzda ya da bir kez kurulup cache'li: tekrar alloc yok
+}
+// ---- ValueType varsayilanlari (kutulu struct vtable'i; CTranspiler.EmitValueStructType) ----
+// .NET ValueType.Equals: ayni tip + alan alan esitlik. Burada payload bitwise (padding sifirlanmis kutu kopyasi; float -0/NaN
+// farki bilincli kabul). GetHashCode: payload FNV (.NET'inkiyle AYNI DEGIL - yalniz tutarlilik sozlesmesi).
+int digitoyengine_valuetype_eq(VmObject *a0, VmObject *a1)
+{
+    if (a0 == a1)
+        return 1;
+    if (!a1 || ((GCHeader *)a0)->type != ((GCHeader *)a1)->type)
+        return 0;
+    int n = ((GCHeader *)a0)->type->size - (int)sizeof(GCHeader);
+    return memcmp((char *)a0 + sizeof(GCHeader), (char *)a1 + sizeof(GCHeader), (size_t)n) == 0;
+}
+int digitoyengine_valuetype_hash(VmObject *a0)
+{
+    int n = ((GCHeader *)a0)->type->size - (int)sizeof(GCHeader);
+    const unsigned char *p = (const unsigned char *)a0 + sizeof(GCHeader);
+    unsigned int h = 2166136261u;
+    for (int i = 0; i < n; i++)
+    {
+        h ^= p[i];
+        h *= 16777619u;
+    }
+    return (int)(h & 0x7FFFFFFF);
 }
 
 // ---- string builder: kalici UTF-16 scratch (malloc, GC disi) -> sonuc TEK gc alloc ----
@@ -2087,6 +2132,20 @@ int System_Environment_get_TickCount(void)
     return (int)(ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
 #endif
 }
+/* DateTime.UtcNow: 100ns tick, 0001-01-01'den (BCL ile ayni taban). */
+long long System_DateTime_GetUtcNowTicks(void)
+{
+#ifdef _WIN32
+    FILETIME ft; /* 100ns, 1601-01-01'den */
+    GetSystemTimeAsFileTime(&ft);
+    long long t = ((long long)ft.dwHighDateTime << 32) | ft.dwLowDateTime;
+    return t + 504911232000000000LL;
+#else
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    return 621355968000000000LL + (long long)ts.tv_sec * 10000000LL + ts.tv_nsec / 100;
+#endif
+}
 int System_BitConverter_SingleToInt32Bits_Float(float value)
 {
     int r;
@@ -2170,7 +2229,9 @@ void System_Array_Clear_System_Array(VmArray *a)
 #define DIGITOYENGINE_OS_ANDROID 1
 #elif defined(__APPLE__)
 #include <TargetConditionals.h>
-#if TARGET_OS_IPHONE
+#if TARGET_OS_MACCATALYST
+#define DIGITOYENGINE_OS_MACCATALYST 1
+#elif TARGET_OS_IPHONE
 #define DIGITOYENGINE_OS_IOS 1
 #else
 #define DIGITOYENGINE_OS_MACOS 1
@@ -2190,6 +2251,9 @@ void System_Array_Clear_System_Array(VmArray *a)
 #ifndef DIGITOYENGINE_OS_IOS
 #define DIGITOYENGINE_OS_IOS 0
 #endif
+#ifndef DIGITOYENGINE_OS_MACCATALYST
+#define DIGITOYENGINE_OS_MACCATALYST 0
+#endif
 #ifndef DIGITOYENGINE_OS_MACOS
 #define DIGITOYENGINE_OS_MACOS 0
 #endif
@@ -2199,6 +2263,17 @@ void System_Array_Clear_System_Array(VmArray *a)
 int System_OperatingSystem_IsWindows(void) { return DIGITOYENGINE_OS_WINDOWS; }
 int System_OperatingSystem_IsMacOS(void) { return DIGITOYENGINE_OS_MACOS; }
 int System_OperatingSystem_IsIOS(void) { return DIGITOYENGINE_OS_IOS; }
+int System_OperatingSystem_IsMacCatalyst(void) { return DIGITOYENGINE_OS_MACCATALYST; }
 int System_OperatingSystem_IsAndroid(void) { return DIGITOYENGINE_OS_ANDROID; }
 int System_OperatingSystem_IsLinux(void) { return DIGITOYENGINE_OS_LINUX; }
 int System_OperatingSystem_IsBrowser(void) { return DIGITOYENGINE_OS_BROWSER; }
+/* Delegate.Combine/Remove (Roslyn event +=/-=): vmrt'nin immutable invocation listesi. Uretilen prototip struct System_Delegate* (= VmDelegate yerlesimi). */
+struct System_Delegate;
+struct System_Delegate *System_Delegate_Combine_System_Delegate_System_Delegate(struct System_Delegate *a, struct System_Delegate *b)
+{
+    return (struct System_Delegate *)digitoyengine_delegate_combine((VmDelegate *)a, (VmDelegate *)b);
+}
+struct System_Delegate *System_Delegate_Remove_System_Delegate_System_Delegate(struct System_Delegate *source, struct System_Delegate *value)
+{
+    return (struct System_Delegate *)digitoyengine_delegate_remove((VmDelegate *)source, (VmDelegate *)value);
+}

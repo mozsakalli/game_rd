@@ -1,5 +1,75 @@
 # DigitoyEngine R&D (game_rd)
 
+## CORELIB EKSIGI = CORELIB'DE KAPANIR (Delegate.Combine / IsMacCatalyst, 2026-10-11)
+- yuzbirextra Button.cs `event` (+=/-=) ve PlatformFilter `IsMacCatalyst` AOT'de patliyordu (CS0656 / CS0117); scriptler yeni
+  eklenmisti, editorde (.NET) calistigi icin fark edilmemis. Cozum TAMAMEN corelib'de: `Delegate.Combine/Remove` extern
+  (roslyn/WellKnownTypes.cs) -> corelib.c govdesi vmrt `digitoyengine_delegate_combine/remove`; `OperatingSystem.IsMacCatalyst`
+  extern -> TARGET_OS_MACCATALYST. Derleyiciye dokunulmadi; selftest 46 (delegate +=/-=) da bununla yesile dondu.
+- KURAL: corelib eksigi once C# yuzeyi (+ gerekirse extern/corelib.c). CilFrontend/CTranspiler'a yalniz IL sekline bagli,
+  C#'ta yazilamayan sey girer (ldtoken, Span intrinsic, async remap). IR'de hazir ama kullanilmayan op (DelegateCombine/Remove,
+  Code.cs) frontend'e dokunma gerekcesi degildir — o op'lar artik olu; bir sonraki temizlikte silinebilir.
+
+## CORELIB DATETIME/TIMESPAN minimal (2026-10-11)
+- c_runtime/corelib/DateTime.cs: tek alan tick (100ns, 0001-01-01), proleptik Gregoryen (BCL GetDatePart algoritmasi).
+  Yuzey: ctor(ticks|y,m,d[,h,mi,s]), UtcNow/Now, Ticks/Year..Millisecond/Date/TimeOfDay, Add*/Subtract, karsilastirma
+  operatorleri, IsLeapYear, MinValue/UnixEpoch. TimeSpan: Ticks/Total*/From*/+ -/karsilastirma, TicksPer* sabitleri.
+- YOK (bilincli): Kind/saat dilimi (Now == UtcNow), Parse/ToString/format, kultur, DayOfWeek, IComparable. Gerekirse ekle.
+- Native: corelib.c `System_DateTime_GetUtcNowTicks` (win GetSystemTimeAsFileTime+1601 ofseti; posix CLOCK_REALTIME).
+- Test: selftest case 73 (Cases/Test62.cs) .NET ile birebir. Selftest .NET 9'a karsi derlenir: .NET 9'un yeni
+  int overload'lari (TimeSpan.FromHours(int)) corelib'de yok; test double yazar. Oyun kodu CoreLib'e karsi derlendigi icin sorun degil.
+
+## LAYOUTBOX QUAD DIKISLERI: alt-piksel bosluk (2026-10-11)
+- BELIRTI: LayoutBox parcali quad'lari (SDF kose/kenar/ic dolgu, golge, slice9) arasinda konuma/olcege bagli 1px
+  cizgiler (yuvarlak noktada arti seklinde, kutu kenarlarinda). NEDEN: ortak kenar iki quad'da GPU'da ayri hesaplanir
+  (merkez ± boyut/2); float bit-esit cikmazsa rasterizer alt-piksel izgarasinda farkli hucreye duser -> bosluk/ustuste.
+  Ayrica ic dolgu kenarlari hucrelerden farkli ifadeyle uretiliyordu ((x0+2)+(r-2) vs x0+r).
+- COZUM (LayoutBox.EmitQuad): eksen-hizali dunya matrisinde koseler dunya uzayinda 2^-10 izgaraya oturtulur (Snap);
+  merkez/boyut bu koselerden turer -> GPU'daki merkez±boyut/2 toplami float'ta TAM, iki quad ayni biti verir.
+  Donuslu matriste eski yol. Ic dolgu partisyonu `SolidInterior`: kose ic kenarlari hucrelerle AYNI ifadeyle gelir.
+- KURAL: parcali renderer'da komsu quad'in ortak kenarini AYNI float ifadeyle uret; "a+b-b" turevleri dikis acar.
+- BORDER SIFIR KENAR: ring shader'i `smoothstep(c)*(1-smoothstep(USER.z))`; kalinlik 0'da USER.z==c olsa da carpim
+  t(1-t) AA genisliginde (tepe 0.25 alfa) iz birakir -> `border 0 0 0 2` ust/yanlarda ince cizgi. EmitLayer'da ring
+  serit/hucresi kalinlik <= 0 ise HIC emit edilmez (Cell/HEdge/VEdge).
+
+## GENERICS: SOMUT BAGLAMLA INDIRGEME (.NET/IL2CPP modeli) — S1+S2+S3 BITTI (2026-10-11)
+- NEDEN: her generic isinde (koleksiyon, canon, ref/struct) ayni mayin: sablon govdesi T ACIKKEN IR'a cevriliyor, klonda op op
+  "yama" (GenericCast->Unbox/CastClass, IsValueType, Default...) + emisyonda 43 ayri IsStruct/IsEnum/IsNumericVal kombinasyonu.
+  Eksik kombinasyon ancak kullanimda patliyordu. Kullanici karari: "evrensel, her zaman dogru" yapi, case case degil.
+- S1 (CilFrontend/GenericInstantiator/Resolver): SABLON GOVDESI HICBIR ZAMAN CEVRILMEZ/KLONLANMAZ. Ornek kabugu (imza)
+  GenericInstantiator kurar; govdesi `CilFrontend.TranslateInstance` ile AYNI IL'den SOMUT GenCtx'le (TypeParams =
+  Owner.TypeArguments, MethodParams = Code.MethodTypeArguments) yeniden cevrilir -> her IL opcode (box/unbox.any/constrained/
+  isinst/sizeof/ldtoken) tam tiple tek anlamli. `Code.IlSource` (loader+handle) sablon ve orneklerde ortak; `RootTemplate`
+  zinciri. Loader hazir degilse (LoadMembers suruyor) kuyruk bekler (`LoaderReady`). Resolver.ResolveAll SABIT NOKTA: cozum
+  sirasinda dogan ornek kodlari da islenir. CloneCodeBody/GenericCast yamasi/BodyPending/MarkBodyReady SILINDI.
+  TUZAK: frontend New+Call(ctor) op'lari AYNI TypeArguments listesini paylasir (temizleme yok).
+- S2 (TypeShape.cs): tip sekli TEK kapi: `Shape {Void,Scalar(enum dahil),Struct,Class,Interface,Delegate,Array,FixedArray,
+  Pointer,GenericParam}` + IsValueLike/IsGcRef/IsStructModel/IsClassModel/IsScalar. CTranspiler.CType/IsNumericVal ve 26 ad hoc
+  ifade buna yonlendirildi (davranis birebir: full+lean "0 yazildi"). Frontend unbox.any/isinst de TypeShape (dizi/delegate/
+  iface'i deger tipi saniyordu). Kutulama tek kapi: `BoxValue/UnboxValue/BoxedTypeOf` (enum/skaler/struct/Nullable).
+- S3 (tests/dotnet-selftest/Cases/Matrix.cs + Test61.cs = case 61..72): `Probe<T>` tek govde x T = {int, long, enum, struct,
+  ref-struct, string, class, iface, delegate, int[], int?} + Nullable<T> ozel yolu; op listesi: box/unbox/is/cast, default/typeof,
+  T[] + Array, static alan, generic base + sanal + iface, ref/out, delegate indirect + capture, generic metot icinde generic
+  metot, constrained ToString/Equals, List<T>/Dictionary<int,T>/foreach, iterator, async Task<T>. .NET baseline ile birebir.
+  Yeni op kategorisi -> Matrix.cs'e eklenir. Fark ayiklama: `H.trace=true` -> stderr [h] adimlari, .NET vs AOT diff.
+- MATRISIN YAKALADIGI gercek eksikler (hepsi duzeltildi): (1) generic TABAN SINIF (TypeSpec base) frontend'de hic cozulmuyordu ->
+  Object'e dusuyordu; (2) generic sinifin generic metodu MemberRef ile cagrilinca `!!0` baglam disi; (3) struct'ta override
+  edilmemis Equals/GetHashCode/ToString constrained cagrisi patliyordu -> .NET gibi KUTULA+callvirt; kutulu struct descriptor'u
+  artik vtable tasir (override thunk'u ya da `digitoyengine_valuetype_eq/hash` payload varsayilani); (4) delegate ve dizi
+  descriptor'larinin vtable'i yoktu (`((object)d).Equals` NullRef) -> `digitoyengine_delegate_vtable` (hedef+metot esitligi),
+  dizilerde Object vtable'i; (5) `Array.ToString()` null -> "System.Int32[]"; (6) Nullable<T>: kutusu T kutusudur (HasValue=false
+  -> null), unbox T kutusundan sarar, `is T?` T'yi test eder; Nullable.Equals/GetHashCode/ToString override'lari.
+- SONUC: selftest 68/71 (yalniz 3 eski bilinen: InlineArray, Delegate.Combine, StringSplitOptions); matris 12/12. Sandbox
+  windows full 5 417 KB / lean 2 737 KB calisiyor; wasm lean 1 366 KB (tarayicida dogrulandi). Editor build OK.
+- corelib/Random.cs (kullanici): seed `Environment.TickCount` (DateTime.Now/Ticks corelib.c'de govdesiz, link kirardi).
+- SIRADA (KARAR 2026-10-11: CANON, collections degil — ".NET standardi, evrensel"): ref-argumanli generic'ler tek kod.
+  Plan (her fazda selftest 68/71 + matris 12/12 + Sandbox exe/wasm yesil): (1) kanonik anahtar (class/iface/delegate/dizi/
+  string -> __Canon), exact tip kimligi (descriptor/vtable/ad/generic_args) AYRI, govdeler canon ornege bagli, C struct tek;
+  T-bagimli op kullanmayan metotlar paylasilir, digerleri bu fazda ozel kalir. (2) RGCTX: instance -> this->type->generic_args,
+  static/struct/generic metot -> gizli `const Type* __rgctx`; typeof/new T[]/is-as/default/sizeof dict'ten; runtime
+  `digitoyengine_instantiate(def,args)` tablosu. (3) Statikler ornekleme basina (`Type.statics` blogu). (4) Meta: MethodInfo
+  canon basina, trace adi `List<T>.Add`. (5) Olcum + `--no-canon` kapisi. Matrise ek hucre: Probe<D> (iki ref orneklemesi
+  AYNI sembole gider mi). HENUZ BASLANMADI. Hierarchy'de struct vtable/itable eksigi de duruyor (yukarida).
+
 ## TRIM CERCEVESI (ILLink benzeri) — ADIM 1+2+3 BITTI: lean = meta + kod trim (2026-10-11)
 - Karar: trim aotcompiler GENELINDE tek cerceve (`aotcompiler/source/Trim/`): kok kume + analiz -> `TrimResult`; emisyon
   (CTranspiler/Meta) kod/meta/thunk/trampoline/tip-adi kararlarini YALNIZ `CTranspiler.TrimPlan`'a sorar, profile dogrudan bakmaz.

@@ -109,18 +109,19 @@ public sealed unsafe class TextSprite : Renderer
             cOut = MathF.Max(cFill - OutlineWidth / scale / SdfSpread, 0.05f);
 
         // Painter sirasi ayni layer'da submit sirasi: golge -> kontur -> dolgu.
+        // Golge/kontur USER.y NEGATIF = gercek SDF kanali (MSDF sayfada .a; LayoutBox.Text ile ayni).
         if (ShadowColor.a > 0)
         {
             float s = ShadowBlur > 0f && scale > 0f
                 ? ShadowBlur * 0.5f / scale / SdfSpread : 0f;
-            var user = new Vec4(s, cOut > 0f ? cOut : cFill, 0f, 0f); // kontur varsa golge silueti de kontur kenarindan
+            var user = new Vec4(s, -(cOut > 0f ? cOut : cFill), 0f, 0f); // kontur varsa golge silueti de kontur kenarindan
             for (int i = 0; i < _quadCount; i++)
                 Emit(queue, mat, in wm, in _quads[i], ShadowOffset.x, ShadowOffset.y,
                     ShadowColor, ShadowColor, false, in user, in FxParams, layer);
         }
         if (cOut > 0f)
         {
-            var user = new Vec4(0f, cOut, 0f, 0f);
+            var user = new Vec4(0f, -cOut, 0f, 0f);
             bool oh = Outline.IsHorizontal;
             for (int i = 0; i < _quadCount; i++)
             {

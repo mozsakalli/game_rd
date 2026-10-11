@@ -97,31 +97,38 @@ public sealed unsafe class Font : IAsset
     Material _material;
 
     // TextSprite/LayoutBox'in kullandigi paylasilan materyal (font basina bir, lazy).
-    // Sayfa yeniden baglanabildigi icin doku her erisimde esitlenir.
+    // Sayfa yeniden baglanabildigi icin doku VE shader (sayfa formatina gore R8/MSDF
+    // varyanti) her erisimde esitlenir.
     public Material Material
     {
         get
         {
             _material ??= new Material
             {
-                Shader = UiPieces.UiShader,
                 SortMode = SortMode.Transparent, // blend = kanon default (One/OneMinusSrcAlpha)
             };
             _material.MainTexture = Page;
+            _material.Shader = UiPieces.ShaderFor(Page);
             return _material;
         }
     }
 
     // --- Baglama (AssetDatabase) ---
 
-    // Kendi sheet'ine baglanir (DPIX R8 blobu; importer "sheet" artifact'i).
+    // Kendi sheet'ine baglanir (DPIX blobu; importer "sheet" artifact'i). R8 = tek
+    // kanal SDF, RGBA8 = MTSDF (rgb msdf + a sdf); shader secimi Page.Channels'tan.
     internal bool BindSheet(byte[] sheetBlob)
     {
-        if (!PixelBlob.TryParse(sheetBlob, out int ch, out int w, out int h) || ch != 1)
+        if (!PixelBlob.TryParse(sheetBlob, out int ch, out int w, out int h))
             return false;
         ReleaseOwnedSheet();
-        fixed (byte* p = &sheetBlob[PixelBlob.HeaderSize])
-            _ownedSheet = Texture.FromAlpha(w, h, p);
+        if (ch == 1)
+        {
+            fixed (byte* p = &sheetBlob[PixelBlob.HeaderSize])
+                _ownedSheet = Texture.FromAlpha(w, h, p);
+        }
+        else
+            _ownedSheet = Texture.FromRgba(w, h, sheetBlob.AsSpan(PixelBlob.HeaderSize));
         _ownedSheet.Name = Name + "#sheet";
         _ownedSheet.Persistent = true; // R8 dokunun CPU kopyasi yok: evict edilirse geri yuklenemez
         _ownedSheet.PiecesX = _sheetPiecesX;
