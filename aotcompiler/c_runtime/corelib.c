@@ -16,7 +16,7 @@ int System_Object_Equals_System_Object(VmObject *a0, VmObject *a1)
 }
 VmString *System_Object_ToString(VmObject *a0)
 {
-    return (VmString *)((GCHeader *)a0)->type->name; // tip adi strpool'da: SIFIR alloc
+    return (VmString *)digitoyengine_type_name(((GCHeader *)a0)->type); // havuzda ya da bir kez kurulup cache'li: tekrar alloc yok
 }
 
 // ---- string builder: kalici UTF-16 scratch (malloc, GC disi) -> sonuc TEK gc alloc ----
@@ -1284,25 +1284,32 @@ static void sb_array_suffix(const Type *t)
 VmString *System_Type_get_FullName(DigitoyEngineTypeObj *a0)
 {
     const Type *t = type_of(a0);
-    if ((t->flags & DIGITOYENGINE_TYPE_SYNTH_ARRAY) && t->name) /* sentez dizi: eleman adi + [] */
+    const VmString *n = digitoyengine_type_name(t);
+    if ((t->flags & DIGITOYENGINE_TYPE_SYNTH_ARRAY) && n) /* sentez dizi: eleman adi + [] */
     {
         sb_reset();
-        sb_utf16(t->name->data, t->name->length);
+        sb_utf16(n->data, n->length);
         sb_array_suffix(t);
         return sb_final();
     }
-    return (VmString *)t->name; /* havuz nesnesi: sifir alloc */
+    return (VmString *)n; /* havuz/cache nesnesi: alloc yok */
 }
 VmString *System_Type_get_Name(DigitoyEngineTypeObj *a0)
 {
     const Type *t = type_of(a0);
-    const VmString *n = t->name;
+    const VmString *n = digitoyengine_type_name(t);
     if (!n)
         return 0;
-    int cut = 0;
-    for (int i = 0; i < n->length; i++)
-        if (n->data[i] == '.')
+    int cut = 0, depth = 0;
+    for (int i = 0; i < n->length; i++) // yalniz generic arguman listesi DISINDAKI son '.' (List<Ns.Foo> -> List<...>)
+    {
+        if (n->data[i] == '<')
+            depth++;
+        else if (n->data[i] == '>')
+            depth--;
+        else if (n->data[i] == '.' && depth == 0)
             cut = i + 1;
+    }
     sb_reset();
     sb_utf16(n->data + cut, n->length - cut);
     if (t->flags & DIGITOYENGINE_TYPE_SYNTH_ARRAY)
@@ -1459,7 +1466,11 @@ GCHeader *System_Reflection_Assembly_GetExecutingAssembly(void)
     }
     return de_assembly;
 }
-GCHeader *System_Type_get_Assembly(DigitoyEngineTypeObj *a0) { (void)a0; return System_Reflection_Assembly_GetExecutingAssembly(); }
+GCHeader *System_Type_get_Assembly(DigitoyEngineTypeObj *a0)
+{
+    (void)a0;
+    return System_Reflection_Assembly_GetExecutingAssembly();
+}
 // Uretilen tum tipler: rootid == 0 (runtime kokleri/primitive'ler/Void haric), dizi/sentez ve acik generic tanimlar haric
 VmArray *System_Reflection_Assembly_GetTypes(GCHeader *self)
 {
@@ -1468,7 +1479,7 @@ VmArray *System_Reflection_Assembly_GetTypes(GCHeader *self)
     for (int i = 0; i < digitoyengine_ntypes; i++)
     {
         const Type *t = digitoyengine_types[i];
-        if (t->rootid == 0 && !(t->flags & (DIGITOYENGINE_TYPE_ARRAY | DIGITOYENGINE_TYPE_GENERIC_DEF)))
+        if (t->rootid == 0 && !(t->flags & (DIGITOYENGINE_TYPE_ARRAY | DIGITOYENGINE_TYPE_GENERIC_DEF | DIGITOYENGINE_TYPE_NOREFLECT)))
             n++;
     }
     VmArray *r = vmarray_new_e(n, digitoyengine_reflect_type(0));
@@ -1477,7 +1488,7 @@ VmArray *System_Reflection_Assembly_GetTypes(GCHeader *self)
     for (int i = 0; i < digitoyengine_ntypes; i++)
     {
         const Type *t = digitoyengine_types[i];
-        if (t->rootid == 0 && !(t->flags & (DIGITOYENGINE_TYPE_ARRAY | DIGITOYENGINE_TYPE_GENERIC_DEF)))
+        if (t->rootid == 0 && !(t->flags & (DIGITOYENGINE_TYPE_ARRAY | DIGITOYENGINE_TYPE_GENERIC_DEF | DIGITOYENGINE_TYPE_NOREFLECT)))
             items[n++] = digitoyengine_type_wrapper(t);
     }
     return r;
@@ -1519,10 +1530,18 @@ DigitoyEngineTypeObj *System_Type_GetType_System_String(VmString *name)
 {
     if (!name)
         return 0;
+    int generic = 0; // adsiz (lazy) descriptor'lar yalniz generic orneklemelerdir: sorguda '<' yoksa onlar icin ad kurmaya gerek yok
+    for (int i = 0; i < name->length; i++)
+        if (name->data[i] == '<')
+        {
+            generic = 1;
+            break;
+        }
     for (int i = 0; i < digitoyengine_ntypes; i++)
     {
         const Type *t = digitoyengine_types[i];
-        if (t->name && vmstring_eq((VmString *)t->name, name))
+        const VmString *tn = t->name ? t->name : (generic ? digitoyengine_type_name(t) : 0);
+        if (tn && vmstring_eq((VmString *)tn, name))
             return (DigitoyEngineTypeObj *)digitoyengine_type_wrapper(t);
     }
     return 0;
@@ -1553,23 +1572,13 @@ typedef struct DigitoyEngineMethodObj
     long long handle;
 } DigitoyEngineMethodObj;
 static MethodInfo *method_of(DigitoyEngineMethodObj *m) { return (MethodInfo *)(size_t)m->handle; }
-// MemberInfo.Name metot icin yalin ad (.NET: "Scale", ".ctor"): gosterim "Owner.Name(args)" -> '(' oncesi, son '.' sonrasi
+// MemberInfo.Name: kayitta yalin ad (UTF-8; .NET: "Scale", ".ctor")
 VmString *System_Reflection_MethodBase_get_Name(DigitoyEngineMethodObj *a0)
 {
     MethodInfo *m = method_of(a0);
-    const VmString *d = m->name;
-    if (!d)
-        return 0;
-    int end = d->length, start = 0;
-    for (int i = 0; i < d->length; i++)
-        if (d->data[i] == '(') { end = i; break; }
-    for (int i = end - 1; i >= 0; i--)
-        if (d->data[i] == '.') { start = i + 1; break; }
     if (m->flags & DIGITOYENGINE_METHOD_CTOR)
         return vmstring_from_cstr(".ctor");
-    sb_reset();
-    sb_utf16(d->data + start, end - start);
-    return sb_final();
+    return m->name ? vmstring_from_cstr(m->name) : 0;
 }
 int System_Reflection_MethodBase_get_IsStatic(DigitoyEngineMethodObj *a0) { return (method_of(a0)->flags & DIGITOYENGINE_METHOD_STATIC) != 0; }
 int System_Reflection_MethodBase_get_IsVirtual(DigitoyEngineMethodObj *a0) { return (method_of(a0)->flags & DIGITOYENGINE_METHOD_VIRTUAL) != 0; }
@@ -1670,7 +1679,8 @@ static DeAttr *de_member_attrs(GCHeader *self, int *n, const Type **declType)
 int System_Reflection_MemberInfo_IsDefined_System_Type_Bool(GCHeader *self, DigitoyEngineTypeObj *attrType, int inherit)
 {
     const Type *filter = attrType ? type_of(attrType) : 0;
-    int n; const Type *decl;
+    int n;
+    const Type *decl;
     DeAttr *attrs = de_member_attrs(self, &n, &decl);
     if (digitoyengine_attrs_defined(attrs, n, filter))
         return 1;
@@ -1682,7 +1692,8 @@ int System_Reflection_MemberInfo_IsDefined_System_Type_Bool(GCHeader *self, Digi
 }
 static VmArray *de_attrs_with_inherit(GCHeader *self, const Type *filter, int inherit)
 {
-    int n; const Type *decl;
+    int n;
+    const Type *decl;
     DeAttr *attrs = de_member_attrs(self, &n, &decl);
     const Type *elem = filter ? filter : &vmobject_type;
     if (!inherit || !decl || !decl->base)
@@ -1776,7 +1787,11 @@ typedef struct DigitoyEngineException
 {
     GCHeader gc;
     VmString *message; /* null -> Message default metni uretir */
-    struct { long long mi[24]; int line[24]; } trace; /* System.ExceptionTrace (bayt yerlesimi eski inline tamponlarla ayni) */
+    struct
+    {
+        long long mi[24];
+        int line[24];
+    } trace; /* System.ExceptionTrace (bayt yerlesimi eski inline tamponlarla ayni) */
     int traceCount;
     GCHeader *innerException;
 } DigitoyEngineException;
@@ -1784,7 +1799,7 @@ VmString *System_Exception_get_Message(DigitoyEngineException *a0)
 {
     if (a0->message)
         return a0->message;
-    const VmString *tn = ((GCHeader *)a0)->type->name;
+    const VmString *tn = digitoyengine_type_name(((GCHeader *)a0)->type);
     sb_reset();
     sb_ascii("Exception of type '");
     sb_utf16(tn->data, tn->length);
@@ -1799,11 +1814,29 @@ VmString *System_Exception_get_StackTrace(DigitoyEngineException *a0)
         const MethodInfo *mi = (const MethodInfo *)(size_t)a0->trace.mi[i];
         int l = a0->trace.line[i];
         sb_ascii("  at ");
-        sb_utf16(mi->name->data, mi->name->length);
-        if (mi->file && mi->file->length)
+        const VmString *owner = digitoyengine_method_owner_name(mi);
+        if (owner)
+        {
+            sb_utf16(owner->data, owner->length);
+            sb_ch('.');
+        }
+        sb_ascii(mi->name ? mi->name : "?");
+        sb_ch('(');
+        for (int p = 0; p < mi->nparams; p++)
+        {
+            if (p)
+                sb_ascii(", ");
+            const VmString *pn = mi->param_types ? digitoyengine_type_name(mi->param_types[p]) : 0;
+            if (pn)
+                sb_utf16(pn->data, pn->length);
+            else
+                sb_ch('?');
+        }
+        sb_ch(')');
+        if (mi->file && mi->file[0])
         {
             sb_ascii(" (");
-            sb_utf16(mi->file->data, mi->file->length);
+            sb_ascii(mi->file);
             sb_ch(':');
             sb_int(l >> 10);
             sb_ch(':');
@@ -1823,22 +1856,37 @@ VmString *System_Exception_get_StackTrace(DigitoyEngineException *a0)
 }
 void System_Exception_Print(DigitoyEngineException *a0)
 {
-    const VmString *tn = ((GCHeader *)a0)->type->name;
+    const VmString *tn = digitoyengine_type_name(((GCHeader *)a0)->type);
     fputs("[exception] ", stderr);
-    vm_write_utf8_to(stderr, tn->data, tn->length);
+    if (tn)
+        vm_write_utf8_to(stderr, tn->data, tn->length);
     fputc('\n', stderr);
     for (int i = a0->traceCount - 1; i >= 0; i--)
     {
         const MethodInfo *mi = (const MethodInfo *)(size_t)a0->trace.mi[i];
         int l = a0->trace.line[i];
         fputs("  at ", stderr);
-        vm_write_utf8_to(stderr, mi->name->data, mi->name->length);
-        if (mi->file && mi->file->length)
+        const VmString *owner = digitoyengine_method_owner_name(mi);
+        if (owner)
         {
-            fputs(" (", stderr);
-            vm_write_utf8_to(stderr, mi->file->data, mi->file->length);
-            fprintf(stderr, ":%d:%d)\n", l >> 10, l & 1023);
+            vm_write_utf8_to(stderr, owner->data, owner->length);
+            fputc('.', stderr);
         }
+        fputs(mi->name ? mi->name : "?", stderr);
+        fputc('(', stderr);
+        for (int p = 0; p < mi->nparams; p++)
+        {
+            if (p)
+                fputs(", ", stderr);
+            const VmString *pn = mi->param_types ? digitoyengine_type_name(mi->param_types[p]) : 0;
+            if (pn)
+                vm_write_utf8_to(stderr, pn->data, pn->length);
+            else
+                fputc('?', stderr);
+        }
+        fputc(')', stderr);
+        if (mi->file && mi->file[0])
+            fprintf(stderr, " (%s:%d:%d)\n", mi->file, l >> 10, l & 1023);
         else
             fprintf(stderr, ":%d:%d\n", l >> 10, l & 1023);
     }
@@ -1852,8 +1900,12 @@ static int digitoyengine_utf8_decode_len(const unsigned char *s, int n)
     for (int i = 0; i < n;)
     {
         unsigned char b = s[i];
-        int len = b < 0x80 ? 1 : (b >> 5) == 6 ? 2 : (b >> 4) == 14 ? 3 : (b >> 3) == 30 ? 4 : 1;
-        if (i + len > n) len = 1;
+        int len = b < 0x80 ? 1 : (b >> 5) == 6 ? 2
+                             : (b >> 4) == 14  ? 3
+                             : (b >> 3) == 30  ? 4
+                                               : 1;
+        if (i + len > n)
+            len = 1;
         units += len == 4 ? 2 : 1;
         i += len;
     }
@@ -1873,11 +1925,31 @@ VmString *System_Text_Encoding_Utf8Decode__Byte_Int_Int(VmArray *bytes, int inde
         unsigned char b = s[i];
         unsigned cp;
         int len;
-        if (b < 0x80) { cp = b; len = 1; }
-        else if ((b >> 5) == 6 && i + 1 < count) { cp = ((b & 0x1F) << 6) | (s[i + 1] & 0x3F); len = 2; }
-        else if ((b >> 4) == 14 && i + 2 < count) { cp = ((b & 0x0F) << 12) | ((s[i + 1] & 0x3F) << 6) | (s[i + 2] & 0x3F); len = 3; }
-        else if ((b >> 3) == 30 && i + 3 < count) { cp = ((b & 0x07) << 18) | ((s[i + 1] & 0x3F) << 12) | ((s[i + 2] & 0x3F) << 6) | (s[i + 3] & 0x3F); len = 4; }
-        else { cp = 0xFFFD; len = 1; }
+        if (b < 0x80)
+        {
+            cp = b;
+            len = 1;
+        }
+        else if ((b >> 5) == 6 && i + 1 < count)
+        {
+            cp = ((b & 0x1F) << 6) | (s[i + 1] & 0x3F);
+            len = 2;
+        }
+        else if ((b >> 4) == 14 && i + 2 < count)
+        {
+            cp = ((b & 0x0F) << 12) | ((s[i + 1] & 0x3F) << 6) | (s[i + 2] & 0x3F);
+            len = 3;
+        }
+        else if ((b >> 3) == 30 && i + 3 < count)
+        {
+            cp = ((b & 0x07) << 18) | ((s[i + 1] & 0x3F) << 12) | ((s[i + 2] & 0x3F) << 6) | (s[i + 3] & 0x3F);
+            len = 4;
+        }
+        else
+        {
+            cp = 0xFFFD;
+            len = 1;
+        }
         if (cp >= 0x10000)
         {
             cp -= 0x10000;
@@ -1897,8 +1969,14 @@ VmArray *System_Text_Encoding_Utf8Encode_System_String(VmString *s)
     for (int i = 0; i < s->length; i++)
     {
         unsigned c = s->data[i];
-        if (c >= 0xD800 && c <= 0xDBFF && i + 1 < s->length) { n += 4; i++; }
-        else n += c < 0x80 ? 1 : c < 0x800 ? 2 : 3;
+        if (c >= 0xD800 && c <= 0xDBFF && i + 1 < s->length)
+        {
+            n += 4;
+            i++;
+        }
+        else
+            n += c < 0x80 ? 1 : c < 0x800 ? 2
+                                          : 3;
     }
     VmArray *a = vmarray_new_e(n, &vmbyte_type);
     unsigned char *d = (unsigned char *)a->data;
@@ -1915,9 +1993,19 @@ VmArray *System_Text_Encoding_Utf8Encode_System_String(VmString *s)
             d[o++] = (unsigned char)(0x80 | ((cp >> 6) & 0x3F));
             d[o++] = (unsigned char)(0x80 | (cp & 0x3F));
         }
-        else if (c < 0x80) d[o++] = (unsigned char)c;
-        else if (c < 0x800) { d[o++] = (unsigned char)(0xC0 | (c >> 6)); d[o++] = (unsigned char)(0x80 | (c & 0x3F)); }
-        else { d[o++] = (unsigned char)(0xE0 | (c >> 12)); d[o++] = (unsigned char)(0x80 | ((c >> 6) & 0x3F)); d[o++] = (unsigned char)(0x80 | (c & 0x3F)); }
+        else if (c < 0x80)
+            d[o++] = (unsigned char)c;
+        else if (c < 0x800)
+        {
+            d[o++] = (unsigned char)(0xC0 | (c >> 6));
+            d[o++] = (unsigned char)(0x80 | (c & 0x3F));
+        }
+        else
+        {
+            d[o++] = (unsigned char)(0xE0 | (c >> 12));
+            d[o++] = (unsigned char)(0x80 | ((c >> 6) & 0x3F));
+            d[o++] = (unsigned char)(0x80 | (c & 0x3F));
+        }
     }
     return a;
 }
@@ -1925,18 +2013,22 @@ VmArray *System_Text_Encoding_Utf8Encode_System_String(VmString *s)
 int System_String_IsNullOrEmpty_System_String(VmString *s) { return !s || s->length == 0; }
 int System_String_IsNullOrWhiteSpace_System_String(VmString *s)
 {
-    if (!s) return 1;
+    if (!s)
+        return 1;
     for (int i = 0; i < s->length; i++)
-        if (!digitoyengine_char_is_whitespace(s->data[i])) return 0;
+        if (!digitoyengine_char_is_whitespace(s->data[i]))
+            return 0;
     return 1;
 }
 
 // Type.IsAssignableFrom(other): other == this VEYA other'in kalitim zincirinde VEYA this bir arayuz ve other onu implement eder
 int System_Type_IsAssignableFrom_System_Type(DigitoyEngineTypeObj *self, DigitoyEngineTypeObj *other)
 {
-    if (!other) return 0;
+    if (!other)
+        return 0;
     const Type *t = type_of(self), *o = type_of(other);
-    if (DIGITOYENGINE_is(o, t)) return 1;
+    if (DIGITOYENGINE_is(o, t))
+        return 1;
     return DIGITOYENGINE_implements(o, t);
 }
 void System_Runtime_InteropServices_Marshal_Copy_Long__Byte_Int_Int(long long source, VmArray *destination, int startIndex, int length)
@@ -1950,12 +2042,17 @@ void System_Runtime_InteropServices_Marshal_Copy_Long__Byte_Int_Int(long long so
 
 void System_GC_Collect_Int(int generation)
 {
-    if (generation == 0) { gc_minor(); return; } /* test kancasi: kucuk artimli dilim (bariyer/ic ice gecis sinavi) */
+    if (generation == 0)
+    {
+        gc_minor();
+        return;
+    } /* test kancasi: kucuk artimli dilim (bariyer/ic ice gecis sinavi) */
     System_GC_Collect();
 }
 
 /* --- AOT player eksikleri: Int.CompareTo/ToString(format), Marshal IntPtr overload'lari, Environment.TickCount, BitConverter --- */
-int Int_CompareTo_Int(int self, int value) { return self < value ? -1 : self > value ? 1 : 0; }
+int Int_CompareTo_Int(int self, int value) { return self < value ? -1 : self > value ? 1
+                                                                                     : 0; }
 VmString *Int_ToString_System_String(int self, VmString *format)
 {
     char fmt[16] = "%d";
@@ -1963,9 +2060,15 @@ VmString *Int_ToString_System_String(int self, VmString *format)
     {
         char f0 = (char)format->data[0];
         int width = 0;
-        for (int i = 1; i < format->length; i++) width = width * 10 + ((int)format->data[i] - '0');
-        if (f0 == 'X' || f0 == 'x') snprintf(fmt, sizeof fmt, width > 0 ? "%%0%d%c" : "%%%c", width > 0 ? width : (int)f0, f0);
-        else if (f0 == 'D' || f0 == 'd') { if (width > 0) snprintf(fmt, sizeof fmt, "%%0%dd", width); }
+        for (int i = 1; i < format->length; i++)
+            width = width * 10 + ((int)format->data[i] - '0');
+        if (f0 == 'X' || f0 == 'x')
+            snprintf(fmt, sizeof fmt, width > 0 ? "%%0%d%c" : "%%%c", width > 0 ? width : (int)f0, f0);
+        else if (f0 == 'D' || f0 == 'd')
+        {
+            if (width > 0)
+                snprintf(fmt, sizeof fmt, "%%0%dd", width);
+        }
     }
     char buf[40];
     snprintf(buf, sizeof buf, fmt, self);
@@ -1979,18 +2082,47 @@ int System_Environment_get_TickCount(void)
 #ifdef _WIN32
     return (int)GetTickCount();
 #else
-    struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
     return (int)(ts.tv_sec * 1000 + ts.tv_nsec / 1000000);
 #endif
 }
-int System_BitConverter_SingleToInt32Bits_Float(float value) { int r; memcpy(&r, &value, 4); return r; }
-float System_BitConverter_Int32BitsToSingle_Int(int value) { float r; memcpy(&r, &value, 4); return r; }
-long long System_BitConverter_DoubleToInt64Bits_Double(double value) { long long r; memcpy(&r, &value, 8); return r; }
-double System_BitConverter_Int64BitsToDouble_Long(long long value) { double r; memcpy(&r, &value, 8); return r; }
+int System_BitConverter_SingleToInt32Bits_Float(float value)
+{
+    int r;
+    memcpy(&r, &value, 4);
+    return r;
+}
+float System_BitConverter_Int32BitsToSingle_Int(int value)
+{
+    float r;
+    memcpy(&r, &value, 4);
+    return r;
+}
+long long System_BitConverter_DoubleToInt64Bits_Double(double value)
+{
+    long long r;
+    memcpy(&r, &value, 8);
+    return r;
+}
+double System_BitConverter_Int64BitsToDouble_Long(long long value)
+{
+    double r;
+    memcpy(&r, &value, 8);
+    return r;
+}
 int System_Math_Min_Int_Int(int x, int y) { return x < y ? x : y; }
 int System_Math_Max_Int_Int(int x, int y) { return x > y ? x : y; }
-void System_SpanOps_Copy_Long_Long_Int(long long dst, long long src, int bytes) { if (bytes > 0) memmove((void *)(size_t)dst, (const void *)(size_t)src, (size_t)bytes); }
-void System_SpanOps_Fill_Long_Int_Byte(long long dst, int bytes, unsigned char value) { if (bytes > 0) memset((void *)(size_t)dst, value, (size_t)bytes); }
+void System_SpanOps_Copy_Long_Long_Int(long long dst, long long src, int bytes)
+{
+    if (bytes > 0)
+        memmove((void *)(size_t)dst, (const void *)(size_t)src, (size_t)bytes);
+}
+void System_SpanOps_Fill_Long_Int_Byte(long long dst, int bytes, unsigned char value)
+{
+    if (bytes > 0)
+        memset((void *)(size_t)dst, value, (size_t)bytes);
+}
 void System_SpanOps_StoreInt16_Long_Short(long long dst, short value) { memcpy((void *)(size_t)dst, &value, 2); }
 void System_SpanOps_StoreInt32_Long_Int(long long dst, int value) { memcpy((void *)(size_t)dst, &value, 4); }
 

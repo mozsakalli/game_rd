@@ -5,7 +5,8 @@
 #      editorde layout kosmus, player'da Awake oncesi ham deger).
 #   -Baseline: player dokumunu Library/Build/scene-dump.baseline.txt olarak kaydeder.
 #   Baseline varsa player dokumu onunla da TAM karsilastirilir (fazlar arasi regresyon).
-# On kosul: editor acik (RPC 5157), player exe guncel (RPC player.build).
+# On kosul: editor acik (RPC 5157), player exe guncel VE full profil ([DevOnly] kanca lean'de kirpilir:
+#   PlayerSettings.moduleHost=true ya da `aotcompiler player <proje> --trim full`).
 param(
     [string]$Project = "$PSScriptRoot\..\Projects\Sandbox",
     [int]$Port = 5157,
@@ -35,7 +36,7 @@ Push-Location (Split-Path $exe) # player pak yolunu calisma dizinine gore cozer 
 try { $run = (& $exe 2>&1 | ForEach-Object { "$_" }) -join "`n" } finally { Pop-Location; $ErrorActionPreference = $prevEap; Remove-Item $flag -ErrorAction SilentlyContinue }
 $lines = $run -split "`r?`n"
 $b = [Array]::IndexOf($lines, '[scene-dump-begin]'); $e = [Array]::IndexOf($lines, '[scene-dump-end]')
-if ($b -lt 0 -or $e -le $b) { Write-Output $run; throw "player dokumu yok" }
+if ($b -lt 0 -or $e -le $b) { Write-Output $run; throw "player dokumu yok (exe lean profille mi derlendi? [DevOnly] kanca icin --trim full gerekir)" }
 $playerText = ($lines[($b + 1)..($e - 1)] -join "`n") + "`n"
 [IO.File]::WriteAllText("$out\scene-dump.player.txt", $playerText, $utf8)
 

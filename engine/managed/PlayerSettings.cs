@@ -43,6 +43,10 @@ public class PlayerSettings
     // modul kodu onlara isimle baglanir. Bos = yalniz engine API'si.
     public string moduleHostDll = "";
 
+    // Dinamik modul HOST'u mu (docs/engine-notes.md TRIM)? Kapali (varsayilan) = lean build: interpreter (vmint) derlenmez,
+    // reflection meta yalniz kok kumeye (pak component tipleri + alanlari + [Preserve]) -> kucuk ikili. Acik = tam meta + vmint.
+    public bool moduleHost;
+
     // Android'e ozel yayin ayarlari (Build Android Project -> generated/app.properties; kabuk Gradle her build okur).
     public AndroidSettings android = new();
 

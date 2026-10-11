@@ -57,7 +57,7 @@ public static class PlayerBuilder
         if (AssetWatcher.Failed)
             return Fail("oyun kodu derlenemiyor; once hatalari giderin (Console)");
         var ps = project.Player;
-        string appArgs = $" --app-id \"{ps.bundleIdentifier}\" --app-name \"{ps.productName}\" --app-version \"{ps.version}\" --orientation {ps.orientation.ToString().ToLowerInvariant()}";
+        string appArgs = $" --app-id \"{ps.bundleIdentifier}\" --app-name \"{ps.productName}\" --app-version \"{ps.version}\" --orientation {ps.orientation.ToString().ToLowerInvariant()} --trim {(ps.moduleHost ? "full" : "lean")}";
         if (target == "android")
         {
             // Android'e ozel her sey (versionCode, ABI, ikon, imza) tek props dosyasiyla gider; aotcompiler dogrular.

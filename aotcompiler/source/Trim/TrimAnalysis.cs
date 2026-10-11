@@ -1,0 +1,355 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+
+namespace DigitoyEngine.Language.Trim
+{
+    // Trim analizinin ciktisi: emisyon YALNIZ bunu sorar (CTranspiler/Meta hicbir yerde profile dogrudan bakmaz).
+    // Full profilde her sorgu "canli/hepsi" doner -> cikti bugunkuyle bire bir ayni.
+    public sealed class TrimResult
+    {
+        public readonly TrimProfile Profile;
+        public readonly TrimRoots Roots;
+        internal readonly HashSet<Code> LiveCodes = new HashSet<Code>();
+        internal readonly HashSet<Primitive> LiveTypes = new HashSet<Primitive>();
+        internal readonly HashSet<Primitive> Instantiated = new HashSet<Primitive>(); // RTA: New/Box/Activator ile dogan tipler
+        internal readonly HashSet<Code> Stubbed = new HashSet<Code>();                 // [DevOnly]: govdesiz emit (lean)
+        internal Code CompletedTaskGetter;                                              // Task donuslu stub govdesi icin
+
+        // [DevOnly] metot lean'de govdesiz: void -> bos, Task -> CompletedTask, diger -> default.
+        public bool IsStubbed(Code c) => Stubbed.Contains(c);
+        internal readonly Dictionary<Primitive, MemberKinds> Facets = new Dictionary<Primitive, MemberKinds>();
+        internal readonly Dictionary<Code, Code> CodeParent = new Dictionary<Code, Code>();      // rapor: ilk erisim yolu
+        internal readonly Dictionary<Primitive, string> FacetWhy = new Dictionary<Primitive, string>(); // rapor: kok nedeni
+
+        public TrimResult(TrimProfile profile, TrimRoots roots) { Profile = profile; Roots = roots; }
+
+        // "Her sey canli": analiz yapilmadan Full profil (selftest / modul derleme yollari).
+        public static TrimResult Everything => new TrimResult(TrimProfile.Full, new TrimRoots());
+
+        // Kod govdesi emit edilsin mi (IsEmittableCode'un USTUNE eklenen filtre).
+        public bool IsCodeLive(Code c) => !Profile.TrimCode || LiveCodes.Contains(c);
+        public bool IsTypeLive(Primitive p) => !Profile.TrimCode || LiveTypes.Contains(p);
+
+        // Tip icin emit edilecek reflection meta kumesi.
+        public MemberKinds Reflection(Primitive p)
+        {
+            if (!Profile.TrimMeta) return MemberKinds.All;
+            return Facets.TryGetValue(p, out var k) ? k : MemberKinds.None;
+        }
+        public bool Has(Primitive p, MemberKinds k) => (Reflection(p) & k) != 0;
+
+        // MethodInfo kaydi: modul host'ta her kod tam kayit; aksi halde yalniz reflection koklerinin ctor/metotlari tam.
+        public MethodRecordKind MethodRecord(Code c)
+        {
+            if (Profile.ModuleHost) return MethodRecordKind.Full;
+            if (c.Owner != null)
+            {
+                var k = Reflection(c.Owner);
+                bool ctor = c.Name == "ctor" || c.Name.StartsWith("ctor_", StringComparison.Ordinal);
+                if (ctor ? (k & MemberKinds.Ctors) != 0 : (k & MemberKinds.Methods) != 0) return MethodRecordKind.Full;
+            }
+            return MethodRecordKind.Trace;
+        }
+        public bool NeedsThunk(Code c) => MethodRecord(c) == MethodRecordKind.Full;
+        public bool NeedsVTramp(Code c) => Profile.ModuleHost;
+        public bool NeedsDTramp(Primitive p) => Profile.ModuleHost;
+        // Tip adlari HER ZAMAN yazilir: stack trace/exception metni ("Sahip.Metot", "List<?>") kullanici onceligi; adlar
+        // zaten UTF-16 tekil havuz + generic'lerde lazy (A2). Trim'in konusu meta tablolari, ad degil.
+        public bool NeedsTypeName(Primitive p) => true;
+    }
+
+    // Erisilebilirlik + reflection facet analizi. Kaynak gercegi: ctx (Resolver sonrasi, monomorph bitmis).
+    public static class TrimAnalysis
+    {
+        public static TrimResult Run(Context ctx, TrimProfile profile, TrimRoots roots)
+        {
+            var r = new TrimResult(profile, roots);
+            var all = ctx.AllCodes.ToList();
+            CollectAutoRoots(ctx, roots);
+            ResolveComponentRoots(ctx, roots, r);
+            PropagateFacets(ctx, r);
+            Reach(ctx, all, r);
+            return r;
+        }
+
+        // ---- reflection kokleri ----
+
+        // Koddan otomatik kokler: [Preserve] tasiyan tip/uye, typeof(T) hedefleri (Name), AddComponent<T>/New hedefleri degil
+        // (New dogrudan cagri -> kod grafi). Attribute tipleri: emit edilen her attribute'un tipi Ctors + Fields + Props ister.
+        static void CollectAutoRoots(Context ctx, TrimRoots roots)
+        {
+            foreach (var p in ctx.AllPrimitives)
+            {
+                if (p.Type != PrimitiveType.Model) continue;
+                if (HasAttr(p.Attributes, "Preserve")) roots.AddReflection(p, MemberKinds.All);
+                foreach (var a in p.Attributes) AttrRoot(roots, a);
+                foreach (var f in p.Fields) foreach (var a in f.Attributes) AttrRoot(roots, a);
+                foreach (var pr in p.Properties) foreach (var a in pr.Attributes) AttrRoot(roots, a);
+                if (p.IsEnum) roots.AddReflection(p, MemberKinds.Name); // Enum.ToString/Parse uye adlari
+            }
+            foreach (var c in ctx.AllCodes)
+            {
+                foreach (var a in c.Attributes) AttrRoot(roots, a);
+                if (HasAttr(c.Attributes, "Preserve") && c.Owner != null) roots.AddReflection(c.Owner, MemberKinds.Methods | MemberKinds.Ctors);
+                Primitive lastTypeOf = null;
+                foreach (var op in c.Operations)
+                {
+                    if (op.Type == OpType.TypeOf && op.PrimitiveRef != null && op.PrimitiveRef.Type == PrimitiveType.Model)
+                    {
+                        roots.AddReflection(op.PrimitiveRef, MemberKinds.Name);
+                        lastTypeOf = op.PrimitiveRef;
+                    }
+                    // typeof(X) ... Activator.CreateInstance(Type): `new T()` klonu da bu sekle duser -> X'in ctor kaydi gerekir
+                    if (op.Type == OpType.Call && op.Code?.Owner?.Name == "System.Activator" && lastTypeOf != null
+                        && op.Code.Name.StartsWith("CreateInstance", StringComparison.Ordinal))
+                        roots.AddReflection(lastTypeOf, MemberKinds.Name | MemberKinds.Ctors);
+                }
+            }
+        }
+        static void AttrRoot(TrimRoots roots, PrimitiveAttribute a)
+        {
+            if (a?.Type == null) return;
+            roots.AddReflection(a.Type, MemberKinds.Name | MemberKinds.Ctors | MemberKinds.Fields | MemberKinds.Props);
+        }
+        static bool HasAttr(List<PrimitiveAttribute> attrs, string shortName)
+            => attrs != null && attrs.Any(a => a.Type != null && ShortName(a.Type.Name) == shortName + "Attribute");
+
+        // Kisa tip adi: "DigitoyEngine.SpriteRenderer" -> "SpriteRenderer"; nested "A+B"/"A/B" -> "B".
+        public static string ShortName(string full)
+        {
+            if (string.IsNullOrEmpty(full)) return full;
+            int lt = full.IndexOf('<'); // generic mangled adda son '.' arg icinde olabilir
+            var head = lt >= 0 ? full.Substring(0, lt) : full;
+            int cut = Math.Max(head.LastIndexOf('.'), Math.Max(head.LastIndexOf('+'), head.LastIndexOf('/')));
+            return cut >= 0 ? full.Substring(cut + 1) : full;
+        }
+
+        // Pak component adlari -> Primitive: TypeCatalog kisa ad eslesmesi (Component turevi, somut).
+        static void ResolveComponentRoots(Context ctx, TrimRoots roots, TrimResult r)
+        {
+            if (roots.ComponentNames.Count == 0) return;
+            var byShort = new Dictionary<string, List<Primitive>>(StringComparer.Ordinal);
+            foreach (var p in ctx.AllPrimitives)
+            {
+                if (p.Type != PrimitiveType.Model || p.IsInterface || p.IsGeneric || p.GenericTemplate != null || p.IsGenericParameter) continue;
+                var s = ShortName(p.Name);
+                if (!byShort.TryGetValue(s, out var l)) byShort[s] = l = new List<Primitive>();
+                l.Add(p);
+            }
+            foreach (var name in roots.ComponentNames)
+            {
+                if (!byShort.TryGetValue(name, out var cands)) { roots.Notes.Add($"UYARI pak component tipi kodda yok: {name}"); continue; }
+                var comps = cands.Where(IsComponent).ToList();
+                if (comps.Count == 0) { roots.Notes.Add($"UYARI pak tipi Component turevi degil: {name} ({cands.Count} aday)"); continue; }
+                if (comps.Count > 1) roots.Notes.Add($"UYARI pak tipi belirsiz, hepsi kok: {name} -> {string.Join(", ", comps.Select(c => c.Name))}");
+                foreach (var p in comps) { roots.AddReflection(p, MemberKinds.Component); r.FacetWhy.TryAdd(p, "pak"); }
+            }
+        }
+        static bool IsComponent(Primitive p)
+        {
+            for (var t = p; t != null; t = t.Parent)
+                if (t.Name == "DigitoyEngine.Component") return true;
+            return false;
+        }
+
+        // Facet yayilimi: kok -> base zinciri (ayni facet: serializer base alanlarini gezer), Fields -> alan tipleri
+        // (inline [Serializable]/struct/enum: Inline; List<T>/T[]: eleman; Component/asset referansi: Name).
+        static void PropagateFacets(Context ctx, TrimResult r)
+        {
+            var work = new Queue<Primitive>();
+            void Add(Primitive p, MemberKinds k, string why)
+            {
+                if (p == null || k == MemberKinds.None) return;
+                p = Unwrap(p);
+                if (p == null || p.Type != PrimitiveType.Model) return;
+                r.Facets.TryGetValue(p, out var cur);
+                if ((cur | k) == cur) return;
+                r.Facets[p] = cur | k;
+                r.FacetWhy.TryAdd(p, why);
+                work.Enqueue(p);
+            }
+            foreach (var kv in r.Roots.Reflection) Add(kv.Key, kv.Value, r.FacetWhy.TryGetValue(kv.Key, out var w) ? w : "kok");
+            while (work.Count > 0)
+            {
+                var p = work.Dequeue();
+                var k = r.Facets[p];
+                if (p.Parent != null && p.Parent.Type == PrimitiveType.Model && p.Parent != Primitive.Object && p.Parent != Primitive.ValueType)
+                    Add(p.Parent, k & ~MemberKinds.Ctors, p.Name + " base");
+                if ((k & MemberKinds.Fields) == 0) continue;
+                foreach (var f in p.Fields)
+                {
+                    var elem = ElementOf(f.Type);
+                    if (elem != null && !f.Type.IsArray) Add(f.Type, MemberKinds.Name | MemberKinds.Ctors, p.Name + "." + f.Name + " List<T>"); // Activator.CreateInstance(List<T>)
+                    var ft = Unwrap(elem ?? f.Type);
+                    if (ft == null || ft.Type != PrimitiveType.Model) continue;
+                    if (ft.IsEnum) Add(ft, MemberKinds.Name, p.Name + "." + f.Name);
+                    else if (ft.IsStruct || IsSerializable(ft)) Add(ft, MemberKinds.Inline, p.Name + "." + f.Name);
+                    else Add(ft, MemberKinds.Name, p.Name + "." + f.Name); // Component/asset/GameObject referansi
+                }
+            }
+        }
+        static bool IsSerializable(Primitive p) => (p.CilAttributes & 0x2000) != 0; // TypeAttributes.Serializable
+        static Primitive Unwrap(Primitive p) => p == null ? null : (p.IsGenericParameter ? null : p);
+        // List<T> / T[] -> T (serializer eleman tipini gezer)
+        static Primitive ElementOf(Primitive t)
+        {
+            if (t == null) return null;
+            if (t.IsArray) return t.ElementType;
+            if (t.InstantiatedFrom != null && t.TypeArguments.Count == 1 && ShortName(t.InstantiatedFrom.Name).StartsWith("List", StringComparison.Ordinal))
+                return t.TypeArguments[0];
+            return null;
+        }
+
+        // ---- kod erisilebilirligi (RTA-benzeri, konservatif) ----
+        // Kokler: host girisleri + tum cctor'lar (eager) + reflection kokü tiplerin ctor/metotlari (facet'e gore)
+        // + extern/native govdeler cagrildikca. Sanal: ayni Name'li alt tip override'lari (ReachableStubs ile ayni kural).
+        static void Reach(Context ctx, List<Code> all, TrimResult r)
+        {
+            var byName = new Dictionary<string, List<Code>>();
+            foreach (var c in all)
+            {
+                if (!byName.TryGetValue(c.Name, out var l)) byName[c.Name] = l = new List<Code>();
+                l.Add(c);
+            }
+            var queue = new Queue<Code>();
+            void Visit(Code target, Code from)
+            {
+                if (target == null || !r.CodeParent.TryAdd(target, from)) return;
+                r.LiveCodes.Add(target);
+                queue.Enqueue(target);
+            }
+            foreach (var e in r.Roots.Entry) Visit(e, null);
+            foreach (var c in all)
+            {
+                if (c.IsExternal) continue;
+                if (c.Name == "cctor") Visit(c, null);                           // eager cctor (EmitInit hepsini cagirir)
+                else if (c.Name == "finalize") Visit(c, null);                   // digitoyengine_fin_X zinciri (tip canliysa)
+            }
+            foreach (var kt in ctx.ExceptionKindTypes) // runtime kind -> ctor (EmitInit DIGITOYENGINE_ex_kind_ctor)
+                if (kt != null && ctx.TryGetCode(kt.Name + "$ctor", out var kctor)) Visit(kctor, null);
+            foreach (var m in Primitive.Object.VTable) Visit(m, null); // vmobject/vmstring vtable'lari runtime'da doldurulur
+            foreach (var m in Primitive.String.VTable) Visit(m, null);
+            foreach (var kv in r.Facets)
+            {
+                var k = kv.Value;
+                foreach (var c in all)
+                {
+                    if (c.Owner != kv.Key) continue;
+                    bool ctor = c.Name == "ctor" || c.Name.StartsWith("ctor_", StringComparison.Ordinal);
+                    if (ctor ? (k & MemberKinds.Ctors) != 0 : (k & (MemberKinds.Methods | MemberKinds.Props)) != 0) Visit(c, null);
+                }
+            }
+            // Sanal dispatch: slot tabanli (vtable/itable) - Hierarchy'nin kurdugu tablolarla birebir; ad tabanli kural da
+            // korunur (konservatif birlesim).
+            // RTA: sanal hedef yalniz ORNEKLENMIS (New/Box/Activator/runtime) tiplerde cozulur. Ornekleme kaynaklari:
+            // New/Box op'lari, Ctors facet'i (Activator), exception kind'lar, tum struct'lar (default ile dogar) ve corelib
+            // (System.*: C runtime gc_alloc ile uretir - string/dizi/kutu/reflection wrapper'lari) - konservatif.
+            var instantiated = new HashSet<Primitive>();
+            var virtualTargets = new HashSet<Code>();
+            void ResolveOn(Primitive s, Code target, Code from)
+            {
+                var owner = target.Owner;
+                int slot = owner.VTable.IndexOf(target);
+                if (slot < 0) return;
+                if (owner.IsInterface)
+                {
+                    foreach (var kv in s.ITables)
+                        if (kv.Key.Name == owner.Name && slot < kv.Value.Count) Visit(kv.Value[slot], from);
+                }
+                else if (IsSubtype(s, owner) && slot < s.VTable.Count) Visit(s.VTable[slot], from);
+            }
+            void Instantiate(Primitive p)
+            {
+                if (p == null || p.Type != PrimitiveType.Model || p.IsInterface || !instantiated.Add(p)) return;
+                foreach (var t in virtualTargets) ResolveOn(p, t, null);
+            }
+            void VisitVirtual(Code target, Code from)
+            {
+                var owner = target.Owner;
+                if (owner == null || !virtualTargets.Add(target)) return;
+                foreach (var s in instantiated) ResolveOn(s, target, from);
+                // ad tabanli kural (ReachableStubs ile ayni): yalniz ornekli sahiplerde
+                if (byName.TryGetValue(target.Name, out var cands))
+                    foreach (var cand in cands)
+                        if (cand != target && instantiated.Contains(cand.Owner) && IsSubtype(cand.Owner, owner)) Visit(cand, from);
+            }
+            foreach (var p in ctx.AllPrimitives)
+                if (p.Type == PrimitiveType.Model && (p.IsStruct || p.Name.StartsWith("System.", StringComparison.Ordinal)))
+                    Instantiate(p);
+            foreach (var kt in ctx.ExceptionKindTypes) Instantiate(kt);
+            foreach (var kv in r.Facets) if ((kv.Value & MemberKinds.Ctors) != 0) Instantiate(kv.Key);
+            Instantiate(Primitive.Object); Instantiate(Primitive.String);
+            const string TaskName = "System.Threading.Tasks.Task";
+            ctx.TryGetCode(TaskName + "$get_CompletedTask", out r.CompletedTaskGetter);
+            while (queue.Count > 0)
+            {
+                var c = queue.Dequeue();
+                if (c.Owner != null) MarkType(c.Owner, r);
+                if (r.Profile.TrimCode && HasAttr(c.Attributes, "DevOnly"))
+                {
+                    // govde gezilmez: cagirdiklari erisilemez; Task donusu icin CompletedTask canli kalir
+                    r.Stubbed.Add(c);
+                    if (c.ReturnType?.Name == TaskName) Visit(r.CompletedTaskGetter, c);
+                    else if (c.ReturnType != null && c.ReturnType.Name.StartsWith(TaskName + "<", StringComparison.Ordinal))
+                        throw new Exception($"[DevOnly] {c.Owner?.Name}.{c.DisplayName ?? c.Name}: Task<T> donusu desteklenmiyor (void/Task/default kullan)");
+                    continue;
+                }
+                foreach (var op in c.Operations)
+                {
+                    if (op.PrimitiveRef != null) MarkType(op.PrimitiveRef, r);
+                    if (op.Field?.Owner != null) MarkType(op.Field.Owner, r);
+                    if ((op.Type == OpType.New || op.Type == OpType.Box) && op.PrimitiveRef != null) Instantiate(op.PrimitiveRef);
+                    if (op.Code == null) continue;
+                    Visit(op.Code, c);
+                    if (op.Type == OpType.New && op.Code.Owner != null) Instantiate(op.Code.Owner); // ctor cagrisi = ornekleme
+                    if (op.Type == OpType.CallVirtual || (op.Type == OpType.DelegateNew && (op.Code.IsVirtual || op.Code.IsOverride)))
+                        VisitVirtual(op.Code, c);
+                }
+            }
+            r.Instantiated.UnionWith(instantiated);
+            // Facet'li tipler de canli (descriptor + GC trace)
+            foreach (var p in r.Facets.Keys) MarkType(p, r);
+        }
+        static void MarkType(Primitive p, TrimResult r)
+        {
+            for (; p != null && r.LiveTypes.Add(p); p = p.Parent)
+            {
+                if (p.ElementType != null) MarkType(p.ElementType, r);
+                foreach (var i in p.Interfaces) MarkType(i, r);
+                foreach (var a in p.TypeArguments) MarkType(a, r);
+            }
+        }
+        static bool IsSubtype(Primitive t, Primitive of)
+        {
+            if (t == null || of == null) return false;
+            var ofT = of.GenericTemplate ?? of;
+            for (var p = t; p != null; p = p.Parent)
+            {
+                if ((p.GenericTemplate ?? p) == ofT) return true;
+                foreach (var i in p.Interfaces)
+                    if ((i.GenericTemplate ?? i) == ofT) return true;
+            }
+            return false;
+        }
+
+        // ---- rapor (--trim-report) ----
+        public static string Report(Context ctx, TrimResult r)
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.Append($"# trim raporu — profil {r.Profile.Name} (moduleHost={r.Profile.ModuleHost} trimMeta={r.Profile.TrimMeta} trimCode={r.Profile.TrimCode})\n\n");
+            foreach (var n in r.Roots.Notes) sb.Append("- ").Append(n).Append('\n');
+            sb.Append($"\n## kokler: {r.Roots.Entry.Count} giris, {r.Roots.ComponentNames.Count} pak component, {r.Roots.Reflection.Count} reflection tipi\n");
+            foreach (var n in r.Roots.ComponentNames) sb.Append("  pak: ").Append(n).Append('\n');
+            var codes = ctx.AllCodes.Where(c => !c.Unresolved && c.GenericParameters.Count == 0).ToList();
+            int live = codes.Count(c => r.LiveCodes.Contains(c));
+            sb.Append($"\n## kod: {live} canli / {codes.Count} somut ({codes.Count - live} erisilemez); {r.Instantiated.Count} ornekli tip\n");
+            foreach (var c in codes.Where(c => !r.LiveCodes.Contains(c) && !c.IsExternal).OrderBy(c => c.Owner?.Name).ThenBy(c => c.Name))
+                sb.Append($"  dead: {c.Owner?.Name}.{c.DisplayName ?? c.Name}\n");
+            sb.Append($"\n## reflection facet: {r.Facets.Count} tip\n");
+            foreach (var kv in r.Facets.OrderBy(kv => kv.Key.Name))
+                sb.Append($"  {kv.Key.Name}: {kv.Value}  <- {(r.FacetWhy.TryGetValue(kv.Key, out var w) ? w : "?")}\n");
+            return sb.ToString();
+        }
+    }
+}

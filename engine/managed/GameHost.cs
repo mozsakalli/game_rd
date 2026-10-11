@@ -143,28 +143,42 @@ public static class GameHost
         _title = name;
         SetTitle?.Invoke(name);
 
-        // Test kancasi (docs/registry-removal.md Faz 0): Build/scene-dump.flag varsa sahnenin alan dokumunu
-        // Awake'ten ONCE (saf deserialize durumu) stdout'a bas ve cik. Editor RPC scene.dumpFields(edit) ile karsilastirilir.
-        var dumpFlag = await AsyncJobs.Await(NativeFs.Open(root + "/Build/scene-dump.flag"));
-        bool dump = dumpFlag.Ok;
-        if (dump)
-        {
-            NativeFs.Close(dumpFlag.W);
-            SceneBinary.BeforeActivate = () =>
-            {
-                Console.WriteLine("[scene-dump-begin]");
-                Console.Write(SceneDump.Write(Scene.Active, Scene.Active.Catalog));
-                Console.WriteLine("[scene-dump-end]");
-            };
-        }
+        // Dev/test kancalari [DevOnly]: lean build'de govdesiz (bkz. DevOnlyAttribute) -> SceneDump/Module/Net kodu kirpilir.
+        await DevArmSceneDump(root);
         await BootWith(assets, startScene);
-        if (dump)
+        if (_dumpArmed)
         {
             SceneBinary.BeforeActivate = null;
             _quit = true;
             return true;
         }
+        await DevAfterBoot(root);
+        return true;
+    }
 
+    static bool _dumpArmed;
+
+    // Test kancasi (docs/registry-removal.md Faz 0): Build/scene-dump.flag varsa sahnenin alan dokumunu
+    // Awake'ten ONCE (saf deserialize durumu) stdout'a bas ve cik. Editor RPC scene.dumpFields(edit) ile karsilastirilir.
+    [DevOnly]
+    static async Task DevArmSceneDump(string root)
+    {
+        var dumpFlag = await AsyncJobs.Await(NativeFs.Open(root + "/Build/scene-dump.flag"));
+        if (!dumpFlag.Ok)
+            return;
+        NativeFs.Close(dumpFlag.W);
+        _dumpArmed = true;
+        SceneBinary.BeforeActivate = () =>
+        {
+            Console.WriteLine("[scene-dump-begin]");
+            Console.Write(SceneDump.Write(Scene.Active, Scene.Active.Catalog));
+            Console.WriteLine("[scene-dump-end]");
+        };
+    }
+
+    [DevOnly]
+    static async Task DevAfterBoot(string root)
+    {
         // Dev/test kancasi (docs/modules.md): Build/autoload.module.pak varsa dinamik modul olarak yukle.
         string autoload = root + "/Build/autoload.module.pak";
         var probe = await PakSource.OpenAsync(autoload);
@@ -179,7 +193,6 @@ public static class GameHost
         string probeUrl = PlayerPrefs.GetString("net.probe", "");
         if (!string.IsNullOrEmpty(probeUrl))
             _ = NetProbe(probeUrl);
-        return true;
     }
 
     static async Task NetProbe(string baseUrl)

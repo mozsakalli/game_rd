@@ -93,7 +93,7 @@ struct Type
     unsigned long long hash;    // FNV64(Primitive.Name) - tip kimligi (GetType(string), modul dis referansi)
     struct MethodInfo *methods; // bu tipin BILDIRDIGI metotlar (ctor dahil; iface: slot sirasinda bildirimler). Uretilen `X_methods[]` tablosu
     unsigned short nmethods;
-    unsigned char flags;        // DIGITOYENGINE_TYPE_*
+    unsigned short flags;       // DIGITOYENGINE_TYPE_*
     const void *delegate_tramp; // delegate tipi: host->modul trampoline'i ((closure, params) imzali); diger tiplerde 0
     // ---- dizi kimligi (docs/registry-removal.md Faz 4a): T[] descriptor'u (typeof(T[]) uretilen ya da runtime sentez) ----
     const Type *elem_type; // ARRAY bayrakli descriptor: eleman tipi; diger tiplerde 0
@@ -113,8 +113,9 @@ enum
     DIGITOYENGINE_TYPE_ENUM = 8,
     DIGITOYENGINE_TYPE_ABSTRACT = 16,
     DIGITOYENGINE_TYPE_ARRAY = 32,
-    DIGITOYENGINE_TYPE_GENERIC_DEF = 64, // acik generic tanim (boyutsuz, instantiate edilemez)
-    DIGITOYENGINE_TYPE_SYNTH_ARRAY = 128 // runtime'da sentezlenen T[] descriptor'u (digitoyengine_array_type; ad = eleman adi)
+    DIGITOYENGINE_TYPE_GENERIC_DEF = 64,  // acik generic tanim (boyutsuz, instantiate edilemez)
+    DIGITOYENGINE_TYPE_SYNTH_ARRAY = 128, // runtime'da sentezlenen T[] descriptor'u (digitoyengine_array_type; ad = eleman adi)
+    DIGITOYENGINE_TYPE_NOREFLECT = 256    // trim: reflection koku degil (meta yok) -> Assembly.GetTypes listelemez
 };
 // Programdaki tum descriptor'lar (uretilen + runtime object/string/ValueType/primitive'ler): hash/ad ile arama tabani.
 extern const Type *const digitoyengine_types[];
@@ -191,28 +192,43 @@ typedef void (*DeThunk)(const void *fn, DeSlot *args, DeSlot *ret);
 // p = ham pointer / fixed dizi, r = ref/out parametre (adres), V = void
 typedef struct MethodInfo
 {
-    const struct VmString *name; // gosterim adi (strpool'da; trace UTF-16 basar)
-    const struct VmString *file; // kaynak dosya (strpool'da; 0 = dosyasiz IR). Debugger file:line eslesmesi buradan.
-    int trypc_off;               // coroutine frame'inde __trypc offseti (-1 = try'siz / duz fonksiyon)
-    // ---- tek meta ----
+    // ---- trace oneki (MethodTrace ile BIREBIR ayni sira): her canli metodun frame kaydi bu alanlari okur ----
+    const char *name;      // YALIN metot adi UTF-8 ("Add", ".ctor"; havuzda, tum orneklemeler paylasir). Sahip = declaringType->name.
+    const char *file;      // kaynak dosya UTF-8 (havuzda; 0 = dosyasiz IR). Debugger file:line eslesmesi buradan.
+    int trypc_off;         // coroutine frame'inde __trypc offseti (-1 = try'siz / duz fonksiyon)
+    unsigned char nparams; // this HARIC parametre sayisi
+    unsigned char ret_tag;
+    unsigned char flags; // DIGITOYENGINE_METHOD_*
+    unsigned char nattrs;
+    const Type *declaringType;      // sahip (0 = sahipsiz/sentetik)
+    const Type *const *param_types; // parametre descriptor'lari (nparams; yoksa 0)
+    // ---- tek meta (yalniz TAM kayitlarda; trace-only kayitlar MethodTrace boyutundadir, buraya DOKUNULMAZ) ----
     unsigned long long hash;         // FNV64(Code.EncodeName); 0 = kayit disi (modul yerel metodu)
     const void *fn;                  // cagrilabilir C sembolu (P/Invoke marshal sarmalayicisi dahil); 0 = govdesiz (iface bildirimi, zayif extern)
     const void *tramp;               // sanal kok: host->modul trampoline (gercek C imzali; modul override'i slota bunu koyar)
-    const Type *declaringType;       // sahip (0 = sahipsiz/sentetik)
     const Type *returnType;          // donus descriptor'i (yoksa 0)
-    const Type *const *param_types;  // parametre descriptor'lari (nparams; yoksa 0)
     const unsigned char *param_tags; // parametre etiketleri (nparams)
     GCHeader *wrapper;               // lazy, koklu System.Reflection.MethodInfo/ConstructorInfo
     DeThunk thunk;                   // sekil thunk'u (Invoke / modul cagrisi): de_thunk_<sekil hash> (ayni C imzasi = ayni thunk)
     short vslot;                     // sanal/iface slot indeksi (sahibinin vtable/iface sirasi); -1 = sanal degil
-    unsigned char nparams;           // this HARIC parametre sayisi
-    unsigned char ret_tag;
-    unsigned char flags; // DIGITOYENGINE_METHOD_*
+    unsigned short cilattrs;         // CIL MethodAttributes (System.Reflection.MethodAttributes)
     // ---- reflection (docs/registry-removal.md Faz 4b) ----
     struct DeAttr *attrs; // custom attribute kayitlari (yoksa 0)
-    unsigned char nattrs;
-    unsigned short cilattrs; // CIL MethodAttributes (System.Reflection.MethodAttributes)
 } MethodInfo;
+// Trace-only kayit (trim: reflection koku olmayan metot): MethodInfo'nun on eki. Uretilen kod frame'e
+// (const MethodInfo*) cast'iyla koyar; frame okuyuculari (trace/crash/trypc) yalniz bu alanlari kullanir.
+typedef struct MethodTrace
+{
+    const char *name;
+    const char *file;
+    int trypc_off;
+    unsigned char nparams;
+    unsigned char ret_tag;
+    unsigned char flags;
+    unsigned char nattrs;
+    const Type *declaringType;
+    const Type *const *param_types;
+} MethodTrace;
 // Custom attribute kaydi: tip + lazy kurucu (uretilen: ctor sabit argumanlarla + named arg atamalari). instance rooted cache.
 typedef struct DeAttr
 {
@@ -506,8 +522,16 @@ VmDelegate *digitoyengine_delegate_combine(VmDelegate *left, VmDelegate *right);
 VmDelegate *digitoyengine_delegate_remove(VmDelegate *left, VmDelegate *right);
 int digitoyengine_delegate_count(VmDelegate *delegate);
 VmDelegate *digitoyengine_delegate_at(VmDelegate *delegate, int index);
-VmString *vmstring_alloc(int len);                                // kurulum icin data yazilabilir tahsis edilir, sonrasi degismez
-VmString *vmstring_from_cstr(const char *ascii);                  // C-string koprusu (host/dis dunya; sicak yolda KULLANMA)
+VmString *vmstring_alloc(int len);                         // kurulum icin data yazilabilir tahsis edilir, sonrasi degismez
+VmString *vmstring_from_cstr(const char *ascii);           // C-string koprusu (host/dis dunya; sicak yolda KULLANMA)
+int vmstring_eq_utf8(const VmString *s, const char *utf8); // UTF-16 string == UTF-8 C-string (reflection ad karsilastirmasi)
+// Trace sahibi: metodun tipi; generic ornekleme ise sablon adi (List<T>) — orneklemeler paylasilan yalin adla yazilir.
+const struct VmString *digitoyengine_method_owner_name(const MethodInfo *mi);
+// Tip adi. Generic orneklemelerde descriptor'a ad YAZILMAZ (boyut): ilk istekte generic_def + generic_args'tan
+// "List<int>" kurulur, descriptor'a cache'lenir (immortal kok). Alloc yapabilir: sicak yolda / crash handler'da KULLANMA.
+const struct VmString *digitoyengine_type_name(const Type *t);
+// Alloc'suz surum (crash handler): ad yoksa sablon adi (List<T>), o da yoksa 0.
+const struct VmString *digitoyengine_type_name_noalloc(const Type *t);
 char *digitoyengine_to_utf8(const VmString *s);                   // P/Invoke string arg: malloc'lu UTF-8 (NULL -> NULL); cagiran free eder
 VmString *digitoyengine_from_utf8(const char *s);                 // P/Invoke string donus: UTF-8 -> VmString (NULL -> NULL)
 void vm_write_utf8(const unsigned short *d, int len);             // UTF-16 -> UTF-8 stdout (surrogate'li)

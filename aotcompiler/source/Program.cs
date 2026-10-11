@@ -38,7 +38,7 @@ public static class Program
             {
                 string target = "windows";
                 var app = new AppInfo();
-                for (int i = 2; i + 1 < args.Length; i++)
+                for (int i = 2; i < args.Length; i++)
                     switch (args[i])
                     {
                         case "--target": target = args[++i]; break;
@@ -47,6 +47,8 @@ public static class Program
                         case "--app-version": app.Version = args[++i]; break;
                         case "--orientation": app.Orientation = args[++i]; break;
                         case "--props": app.Props = ReadProps(args[++i]); break;
+                        case "--trim": app.Trim = args[++i]; break;            // full | lean (docs/engine-notes.md TRIM)
+                        case "--trim-report": app.TrimReport = true; break;  // <aot dizini>/trim-report.md
                     }
                 return RunPlayerBuild(args.Length > 1 && !args[1].StartsWith("--") ? args[1] : Path.Combine(RepoRoot, "Projects", "Sandbox"), target, app);
             }
@@ -265,6 +267,25 @@ public static class Program
             $"void de_managed_shutdown(void) {{ {Sym(shutdownCode)}(); }}\n";
         if (target != "windows" && target != "android" && target != "wasm")
             throw new Exception("bilinmeyen hedef: " + target + " (windows | android | wasm)");
+        // TRIM: kokler (host girisleri + game.pak component tipleri + koddan otomatik) -> analiz -> emisyon TrimResult'a sorar.
+        // Profil full = bugunku cikti bire bir (her sey canli); lean = modul host yok, meta yalniz koklere.
+        var profile = DigitoyEngine.Language.Trim.TrimProfile.Parse(app.Trim);
+        var roots = new DigitoyEngine.Language.Trim.TrimRoots();
+        roots.Entry.AddRange(hostEntries);
+        string pakPath = Path.Combine(projectRoot, "Build", "game.pak");
+        if (File.Exists(pakPath)) roots.ComponentNames.AddRange(DigitoyEngine.Language.Trim.PakRoots.ComponentTypeNames(pakPath, roots.Notes));
+        else roots.Notes.Add("UYARI game.pak yok, pak kokleri bos: " + pakPath);
+        var trim = DigitoyEngine.Language.Trim.TrimAnalysis.Run(ctx, profile, roots);
+        CTranspiler.TrimPlan = trim;
+        VmintSource = profile.ModuleHost ? "vmint.c" : "vmint_stub.c"; // lean: interpreter derlenmez, Module.cs P/Invoke'lari stub'a baglanir
+        Console.WriteLine($"trim: profil {profile.Name}; {roots.ComponentNames.Count} pak component, {trim.Facets.Count} reflection tipi, {trim.LiveCodes.Count} erisilebilir kod");
+        if (app.TrimReport)
+        {
+            var rp = Path.Combine(workDir, "trim-report.md");
+            File.WriteAllText(rp, DigitoyEngine.Language.Trim.TrimAnalysis.Report(ctx, trim));
+            Console.WriteLine("trim raporu -> " + rp);
+        }
+        Lap("trim analizi");
         // Tip basina .c/.h (degismeyen dosya yazilmaz; derleme listesi her build ACIK verilir, dizin taramasi yok)
         var files = CTranspiler.TranspileFiles(ctx, bridges);
         Lap("C transpile");
@@ -302,7 +323,7 @@ public static class Program
         bool debug = Environment.GetEnvironmentVariable("AOT_DEBUG") == "1";
         var dbg = debug ? "-O0 -g -gcodeview -DDIGITOYENGINE_DEBUG" : "-O2 -ffunction-sections -fdata-sections";
         var items = generatedSources.Select(s => new DigitoyEngine.Build.CcBuild.Item { Source = s }).ToList();
-        foreach (var n in new[] { "vmrt.c", "corelib.c", "vmint.c", "de_app.c", "host_desktop.c" })
+        foreach (var n in new[] { "vmrt.c", "corelib.c", VmintSource, "de_app.c", "host_desktop.c" })
             items.Add(new DigitoyEngine.Build.CcBuild.Item { Source = Path.Combine(CRuntimeDir, n) });
         var cc = ClangPath();
         var res = DigitoyEngine.Build.CcBuild.Compile(cc, Path.Combine(workDir, "obj"), $"{dbg} -w {defines} {NativeIncludes}".Trim(), items, Console.WriteLine);
@@ -325,7 +346,8 @@ public static class Program
 
     // Yayin kimligi (editor PlayerSettings'ten --app-* ile gelir; CLI'dan verilmezse proje adindan turetilir).
     // Props: Android'e ozel ayarlar (editor AndroidBuildProps.Write -> --props; key=value). null = CLI/varsayilan.
-    sealed class AppInfo { public string Id, Name, Version = "1.0", Orientation = "landscape"; public Dictionary<string, string> Props; }
+    sealed class AppInfo { public string Id, Name, Version = "1.0", Orientation = "landscape"; public Dictionary<string, string> Props; public string Trim; public bool TrimReport; }
+    static string VmintSource = "vmint.c"; // RunPlayerBuild trim profiline gore atar (vmint.c | vmint_stub.c)
 
     static Dictionary<string, string> ReadProps(string path)
     {
@@ -407,7 +429,8 @@ public static class Program
         Console.WriteLine($"transpile -> {Path.Combine(cpp, "gen")}: {genSrcs.Count} .c ({written} yazildi, {unchanged} degismedi)");
         // Derleme listesi: ACIK (bu build'in urettikleri); CMake include eder, liste degisince kendisi yeniden configure olur.
         var listText = "# DigitoyEngine: her build yeniden uretilir (acik liste; GLOB yok).\nset(DE_GEN_SOURCES\n"
-            + string.Concat(genSrcs.Select(s => "    gen/" + Path.GetFileName(s) + "\n")) + ")\n";
+            + string.Concat(genSrcs.Select(s => "    gen/" + Path.GetFileName(s) + "\n")) + ")\n"
+            + $"set(DE_VMINT c_runtime/{VmintSource})\n";
         WriteIfChanged(Path.Combine(cpp, "gen_sources.cmake"), listText);
         foreach (var f in Directory.GetFiles(CRuntimeDir))
         {
@@ -556,22 +579,30 @@ public static class Program
         var srcs = CTranspiler.WriteFiles(genDir, files, out int written, out int unchanged);
         Console.WriteLine($"transpile -> {genDir}: {srcs.Count} .c ({written} yazildi, {unchanged} degismedi)");
         var items = srcs.Select(s => new DigitoyEngine.Build.CcBuild.Item { Source = s }).ToList();
-        foreach (var n in new[] { "vmrt.c", "corelib.c", "vmint.c", "de_app.c", "host_wasm.c" })
+        foreach (var n in new[] { "vmrt.c", "corelib.c", VmintSource, "de_app.c", "host_wasm.c" })
             items.Add(new DigitoyEngine.Build.CcBuild.Item { Source = Path.Combine(CRuntimeDir, n) });
         // DE_NO_DECODERS: mp3/ogg/wav decoder'lari yalniz editor importer'i icin; player PCM alir, release'ten duser.
         foreach (var n in new[] { "sokol_shim.c", "audio_shim.c", "de_fs.c", "de_async.c", "de_net.c" })
             items.Add(new DigitoyEngine.Build.CcBuild.Item { Source = Path.Combine(EngineNativeDir, n), ExtraFlags = "-DSOKOL_IMPL -DDE_NO_DECODERS" });
         var emcc = new DigitoyEngine.Build.CcBuild.Tool { Key = "emcc:" + DigitoyEngine.Build.EmsdkToolchain.Key, Start = DigitoyEngine.Build.EmsdkToolchain.Emcc };
-        string common = $"-w -DSOKOL_GLES3 {NativeIncludes} " + (debug ? "-O0 -g -DDIGITOYENGINE_DEBUG" : "-O2");
+        // Release varsayilani (docs/engine-notes.md BOYUT/E olcumleri): -Oz (1 960 -> 1 546 KB), emmalloc (-7 KB),
+        // SUPPORT_LONGJMP=wasm (-72 KB; longjmp invoke_* sarmalayicilari ve JS glue kalkar). LTO buyuttu (+48 KB), kullanilmaz.
+        // Deney kapilari: AOT_OPT=-O2|-Os|-Oz, AOT_LTO=1, AOT_CFLAGS_EXTRA, AOT_LINK_EXTRA.
+        string opt = Environment.GetEnvironmentVariable("AOT_OPT") is string o && o.Length > 0 ? o : "-Oz";
+        string lto = Environment.GetEnvironmentVariable("AOT_LTO") == "1" ? " -flto" : "";
+        string linkExtra = Environment.GetEnvironmentVariable("AOT_LINK_EXTRA") is string lx && lx.Length > 0 ? " " + lx : "";
+        string cExtra = Environment.GetEnvironmentVariable("AOT_CFLAGS_EXTRA") is string cx && cx.Length > 0 ? " " + cx : "";
+        string longjmp = "-sSUPPORT_LONGJMP=wasm"; // derleme VE link'te ayni olmali (setjmp lowering)
+        string common = $"-w -DSOKOL_GLES3 {NativeIncludes} {longjmp} " + (debug ? "-O0 -g -DDIGITOYENGINE_DEBUG" : opt + lto) + cExtra;
         var res = DigitoyEngine.Build.CcBuild.Compile(emcc, objDir, common, items, Console.WriteLine);
         var objs = res.Objects;
         // Link: WebGL2, bellek buyur, setjmp/longjmp (exception = longjmp + shadow stack), pak MEMFS'e gomulu (game.data).
         // Nesne listesi rsp dosyasindan (CcBuild.Link; komut satiri limiti).
         string outJs = Path.Combine(outDir, "game.js");
-        string link = (debug ? "-g -sASSERTIONS=1" : "-O2") +
+        string link = (debug ? "-g -sASSERTIONS=1" : opt + lto) +
             " -sUSE_WEBGL2=1 -sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2 -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=64MB -sSTACK_SIZE=8MB" +
-            " -sSUPPORT_LONGJMP=emscripten -sENVIRONMENT=web -sEXIT_RUNTIME=0 -sMODULARIZE=0 -sEXPORT_NAME=Module" +
-            " -sEXPORTED_RUNTIME_METHODS=UTF8ToString";
+            $" {longjmp} -sMALLOC=emmalloc -sENVIRONMENT=web -sEXIT_RUNTIME=0 -sMODULARIZE=0 -sEXPORT_NAME=Module" +
+            " -sEXPORTED_RUNTIME_METHODS=UTF8ToString" + linkExtra;
         DigitoyEngine.Build.CcBuild.Link(emcc, objs, $"--preload-file {Quote(pak + "@/data/Build/game.pak")}", link, outJs, Console.WriteLine);
         Console.WriteLine($"emcc ok -> {Path.Combine(outDir, "game.wasm")} ({new FileInfo(Path.Combine(outDir, "game.wasm")).Length / 1024} KB wasm, {new FileInfo(Path.Combine(outDir, "game.data")).Length / 1024} KB data)");
 

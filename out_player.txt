@@ -1,12 +1,8 @@
 [host] pak: ../Build/game.pak
-[host] katalog: reflection (AOT), 16 component tipi
+[host] katalog: reflection (AOT), 13 component tipi
 [host] yukleniyor 0/17
-[host] yukleniyor 4/17
-[host] yukleniyor 14/17
+[host] yukleniyor 1/17
+[host] yukleniyor 13/17
+[host] yukleniyor 16/17
 [host] yukleniyor 17/17
 [host] sahne hazir: Scenes/Login.scene
-[net-probe] GET 200 ok=True text='merhaba' err=- X-Test=evet
-[net-probe] POST 200 text='{"probe":1}' ct=application/json
-[net-probe] WS text='echo:ping' bin=3 isText=False
-[net-probe] WS closed code=1000 state=Closed
-[net-probe] DONE

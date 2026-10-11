@@ -1,5 +1,95 @@
 # DigitoyEngine R&D (game_rd)
 
+## TRIM CERCEVESI (ILLink benzeri) — ADIM 1+2+3 BITTI: lean = meta + kod trim (2026-10-11)
+- Karar: trim aotcompiler GENELINDE tek cerceve (`aotcompiler/source/Trim/`): kok kume + analiz -> `TrimResult`; emisyon
+  (CTranspiler/Meta) kod/meta/thunk/trampoline/tip-adi kararlarini YALNIZ `CTranspiler.TrimPlan`'a sorar, profile dogrudan bakmaz.
+  Host opsiyonelligi bu cercevenin bir profili (lean), ayri mekanizma degil.
+- Parcalar: `TrimProfile` (full = bugunku cikti, lean = moduleHost kapali + meta yalniz koklere; `--trim full|lean`),
+  `TrimRoots` (Entry = GameHost Init/Event/Frame/Pause/Resume/Shutdown; Reflection tip->MemberKinds; ComponentNames pak'tan),
+  `PakRoots` (game.pak DPK3 index + zlib -> DSCN v2 tip tablosu + alias adlari; AYRI kok dosyasi YOK, pak tek gercek),
+  `TrimAnalysis.Run` (otomatik kokler: [Preserve], typeof(T)->Name, attribute tipleri, enum->Name; pak adlari kisa ad esleme
+  (Component turevi); facet yayilimi: base zinciri, Fields -> alan tipleri (struct/[Serializable] -> Inline, enum/ref -> Name,
+  List<T>/T[] eleman); kod erisilebilirligi RTA-benzeri: ReachableStubs kurali + tum cctor'lar + facet'li tiplerin ctor/metotlari),
+  `TrimResult` (IsCodeLive/Reflection/MethodRecord None|Trace|Full/NeedsThunk/NeedsVTramp/NeedsDTramp/NeedsTypeName).
+- Emisyon baglantilari: IsEmittableCode && IsCodeLive; HasMethodRecord && MethodRecord!=None; sekil thunk + MethodInfo.thunk
+  yalniz NeedsThunk; HasVirtualTramp/HasDelegateTramp Needs*; ReflectionFields/ReflectionProperties facet'e gore (members tablosu,
+  refget/refset, havuz adlari); TypeNameRef NeedsTypeName. Attribute tablolari HENUZ facet'e bagli degil (adim 2).
+- `--trim-report` -> `<proje>/Library/aot/<hedef>/trim-report.md` (kokler, dead kod listesi, facet nedenleri).
+- DOGRULAMA: Sandbox windows full profil: TrimPlan=analiz vs TrimPlan=Everything -> 0 dosya yeniden yazildi, exe 5 464 KB ayni.
+  Rapor (Sandbox): 11 pak component, 86 facet tipi, 1 446 canli / 7 622 somut kod (rapor amacli; TrimCode kapali).
+- SIRA (adim 2 = lean): vmint derlenmez (DE_NO_MODULES stub'lari), Module.cs #if; MethodInfo trace oneki (ilk alanlar) + FULL
+  bayragi, runtime okuyucular (vmrt.c/corelib.c GetMethods/GetFields/Activator) kok disi -> bos; attribute tablolari facet'e;
+  Reflect.ComponentTypes (asm.GetTypes) yalniz facet'li component'ler. Sonra olcum + docs. Adim 3: TrimCode (B) ayri onayla.
+- ADIM 2 BITTI (lean profil): `MethodTrace` = MethodInfo'nun ON EKI (name/file/trypc/nparams/ret_tag/flags/nattrs/declaringType/
+  param_types; vmrt.h'de MethodInfo bu alanlarla BASLAR). Kok disi metot `{cn}_mtrace[]`/`digitoyengine_mtrace_misc[]`'e yalniz
+  bu kayitla girer, frame'e `(const MethodInfo*)` cast'iyla konur; Type.methods'a GIRMEZ (reflection/Invoke/find_method gormez).
+  Frame okuyuculari (trace/crash/trypc) zaten yalniz on eki okur. Lean'de thunk/vtramp/dtramp yok; `vmint_stub.c` vmint.c yerine
+  derlenir (Module.cs P/Invoke'lari baglanir, vmint_load "disabled" doner; Android CMake `${DE_VMINT}`); attribute tablolari
+  Attrs facet'ine bagli; `Type.flags` unsigned short + `DIGITOYENGINE_TYPE_NOREFLECT=256` (facet'siz tip; Assembly.GetTypes
+  atlar -> katalog yalniz kok component'leri gorur: Sandbox 16 -> 13). TIP ADLARI HER ZAMAN yazilir (trace "List<?>" olmasin).
+  PlayerSettings.moduleHost (varsayilan false = lean) -> PlayerBuilder `--trim`.
+- Lean'de bulunan kok eksikleri (first-chance dokumuyle): (1) `new T()` -> Activator.CreateInstance<T> -> typeof(T)+
+  CreateInstance(Type): TypeOf'u izleyen Activator cagrisi hedefe Ctors verir (GetSystem<LayoutSystem> null donuyordu);
+  (2) List<T> alanlari: serializer `NewList` = Activator(List<T>) -> List<T> tipine Ctors.
+- OLCUM: Windows exe full 5 408 KB -> lean 3 483 KB; wasm 3 865 -> 2 402 KB (CODE 2 622 -> 1 725 KB, DATA 1 196 -> 713 KB).
+  Selftest 56/59 (degismedi; selftest Everything profiliyle). Sandbox lean calisiyor (sahne yuklendi).
+- DEBUG FAZ A: `AOT_DEBUG=1` build'de `DIGITOYENGINE_throw` FIRST-CHANCE dokum basar (yakalanacak olsa da): firlatma anindaki
+  frame'ler + `[locals]` + `[steps]`. Runtime turu (null/cast/index) her zaman; kullanici exception'lari `DE_FIRSTCHANCE=1`.
+  Task icinde yutulup GetResult'ta yeniden firlayan hatalarin GERCEK yeri boyle bulundu (lldb'siz). Faz B (breakpoint/stdin
+  komutlari) bekliyor. Bilinen kucuk kusur: bazi generic klon frame'lerinde dosya adi yok ("TrySetResult(System.Int32):107:13").
+- ADIM 3 BITTI (TrimCode, lean profilinde ACIK; `meta` profili = yalniz meta trim, karsilastirma icin): erisilemeyen kod emit
+  edilmez (`IsEmittableCode && TrimPlan.IsCodeLive`). Analiz = RTA: kokler host girisleri + tum cctor/finalize + exception
+  kind ctor'lari + Object/String vtable + facet ctor/metotlari; sanal/iface cagri SLOT tabanli (Owner.VTable slotu -> ornekli alt
+  tiplerin VTable[slot] / ITables[iface][slot]; ad tabanli eski kural da birlesir) ve yalniz ORNEKLENMIS tiplerde cozulur
+  (New/Box/ctor cagrisi, Ctors facet'i, exception kind, tum struct'lar, tum System.* [C runtime gc_alloc eder], Object/String).
+  Olu vtable/itable girisi `0` yazilir (VSlotRef). Sandbox: 3 444 canli / 7 622 somut, 968 ornekli tip; olunun %78'i
+  System.Collections generic orneklemeleri -> sira C (canon generics).
+- OLCUM (adim 3): Windows exe 3 483 -> 2 951 KB; wasm 2 402 -> 1 960 KB (CODE 1 362 KB, DATA 613 KB). Toplam: 5 580 -> 1 960.
+  Selftest 56/59. Sandbox lean calisiyor (sahne yuklendi; oyun ici etkilesim gorsel dogrulama bekliyor).
+- E TOOLCHAIN BITTI (wasm release varsayilani, Program.BuildWasm): -Oz derleme+link, -sMALLOC=emmalloc, -sSUPPORT_LONGJMP=wasm
+  (derleme VE link'te). Olcumler (lean): -O2 1 960 | -Oz 1 546 | -Oz+LTO+emmalloc 1 594 (LTO BUYUTTU, kullanilmaz) |
+  -Oz+emmalloc 1 539 | -Oz+emmalloc+longjmp=wasm **1 467 KB** (CODE 818, DATA 637). Tarayicida dogrulandi (Login sahnesi,
+  particle/layout/text calisiyor). Deney kapilari: AOT_OPT / AOT_LTO=1 / AOT_CFLAGS_EXTRA / AOT_LINK_EXTRA.
+- NEREDE NE VAR (lean, obj bazli: tools/wasm_sizes.ps1): CODE = gen DigitoyEngine ~%45 (LayoutBox 132 KB@-O2, ParticleSystem 38,
+  Font 29, Scene 26, MovieClip 22, SceneDump 22), System.Collections orneklemeleri ~%30, native shim ~%15 (sokol_shim 158,
+  de_fs 100), c_runtime ~%5. Lean'de SURPRIZ canlilar: GameHost.NetProbe state machine 30 KB, Module.LoadAsync 18 KB,
+  SceneDump 22 KB. DATA 637 = string havuzu 222 KB (2 230 VmString: 152 KB UTF-16 + 70 KB baslik; en buyukler 1 763/1 292/1 246
+  karakter = shader/uzun literal) + 14 KB UTF-8 metot adi + ~400 KB descriptor (Type/vtable/itable/MethodTrace/mp_; System.
+  Collections 268 KB obj-DATA) + sokol 73 + audio 33.
+- 1 MB HEDEFI ICIN SIRA: C canon generics (CODE -200..250, DATA -150..200) -> string havuzu (uzun literal UTF-8/lazy, baslik
+  kucult: -80..120) -> surpriz canlilari kes (NetProbe/Module/SceneDump: -70) -> sokol/de_fs olu yollar (-50..80).
+- ADIM 4 BITTI ([DevOnly]): `DigitoyEngine.DevOnlyAttribute` (metot). Lean'de isaretli metot GOVDESIZ emit edilir (void -> bos,
+  Task -> Task.get_CompletedTask, diger -> default; Task<T> build hatasi) ve govdesi gezilmez -> cagirdiklari kirpilir
+  (TrimResult.Stubbed / IsStubbed, CTranspiler.EmitFunction). GameHost dev kancalari `DevArmSceneDump` (durum `_dumpArmed`
+  alanla) ve `DevAfterBoot` (autoload modul + net probe) altina alindi -> SceneDump/Module.LoadAsync/Net.cs/NetProbe kirpildi.
+  wasm 1 467 -> **1 354 KB** (CODE 733, DATA 610); canli kod 3 444 -> 2 646. Tarayicida dogrulandi. NOT: scene-dump testi ve
+  autoload modul FULL profil ister (tools/scene-dump-test.ps1 uyarir; PlayerSettings.moduleHost=true ya da --trim full).
+
+## BOYUT (PLAYABLE/WASM) — OLCUM + PLAN + A1 BITTI (2026-10-11)
+- Hedef: playable (tek HTML, base64 x1.33; 2-5 MB ag limiti) -> Sandbox wasm <= ~1.5 MB ham. Baslangic 5 580 KB (-O2) + 1 114 KB data.
+- OLCUM (llvm-objdump -h game.wasm): CODE 2 622 KB / DATA 2 437 KB. DATA'nin yarisi string havuzu (10 563 VmString, 1 420 KB:
+  metot gosterim adlari "Owner<Args>.Metot(params)" her ornekleme icin ayri UTF-16), kalani descriptor tablolari (MethodInfo ~20k
+  kayit, members, vtable). 2 754 `T_System_*` generic ornekleme vs 578 engine tipi (her Task<T> -> List<Action<Task<T>>> vb.).
+- KOK NEDEN: "tek meta" her tipin her uyesini descriptor'a yazar -> hicbir sey elenemez (IR'de de linkerde de).
+- KULLANICI KARARLARI: symbols.map / harici sembol dosyasi YOK (trace ikilide, satir:kolon korunur). Modul host (vmint + tam
+  meta) OPSIYONEL olacak (PlayerSettings, varsayilan kapali); reflection yalniz kok kume: pak'taki sahne/prefab component
+  tipleri + alanlarinin gecisli tipleri + AddComponent<T>/typeof(T) ornekleme kokleri + [Preserve] + [Animatable].
+- A1 BITTI (metot adlari kompakt): `MethodInfo.name/file` artik `const char*` UTF-8 (`_cs_<hash>` havuzu, gen_strings.c;
+  VmString basligi yok); name = YALIN ad ("Add", ".ctor") tum orneklemelerce paylasilir; trace "Sahip.Ad(ParamTipleri)
+  (dosya:satir:kolon)" sahibi `declaringType`'tan (generic ornekleme -> `generic_def->name`, "List<T>.Add"), parametre adlari
+  `param_types`'tan -> .NET bicimi korunur (Test17 "Demo17.App17.Boom()"). `MethodBase.Name` parse etmez; `GetMethod(name)`
+  `vmstring_eq_utf8`. vmint tag'i char*. SONUC: wasm 5 111 -> 3 940 KB (DATA 2 437 -> 1 273 KB; VmString 10 563 -> 3 715 adet,
+  238 KB; 1 602 UTF-8 ad). Windows exe 7 441 -> 5 547 KB. Selftest 56/59, Sandbox exe OK. Performans etkisi yok (ad yalniz
+  soguk yollarda okunur).
+- Onceki kucuk kazanc: Task<T>.typedContinuations (kullanilmayan ContinueWith(Action<Task<T>>)) silindi: -470 KB.
+- SIRA: A2 tip adlari (generic orneklemelerde Type.name yazma, generic_def+args'tan lazy kur; non-generic UTF-8) ->
+  E toolchain (-Oz, -flto, emmalloc, closure, SUPPORT_LONGJMP=wasm, FILESYSTEM=0+fetch pak) -> host opsiyonel + kok kume
+  (kok disi metot yalniz 12 B trace oneki: MethodInfo'nun ilk 3 alani) -> C referans-tipli generic paylasimi (__Canon modeli:
+  kod ortak, Type kimligi ayri, generic dictionary) -> B IR DCE. Her adimda olcum; esik tutmazsa B plani: playable icin ayri
+  ince TS/Haxe runtime (motor/editor C# kalir).
+- Dersler: .NET/NativeAOT modeli = runtime-zorunlu descriptor (vtable/GC) ile reflection satirlari AYRI; adlar UTF-8 tekil
+  yigin + offset; lazy materyalizasyon. IL2CPP global-metadata.dat boyut ornegi DEGIL (stripping disinda her seyi tutar).
+
 ## NETWORK FAZ 1: WINHTTP + Net.cs BITTI (2026-10-11)
 - engine/native/de_net.{h,c} (Windows WinHTTP async HTTP+WS; diger platformlar faz 2-4 stub) + engine/managed/Net.cs
   (`Http.Get/Post/SendAsync(req, ct)`, `WebSocket.ConnectAsync/Send/ReceiveAsync/OnMessage/CloseAsync/OnClose`). Yalniz

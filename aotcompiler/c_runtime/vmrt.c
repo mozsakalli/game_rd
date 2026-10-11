@@ -59,7 +59,8 @@ static void block_free(void *p, unsigned short sz)
     // Tani modu: KARANTINA. Govde zehirlenir (0xDD), header (tip) korunur, blok free-list'e DONMEZ:
     // use-after-free ilk dokunusta deterministik [native fault] + managed iz; yeniden kullanimla
     // sifirlanmis bellek 'null' gibi gorunup teshisi saptiramaz. (Bellek sizar; yalniz tani.)
-    if (sz > sizeof(GCHeader)) memset((char *)p + sizeof(GCHeader), 0xDD, sz - sizeof(GCHeader));
+    if (sz > sizeof(GCHeader))
+        memset((char *)p + sizeof(GCHeader), 0xDD, sz - sizeof(GCHeader));
     return;
 #endif
     int c = gc_class(sz);
@@ -90,7 +91,7 @@ static FrameTrace *gc_ftraces = 0;
 static int gc_frame_n = 0, gc_frame_cap = 0;
 static unsigned char gc_version = 1;
 static unsigned gc_next_id = 0;         // nesne kimligi (idhash) sayaci
-static long long gc_heap_bytes = 0;      // canli header baytlari (string/array yan verisi haric)
+static long long gc_heap_bytes = 0;     // canli header baytlari (string/array yan verisi haric)
 static long long gc_major_baseline = 0; // son dongu bitiminde kalan canli boyut
 enum
 {
@@ -173,7 +174,11 @@ static void gc_freed_add(void *p)
 static void gc_freed_forget(void *p)
 {
     for (int i = 0; i < gc_freed_n; i++)
-        if (gc_freed[i] == p) { gc_freed[i] = gc_freed[--gc_freed_n]; return; }
+        if (gc_freed[i] == p)
+        {
+            gc_freed[i] = gc_freed[--gc_freed_n];
+            return;
+        }
 }
 static int gc_is_freed(void *p)
 {
@@ -191,7 +196,10 @@ static void gc_dump_recent_freed(FILE *f)
     {
         GCHeader *o = (GCHeader *)gc_freed[i];
         fprintf(f, "  %p ", (void *)o);
-        if (o->type && o->type->name) DIGITOYENGINE_put_name(f, o->type->name); else fprintf(f, "?");
+        if (o->type && o->type->name)
+            DIGITOYENGINE_put_name(f, o->type->name);
+        else
+            fprintf(f, "?");
         fprintf(f, "\n");
     }
 }
@@ -213,11 +221,19 @@ static void gc_verify_check(GCHeader *o)
 static void gc_verify_all(void)
 {
     gc_verify_mode = 1;
-    gc_verify_owner = 0; gc_verify_slot = 0;
-    for (int i = 0; i < gc_frame_n; i++) gc_ftraces[i](gc_frames[i]);
-    for (int i = 0; i < gc_roots_n; i++) gc_verify_check(gc_roots[i]);
+    gc_verify_owner = 0;
+    gc_verify_slot = 0;
+    for (int i = 0; i < gc_frame_n; i++)
+        gc_ftraces[i](gc_frames[i]);
+    for (int i = 0; i < gc_roots_n; i++)
+        gc_verify_check(gc_roots[i]);
     for (GCHeader *o = gc_objects; o; o = o->next)
-        if (o->type->trace) { gc_verify_owner = o; gc_verify_slot = 0; o->type->trace(o); }
+        if (o->type->trace)
+        {
+            gc_verify_owner = o;
+            gc_verify_slot = 0;
+            o->type->trace(o);
+        }
     gc_verify_mode = 0;
     gc_freed_n = 0;
 }
@@ -225,7 +241,11 @@ static void gc_verify_all(void)
 void gc_shade(GCHeader *o)
 {
 #ifdef DIGITOYENGINE_GC_POISON
-    if (gc_verify_mode) { gc_verify_check(o); return; }
+    if (gc_verify_mode)
+    {
+        gc_verify_check(o);
+        return;
+    }
 #endif
     if (!o || o->age == GC_IMMORTAL || o->version == gc_version)
         return; // immortal (static const): isaretleme, izleme, sweep YOK
@@ -671,12 +691,18 @@ const Type *digitoyengine_reflect_type(int which)
 {
     switch (which)
     {
-    case 0: return digitoyengine_type_type;
-    case 1: return digitoyengine_fieldinfo_type;
-    case 2: return digitoyengine_propertyinfo_type;
-    case 3: return digitoyengine_methodinfo_type;
-    case 4: return digitoyengine_ctorinfo_type;
-    default: return 0;
+    case 0:
+        return digitoyengine_type_type;
+    case 1:
+        return digitoyengine_fieldinfo_type;
+    case 2:
+        return digitoyengine_propertyinfo_type;
+    case 3:
+        return digitoyengine_methodinfo_type;
+    case 4:
+        return digitoyengine_ctorinfo_type;
+    default:
+        return 0;
     }
 }
 GCHeader *digitoyengine_type_wrapper(const Type *t)
@@ -730,7 +756,8 @@ static GCHeader *digitoyengine_object_from_slot(const DeSlot *s, unsigned char t
 // get/set fonksiyonsuz uye (modul tipleri, vmint): tek meta'daki tag/offset/size/addr ile genel erisim
 static void *digitoyengine_member_addr(DigitoyEngineMember *member, GCHeader *target)
 {
-    if (member->isStatic) return member->addr;
+    if (member->isStatic)
+        return member->addr;
     if (member->declaringType && (member->declaringType->flags & DIGITOYENGINE_TYPE_STRUCT))
         return (char *)target + sizeof(GCHeader) + member->offset; // kutu payload'u icinde
     return (char *)target + member->offset;
@@ -738,61 +765,122 @@ static void *digitoyengine_member_addr(DigitoyEngineMember *member, GCHeader *ta
 static GCHeader *digitoyengine_member_get_generic(DigitoyEngineMember *member, GCHeader *target)
 {
     void *p = digitoyengine_member_addr(member, target);
-    if (!p) DIGITOYENGINE_throw_io("reflection: static alan adresi yok");
+    if (!p)
+        DIGITOYENGINE_throw_io("reflection: static alan adresi yok");
     DeSlot s;
     switch (member->tag)
     {
-    case 'o': return *(GCHeader **)p;
+    case 'o':
+        return *(GCHeader **)p;
     case 'v':
-        if (!member->valueType) DIGITOYENGINE_throw_io("reflection: struct alanin descriptor'u yok");
+        if (!member->valueType)
+            DIGITOYENGINE_throw_io("reflection: struct alanin descriptor'u yok");
         return (GCHeader *)digitoyengine_box_struct(member->valueType, p, member->size);
-    case 'p': s.p = *(void **)p; break;
-    case 'i': s.i = *(cil_int *)p; break;
-    case 'u': s.u = *(cil_uint *)p; break;
-    case 'l': s.l = *(cil_long *)p; break;
-    case 'q': s.q = *(cil_ulong *)p; break;
-    case 'h': s.i = *(short *)p; break;
-    case 'H': s.u = *(unsigned short *)p; break;
-    case 'b': s.u = *(unsigned char *)p; break;
-    case 'z': s.i = *(signed char *)p; break;
-    case 'c': s.u = *(unsigned short *)p; break;
-    case 'B': s.i = *(cil_int *)p != 0; break;
-    case 'f': s.f = *(cil_float *)p; break;
-    case 'd': s.d = *(cil_double *)p; break;
-    default: DIGITOYENGINE_throw_io("reflection: bilinmeyen alan etiketi"); return 0;
+    case 'p':
+        s.p = *(void **)p;
+        break;
+    case 'i':
+        s.i = *(cil_int *)p;
+        break;
+    case 'u':
+        s.u = *(cil_uint *)p;
+        break;
+    case 'l':
+        s.l = *(cil_long *)p;
+        break;
+    case 'q':
+        s.q = *(cil_ulong *)p;
+        break;
+    case 'h':
+        s.i = *(short *)p;
+        break;
+    case 'H':
+        s.u = *(unsigned short *)p;
+        break;
+    case 'b':
+        s.u = *(unsigned char *)p;
+        break;
+    case 'z':
+        s.i = *(signed char *)p;
+        break;
+    case 'c':
+        s.u = *(unsigned short *)p;
+        break;
+    case 'B':
+        s.i = *(cil_int *)p != 0;
+        break;
+    case 'f':
+        s.f = *(cil_float *)p;
+        break;
+    case 'd':
+        s.d = *(cil_double *)p;
+        break;
+    default:
+        DIGITOYENGINE_throw_io("reflection: bilinmeyen alan etiketi");
+        return 0;
     }
     return digitoyengine_object_from_slot(&s, member->tag, member->valueType);
 }
 static void digitoyengine_member_set_generic(DigitoyEngineMember *member, GCHeader *target, GCHeader *value)
 {
     void *p = digitoyengine_member_addr(member, target);
-    if (!p) DIGITOYENGINE_throw_io("reflection: static alan adresi yok");
+    if (!p)
+        DIGITOYENGINE_throw_io("reflection: static alan adresi yok");
     DeSlot s;
     digitoyengine_slot_from_object(&s, member->tag, member->valueType, value);
     switch (member->tag)
     {
     case 'o':
         *(GCHeader **)p = (GCHeader *)s.p;
-        if (!member->isStatic && s.p) gc_write_barrier(target, (GCHeader *)s.p);
+        if (!member->isStatic && s.p)
+            gc_write_barrier(target, (GCHeader *)s.p);
         return;
     case 'v':
         memcpy(p, s.p, member->size);
-        if (!member->isStatic && value) gc_write_barrier(target, value); // kutu grilenir -> icindeki ref'ler taranir (kopya ayni nesnelere isaret eder)
+        if (!member->isStatic && value)
+            gc_write_barrier(target, value); // kutu grilenir -> icindeki ref'ler taranir (kopya ayni nesnelere isaret eder)
         return;
-    case 'p': *(void **)p = s.p; return;
-    case 'i': *(cil_int *)p = s.i; return;
-    case 'u': *(cil_uint *)p = s.u; return;
-    case 'l': *(cil_long *)p = s.l; return;
-    case 'q': *(cil_ulong *)p = s.q; return;
-    case 'h': *(short *)p = (short)s.i; return;
-    case 'H': *(unsigned short *)p = (unsigned short)s.u; return;
-    case 'b': *(unsigned char *)p = (unsigned char)s.u; return;
-    case 'z': *(signed char *)p = (signed char)s.i; return;
-    case 'c': *(unsigned short *)p = (unsigned short)s.u; return;
-    case 'B': *(cil_int *)p = s.i != 0; return;
-    case 'f': *(cil_float *)p = s.f; return;
-    case 'd': *(cil_double *)p = s.d; return;
-    default: DIGITOYENGINE_throw_io("reflection: bilinmeyen alan etiketi");
+    case 'p':
+        *(void **)p = s.p;
+        return;
+    case 'i':
+        *(cil_int *)p = s.i;
+        return;
+    case 'u':
+        *(cil_uint *)p = s.u;
+        return;
+    case 'l':
+        *(cil_long *)p = s.l;
+        return;
+    case 'q':
+        *(cil_ulong *)p = s.q;
+        return;
+    case 'h':
+        *(short *)p = (short)s.i;
+        return;
+    case 'H':
+        *(unsigned short *)p = (unsigned short)s.u;
+        return;
+    case 'b':
+        *(unsigned char *)p = (unsigned char)s.u;
+        return;
+    case 'z':
+        *(signed char *)p = (signed char)s.i;
+        return;
+    case 'c':
+        *(unsigned short *)p = (unsigned short)s.u;
+        return;
+    case 'B':
+        *(cil_int *)p = s.i != 0;
+        return;
+    case 'f':
+        *(cil_float *)p = s.f;
+        return;
+    case 'd':
+        *(cil_double *)p = s.d;
+        return;
+    default:
+        DIGITOYENGINE_throw_io("reflection: bilinmeyen alan etiketi");
     }
 }
 GCHeader *digitoyengine_member_get(DigitoyEngineMember *member, GCHeader *target)
@@ -847,23 +935,10 @@ GCHeader *digitoyengine_method_wrapper(MethodInfo *m)
     }
     return m->wrapper;
 }
-// Ada gore arama (C# GetMethod(name) / GetConstructor(Type.EmptyTypes)): bildiren tipten base'e. Ad gosterim adidir
-// ("Owner.Name(args)"); karsilastirma "Owner." onekinden sonraki, '(' oncesindeki parcayla yapilir.
+// Ada gore arama (C# GetMethod(name) / GetConstructor(Type.EmptyTypes)): bildiren tipten base'e. Kayitta yalin ad (UTF-8).
 static int digitoyengine_method_name_eq(const MethodInfo *m, const VmString *name)
 {
-    if (!m->name || !name)
-        return 0;
-    int n = m->name->length, start = 0, end = n;
-    for (int i = 0; i < n; i++)
-        if (m->name->data[i] == '(') { end = i; break; }
-    for (int i = end - 1; i >= 0; i--)
-        if (m->name->data[i] == '.') { start = i + 1; break; }
-    if (end - start != name->length)
-        return 0;
-    for (int i = 0; i < name->length; i++)
-        if (m->name->data[start + i] != name->data[i])
-            return 0;
-    return 1;
+    return m->name && name && vmstring_eq_utf8(name, m->name);
 }
 GCHeader *digitoyengine_method_lookup(const Type *t, const VmString *name, int ctor)
 {
@@ -896,27 +971,57 @@ static void digitoyengine_slot_from_object(DeSlot *s, unsigned char tag, const T
         DIGITOYENGINE_NULLCHECK(o);
         s->p = pt ? digitoyengine_unbox(o, pt) : (char *)o + sizeof(GCHeader);
         return;
-    case 'p': s->p = o ? (void *)(size_t) * (long long *)digitoyengine_unbox(o, &vmint64_type) : 0; return;
-    case 'r': DIGITOYENGINE_throw_io("MethodInfo.Invoke: ref/out parametre desteklenmiyor"); return;
-    default: break;
+    case 'p':
+        s->p = o ? (void *)(size_t)*(long long *)digitoyengine_unbox(o, &vmint64_type) : 0;
+        return;
+    case 'r':
+        DIGITOYENGINE_throw_io("MethodInfo.Invoke: ref/out parametre desteklenmiyor");
+        return;
+    default:
+        break;
     }
     DIGITOYENGINE_NULLCHECK(o);
     void *v = pt ? digitoyengine_unbox(o, pt) : (char *)o + sizeof(GCHeader);
     switch (tag)
     {
-    case 'i': s->i = *(cil_int *)v; break;
-    case 'u': s->u = *(cil_uint *)v; break;
-    case 'l': s->l = *(cil_long *)v; break;
-    case 'q': s->q = *(cil_ulong *)v; break;
-    case 'h': s->i = *(short *)v; break;
-    case 'H': s->u = *(unsigned short *)v; break;
-    case 'b': s->u = *(unsigned char *)v; break;
-    case 'z': s->i = *(signed char *)v; break;
-    case 'c': s->u = *(unsigned short *)v; break;
-    case 'B': s->i = *(cil_int *)v != 0; break;
-    case 'f': s->f = *(cil_float *)v; break;
-    case 'd': s->d = *(cil_double *)v; break;
-    default: DIGITOYENGINE_throw_io("MethodInfo.Invoke: bilinmeyen parametre etiketi");
+    case 'i':
+        s->i = *(cil_int *)v;
+        break;
+    case 'u':
+        s->u = *(cil_uint *)v;
+        break;
+    case 'l':
+        s->l = *(cil_long *)v;
+        break;
+    case 'q':
+        s->q = *(cil_ulong *)v;
+        break;
+    case 'h':
+        s->i = *(short *)v;
+        break;
+    case 'H':
+        s->u = *(unsigned short *)v;
+        break;
+    case 'b':
+        s->u = *(unsigned char *)v;
+        break;
+    case 'z':
+        s->i = *(signed char *)v;
+        break;
+    case 'c':
+        s->u = *(unsigned short *)v;
+        break;
+    case 'B':
+        s->i = *(cil_int *)v != 0;
+        break;
+    case 'f':
+        s->f = *(cil_float *)v;
+        break;
+    case 'd':
+        s->d = *(cil_double *)v;
+        break;
+    default:
+        DIGITOYENGINE_throw_io("MethodInfo.Invoke: bilinmeyen parametre etiketi");
     }
 }
 static GCHeader *digitoyengine_object_from_slot(const DeSlot *s, unsigned char tag, const Type *rt)
@@ -925,23 +1030,41 @@ static GCHeader *digitoyengine_object_from_slot(const DeSlot *s, unsigned char t
         return (GCHeader *)digitoyengine_box_enum(s->i, rt);
     switch (tag)
     {
-    case 'V': return 0;
-    case 'o': return (GCHeader *)s->p;
-    case 'v': return (GCHeader *)((char *)s->p - sizeof(GCHeader)); // Invoke kutuyu onceden acti: payload -> kutu
-    case 'p': return (GCHeader *)digitoyengine_box_i64((long long)(size_t)s->p);
-    case 'i': return (GCHeader *)digitoyengine_box_i32(s->i);
-    case 'u': return (GCHeader *)digitoyengine_box_u32(s->u);
-    case 'l': return (GCHeader *)digitoyengine_box_i64(s->l);
-    case 'q': return (GCHeader *)digitoyengine_box_u64(s->q);
-    case 'h': return (GCHeader *)digitoyengine_box_i16((short)s->i);
-    case 'H': return (GCHeader *)digitoyengine_box_u16((unsigned short)s->u);
-    case 'b': return (GCHeader *)digitoyengine_box_u8((unsigned char)s->u);
-    case 'z': return (GCHeader *)digitoyengine_box_i8((signed char)s->i);
-    case 'c': return (GCHeader *)digitoyengine_box_char((cil_char)s->u);
-    case 'B': return (GCHeader *)digitoyengine_box_bool(s->i);
-    case 'f': return (GCHeader *)digitoyengine_box_f32(s->f);
-    case 'd': return (GCHeader *)digitoyengine_box_f64(s->d);
-    default: DIGITOYENGINE_throw_io("MethodInfo.Invoke: bilinmeyen donus etiketi"); return 0;
+    case 'V':
+        return 0;
+    case 'o':
+        return (GCHeader *)s->p;
+    case 'v':
+        return (GCHeader *)((char *)s->p - sizeof(GCHeader)); // Invoke kutuyu onceden acti: payload -> kutu
+    case 'p':
+        return (GCHeader *)digitoyengine_box_i64((long long)(size_t)s->p);
+    case 'i':
+        return (GCHeader *)digitoyengine_box_i32(s->i);
+    case 'u':
+        return (GCHeader *)digitoyengine_box_u32(s->u);
+    case 'l':
+        return (GCHeader *)digitoyengine_box_i64(s->l);
+    case 'q':
+        return (GCHeader *)digitoyengine_box_u64(s->q);
+    case 'h':
+        return (GCHeader *)digitoyengine_box_i16((short)s->i);
+    case 'H':
+        return (GCHeader *)digitoyengine_box_u16((unsigned short)s->u);
+    case 'b':
+        return (GCHeader *)digitoyengine_box_u8((unsigned char)s->u);
+    case 'z':
+        return (GCHeader *)digitoyengine_box_i8((signed char)s->i);
+    case 'c':
+        return (GCHeader *)digitoyengine_box_char((cil_char)s->u);
+    case 'B':
+        return (GCHeader *)digitoyengine_box_bool(s->i);
+    case 'f':
+        return (GCHeader *)digitoyengine_box_f32(s->f);
+    case 'd':
+        return (GCHeader *)digitoyengine_box_f64(s->d);
+    default:
+        DIGITOYENGINE_throw_io("MethodInfo.Invoke: bilinmeyen donus etiketi");
+        return 0;
     }
 }
 GCHeader *digitoyengine_method_invoke(const MethodInfo *m, GCHeader *target, struct VmArray *args)
@@ -1016,6 +1139,56 @@ VmString *vmstring_from_cstr(const char *ascii)
         d[i] = (unsigned short)ascii[i];
     return r;
 }
+// UTF-16 == UTF-8 (surrogate ciftli; gecersiz UTF-8 -> esit degil). Alloc'suz.
+int vmstring_eq_utf8(const VmString *s, const char *u)
+{
+    if (!s || !u)
+        return 0;
+    int i = 0, n = s->length;
+    const unsigned char *p = (const unsigned char *)u;
+    while (*p)
+    {
+        unsigned cp;
+        int len;
+        if (p[0] < 0x80)
+        {
+            cp = p[0];
+            len = 1;
+        }
+        else if ((p[0] & 0xE0) == 0xC0 && (p[1] & 0xC0) == 0x80)
+        {
+            cp = ((p[0] & 0x1Fu) << 6) | (p[1] & 0x3Fu);
+            len = 2;
+        }
+        else if ((p[0] & 0xF0) == 0xE0 && (p[1] & 0xC0) == 0x80 && (p[2] & 0xC0) == 0x80)
+        {
+            cp = ((p[0] & 0x0Fu) << 12) | ((p[1] & 0x3Fu) << 6) | (p[2] & 0x3Fu);
+            len = 3;
+        }
+        else if ((p[0] & 0xF8) == 0xF0 && (p[1] & 0xC0) == 0x80 && (p[2] & 0xC0) == 0x80 && (p[3] & 0xC0) == 0x80)
+        {
+            cp = ((p[0] & 0x07u) << 18) | ((p[1] & 0x3Fu) << 12) | ((p[2] & 0x3Fu) << 6) | (p[3] & 0x3Fu);
+            len = 4;
+        }
+        else
+            return 0;
+        if (cp >= 0x10000)
+        {
+            cp -= 0x10000;
+            if (i + 1 >= n || s->data[i] != (unsigned short)(0xD800 + (cp >> 10)) || s->data[i + 1] != (unsigned short)(0xDC00 + (cp & 0x3FF)))
+                return 0;
+            i += 2;
+        }
+        else
+        {
+            if (i >= n || s->data[i] != (unsigned short)cp)
+                return 0;
+            i++;
+        }
+        p += len;
+    }
+    return i == n;
+}
 
 // ---- UTF-16 -> UTF-8 cikis (surrogate'li): platform cikis mekanizmasi (Console + raporlar) ----
 void vm_write_utf8_to(FILE *f, const unsigned short *d, int len)
@@ -1078,15 +1251,156 @@ int DIGITOYENGINE_sp = 0;
 #ifdef DIGITOYENGINE_DEBUG
 void (*DIGITOYENGINE_dbg_step)(int line) = 0;
 #endif
-// trace satiri: "  at Ad (dosya:satir:kolon)" ya da dosyasiz "  at Ad:satir:kolon"
+const VmString *digitoyengine_type_name_noalloc(const Type *t)
+{
+    if (!t)
+        return 0;
+    if (t->name)
+        return t->name;
+    return t->generic_def ? t->generic_def->name : 0;
+}
+// ---- lazy generic tip adi: sablon adi '<'/'`' oncesi + "<" + arg adlari + ">" (ic ice ozyinelemeli) ----
+typedef struct
+{
+    unsigned short *d;
+    int n, cap;
+} de_u16buf;
+static void de_u16_put(de_u16buf *b, const unsigned short *s, int n)
+{
+    if (b->n + n > b->cap)
+    {
+        int cap = b->cap ? b->cap * 2 : 64;
+        while (cap < b->n + n)
+            cap *= 2;
+        b->d = (unsigned short *)realloc(b->d, (size_t)cap * 2);
+        b->cap = cap;
+    }
+    for (int i = 0; i < n; i++)
+        b->d[b->n + i] = s[i];
+    b->n += n;
+}
+static void de_u16_ascii(de_u16buf *b, const char *s)
+{
+    for (; *s; s++)
+    {
+        unsigned short c = (unsigned short)(unsigned char)*s;
+        de_u16_put(b, &c, 1);
+    }
+}
+static void de_compose_type_name(de_u16buf *b, const Type *t)
+{
+    if (!t)
+    {
+        de_u16_ascii(b, "?");
+        return;
+    }
+    if (t->name)
+    {
+        de_u16_put(b, t->name->data, t->name->length);
+        return;
+    }
+    const VmString *d = t->generic_def ? t->generic_def->name : 0;
+    if (!d)
+    {
+        de_u16_ascii(b, "?");
+        return;
+    }
+    // sablon adi "Ns.List`1" ya da "Ns.List<T>" (ic ice: "Ns.List`1.Enumerator") -> onek + <args> + kalan sonek (.Enumerator)
+    int cut = d->length, rest = d->length;
+    for (int i = 0; i < d->length; i++)
+    {
+        if (d->data[i] == '`')
+        {
+            cut = i;
+            rest = i + 1;
+            while (rest < d->length && d->data[rest] >= '0' && d->data[rest] <= '9')
+                rest++;
+            break;
+        }
+        if (d->data[i] == '<')
+        {
+            cut = i;
+            int depth = 0;
+            rest = i;
+            for (; rest < d->length; rest++)
+            {
+                if (d->data[rest] == '<')
+                    depth++;
+                else if (d->data[rest] == '>' && --depth == 0)
+                {
+                    rest++;
+                    break;
+                }
+            }
+            break;
+        }
+    }
+    de_u16_put(b, d->data, cut);
+    de_u16_ascii(b, "<");
+    for (int i = 0; i < t->ngeneric_args; i++)
+    {
+        if (i)
+            de_u16_ascii(b, ", ");
+        de_compose_type_name(b, t->generic_args ? t->generic_args[i] : 0);
+    }
+    de_u16_ascii(b, ">");
+    if (rest < d->length)
+        de_u16_put(b, d->data + rest, d->length - rest);
+}
+const VmString *digitoyengine_type_name(const Type *t)
+{
+    if (!t)
+        return 0;
+    if (t->name)
+        return t->name;
+    if (!t->generic_def)
+        return 0;
+    de_u16buf b = {0, 0, 0};
+    de_compose_type_name(&b, t);
+    VmString *s = vmstring_alloc(b.n);
+    if (b.n)
+        memcpy((void *)s->data, b.d, (size_t)b.n * 2);
+    free(b.d);
+    gc_add_root((GCHeader *)s);
+    ((Type *)t)->name = s; // descriptor const degil (wrapper gibi); bir kez kurulur
+    return s;
+}
+const VmString *digitoyengine_method_owner_name(const MethodInfo *mi)
+{
+    return mi->declaringType ? digitoyengine_type_name(mi->declaringType) : 0;
+}
+// "Sahip.Ad(P1, P2)" (sahip yoksa yalniz ad; ad yoksa "?") — .NET trace bicimi; parametre adlari param_types'tan
+static void DIGITOYENGINE_put_method(FILE *f, const MethodInfo *mi)
+{
+    const VmString *owner = digitoyengine_method_owner_name(mi);
+    if (owner)
+    {
+        DIGITOYENGINE_put_name(f, owner);
+        fputc('.', f);
+    }
+    fputs(mi->name ? mi->name : "?", f);
+    fputc('(', f);
+    for (int i = 0; i < mi->nparams; i++)
+    {
+        if (i)
+            fputs(", ", f);
+        const VmString *pn = mi->param_types ? digitoyengine_type_name(mi->param_types[i]) : 0;
+        if (pn)
+            DIGITOYENGINE_put_name(f, pn);
+        else
+            fputc('?', f);
+    }
+    fputc(')', f);
+}
+// trace satiri: "  at Sahip.Ad (dosya:satir:kolon)" ya da dosyasiz "  at Sahip.Ad:satir:kolon"
 static void DIGITOYENGINE_put_frame(FILE *f, const MethodInfo *mi, int line)
 {
     fputs("  at ", f);
-    DIGITOYENGINE_put_name(f, mi->name);
-    if (mi->file && mi->file->length)
+    DIGITOYENGINE_put_method(f, mi);
+    if (mi->file && mi->file[0])
     {
         fputs(" (", f);
-        DIGITOYENGINE_put_name(f, mi->file);
+        fputs(mi->file, f);
         fprintf(f, ":%d:%d)\n", line >> 10, line & 1023);
     }
     else
@@ -1135,18 +1449,28 @@ static int DIGITOYENGINE_heap_live(const GCHeader *p)
 }
 static void DIGITOYENGINE_dump_ref(FILE *f, const GCHeader *o)
 {
-    if (!o) { fputs("null", f); return; }
+    if (!o)
+    {
+        fputs("null", f);
+        return;
+    }
     fprintf(f, "%p", (const void *)o);
     if (DIGITOYENGINE_heap_live(o))
         fputs(" [canli", f);
 #ifdef DIGITOYENGINE_GC_POISON
     else if (gc_is_freed((void *)o))
-    { fputs(" [SERBEST BIRAKILMIS (dangling)]", f); return; }
+    {
+        fputs(" [SERBEST BIRAKILMIS (dangling)]", f);
+        return;
+    }
 #endif
     else if (DIGITOYENGINE_mem_readable(o, sizeof(GCHeader)) && o->age == GC_IMMORTAL)
         fputs(" [immortal", f);
     else
-    { fputs(" [HEAP DISI / nesne degil]", f); return; }
+    {
+        fputs(" [HEAP DISI / nesne degil]", f);
+        return;
+    }
     const Type *t = DIGITOYENGINE_mem_readable(o, sizeof(GCHeader)) ? o->type : 0;
     if (t && DIGITOYENGINE_mem_readable(t, sizeof(Type)) && t->name && DIGITOYENGINE_mem_readable(t->name, sizeof(VmString)))
     {
@@ -1167,25 +1491,61 @@ static void DIGITOYENGINE_dump_ref(FILE *f, const GCHeader *o)
 static void DIGITOYENGINE_dump_local(FILE *f, const RtLocal *l)
 {
     fprintf(f, "      %s = ", l->name);
-    if (!DIGITOYENGINE_mem_readable(l->addr, 8)) { fputs("<adres okunamiyor>\n", f); return; }
+    if (!DIGITOYENGINE_mem_readable(l->addr, 8))
+    {
+        fputs("<adres okunamiyor>\n", f);
+        return;
+    }
     switch (l->tag)
     {
-    case 'i': fprintf(f, "%d", *(const int *)l->addr); break;
-    case 'u': fprintf(f, "%u", *(const unsigned *)l->addr); break;
-    case 'f': fprintf(f, "%g", *(const float *)l->addr); break;
-    case 'd': fprintf(f, "%g", *(const double *)l->addr); break;
-    case 'l': fprintf(f, "%lld", *(const long long *)l->addr); break;
-    case 'q': fprintf(f, "%llu", *(const unsigned long long *)l->addr); break;
-    case 'c': fprintf(f, "'%c' (%d)", *(const cil_char *)l->addr < 127 ? (char)*(const cil_char *)l->addr : '?', *(const cil_char *)l->addr); break;
-    case 'h': fprintf(f, "%d", *(const short *)l->addr); break;
-    case 'H': fprintf(f, "%u", *(const unsigned short *)l->addr); break;
-    case 'b': fprintf(f, "%u", *(const unsigned char *)l->addr); break;
-    case 'z': fprintf(f, "%d", *(const signed char *)l->addr); break;
-    case 'B': fputs(*(const int *)l->addr ? "true" : "false", f); break;
-    case 'o': DIGITOYENGINE_dump_ref(f, *(GCHeader *const *)l->addr); break;
-    case 'r': fprintf(f, "ref -> %p", *(void *const *)l->addr); break;
-    case 'v': fprintf(f, "struct @%p", l->addr); break;
-    default: fprintf(f, "? @%p (=%p)", l->addr, *(void *const *)l->addr); break; // pointer tipli arg (ref struct vb.)
+    case 'i':
+        fprintf(f, "%d", *(const int *)l->addr);
+        break;
+    case 'u':
+        fprintf(f, "%u", *(const unsigned *)l->addr);
+        break;
+    case 'f':
+        fprintf(f, "%g", *(const float *)l->addr);
+        break;
+    case 'd':
+        fprintf(f, "%g", *(const double *)l->addr);
+        break;
+    case 'l':
+        fprintf(f, "%lld", *(const long long *)l->addr);
+        break;
+    case 'q':
+        fprintf(f, "%llu", *(const unsigned long long *)l->addr);
+        break;
+    case 'c':
+        fprintf(f, "'%c' (%d)", *(const cil_char *)l->addr < 127 ? (char)*(const cil_char *)l->addr : '?', *(const cil_char *)l->addr);
+        break;
+    case 'h':
+        fprintf(f, "%d", *(const short *)l->addr);
+        break;
+    case 'H':
+        fprintf(f, "%u", *(const unsigned short *)l->addr);
+        break;
+    case 'b':
+        fprintf(f, "%u", *(const unsigned char *)l->addr);
+        break;
+    case 'z':
+        fprintf(f, "%d", *(const signed char *)l->addr);
+        break;
+    case 'B':
+        fputs(*(const int *)l->addr ? "true" : "false", f);
+        break;
+    case 'o':
+        DIGITOYENGINE_dump_ref(f, *(GCHeader *const *)l->addr);
+        break;
+    case 'r':
+        fprintf(f, "ref -> %p", *(void *const *)l->addr);
+        break;
+    case 'v':
+        fprintf(f, "struct @%p", l->addr);
+        break;
+    default:
+        fprintf(f, "? @%p (=%p)", l->addr, *(void *const *)l->addr);
+        break; // pointer tipli arg (ref struct vb.)
     }
     fputc('\n', f);
 }
@@ -1199,7 +1559,10 @@ void DIGITOYENGINE_dump_locals(FILE *f)
         fputs("  ", f);
         DIGITOYENGINE_put_frame(f, fr->mi, fr->line);
         if (!fr->dbg_locals)
-        { fputs("      (local tablosu yok)\n", f); continue; }
+        {
+            fputs("      (local tablosu yok)\n", f);
+            continue;
+        }
         for (int k = 0; k < fr->dbg_nlocals; k++)
             DIGITOYENGINE_dump_local(f, &fr->dbg_locals[k]);
     }
@@ -1350,13 +1713,29 @@ static void DIGITOYENGINE_crash_wname(DIGITOYENGINE_cfd fd, const VmString *s) /
 }
 static void DIGITOYENGINE_crash_frame(DIGITOYENGINE_cfd fd, const MethodInfo *mi, int line)
 {
-    int hasfile = mi->file && mi->file->length;
+    int hasfile = mi->file && mi->file[0];
     DIGITOYENGINE_crash_ws(fd, "  at ");
-    DIGITOYENGINE_crash_wname(fd, mi->name);
+    {
+        const VmString *owner = mi->declaringType ? digitoyengine_type_name_noalloc(mi->declaringType) : 0; // crash: alloc yok
+        if (owner)
+        {
+            DIGITOYENGINE_crash_wname(fd, owner);
+            DIGITOYENGINE_crash_wr(fd, ".", 1);
+        }
+        DIGITOYENGINE_crash_ws(fd, mi->name ? mi->name : "?");
+        DIGITOYENGINE_crash_wr(fd, "(", 1);
+        for (int i = 0; i < mi->nparams; i++)
+        {
+            if (i)
+                DIGITOYENGINE_crash_ws(fd, ", ");
+            DIGITOYENGINE_crash_wname(fd, mi->param_types ? digitoyengine_type_name_noalloc(mi->param_types[i]) : 0);
+        }
+        DIGITOYENGINE_crash_wr(fd, ")", 1);
+    }
     if (hasfile)
     {
         DIGITOYENGINE_crash_ws(fd, " (");
-        DIGITOYENGINE_crash_wname(fd, mi->file);
+        DIGITOYENGINE_crash_ws(fd, mi->file);
     }
     DIGITOYENGINE_crash_wr(fd, ":", 1);
     DIGITOYENGINE_crash_wl(fd, line >> 10);
@@ -1482,10 +1861,14 @@ static void DIGITOYENGINE_dispatch(void)
     fputs("[exception] ", stderr);
     if (DIGITOYENGINE_ex_kind == DIGITOYENGINE_EX_USER)
     {
-        DIGITOYENGINE_put_name(stderr, DIGITOYENGINE_ex_obj ? DIGITOYENGINE_ex_obj->type->name : 0);
+        DIGITOYENGINE_put_name(stderr, DIGITOYENGINE_ex_obj ? digitoyengine_type_name_noalloc(DIGITOYENGINE_ex_obj->type) : 0);
         // LAYOUT SOZLESMESI (corelib.c DigitoyEngineException): GCHeader'dan hemen sonra VmString *message.
         const VmString *msg = DIGITOYENGINE_ex_obj ? *(const VmString **)((const char *)DIGITOYENGINE_ex_obj + sizeof(GCHeader)) : 0;
-        if (msg) { fputs(": ", stderr); DIGITOYENGINE_put_name(stderr, msg); }
+        if (msg)
+        {
+            fputs(": ", stderr);
+            DIGITOYENGINE_put_name(stderr, msg);
+        }
     }
     else
         fputs(DIGITOYENGINE_ex_msg, stderr);
@@ -1502,7 +1885,7 @@ static void DIGITOYENGINE_dispatch(void)
     // benzersiz crash dosyasina da yaz (mobilde disk kuyruguna girer, sonraki acilista gonderilir)
     char DIGITOYENGINE_reason[128];
     if (DIGITOYENGINE_ex_kind == DIGITOYENGINE_EX_USER)
-        DIGITOYENGINE_narrow_name(DIGITOYENGINE_reason, sizeof DIGITOYENGINE_reason, DIGITOYENGINE_ex_obj ? DIGITOYENGINE_ex_obj->type->name : 0);
+        DIGITOYENGINE_narrow_name(DIGITOYENGINE_reason, sizeof DIGITOYENGINE_reason, DIGITOYENGINE_ex_obj ? digitoyengine_type_name_noalloc(DIGITOYENGINE_ex_obj->type) : 0);
     else
         snprintf(DIGITOYENGINE_reason, sizeof DIGITOYENGINE_reason, "%s", DIGITOYENGINE_ex_msg);
     DIGITOYENGINE_crash_dump(DIGITOYENGINE_reason, DIGITOYENGINE_ex_trace, DIGITOYENGINE_ex_trace_n);
@@ -1515,6 +1898,29 @@ void DIGITOYENGINE_throw(int kind, GCHeader *obj)
     // firlatma ANI trace'i sabitle (unwind DIGITOYENGINE_sp'yi bozar; rapor/catch bunu kullanir)
     memcpy(DIGITOYENGINE_ex_trace, DIGITOYENGINE_stack, (size_t)DIGITOYENGINE_sp * sizeof(RtFrame));
     DIGITOYENGINE_ex_trace_n = DIGITOYENGINE_sp;
+#ifdef DIGITOYENGINE_DEBUG
+    // First-chance dokum: yakalanacak olsa bile (Task fault, catch) firlatma ANINDAKI frame'ler + yereller + son adimlar.
+    // Runtime turu (null/cast/index/div: neredeyse hep bug) her zaman; kullanici exception'lari DE_FIRSTCHANCE=1 ile.
+    static int fc = -1;
+    if (fc < 0)
+    {
+        const char *e = getenv("DE_FIRSTCHANCE");
+        fc = e && e[0] == '1' ? 2 : 1;
+    }
+    if (kind != DIGITOYENGINE_EX_USER || fc == 2)
+    {
+        fputs("[first-chance] ", stderr);
+        if (kind == DIGITOYENGINE_EX_USER)
+            DIGITOYENGINE_put_name(stderr, obj ? digitoyengine_type_name_noalloc(obj->type) : 0);
+        else
+            fputs(DIGITOYENGINE_ex_msg, stderr);
+        fputc('\n', stderr);
+        for (int i = DIGITOYENGINE_sp - 1; i >= 0; i--)
+            DIGITOYENGINE_put_frame(stderr, DIGITOYENGINE_stack[i].mi, DIGITOYENGINE_stack[i].line);
+        DIGITOYENGINE_dump_locals(stderr);
+        DIGITOYENGINE_dump_steps(stderr);
+    }
+#endif
     DIGITOYENGINE_dispatch();
 }
 void DIGITOYENGINE_rethrow(void)
@@ -1561,8 +1967,8 @@ static void DIGITOYENGINE_narrow_name(char *dst, size_t cap, const VmString *s)
 void DIGITOYENGINE_cast_fail(const Type *from, const Type *to)
 {
     char a[64], b[64];
-    DIGITOYENGINE_narrow_name(a, sizeof a, from ? from->name : 0);
-    DIGITOYENGINE_narrow_name(b, sizeof b, to ? to->name : 0);
+    DIGITOYENGINE_narrow_name(a, sizeof a, digitoyengine_type_name(from));
+    DIGITOYENGINE_narrow_name(b, sizeof b, digitoyengine_type_name(to));
     snprintf(DIGITOYENGINE_ex_msg, sizeof(DIGITOYENGINE_ex_msg), "InvalidCast: %s -> %s", a, b);
     DIGITOYENGINE_throw(DIGITOYENGINE_EX_CAST, 0);
 }
@@ -1764,7 +2170,7 @@ VmArray *vmarray_new_e(int len, const Type *elem)
 {
     DIGITOYENGINE_NULLCHECK(elem);
     const Type *alloc = digitoyengine_is_reftype(elem) ? &vmarray_ref_type
-                        : (elem->array_of ? elem->array_of : &vmarray_val_type); /* ref tasiyan struct: uretilen eleman-eleman trace tipi */
+                                                       : (elem->array_of ? elem->array_of : &vmarray_val_type); /* ref tasiyan struct: uretilen eleman-eleman trace tipi */
     if (len < 0)
         DIGITOYENGINE_throw_bounds(len, 0);
     return vmarray_new_rank_te(1, &len, digitoyengine_elem_size(elem), alloc, elem);
@@ -1814,7 +2220,7 @@ const Type *digitoyengine_array_type(const Type *elem, int rank)
     s->type.flags = DIGITOYENGINE_TYPE_ARRAY | DIGITOYENGINE_TYPE_SYNTH_ARRAY;
     s->type.elem_type = elem;
     s->type.rank = (unsigned char)rank;
-    s->type.name = elem ? elem->name : 0; /* ad: eleman adi (Type.Name "[]" ekler) */
+    s->type.name = digitoyengine_type_name(elem); /* ad: eleman adi (Type.Name "[]" ekler); lazy generic ad burada kurulur */
     s->next = de_synth_arrays;
     de_synth_arrays = s;
     return &s->type;
@@ -1834,19 +2240,32 @@ GCHeader *digitoyengine_array_get(VmArray *a, int index)
         return (GCHeader *)digitoyengine_box_enum(*(int *)p, e);
     switch (e->rootid)
     {
-    case 4: return (GCHeader *)digitoyengine_box_i32(*(int *)p);
-    case 5: return (GCHeader *)digitoyengine_box_u32(*(unsigned int *)p);
-    case 6: return (GCHeader *)digitoyengine_box_i64(*(long long *)p);
-    case 7: return (GCHeader *)digitoyengine_box_u64(*(unsigned long long *)p);
-    case 8: return (GCHeader *)digitoyengine_box_i16(*(short *)p);
-    case 9: return (GCHeader *)digitoyengine_box_u16(*(unsigned short *)p);
-    case 10: return (GCHeader *)digitoyengine_box_i8(*(signed char *)p);
-    case 11: return (GCHeader *)digitoyengine_box_u8(*(unsigned char *)p);
-    case 12: return (GCHeader *)digitoyengine_box_char(*(cil_char *)p);
-    case 13: return (GCHeader *)digitoyengine_box_bool(*(int *)p);
-    case 14: return (GCHeader *)digitoyengine_box_f32(*(float *)p);
-    case 15: return (GCHeader *)digitoyengine_box_f64(*(double *)p);
-    default: return (GCHeader *)digitoyengine_box_struct(e, p, a->elemsize);
+    case 4:
+        return (GCHeader *)digitoyengine_box_i32(*(int *)p);
+    case 5:
+        return (GCHeader *)digitoyengine_box_u32(*(unsigned int *)p);
+    case 6:
+        return (GCHeader *)digitoyengine_box_i64(*(long long *)p);
+    case 7:
+        return (GCHeader *)digitoyengine_box_u64(*(unsigned long long *)p);
+    case 8:
+        return (GCHeader *)digitoyengine_box_i16(*(short *)p);
+    case 9:
+        return (GCHeader *)digitoyengine_box_u16(*(unsigned short *)p);
+    case 10:
+        return (GCHeader *)digitoyengine_box_i8(*(signed char *)p);
+    case 11:
+        return (GCHeader *)digitoyengine_box_u8(*(unsigned char *)p);
+    case 12:
+        return (GCHeader *)digitoyengine_box_char(*(cil_char *)p);
+    case 13:
+        return (GCHeader *)digitoyengine_box_bool(*(int *)p);
+    case 14:
+        return (GCHeader *)digitoyengine_box_f32(*(float *)p);
+    case 15:
+        return (GCHeader *)digitoyengine_box_f64(*(double *)p);
+    default:
+        return (GCHeader *)digitoyengine_box_struct(e, p, a->elemsize);
     }
 }
 void digitoyengine_array_set(VmArray *a, int index, GCHeader *value)
@@ -1956,13 +2375,20 @@ void opinfo(const char *id, ...)
 // ---- P/Invoke string koprusu (statik linkli native API'ler const char* konusur) ----
 char *digitoyengine_to_utf8(const VmString *s)
 {
-    if (!s) return NULL;
+    if (!s)
+        return NULL;
     int n = 0;
     for (int i = 0; i < s->length; i++)
     {
         unsigned c = s->data[i];
-        if (c >= 0xD800 && c <= 0xDBFF && i + 1 < s->length) { n += 4; i++; }
-        else n += c < 0x80 ? 1 : c < 0x800 ? 2 : 3;
+        if (c >= 0xD800 && c <= 0xDBFF && i + 1 < s->length)
+        {
+            n += 4;
+            i++;
+        }
+        else
+            n += c < 0x80 ? 1 : c < 0x800 ? 2
+                                          : 3;
     }
     char *out = (char *)malloc((size_t)n + 1);
     unsigned char *d = (unsigned char *)out;
@@ -1979,24 +2405,39 @@ char *digitoyengine_to_utf8(const VmString *s)
             d[o++] = (unsigned char)(0x80 | ((cp >> 6) & 0x3F));
             d[o++] = (unsigned char)(0x80 | (cp & 0x3F));
         }
-        else if (c < 0x80) d[o++] = (unsigned char)c;
-        else if (c < 0x800) { d[o++] = (unsigned char)(0xC0 | (c >> 6)); d[o++] = (unsigned char)(0x80 | (c & 0x3F)); }
-        else { d[o++] = (unsigned char)(0xE0 | (c >> 12)); d[o++] = (unsigned char)(0x80 | ((c >> 6) & 0x3F)); d[o++] = (unsigned char)(0x80 | (c & 0x3F)); }
+        else if (c < 0x80)
+            d[o++] = (unsigned char)c;
+        else if (c < 0x800)
+        {
+            d[o++] = (unsigned char)(0xC0 | (c >> 6));
+            d[o++] = (unsigned char)(0x80 | (c & 0x3F));
+        }
+        else
+        {
+            d[o++] = (unsigned char)(0xE0 | (c >> 12));
+            d[o++] = (unsigned char)(0x80 | ((c >> 6) & 0x3F));
+            d[o++] = (unsigned char)(0x80 | (c & 0x3F));
+        }
     }
     d[o] = 0;
     return out;
 }
 VmString *digitoyengine_from_utf8(const char *s)
 {
-    if (!s) return NULL;
+    if (!s)
+        return NULL;
     int n = (int)strlen(s);
     const unsigned char *b = (const unsigned char *)s;
     int units = 0;
     for (int i = 0; i < n;)
     {
         unsigned char c = b[i];
-        int len = c < 0x80 ? 1 : (c >> 5) == 6 ? 2 : (c >> 4) == 14 ? 3 : (c >> 3) == 30 ? 4 : 1;
-        if (i + len > n) len = 1;
+        int len = c < 0x80 ? 1 : (c >> 5) == 6 ? 2
+                             : (c >> 4) == 14  ? 3
+                             : (c >> 3) == 30  ? 4
+                                               : 1;
+        if (i + len > n)
+            len = 1;
         units += len == 4 ? 2 : 1;
         i += len;
     }
@@ -2006,14 +2447,41 @@ VmString *digitoyengine_from_utf8(const char *s)
     for (int i = 0; i < n;)
     {
         unsigned char c = b[i];
-        unsigned cp; int len;
-        if (c < 0x80) { cp = c; len = 1; }
-        else if ((c >> 5) == 6 && i + 1 < n) { cp = ((c & 0x1F) << 6) | (b[i + 1] & 0x3F); len = 2; }
-        else if ((c >> 4) == 14 && i + 2 < n) { cp = ((c & 0x0F) << 12) | ((b[i + 1] & 0x3F) << 6) | (b[i + 2] & 0x3F); len = 3; }
-        else if ((c >> 3) == 30 && i + 3 < n) { cp = ((c & 0x07) << 18) | ((b[i + 1] & 0x3F) << 12) | ((b[i + 2] & 0x3F) << 6) | (b[i + 3] & 0x3F); len = 4; }
-        else { cp = 0xFFFD; len = 1; }
-        if (cp >= 0x10000) { cp -= 0x10000; d[o++] = (unsigned short)(0xD800 + (cp >> 10)); d[o++] = (unsigned short)(0xDC00 + (cp & 0x3FF)); }
-        else d[o++] = (unsigned short)cp;
+        unsigned cp;
+        int len;
+        if (c < 0x80)
+        {
+            cp = c;
+            len = 1;
+        }
+        else if ((c >> 5) == 6 && i + 1 < n)
+        {
+            cp = ((c & 0x1F) << 6) | (b[i + 1] & 0x3F);
+            len = 2;
+        }
+        else if ((c >> 4) == 14 && i + 2 < n)
+        {
+            cp = ((c & 0x0F) << 12) | ((b[i + 1] & 0x3F) << 6) | (b[i + 2] & 0x3F);
+            len = 3;
+        }
+        else if ((c >> 3) == 30 && i + 3 < n)
+        {
+            cp = ((c & 0x07) << 18) | ((b[i + 1] & 0x3F) << 12) | ((b[i + 2] & 0x3F) << 6) | (b[i + 3] & 0x3F);
+            len = 4;
+        }
+        else
+        {
+            cp = 0xFFFD;
+            len = 1;
+        }
+        if (cp >= 0x10000)
+        {
+            cp -= 0x10000;
+            d[o++] = (unsigned short)(0xD800 + (cp >> 10));
+            d[o++] = (unsigned short)(0xDC00 + (cp & 0x3FF));
+        }
+        else
+            d[o++] = (unsigned short)cp;
         i += len;
     }
     return r;

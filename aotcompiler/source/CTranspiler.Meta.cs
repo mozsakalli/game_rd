@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using DigitoyEngine.Language.Trim;
 
 namespace DigitoyEngine.Language
 {
@@ -73,7 +74,12 @@ namespace DigitoyEngine.Language
         static readonly List<Code> methodList = new List<Code>();
         static readonly Dictionary<Primitive, (string sym, int count)> typeMethods = new Dictionary<Primitive, (string, int)>();
         const string MiscMethodsSym = "digitoyengine_methods_misc";
-        static string MethodRef(Code c) => $"&{methodTable[c]}[{methodIndex[c]}]";
+        // Trace-only kayitlar (trim: MethodRecordKind.Trace): `{cn}_mtrace[]` / misc; Type.methods'a GIRMEZ, yalniz frame'e konur.
+        static readonly HashSet<Code> traceOnly = new HashSet<Code>();
+        static readonly List<Code> traceList = new List<Code>();
+        static readonly Dictionary<Primitive, (string sym, int count)> typeTraces = new Dictionary<Primitive, (string, int)>();
+        const string MiscTraceSym = "digitoyengine_mtrace_misc";
+        static string MethodRef(Code c) => traceOnly.Contains(c) ? $"(const MethodInfo*)&{methodTable[c]}[{methodIndex[c]}]" : $"&{methodTable[c]}[{methodIndex[c]}]";
         static string MethodSym(Code c) => CName(c.EncodeName()); // kayit basina yardimci sembol eki (mp_/mattrs_)
         static readonly Dictionary<string, int> shapeIds = new Dictionary<string, int>(); // sekil metni -> digitoyengine_shapes[] sirasi (yalniz gen_meta tablosu; kayitlar sembolle baglanir)
         static string ThunkSym(string shapeKey) => $"de_thunk_{Fnv64(shapeKey):x16}";              // sekil hash'li thunk sembolu (build sirasindan bagimsiz)
@@ -86,7 +92,8 @@ namespace DigitoyEngine.Language
         // P/Invoke marshal sarmalayicisi olan REFERANSSIZ extern'ler kayit almaz: sarmalayici static'tir, adresi alinirsa
         // native sembolu guclu ister (link kirilir). Diger extern'ler zayif prototiple kayitlanir (fn 0 olabilir).
         static bool HasMethodRecord(Code c) =>
-            (IsEmittableCode(c) && !(c.IsExternal && NeedsPInvokeMarshal(c) && !hostReferenced.Contains(c))) || IsIfaceDecl(c);
+            ((IsEmittableCode(c) && !(c.IsExternal && NeedsPInvokeMarshal(c) && !hostReferenced.Contains(c))) || IsIfaceDecl(c))
+            && TrimPlan.MethodRecord(c) != MethodRecordKind.None;
         // Tip descriptor'i uretilen kod icinde mi (Type.methods baglanabilir)? Runtime kokleri (Object/String) -> sahipsiz grup.
         static bool OwnsMethodTable(Primitive p) =>
             p != null && typeIndex.ContainsKey(p) && (IsEmittableModel(p) || p.IsEnum);
@@ -95,9 +102,12 @@ namespace DigitoyEngine.Language
         static void CollectMethods(Context ctx)
         {
             methodIndex.Clear(); methodTable.Clear(); methodList.Clear(); typeMethods.Clear(); shapeIds.Clear(); shapeSamples.Clear();
+            traceOnly.Clear(); typeTraces.Clear(); traceList.Clear();
             hostReferenced = ComputeReferenced(ctx);
             var byOwner = new Dictionary<Primitive, List<Code>>();
             var orphan = new List<Code>();
+            var traceByOwner = new Dictionary<Primitive, List<Code>>();
+            var traceOrphan = new List<Code>();
             var hashes = new Dictionary<ulong, string>();
             foreach (var c in ctx.AllCodes)
             {
@@ -108,27 +118,42 @@ namespace DigitoyEngine.Language
                 if (hashes.TryGetValue(h, out var other) && other != name)
                     throw new Exception($"meta: metot adi hash cakismasi: '{name}' vs '{other}'");
                 hashes[h] = name;
+                bool trace = TrimPlan.MethodRecord(c) == MethodRecordKind.Trace && !IsIfaceDecl(c);
+                if (trace) traceOnly.Add(c);
+                var owners = trace ? traceByOwner : byOwner;
                 if (OwnsMethodTable(c.Owner))
                 {
-                    if (!byOwner.TryGetValue(c.Owner, out var list)) byOwner[c.Owner] = list = new List<Code>();
+                    if (!owners.TryGetValue(c.Owner, out var list)) owners[c.Owner] = list = new List<Code>();
                     list.Add(c);
                 }
-                else orphan.Add(c);
-                PoolAdd(CodeDisplay(c));
-                if (!string.IsNullOrEmpty(c.SourceFile)) PoolAdd(c.SourceFile);
+                else (trace ? traceOrphan : orphan).Add(c);
+                CStrAdd(CodeBareName(c));
+                if (!string.IsNullOrEmpty(c.SourceFile)) CStrAdd(c.SourceFile);
             }
             foreach (var p in ctx.AllPrimitives)
             {
-                if (!byOwner.TryGetValue(p, out var list) || typeMethods.ContainsKey(p)) continue;
-                var sym = $"{CName(p.Name)}_methods";
-                typeMethods[p] = (sym, list.Count);
-                for (int i = 0; i < list.Count; i++) { methodIndex[list[i]] = i; methodTable[list[i]] = sym; }
-                methodList.AddRange(list);
+                if (byOwner.TryGetValue(p, out var list) && !typeMethods.ContainsKey(p))
+                {
+                    var sym = $"{CName(p.Name)}_methods";
+                    typeMethods[p] = (sym, list.Count);
+                    for (int i = 0; i < list.Count; i++) { methodIndex[list[i]] = i; methodTable[list[i]] = sym; }
+                    methodList.AddRange(list);
+                }
+                if (traceByOwner.TryGetValue(p, out var tl) && !typeTraces.ContainsKey(p))
+                {
+                    var sym = $"{CName(p.Name)}_mtrace";
+                    typeTraces[p] = (sym, tl.Count);
+                    for (int i = 0; i < tl.Count; i++) { methodIndex[tl[i]] = i; methodTable[tl[i]] = sym; }
+                    traceList.AddRange(tl);
+                }
             }
             for (int i = 0; i < orphan.Count; i++) { methodIndex[orphan[i]] = i; methodTable[orphan[i]] = MiscMethodsSym; }
             methodList.AddRange(orphan);
+            for (int i = 0; i < traceOrphan.Count; i++) { methodIndex[traceOrphan[i]] = i; methodTable[traceOrphan[i]] = MiscTraceSym; }
+            traceList.AddRange(traceOrphan);
             foreach (var c in methodList)
             {
+                if (!TrimPlan.NeedsThunk(c)) continue; // trace-only kayit: sekil thunk'u yok
                 var key = ShapeKey(c);
                 if (!shapeIds.ContainsKey(key))
                 {
@@ -142,7 +167,8 @@ namespace DigitoyEngine.Language
         static int MethodSlot(Code c) => c.Owner == null ? -1 : c.Owner.VTable.IndexOf(c);
         static bool IsCtorCode(Code c) => c.Name == "ctor" || c.Name.StartsWith("ctor_", StringComparison.Ordinal);
         // host -> modul sanal trampoline'i alan kayitlar: slot acan sanallar + iface bildirimleri (this'li)
-        static bool HasVirtualTramp(Code c) => c.IsVirtual && !c.IsStatic && c.Arguments.Count > 0 && (IsEmittableCode(c) || IsIfaceDecl(c));
+        static bool HasVirtualTramp(Code c) => TrimPlan.NeedsVTramp(c) && c.IsVirtual && !c.IsStatic && c.Arguments.Count > 0 && (IsEmittableCode(c) || IsIfaceDecl(c));
+        static bool HasDelegateTramp(Primitive p) => TrimPlan.NeedsDTramp(p) && p.IsDelegate && IsEmittableModel(p) && p.DelegateReturn != null;
         static string VTrampSym(Code c) => $"de_tramp_v_{CName(c.EncodeName())}";
         static string DTrampSym(Primitive p) => $"de_tramp_d_{CName(p.Name)}";
 
@@ -153,10 +179,11 @@ namespace DigitoyEngine.Language
             sb.Append($", .hash = {Fnv64(p.Name)}ull");
             if (typeMethods.TryGetValue(p, out var mt))
                 sb.Append($", .methods = {mt.sym}, .nmethods = {mt.count}");
-            int flags = (p.IsStruct ? 1 : 0) | (p.IsInterface ? 2 : 0) | (p.IsDelegate ? 4 : 0) | (p.IsEnum ? 8 : 0);
+            int flags = (p.IsStruct ? 1 : 0) | (p.IsInterface ? 2 : 0) | (p.IsDelegate ? 4 : 0) | (p.IsEnum ? 8 : 0)
+                | (TrimPlan.Profile.TrimMeta && TrimPlan.Reflection(p) == MemberKinds.None ? 256 : 0); // DIGITOYENGINE_TYPE_NOREFLECT
             if (flags != 0) sb.Append($", .flags = {flags}");
-            if (p.IsDelegate && IsEmittableModel(p) && p.DelegateReturn != null) sb.Append($", .delegate_tramp = (const void*)&{DTrampSym(p)}");
-            sb.Append(AttrTail($"{CName(p.Name)}_tattrs", p.Attributes));
+            if (HasDelegateTramp(p)) sb.Append($", .delegate_tramp = (const void*)&{DTrampSym(p)}");
+            sb.Append(AttrTail($"{CName(p.Name)}_tattrs", TypeAttrs(p)));
             if (p.CilAttributes != 0) sb.Append($", .cilattrs = {p.CilAttributes}u");
             if (p.InstantiatedFrom != null && reflectedGenericDefs.ContainsKey(CName(p.InstantiatedFrom.Name)))
                 sb.Append($", .generic_def = &{TypeSym(p.InstantiatedFrom)}");
@@ -169,13 +196,17 @@ namespace DigitoyEngine.Language
             var cn = CName(owner.Name);
             var fn = CName(f.Name);
             var tag = ExportTag(f.Type);
-            var attrs = AttrTail($"{cn}_fattrs_{fn}", f.Attributes) + $", .cilattrs = {f.CilAttributes}";
+            var attrs = AttrTail($"{cn}_fattrs_{fn}", MemberAttrs(owner, f.Attributes)) + $", .cilattrs = {f.CilAttributes}";
             if (f.IsStatic)
                 return $", .tag = '{tag}', .size = (unsigned short)sizeof({StaticSym(f)}), .addr = (void*)&{StaticSym(f)}, .hash = {Fnv64(f.Name)}ull{attrs}";
             return $", .tag = '{tag}', .offset = (unsigned short)offsetof(struct {cn}, {fn}), .size = (unsigned short)sizeof(((struct {cn}*)0)->{fn}), .hash = {Fnv64(f.Name)}ull{attrs}";
         }
 
         // ---- custom attribute tablolari (docs/registry-removal.md Faz 4b) ----
+        // Facet kapisi: sahibi Attrs facet'i tasimiyorsa attribute listesi bos sayilir (trim).
+        static readonly List<PrimitiveAttribute> noAttrs = new List<PrimitiveAttribute>();
+        static List<PrimitiveAttribute> TypeAttrs(Primitive p) => TrimPlan.Has(p, MemberKinds.Attrs) ? p.Attributes : noAttrs;
+        static List<PrimitiveAttribute> MemberAttrs(Primitive owner, List<PrimitiveAttribute> attrs) => owner == null || TrimPlan.Has(owner, MemberKinds.Attrs) ? attrs : noAttrs;
         // Emit edilebilir attribute: tipi emit edilen class, ctor'u cozulmus ve arguman sayisi tutan.
         static List<PrimitiveAttribute> EmittableAttrs(List<PrimitiveAttribute> attrs)
         {
@@ -264,7 +295,7 @@ namespace DigitoyEngine.Language
             }
             foreach (var p in ctx.AllPrimitives)
             {
-                if (!IsEmittableModel(p) || !p.IsDelegate || p.DelegateReturn == null) continue;
+                if (!HasDelegateTramp(p)) continue;
                 // imza: (closure, params...) - CallIndirect'in instance yolu (fn(target, args))
                 var sig = new Code { ReturnType = p.DelegateReturn };
                 sig.Arguments.Add(new Argument { Name = "closure", Type = Primitive.Object });
@@ -279,11 +310,13 @@ namespace DigitoyEngine.Language
         static void EmitMethodTablesInto(Func<Code, StringBuilder> bodyOf, StringBuilder misc)
         {
             var tables = new Dictionary<string, (StringBuilder sb, List<string> rows)>();
-            foreach (var c in methodList)
+            var traceTables = new Dictionary<string, (StringBuilder sb, List<string> rows)>();
+            foreach (var c in methodList.Concat(traceList))
             {
                 var ms = MethodSym(c);
                 var tsym = methodTable[c];
-                var sb = tsym == MiscMethodsSym ? misc : bodyOf(c);
+                bool trace = traceOnly.Contains(c);
+                var sb = tsym == MiscMethodsSym || tsym == MiscTraceSym ? misc : bodyOf(c);
                 int skip = c.IsStatic ? 0 : 1;
                 var pars = c.Arguments.Skip(skip).ToList();
                 string ptypes = "0", ptags = "0";
@@ -294,15 +327,25 @@ namespace DigitoyEngine.Language
                     ptags = $"(const unsigned char*){CStringLiteral(new string(pars.Select(a => (a.IsRef || a.IsOut) ? 'r' : ExportTag(a.Type)).ToArray()))}";
                 }
                 bool hasBody = !IsIfaceDecl(c);
+                string decl = c.Owner == null ? "0" : ExportTypeSym(c.Owner);
+                string fileRef = string.IsNullOrEmpty(c.SourceFile) ? "0" : cstrPool[c.SourceFile];
+                int flags = (c.IsStatic ? 1 : 0) | (c.IsVirtual || c.IsOverride ? 2 : 0) | (IsCtorCode(c) ? 4 : 0) | (hasBody ? 0 : 8);
+                var prefix = $"{cstrPool[CodeBareName(c)]}, {fileRef}, -1, {pars.Count}, '{ExportTag(c.ReturnType)}', {flags}, ";
+                if (trace)
+                {
+                    if (!traceTables.TryGetValue(tsym, out var tt)) traceTables[tsym] = tt = (sb, new List<string>());
+                    tt.rows.Add($"    {{ {prefix}0, {decl}, {ptypes} }},");
+                    continue;
+                }
                 string fn = hasBody ? $"(const void*)&{CSym(c)}" : "0";
                 string tramp = HasVirtualTramp(c) ? $"(const void*)&{VTrampSym(c)}" : "0";
-                string decl = c.Owner == null ? "0" : ExportTypeSym(c.Owner);
-                string fileRef = string.IsNullOrEmpty(c.SourceFile) ? "0" : $"&{strPool[c.SourceFile]}";
-                int flags = (c.IsStatic ? 1 : 0) | (c.IsVirtual || c.IsOverride ? 2 : 0) | (IsCtorCode(c) ? 4 : 0) | (hasBody ? 0 : 8);
-                sb.Append(EmitAttrTable($"mattrs_{ms}", c.Attributes));
+                var attrs = MemberAttrs(c.Owner, c.Attributes);
+                int nattrs = EmittableAttrs(attrs).Count;
+                sb.Append(EmitAttrTable($"mattrs_{ms}", attrs));
                 if (!tables.TryGetValue(tsym, out var t)) tables[tsym] = t = (sb, new List<string>());
-                t.rows.Add($"    {{ &{strPool[CodeDisplay(c)]}, {fileRef}, -1, {Fnv64(c.EncodeName())}ull, {fn}, {tramp}, {decl}, {ExportTypeSym(c.ReturnType)}, {ptypes}, {ptags}, 0, " +
-                           $"{ThunkSym(ShapeKey(c))}, {MethodSlot(c)}, {pars.Count}, '{ExportTag(c.ReturnType)}', {flags}{AttrTail($"mattrs_{ms}", c.Attributes)}, .cilattrs = {c.CilAttributes} }},");
+                string thunk = TrimPlan.NeedsThunk(c) ? ThunkSym(ShapeKey(c)) : "0";
+                t.rows.Add($"    {{ {prefix}{nattrs}, {decl}, {ptypes}, {Fnv64(c.EncodeName())}ull, {fn}, {tramp}, {ExportTypeSym(c.ReturnType)}, {ptags}, 0, " +
+                           $"{thunk}, {MethodSlot(c)}, {c.CilAttributes}, {(nattrs > 0 ? $"mattrs_{ms}" : "0")} }},");
             }
             foreach (var kv in tables)
             {
@@ -311,11 +354,24 @@ namespace DigitoyEngine.Language
                 foreach (var r in kv.Value.rows) kv.Value.sb.Append(r).Append('\n');
                 kv.Value.sb.Append("};\n");
             }
+            foreach (var kv in traceTables)
+            {
+                if (kv.Key == MiscTraceSym) continue;
+                kv.Value.sb.Append($"const MethodTrace {kv.Key}[{kv.Value.rows.Count}] = {{\n");
+                foreach (var r in kv.Value.rows) kv.Value.sb.Append(r).Append('\n');
+                kv.Value.sb.Append("};\n");
+            }
             tables.TryGetValue(MiscMethodsSym, out var mt);
             misc.Append($"MethodInfo {MiscMethodsSym}[] = {{\n");
             if (mt.rows != null) foreach (var r in mt.rows) misc.Append(r).Append('\n');
             if (mt.rows == null || mt.rows.Count == 0) misc.Append("    {0}\n");
             misc.Append($"}};\nconst int digitoyengine_nmethods_misc = {mt.rows?.Count ?? 0};\n");
+            if (traceTables.TryGetValue(MiscTraceSym, out var tm) && tm.rows.Count > 0)
+            {
+                misc.Append($"const MethodTrace {MiscTraceSym}[{tm.rows.Count}] = {{\n");
+                foreach (var r in tm.rows) misc.Append(r).Append('\n');
+                misc.Append("};\n");
+            }
         }
 
         // Paylasimli meta (gen_meta.c): sekil thunk'lari + thunk/sekil tablolari + tip tablosu. Her build yeniden yazilir.

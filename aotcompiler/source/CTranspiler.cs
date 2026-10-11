@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text;
+using DigitoyEngine.Language.Trim;
 
 namespace DigitoyEngine.Language
 {
@@ -27,6 +28,8 @@ namespace DigitoyEngine.Language
         // TranspileProgram basinda on-taramayla toplanir, Literal() referans verir.
         static readonly Dictionary<string, string> strPool = new Dictionary<string, string>();
         static Context EmitCtx; // finalize zinciri gibi ctx sorgulari icin (TranspileProgram atar)
+        // Trim karari: emisyon kod/meta/thunk/trampoline sorularini YALNIZ buna sorar (source/Trim). Varsayilan: her sey canli.
+        public static TrimResult TrimPlan = TrimResult.Everything;
         static readonly Dictionary<Primitive, int> typeIndex = new Dictionary<Primitive, int>(); // descriptor'u olan tipler (deger: digitoyengine_types[] sirasi; descriptor'a YAZILMAZ - Type.rootid uretilen tiplerde 0)
         static readonly Dictionary<string, Primitive> reflectedArrays = new Dictionary<string, Primitive>();
         static readonly Dictionary<string, Primitive> reflectedValueStructs = new Dictionary<string, Primitive>();
@@ -36,11 +39,23 @@ namespace DigitoyEngine.Language
         // MethodInfo gosterim adi: C# sozdizimi ("Demo12.App12.Deep(int[], int)"); IR kodlari fallback
         public static string CodeDisplay(Code c) =>
             (c.Owner != null ? c.Owner.Display + "." : "") + (c.DisplayName ?? c.Name);
+        // MethodInfo.name: YALIN ad ("Deep", ".ctor") — sahip tipi/parametreler kayitta ayri; orneklemeler ayni string'i paylasir.
+        public static string CodeBareName(Code c)
+        {
+            var d = c.DisplayName ?? c.Name;
+            int paren = d.IndexOf('(');
+            if (paren >= 0) d = d.Substring(0, paren);
+            int dot = d.LastIndexOf('.');
+            return dot >= 0 && dot < d.Length - 1 && d != ".ctor" ? d.Substring(dot + 1) : d;
+        }
 
         static void CollectStrings(Context ctx)
         {
             strPool.Clear();
             strSymText.Clear();
+            cstrPool.Clear();
+            cstrSymText.Clear();
+            typeNameCandidates.Clear();
             typeIndex.Clear();
             reflectedArrays.Clear();
             reflectedValueStructs.Clear();
@@ -52,8 +67,8 @@ namespace DigitoyEngine.Language
                 {
                     if (!c.IsExternal)
                     {
-                        PoolAdd(CodeDisplay(c)); // MethodInfo.name
-                        if (!string.IsNullOrEmpty(c.SourceFile)) PoolAdd(c.SourceFile); // MethodInfo.file
+                        CStrAdd(CodeBareName(c)); // MethodInfo.name (UTF-8 havuz)
+                        if (!string.IsNullOrEmpty(c.SourceFile)) CStrAdd(c.SourceFile); // MethodInfo.file
                     }
                     foreach (var op in c.Operations)
                     {
@@ -98,7 +113,7 @@ namespace DigitoyEngine.Language
                     if (!reflectedValueStructs.ContainsKey(key))
                     {
                         reflectedValueStructs[key] = p;
-                        PoolAdd(p.Display);
+                        typeNameCandidates.Add(p);
                         typeIndex[p] = nextTypeIndex++;
                     }
                     StructArrayTypeSym(p); // ref tasiyan struct: T[] tahsis tipi her zaman var (Array.CreateInstance -> Type.array_of)
@@ -110,12 +125,12 @@ namespace DigitoyEngine.Language
             foreach (var p in ctx.AllPrimitives)
                 if (IsEmittableModel(p))
                 {
-                    foreach (var f in ReflectionFields(p)) { PoolAdd(ReflectionFieldName(f)); PoolAttrStrings(f.Attributes); }
-                    foreach (var prop in p.Properties) { PoolAdd(prop.Name); PoolAttrStrings(prop.Attributes); }
-                    PoolAttrStrings(p.Attributes);
+                    foreach (var f in ReflectionFields(p)) { PoolAdd(ReflectionFieldName(f)); PoolAttrStrings(MemberAttrs(p, f.Attributes)); }
+                    foreach (var prop in ReflectionProperties(p)) { PoolAdd(prop.Name); PoolAttrStrings(MemberAttrs(p, prop.Attributes)); }
+                    PoolAttrStrings(TypeAttrs(p));
                 }
             foreach (var c in ctx.AllCodes)
-                if (IsEmittableCode(c)) PoolAttrStrings(c.Attributes);
+                if (IsEmittableCode(c)) PoolAttrStrings(MemberAttrs(c.Owner, c.Attributes));
             foreach (var p in ctx.AllPrimitives) // enum'lar: descriptor + ToString uye adlari
                 if (p.IsEnum && !typeIndex.ContainsKey(p))
                 {
@@ -134,15 +149,28 @@ namespace DigitoyEngine.Language
                 PoolAdd(tmpl.Display);
                 typeIndex[tmpl] = nextTypeIndex++;
             }
+            // Tip adlari EN SON: generic orneklemelerin adi yazilmaz (runtime generic_def + generic_args'tan lazy kurar);
+            // karar typeIndex/reflected* tablolari tamamlaninca verilebilir (GenericArgSym).
+            foreach (var p in typeNameCandidates)
+                if (!LazyTypeName(p)) PoolAdd(p.Display);
             CollectMethods(ctx); // metot kayitlari (ad/dosya havuzu dahil) — typeIndex hazir olduktan sonra
         }
+
+        // Adsiz descriptor: kapali generic class/struct, sablonu descriptor'lu ve TUM argumanlari descriptor'lu (ad kurulabilir).
+        // Interface/delegate descriptor'lari generic_args tasimiyor -> adlari yazilir.
+        static readonly List<Primitive> typeNameCandidates = new List<Primitive>();
+        static bool LazyTypeName(Primitive p) =>
+            p.InstantiatedFrom != null && p.TypeArguments.Count > 0 && !p.IsInterface && !p.IsDelegate && !p.IsEnum
+            && reflectedGenericDefs.ContainsKey(CName(p.InstantiatedFrom.Name))
+            && p.TypeArguments.All(a => GenericArgSym(a) != "0");
+        static string TypeNameRef(Primitive p) => LazyTypeName(p) || !TrimPlan.NeedsTypeName(p) ? "0" : "&" + strPool[p.Display];
 
         static void CollectTypeNames(Primitive p, HashSet<Primitive> done)
         {
             if (p == Primitive.Object || p == Primitive.String || !done.Add(p)) return;
             if (p.Parent != null && !p.Parent.IsStruct) CollectTypeNames(p.Parent, done);
             foreach (var iface in p.Interfaces) CollectTypeNames(iface, done);
-            PoolAdd(p.Display); // Type.name: C# sozdizimli (dotted; generic: Box<int>)
+            typeNameCandidates.Add(p); // Type.name: C# sozdizimli (dotted; generic: Box<int>) — havuza CollectStrings sonunda
             typeIndex[p] = nextTypeIndex++;
         }
 
@@ -174,7 +202,38 @@ namespace DigitoyEngine.Language
                 // GCHeader alan sirasi: type,next,version,age,idhash - age=GC_IMMORTAL (sweep/trace gormez)
                 sb.Append($"VmString {kv.Value} = {{ {{ &vmstring_type, 0, 0, GC_IMMORTAL, 0 }}, {kv.Key.Length}, {kv.Value}_d }};\n");
             }
+            // UTF-8 C-string havuzu (MethodInfo.name/file): VmString basligi yok, yalin adlar tum orneklemelerce paylasilir.
+            foreach (var kv in cstrPool)
+                sb.Append($"const char {kv.Value}[] = {CUtf8Literal(kv.Key)};\n");
             return sb.ToString();
+        }
+
+        // ---- UTF-8 C-string havuzu (`_cs_<hash>`): reflection/trace adlari; icerik hash'li kararli sembol ----
+        static readonly Dictionary<string, string> cstrPool = new Dictionary<string, string>();
+        static readonly Dictionary<string, string> cstrSymText = new Dictionary<string, string>();
+        static string CStrAdd(string s)
+        {
+            if (!cstrPool.TryGetValue(s, out var sym))
+            {
+                var baseSym = $"_cs_{Fnv64(s):x16}";
+                sym = baseSym;
+                for (int n = 1; cstrSymText.TryGetValue(sym, out var other) && other != s; n++) sym = $"{baseSym}_{n}";
+                cstrSymText[sym] = s;
+                cstrPool[s] = sym;
+            }
+            return sym;
+        }
+        // UTF-8 C literal: ASCII yazdirilabilir dogrudan, digerleri oktal kacis (\xHH acgozlu olur; oktal 3 haneyle biter).
+        static string CUtf8Literal(string s)
+        {
+            var sb = new StringBuilder("\"");
+            foreach (var b in Encoding.UTF8.GetBytes(s))
+            {
+                if (b == '"' || b == '\\') sb.Append('\\').Append((char)b);
+                else if (b >= 32 && b < 127) sb.Append((char)b);
+                else sb.Append('\\').Append(Convert.ToString(b, 8).PadLeft(3, '0'));
+            }
+            return sb.Append('"').ToString();
         }
         static string StringExterns(IEnumerable<string> syms) =>
             string.Concat(syms.Distinct().OrderBy(s => s, StringComparer.Ordinal).Select(s => $"extern VmString {s};\n"));
@@ -345,7 +404,7 @@ namespace DigitoyEngine.Language
             return false;
         }
         // iface methodlari govdesizdir; generic template'ler ve uyeleri yalniz klon kaynagi - ikisi de emit edilmez
-        static bool IsEmittableCode(Code c) => !c.Unresolved && c.GenericParameters.Count == 0 && !(c.Owner != null && (c.Owner.IsInterface || c.Owner.IsGeneric || HasOpenTypeArgs(c.Owner)));
+        static bool IsEmittableCode(Code c) => !c.Unresolved && c.GenericParameters.Count == 0 && !(c.Owner != null && (c.Owner.IsInterface || c.Owner.IsGeneric || HasOpenTypeArgs(c.Owner))) && TrimPlan.IsCodeLive(c);
 
         // TranspileProgram / TranspileFiles: CTranspiler.Units.cs (birim tabanli emisyon)
 
@@ -413,7 +472,7 @@ namespace DigitoyEngine.Language
                     sb.Append($"    gc_shade((GCHeader*){path});\n");
                 sb.Append("}\n");
             }
-            sb.Append($"Type {cn}_type = {{ {traceFn}, 0, sizeof(GCHeader) + sizeof(struct {cn}), {(paths.Count > 0 ? 0 : 1)}, &vmvaluetype_type, &{strPool[type.Display]}, 0, 0, 0, 0, 0, 0, {(HasReflectionMembers(type) ? cn + "_members" : "0")}, {ReflectionMemberCount(type)}, {genericArgs}, {genericArgCount}{TypeMetaTail(type)}{(StructArrayTypeSym(type) is string ats ? $", .array_of = &{ats}" : "")} }};\n");
+            sb.Append($"Type {cn}_type = {{ {traceFn}, 0, sizeof(GCHeader) + sizeof(struct {cn}), {(paths.Count > 0 ? 0 : 1)}, &vmvaluetype_type, {TypeNameRef(type)}, 0, 0, 0, 0, 0, 0, {(HasReflectionMembers(type) ? cn + "_members" : "0")}, {ReflectionMemberCount(type)}, {genericArgs}, {genericArgCount}{TypeMetaTail(type)}{(StructArrayTypeSym(type) is string ats ? $", .array_of = &{ats}" : "")} }};\n");
             return sb.ToString();
         }
 
@@ -716,6 +775,9 @@ namespace DigitoyEngine.Language
             return null;
         }
 
+        // vtable/itable girisi: trim'de olu (erisilemez) sanal -> 0 (cagrilirsa analiz hatasi; null cagri aninda cokme)
+        static string VSlotRef(Code m) => IsEmittableCode(m) ? $"(const void*)&{CName(m.EncodeName())}" : "0";
+
         static string EmitTraceAndType(Primitive model)
         {
             var cn = CName(model.Name);
@@ -741,7 +803,7 @@ namespace DigitoyEngine.Language
             if (model.VTable.Count > 0)
             {
                 sb.Append($"static const void* const {cn}_vtable[] = {{ ");
-                sb.Append(string.Join(", ", model.VTable.Select(m => $"(const void*)&{CName(m.EncodeName())}")));
+                sb.Append(string.Join(", ", model.VTable.Select(VSlotRef)));
                 sb.Append(" };\n");
                 vtable = cn + "_vtable";
                 nvtable = model.VTable.Count.ToString();
@@ -754,7 +816,7 @@ namespace DigitoyEngine.Language
                 foreach (var iface in allIfaces)
                 {
                     sb.Append($"static const void* const {cn}_it_{CName(iface.Name)}[] = {{ ");
-                    sb.Append(string.Join(", ", model.ITables[iface].Select(m => $"(const void*)&{CName(m.EncodeName())}")));
+                    sb.Append(string.Join(", ", model.ITables[iface].Select(VSlotRef)));
                     sb.Append(" };\n");
                 }
                 sb.Append($"static const IfaceImpl {cn}_itables[] = {{ ");
@@ -790,19 +852,21 @@ namespace DigitoyEngine.Language
                 genericArgs = cn + "_generic_args";
                 genericArgCount = model.TypeArguments.Count.ToString();
             }
-            sb.Append($"Type {cn}_type = {{ {traceFn}, {finFn}, sizeof(struct {cn}), {atomic}, {baseType}, &{strPool[model.Display]}, {vtable}, {nvtable}, {itables}, {nitables}, 0, 0, {members}, {ReflectionMemberCount(model)}, {genericArgs}, {genericArgCount}{TypeMetaTail(model)} }};\n");
+            sb.Append($"Type {cn}_type = {{ {traceFn}, {finFn}, sizeof(struct {cn}), {atomic}, {baseType}, {TypeNameRef(model)}, {vtable}, {nvtable}, {itables}, {nitables}, 0, 0, {members}, {ReflectionMemberCount(model)}, {genericArgs}, {genericArgCount}{TypeMetaTail(model)} }};\n");
             return sb.ToString();
         }
 
         // Reflection uyeleri: tum bildirilen alanlar (backing field'lar dahil; .NET GetFields(NonPublic) gibi) + property'ler.
         // Struct'lar dahil (kutu uzerinden erisim); interface/delegate'in alani yok.
         static IEnumerable<PrimitiveField> ReflectionFields(Primitive model) =>
-            model.Fields.Concat(model.StaticFields);
+            TrimPlan.Has(model, MemberKinds.Fields) ? model.Fields.Concat(model.StaticFields) : Enumerable.Empty<PrimitiveField>();
+        static IEnumerable<PrimitiveProperty> ReflectionProperties(Primitive model) =>
+            TrimPlan.Has(model, MemberKinds.Props) ? model.Properties : Enumerable.Empty<PrimitiveProperty>();
         // Reflection adi: auto-property backing field'i IR'de "X__bk"; .NET adi "<X>k__BackingField" (GetField uyumu). Hash IR adindadir.
         static string ReflectionFieldName(PrimitiveField f) =>
             f.Name.EndsWith("__bk", StringComparison.Ordinal) ? "<" + f.Name.Substring(0, f.Name.Length - 4) + ">k__BackingField" : f.Name;
 
-        static int ReflectionMemberCount(Primitive model) => ReflectionFields(model).Count() + model.Properties.Count;
+        static int ReflectionMemberCount(Primitive model) => ReflectionFields(model).Count() + ReflectionProperties(model).Count();
         static bool HasReflectionMembers(Primitive p) => IsEmittableModel(p) && !p.IsInterface && !p.IsDelegate && ReflectionMemberCount(p) > 0;
 
         static string ReflectionTypeSym(Primitive type) =>
@@ -871,10 +935,10 @@ namespace DigitoyEngine.Language
                     sb.Append($"static void digitoyengine_refset_{suffix}(GCHeader* target, GCHeader* value) {{ {ReflectSetStatement(access, field.Type, "value")} }}\n");
                     set = $"digitoyengine_refset_{suffix}";
                 }
-                sb.Append(EmitAttrTable($"{cn}_fattrs_{CName(field.Name)}", field.Attributes));
+                sb.Append(EmitAttrTable($"{cn}_fattrs_{CName(field.Name)}", MemberAttrs(model, field.Attributes)));
                 entries.Add($"{{ &{strPool[ReflectionFieldName(field)]}, &{cn}_type, {ReflectionTypeSym(field.Type)}, digitoyengine_refget_{suffix}, {set}, 0, DIGITOYENGINE_MEMBER_FIELD, {Convert.ToInt32(field.IsStatic)}, {Convert.ToInt32(field.IsReadonly)}{MemberMetaTail(model, field)} }}");
             }
-            foreach (var property in model.Properties)
+            foreach (var property in ReflectionProperties(model))
             {
                 var suffix = $"{cn}_{index++}";
                 var getter = property.HasGet ? ReflectionAccessor(model, "get_" + property.Name) : null;
@@ -891,8 +955,9 @@ namespace DigitoyEngine.Language
                     set = $"digitoyengine_refset_{suffix}";
                 }
                 var pattrs = $"{cn}_pattrs_{CName(property.Name)}";
-                sb.Append(EmitAttrTable(pattrs, property.Attributes));
-                entries.Add($"{{ &{strPool[property.Name]}, &{cn}_type, {ReflectionTypeSym(property.Type)}, {get}, {set}, 0, DIGITOYENGINE_MEMBER_PROPERTY, {Convert.ToInt32(property.IsStatic)}, 0, .tag = '{ExportTag(property.Type)}'{AttrTail(pattrs, property.Attributes)}, .cilattrs = {property.CilAttributes} }}");
+                var propAttrs = MemberAttrs(model, property.Attributes);
+                sb.Append(EmitAttrTable(pattrs, propAttrs));
+                entries.Add($"{{ &{strPool[property.Name]}, &{cn}_type, {ReflectionTypeSym(property.Type)}, {get}, {set}, 0, DIGITOYENGINE_MEMBER_PROPERTY, {Convert.ToInt32(property.IsStatic)}, 0, .tag = '{ExportTag(property.Type)}'{AttrTail(pattrs, propAttrs)}, .cilattrs = {property.CilAttributes} }}");
             }
             sb.Append($"static DigitoyEngineMember {cn}_members[] = {{\n    {string.Join(",\n    ", entries)}\n}};\n\n");
             return sb.ToString();
@@ -1035,6 +1100,14 @@ namespace DigitoyEngine.Language
 
         static string EmitFunction(Code code)
         {
+            // [DevOnly] + lean (docs/engine-notes.md TRIM): govdesiz stub; cagirdiklari kirpildi.
+            if (TrimPlan.IsStubbed(code))
+            {
+                string body = code.ReturnType == Primitive.Void ? ""
+                    : TrimPlan.CompletedTaskGetter != null && code.ReturnType.Name == "System.Threading.Tasks.Task" ? $"    return {CName(TrimPlan.CompletedTaskGetter.EncodeName())}();\n"
+                    : $"    return ({CType(code.ReturnType)}){{0}};\n";
+                return $"{Prototype(code)} {{ /* DevOnly stub */\n{body}}}\n";
+            }
             // Cevrilemeyen govde (CIL frontend stub'i): SESSIZ sifir donmek YASAK — ilk cagrida
             // NotImplementedException("AOT stub: Tip.Uye — sebep") firlatilir; hata uzakta, alakasiz
             // bir yerde (null deref) degil, tam kaynaginda ve izinde gorunur.

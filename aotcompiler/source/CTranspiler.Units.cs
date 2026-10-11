@@ -95,9 +95,13 @@ namespace DigitoyEngine.Language
                     UnitOf(p).Pre.Append($"static DigitoyEngineMember {CName(p.Name)}_members[{ReflectionMemberCount(p)}];\n");
             foreach (var kv in typeMethods)
                 UnitOf(kv.Key).H.Append($"extern MethodInfo {kv.Value.sym}[{kv.Value.count}];\n");
+            foreach (var kv in typeTraces)
+                UnitOf(kv.Key).H.Append($"extern const MethodTrace {kv.Value.sym}[{kv.Value.count}];\n");
+            if (traceList.Any(c => methodTable[c] == MiscTraceSym))
+                sharedUnit.H.Append($"extern const MethodTrace {MiscTraceSym}[];\n");
             foreach (var p in ctx.AllPrimitives)
-                if ((IsEmittableModel(p) || p.IsEnum) && typeIndex.ContainsKey(p) && EmittableAttrs(p.Attributes).Count > 0)
-                    UnitOf(p).Pre.Append($"static DeAttr {CName(p.Name)}_tattrs[{EmittableAttrs(p.Attributes).Count}];\n");
+                if ((IsEmittableModel(p) || p.IsEnum) && typeIndex.ContainsKey(p) && EmittableAttrs(TypeAttrs(p)).Count > 0)
+                    UnitOf(p).Pre.Append($"static DeAttr {CName(p.Name)}_tattrs[{EmittableAttrs(TypeAttrs(p)).Count}];\n");
             // trampoline'ler: .c on-bolumu (descriptor / metot tablosu adres alir)
             EmitTrampolinesInto(ctx, c => (methodTable.TryGetValue(c, out var ts) && ts == MiscMethodsSym ? metaUnit : UnitOfCode(c)).Pre, p => UnitOf(p).Pre);
 
@@ -168,7 +172,7 @@ namespace DigitoyEngine.Language
                     UnitOf(p).C.Append(EmitReflectionMembers(p));
             foreach (var p in ctx.AllPrimitives) // tip attribute tablolarinin tanimi (fonksiyonlardan sonra: ctor cagrilari)
                 if ((IsEmittableModel(p) || p.IsEnum) && typeIndex.ContainsKey(p))
-                    UnitOf(p).C.Append(EmitAttrTable($"{CName(p.Name)}_tattrs", p.Attributes));
+                    UnitOf(p).C.Append(EmitAttrTable($"{CName(p.Name)}_tattrs", TypeAttrs(p)));
             EmitMethodTablesInto(c => UnitOfCode(c).C, metaUnit.C);
             metaUnit.C.Append(EmitMetaTables());
             metaUnit.C.Append(EmitInit(ctx));
@@ -224,6 +228,7 @@ namespace DigitoyEngine.Language
 
         static readonly Regex IdentRx = new Regex(@"[A-Za-z_][A-Za-z0-9_]*", RegexOptions.Compiled);
         static readonly Regex StrSymRx = new Regex(@"_strpool_[0-9a-f]{16}(?:_[0-9]+)?", RegexOptions.Compiled);
+        static readonly Regex CStrSymRx = new Regex(@"_cs_[0-9a-f]{16}(?:_[0-9]+)?", RegexOptions.Compiled);
         static readonly Regex ThunkSymRx = new Regex(@"de_thunk_[0-9a-f]{16}", RegexOptions.Compiled);
 
         // Govdede gecen birim adlari: tanimlayici icindeki her `_` sinirli alt dizi (arr_X_type, New_X, X_methods, X ...).
@@ -295,6 +300,9 @@ namespace DigitoyEngine.Language
             var strs = new SortedSet<string>(StringComparer.Ordinal);
             foreach (Match m in StrSymRx.Matches(body)) strs.Add(m.Value);
             foreach (var s in strs) sb.Append($"extern VmString {s};\n");
+            var cstrs = new SortedSet<string>(StringComparer.Ordinal);
+            foreach (Match m in CStrSymRx.Matches(body)) cstrs.Add(m.Value);
+            foreach (var s in cstrs) sb.Append($"extern const char {s}[];\n");
             var thunks = new SortedSet<string>(StringComparer.Ordinal);
             foreach (Match m in ThunkSymRx.Matches(body)) thunks.Add(m.Value);
             foreach (var t in thunks) sb.Append($"void {t}(const void *fn, DeSlot *a, DeSlot *r);\n");

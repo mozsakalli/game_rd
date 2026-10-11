@@ -49,6 +49,15 @@ public sealed class ExecuteInEditModeAttribute : Attribute
 {
 }
 
+// AOT trim (docs/engine-notes.md TRIM): isaretli metot lean profilde GOVDESIZ derlenir (void -> hicbir sey, Task ->
+// CompletedTask, diger -> default) ve cagirdigi hicbir sey erisilebilir sayilmaz. Dev/test kancalari icin
+// (sahne dokumu, autoload modul, net probe): release ikilisine girmez, full profilde oldugu gibi kalir.
+// Donus tipi yalniz void / Task / skaler-referans olabilir (Task<T> DESTEKLENMEZ: durum alanla tasinir).
+[AttributeUsage(AttributeTargets.Method)]
+public sealed class DevOnlyAttribute : Attribute
+{
+}
+
 // Inspector'da kosullu gorunurluk: AYNI duzeydeki kardes serilesen alanin degerine
 // bagli. value verilirse esitlik (kanonik skaler kiyasi: enum adi, bool, sayi...);
 // value=null ise "truthy" testi (bool true / asset-ref dolu / sayi != 0 / string dolu).
