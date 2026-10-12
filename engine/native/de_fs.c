@@ -69,7 +69,12 @@ typedef volatile int de_state_t;
 #define DE_MAX_HANDLES 32
 #define DE_PATH_MAX 512
 
-enum { KIND_OPEN = 0, KIND_READ = 1, KIND_DECODE = 2 };
+enum
+{
+    KIND_OPEN = 0,
+    KIND_READ = 1,
+    KIND_DECODE = 2
+};
 
 typedef struct
 {
@@ -128,73 +133,6 @@ static FILE *de_open_asset(const char *name, long long *base, long long *size)
     return f;
 }
 #endif
-
-// ---- DTEX: build'de cozulmus texture [magic][format][w][h][veri] ----
-static int de_paeth(int a, int b, int c)
-{
-    int p = a + b - c;
-    int pa = abs(p - a), pb = abs(p - b), pc = abs(p - c);
-    return pa <= pb && pa <= pc ? a : (pb <= pc ? b : c);
-}
-
-static unsigned char *de_try_dtex(const unsigned char *data, long long len, int *w, int *h)
-{
-    if (len < 16)
-        return NULL;
-    int magic, fmt, tw, th;
-    memcpy(&magic, data, 4);
-    if (magic != 0x58455444)
-        return NULL;
-    memcpy(&fmt, data + 4, 4);
-    memcpy(&tw, data + 8, 4);
-    memcpy(&th, data + 12, 4);
-    if (tw <= 0 || th <= 0)
-        return NULL;
-    long long stride = (long long)tw * 4;
-    if (fmt == 0)
-    {
-        if (stride * th != len - 16)
-            return NULL;
-        unsigned char *px = (unsigned char *)malloc((size_t)(stride * th));
-        if (!px)
-            return NULL;
-        memcpy(px, data + 16, (size_t)(stride * th));
-        *w = tw;
-        *h = th;
-        return px;
-    }
-    if (fmt == 1)
-    {
-        if ((stride + 1) * th != len - 16)
-            return NULL;
-        unsigned char *px = (unsigned char *)malloc((size_t)(stride * th));
-        if (!px)
-            return NULL;
-        const unsigned char *src = data + 16;
-        for (int y = 0; y < th; y++)
-        {
-            int f = *src++;
-            unsigned char *cur = px + (size_t)y * stride;
-            const unsigned char *prev = y > 0 ? cur - stride : NULL;
-            for (long long x = 0; x < stride; x++)
-            {
-                int left = x >= 4 ? cur[x - 4] : 0;
-                int up = prev ? prev[x] : 0;
-                int ul = (prev && x >= 4) ? prev[x - 4] : 0;
-                int pred = f == 1 ? left : f == 2 ? up
-                                       : f == 3   ? ((left + up) >> 1)
-                                       : f == 4   ? de_paeth(left, up, ul)
-                                                  : 0;
-                cur[x] = (unsigned char)(src[x] + pred);
-            }
-            src += stride;
-        }
-        *w = tw;
-        *h = th;
-        return px;
-    }
-    return NULL;
-}
 
 // ---- worker ----
 
@@ -271,12 +209,17 @@ static void de_run_job(de_job_t *job)
     else
     {
         int w = 0, h = 0, comp = 0;
-        unsigned char *px = de_try_dtex(blob, len, &w, &h);
-        if (!px)
-            px = stbi_load_from_memory(blob, (int)len, &w, &h, &comp, 4); // stbi allocator = malloc
+        unsigned char *px = NULL;
+        int ch = 4;
+        {
+            // Dosyadaki kanal korunur: gray (1) -> R8, digerleri RGBA'ya tamamlanir (2/3 kanal GPU formati yok).
+            if (stbi_info_from_memory(blob, (int)len, &w, &h, &comp) && comp == 1)
+                ch = 1;
+            px = stbi_load_from_memory(blob, (int)len, &w, &h, &comp, ch); // stbi allocator = malloc
+        }
         free(blob);
         if (px)
-            de_async_complete(job->id, 1, px, (long long)w * h * 4, w, h);
+            de_async_complete(job->id, 1, px, (long long)w * h * ch, w, h);
         else
             de_async_complete(job->id, -1, NULL, 0, 0, 0);
     }
@@ -446,7 +389,8 @@ static char *de_strdup(const char *s)
 {
     size_t n = strlen(s) + 1;
     char *d = (char *)malloc(n);
-    if (d) memcpy(d, s, n);
+    if (d)
+        memcpy(d, s, n);
     return d;
 }
 
@@ -459,33 +403,45 @@ static char *de_strdup(const char *s)
 
 #if defined(__EMSCRIPTEN__)
 // Anahtar oneki sayfa yoluna gore: ayni origin'deki farkli oyunlar carpismasin.
+// EM_JS govdesi JS'tir: clang-format C sanip '===' → '== =' bozar (link'te acorn SyntaxError) → format kapali.
 #include <emscripten/emscripten.h>
+// clang-format off
 EM_JS(char *, de_js_prefs_get, (const char *key), {
     var v = localStorage.getItem('de:' + location.pathname + ':' + UTF8ToString(key));
-    if (v === null) return 0;
+    if (v === null)
+        return 0;
     var n = lengthBytesUTF8(v) + 1, p = _malloc(n);
     stringToUTF8(v, p, n);
     return p;
 });
 EM_JS(void, de_js_prefs_set, (const char *key, const char *value), {
-    try { localStorage.setItem('de:' + location.pathname + ':' + UTF8ToString(key), UTF8ToString(value)); } catch (e) {}
+    try { localStorage.setItem('de:' + location.pathname + ':' + UTF8ToString(key), UTF8ToString(value)); }
+    catch (e) {}
 });
 EM_JS(void, de_js_prefs_delete, (const char *key), {
     localStorage.removeItem('de:' + location.pathname + ':' + UTF8ToString(key));
 });
 EM_JS(void, de_js_prefs_delete_all, (void), {
     var pre = 'de:' + location.pathname + ':', dead = [];
-    for (var i = 0; i < localStorage.length; i++) { var k = localStorage.key(i); if (k && k.indexOf(pre) === 0) dead.push(k); }
-    dead.forEach(function (k) { localStorage.removeItem(k); });
+    for (var i = 0; i < localStorage.length; i++) {
+        var k = localStorage.key(i);
+        if (k && k.indexOf(pre) === 0)
+            dead.push(k);
+    }
+    dead.forEach(function(k) { localStorage.removeItem(k); });
 });
+// clang-format on
 
 DE_FS_API void de_prefs_set_root(const char *root) { (void)root; }
 DE_FS_API int de_prefs_get(const char *key, void **out, int *len)
 {
-    *out = NULL; *len = 0;
+    *out = NULL;
+    *len = 0;
     char *v = de_js_prefs_get(key);
-    if (!v) return 0;
-    *out = v; *len = (int)strlen(v);
+    if (!v)
+        return 0;
+    *out = v;
+    *len = (int)strlen(v);
     return 1;
 }
 DE_FS_API void de_prefs_set(const char *key, const char *value) { de_js_prefs_set(key, value ? value : ""); }
@@ -494,7 +450,8 @@ DE_FS_API void de_prefs_delete_all(void) { de_js_prefs_delete_all(); }
 DE_FS_API int de_prefs_has(const char *key)
 {
     char *v = de_js_prefs_get(key);
-    if (!v) return 0;
+    if (!v)
+        return 0;
     free(v);
     return 1;
 }
@@ -520,46 +477,67 @@ DE_FS_API void de_android_prefs_bind(void *vm, void *env_, void *cls_)
     de_pm_delete_all = (*env)->GetStaticMethodID(env, cls, "deleteAll", "()V");
     de_pm_has = (*env)->GetStaticMethodID(env, cls, "has", "(Ljava/lang/String;)Z");
     de_pm_save = (*env)->GetStaticMethodID(env, cls, "save", "()V");
-    if ((*env)->ExceptionCheck(env)) { (*env)->ExceptionClear(env); de_pref_cls = NULL; }
+    if ((*env)->ExceptionCheck(env))
+    {
+        (*env)->ExceptionClear(env);
+        de_pref_cls = NULL;
+    }
 }
 static JNIEnv *de_pref_env(void)
 {
-    if (!de_pref_vm || !de_pref_cls) return NULL;
+    if (!de_pref_vm || !de_pref_cls)
+        return NULL;
     JNIEnv *env = NULL;
-    if ((*de_pref_vm)->GetEnv(de_pref_vm, (void **)&env, JNI_VERSION_1_6) == JNI_OK) return env;
+    if ((*de_pref_vm)->GetEnv(de_pref_vm, (void **)&env, JNI_VERSION_1_6) == JNI_OK)
+        return env;
     return (*de_pref_vm)->AttachCurrentThread(de_pref_vm, &env, NULL) == JNI_OK ? env : NULL;
 }
-static void de_pref_clear(JNIEnv *env) { if ((*env)->ExceptionCheck(env)) (*env)->ExceptionClear(env); }
+static void de_pref_clear(JNIEnv *env)
+{
+    if ((*env)->ExceptionCheck(env))
+        (*env)->ExceptionClear(env);
+}
 
 DE_FS_API void de_prefs_set_root(const char *root) { (void)root; }
 DE_FS_API int de_prefs_get(const char *key, void **out, int *len)
 {
-    *out = NULL; *len = 0;
+    *out = NULL;
+    *len = 0;
     JNIEnv *env = de_pref_env();
-    if (!env) return 0;
+    if (!env)
+        return 0;
     jstring jk = (*env)->NewStringUTF(env, key);
     jstring jv = (jstring)(*env)->CallStaticObjectMethod(env, de_pref_cls, de_pm_get, jk);
     (*env)->DeleteLocalRef(env, jk);
     de_pref_clear(env);
-    if (!jv) return 0;
+    if (!jv)
+        return 0;
     const char *s = (*env)->GetStringUTFChars(env, jv, NULL);
-    if (s) { *out = de_strdup(s); *len = (int)strlen(s); (*env)->ReleaseStringUTFChars(env, jv, s); }
+    if (s)
+    {
+        *out = de_strdup(s);
+        *len = (int)strlen(s);
+        (*env)->ReleaseStringUTFChars(env, jv, s);
+    }
     (*env)->DeleteLocalRef(env, jv);
     return *out != NULL;
 }
 DE_FS_API void de_prefs_set(const char *key, const char *value)
 {
     JNIEnv *env = de_pref_env();
-    if (!env) return;
+    if (!env)
+        return;
     jstring jk = (*env)->NewStringUTF(env, key), jv = (*env)->NewStringUTF(env, value ? value : "");
     (*env)->CallStaticVoidMethod(env, de_pref_cls, de_pm_set, jk, jv);
-    (*env)->DeleteLocalRef(env, jk); (*env)->DeleteLocalRef(env, jv);
+    (*env)->DeleteLocalRef(env, jk);
+    (*env)->DeleteLocalRef(env, jv);
     de_pref_clear(env);
 }
 DE_FS_API void de_prefs_delete(const char *key)
 {
     JNIEnv *env = de_pref_env();
-    if (!env) return;
+    if (!env)
+        return;
     jstring jk = (*env)->NewStringUTF(env, key);
     (*env)->CallStaticVoidMethod(env, de_pref_cls, de_pm_delete, jk);
     (*env)->DeleteLocalRef(env, jk);
@@ -568,14 +546,16 @@ DE_FS_API void de_prefs_delete(const char *key)
 DE_FS_API void de_prefs_delete_all(void)
 {
     JNIEnv *env = de_pref_env();
-    if (!env) return;
+    if (!env)
+        return;
     (*env)->CallStaticVoidMethod(env, de_pref_cls, de_pm_delete_all);
     de_pref_clear(env);
 }
 DE_FS_API int de_prefs_has(const char *key)
 {
     JNIEnv *env = de_pref_env();
-    if (!env) return 0;
+    if (!env)
+        return 0;
     jstring jk = (*env)->NewStringUTF(env, key);
     jboolean r = (*env)->CallStaticBooleanMethod(env, de_pref_cls, de_pm_has, jk);
     (*env)->DeleteLocalRef(env, jk);
@@ -585,7 +565,8 @@ DE_FS_API int de_prefs_has(const char *key)
 DE_FS_API void de_prefs_save(void)
 {
     JNIEnv *env = de_pref_env();
-    if (!env) return;
+    if (!env)
+        return;
     (*env)->CallStaticVoidMethod(env, de_pref_cls, de_pm_save);
     de_pref_clear(env);
 }
@@ -598,17 +579,24 @@ static CFStringRef de_cf(const char *s) { return CFStringCreateWithCString(NULL,
 DE_FS_API void de_prefs_set_root(const char *root) { (void)root; }
 DE_FS_API int de_prefs_get(const char *key, void **out, int *len)
 {
-    *out = NULL; *len = 0;
+    *out = NULL;
+    *len = 0;
     CFStringRef k = de_cf(key);
     CFPropertyListRef v = CFPreferencesCopyAppValue(k, kCFPreferencesCurrentApplication);
     CFRelease(k);
-    if (!v) return 0;
+    if (!v)
+        return 0;
     if (CFGetTypeID(v) == CFStringGetTypeID())
     {
         CFIndex max = CFStringGetMaximumSizeForEncoding(CFStringGetLength((CFStringRef)v), kCFStringEncodingUTF8) + 1;
         char *buf = (char *)malloc((size_t)max);
-        if (buf && CFStringGetCString((CFStringRef)v, buf, max, kCFStringEncodingUTF8)) { *out = buf; *len = (int)strlen(buf); }
-        else free(buf);
+        if (buf && CFStringGetCString((CFStringRef)v, buf, max, kCFStringEncodingUTF8))
+        {
+            *out = buf;
+            *len = (int)strlen(buf);
+        }
+        else
+            free(buf);
     }
     CFRelease(v);
     return *out != NULL;
@@ -617,7 +605,8 @@ DE_FS_API void de_prefs_set(const char *key, const char *value)
 {
     CFStringRef k = de_cf(key), v = de_cf(value);
     CFPreferencesSetAppValue(k, v, kCFPreferencesCurrentApplication);
-    CFRelease(k); CFRelease(v);
+    CFRelease(k);
+    CFRelease(v);
 }
 DE_FS_API void de_prefs_delete(const char *key)
 {
@@ -628,15 +617,18 @@ DE_FS_API void de_prefs_delete(const char *key)
 DE_FS_API void de_prefs_delete_all(void)
 {
     CFArrayRef keys = CFPreferencesCopyKeyList(kCFPreferencesCurrentApplication, kCFPreferencesCurrentUser, kCFPreferencesAnyHost);
-    if (!keys) return;
+    if (!keys)
+        return;
     for (CFIndex i = 0; i < CFArrayGetCount(keys); i++)
         CFPreferencesSetAppValue((CFStringRef)CFArrayGetValueAtIndex(keys, i), NULL, kCFPreferencesCurrentApplication);
     CFRelease(keys);
 }
 DE_FS_API int de_prefs_has(const char *key)
 {
-    void *p; int n;
-    if (!de_prefs_get(key, &p, &n)) return 0;
+    void *p;
+    int n;
+    if (!de_prefs_get(key, &p, &n))
+        return 0;
     free(p);
     return 1;
 }
@@ -653,14 +645,21 @@ DE_FS_API void de_prefs_save(void) { CFPreferencesAppSynchronize(kCFPreferencesC
 #define de_prefs_mkdir(p) mkdir(p, 0755)
 #endif
 
-typedef struct { char *key, *value; } de_pref_t;
+typedef struct
+{
+    char *key, *value;
+} de_pref_t;
 static de_pref_t *de_prefs;
 static int de_prefs_n, de_prefs_cap, de_prefs_loaded, de_prefs_dirty;
 static char de_prefs_root[1024] = ".";
 
 static void de_prefs_clear_mem(void)
 {
-    for (int i = 0; i < de_prefs_n; i++) { free(de_prefs[i].key); free(de_prefs[i].value); }
+    for (int i = 0; i < de_prefs_n; i++)
+    {
+        free(de_prefs[i].key);
+        free(de_prefs[i].value);
+    }
     de_prefs_n = 0;
 }
 
@@ -670,8 +669,14 @@ static int de_prefs_unescape(char *s)
     char *w = s;
     for (char *r = s; *r; r++)
     {
-        if (*r == '\\' && r[1]) { r++; *w++ = *r == 't' ? '\t' : *r == 'n' ? '\n' : *r; }
-        else *w++ = *r;
+        if (*r == '\\' && r[1])
+        {
+            r++;
+            *w++ = *r == 't' ? '\t' : *r == 'n' ? '\n'
+                                                : *r;
+        }
+        else
+            *w++ = *r;
     }
     *w = 0;
     return (int)(w - s);
@@ -680,27 +685,41 @@ static void de_prefs_fput_escaped(FILE *f, const char *s)
 {
     for (; *s; s++)
     {
-        if (*s == '\t') fputs("\\t", f);
-        else if (*s == '\n') fputs("\\n", f);
-        else if (*s == '\\') fputs("\\\\", f);
-        else fputc(*s, f);
+        if (*s == '\t')
+            fputs("\\t", f);
+        else if (*s == '\n')
+            fputs("\\n", f);
+        else if (*s == '\\')
+            fputs("\\\\", f);
+        else
+            fputc(*s, f);
     }
 }
 
 static void de_prefs_load(void)
 {
-    if (de_prefs_loaded) return;
+    if (de_prefs_loaded)
+        return;
     de_prefs_loaded = 1;
     char path[1200];
     snprintf(path, sizeof path, "%s/prefs.dat", de_prefs_root);
     FILE *f = fopen(path, "rb");
-    if (!f) return;
+    if (!f)
+        return;
     fseek(f, 0, SEEK_END);
     long n = ftell(f);
     fseek(f, 0, SEEK_SET);
-    if (n <= 0) { fclose(f); return; }
+    if (n <= 0)
+    {
+        fclose(f);
+        return;
+    }
     char *buf = (char *)malloc((size_t)n + 1);
-    if (!buf) { fclose(f); return; }
+    if (!buf)
+    {
+        fclose(f);
+        return;
+    }
     size_t got = fread(buf, 1, (size_t)n, f);
     fclose(f);
     buf[got] = 0;
@@ -708,7 +727,8 @@ static void de_prefs_load(void)
     while (line && *line)
     {
         char *nl = strchr(line, '\n');
-        if (nl) *nl = 0;
+        if (nl)
+            *nl = 0;
         char *tab = strchr(line, '\t'); // kacissiz ilk tab = ayirici (anahtardaki tab \t olarak kacisli)
         if (tab)
         {
@@ -726,7 +746,8 @@ static void de_prefs_load(void)
 static int de_prefs_find(const char *key)
 {
     for (int i = 0; i < de_prefs_n; i++)
-        if (strcmp(de_prefs[i].key, key) == 0) return i;
+        if (strcmp(de_prefs[i].key, key) == 0)
+            return i;
     return -1;
 }
 
@@ -740,23 +761,28 @@ DE_FS_API void de_prefs_set_root(const char *root)
 }
 DE_FS_API int de_prefs_get(const char *key, void **out, int *len)
 {
-    *out = NULL; *len = 0;
+    *out = NULL;
+    *len = 0;
     de_prefs_load();
     int i = de_prefs_find(key);
-    if (i < 0) return 0;
+    if (i < 0)
+        return 0;
     *out = de_strdup(de_prefs[i].value);
     *len = (int)strlen(de_prefs[i].value);
     return *out != NULL;
 }
 DE_FS_API void de_prefs_set(const char *key, const char *value)
 {
-    if (!key) return;
+    if (!key)
+        return;
     de_prefs_load();
-    if (!value) value = "";
+    if (!value)
+        value = "";
     int i = de_prefs_find(key);
     if (i >= 0)
     {
-        if (strcmp(de_prefs[i].value, value) == 0) return;
+        if (strcmp(de_prefs[i].value, value) == 0)
+            return;
         free(de_prefs[i].value);
         de_prefs[i].value = de_strdup(value);
     }
@@ -777,15 +803,18 @@ DE_FS_API void de_prefs_delete(const char *key)
 {
     de_prefs_load();
     int i = de_prefs_find(key);
-    if (i < 0) return;
-    free(de_prefs[i].key); free(de_prefs[i].value);
+    if (i < 0)
+        return;
+    free(de_prefs[i].key);
+    free(de_prefs[i].value);
     de_prefs[i] = de_prefs[--de_prefs_n];
     de_prefs_dirty = 1;
 }
 DE_FS_API void de_prefs_delete_all(void)
 {
     de_prefs_load();
-    if (de_prefs_n) de_prefs_dirty = 1;
+    if (de_prefs_n)
+        de_prefs_dirty = 1;
     de_prefs_clear_mem();
 }
 DE_FS_API int de_prefs_has(const char *key)
@@ -795,13 +824,15 @@ DE_FS_API int de_prefs_has(const char *key)
 }
 DE_FS_API void de_prefs_save(void)
 {
-    if (!de_prefs_loaded || !de_prefs_dirty) return;
+    if (!de_prefs_loaded || !de_prefs_dirty)
+        return;
     char path[1200], tmp[1210];
     snprintf(path, sizeof path, "%s/prefs.dat", de_prefs_root);
     snprintf(tmp, sizeof tmp, "%s.tmp", path);
     de_prefs_mkdir(de_prefs_root);
     FILE *f = fopen(tmp, "wb");
-    if (!f) return;
+    if (!f)
+        return;
     for (int i = 0; i < de_prefs_n; i++)
     {
         de_prefs_fput_escaped(f, de_prefs[i].key);
@@ -810,11 +841,23 @@ DE_FS_API void de_prefs_save(void)
         fputc('\n', f);
     }
     int ok = fclose(f) == 0;
-    if (!ok) { remove(tmp); return; }
+    if (!ok)
+    {
+        remove(tmp);
+        return;
+    }
 #if defined(_WIN32)
-    if (!MoveFileExA(tmp, path, MOVEFILE_REPLACE_EXISTING)) { remove(tmp); return; }
+    if (!MoveFileExA(tmp, path, MOVEFILE_REPLACE_EXISTING))
+    {
+        remove(tmp);
+        return;
+    }
 #else
-    if (rename(tmp, path) != 0) { remove(tmp); return; }
+    if (rename(tmp, path) != 0)
+    {
+        remove(tmp);
+        return;
+    }
 #endif
     de_prefs_dirty = 0;
 }

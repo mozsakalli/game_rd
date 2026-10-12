@@ -13,8 +13,11 @@
 [net] 18 PASS, 0 FAIL
 [progress] 11 PASS, 0 FAIL
 [catalogtest] 13 PASS 0 FAIL
-[objtest] 29 PASS, 0 FAIL
-[info] [import] Effects/Shine.fx -> 1 artifact (FxImporter, 3ms)
+[objtest] 34 PASS, 0 FAIL
+[info] [import] Fonts/arial.ttf -> 3 artifact (FontImporter, 1066ms)
+[info] [import] Fonts/NotoSans-Black.ttf -> 3 artifact (FontImporter, 1062ms)
+[info] [atlas] MainAtlas.asset: 643 bolge, 1 sayfa (11 uye)
+[info] [import] MainAtlas.asset -> 2 artifact (AtlasImporter, 721ms)
 [info] [rpc] dinleniyor: localhost:5157  (http://localhost:5157/ -> C:\Work\digitoygames\game_rd\Projects\Sandbox\Build\wasm)
 [probe] game=Sandbox fps=60 music=1.1333325 showFps=False
 [warning] [bake] semada olmayan alan atlandi: LayoutBox.fillColor (Scenes/Login.scene)
@@ -26,9 +29,81 @@
 [warning] [bake] semada olmayan alan atlandi: LayoutBox.fillColor (Scenes/Login.scene)
 [warning] [bake] semada olmayan alan atlandi: LayoutBox.borderColor (Scenes/Login.scene)
 [warning] [bake] semada olmayan alan atlandi: LayoutBox.fillColor (Scenes/Login.scene)
-[info] [pak] 2 kok sahne -> 19/35 asset canli (16 strip), 21 giris (3 dtex, 3 baked sahne/prefab, 13 yutulmus) -> C:\Work\digitoygames\game_rd\Projects\Sandbox\Build\game.pak (1119.2 KB, acik 7555.8 KB, %14.8)
-[info] [pak] verify OK: 21 bayt-esit, bg.jpg defilter pikselleri kaynakla BIREBIR (1040x480)
-[info] code change detected, compiling...
-[gamecode] yuklendi: Yuzbir Extra.Game (7 script)
-[probe] game=Sandbox fps=60 music=1.1333325 showFps=False
-[info] code reloaded (7 scripts)
+[info] [pak] 2 kok sahne -> 19/35 asset canli (16 strip), 21 giris (3 gorsel, 3 baked sahne/prefab, 13 yutulmus) -> C:\Work\digitoygames\game_rd\Projects\Sandbox\Build\game.pak (1034.9 KB, acik 1540.6 KB, %67.2)
+[info] [pak] verify OK: 21 bayt-esit, bg.jpg pikselleri artifact ile BIREBIR (1040x480)
+[info] [project] yeni editor basladi: C:\Work\digitoygames\game_rd\Projects\yuzbirextra - bu pencere kapaniyor
+[gamecode] yuklendi: yuzbirextra.Game (5 script)
+[lifecycle] 23 PASS, 0 FAIL
+[movieclip] 65 PASS, 0 FAIL
+[particle] 19 PASS, 0 FAIL
+[serialization] 38 PASS, 0 FAIL
+[inspector] 47 PASS, 0 FAIL
+[layout] 39 PASS, 0 FAIL
+[pointer] 22 PASS, 0 FAIL
+[rendergroup] 12 PASS, 0 FAIL
+[fx] 9 PASS, 0 FAIL
+[prefs] 15 PASS, 0 FAIL
+[async] 28 PASS, 0 FAIL
+[net] 18 PASS, 0 FAIL
+[progress] 11 PASS, 0 FAIL
+[catalogtest] 13 PASS 0 FAIL
+[objtest] 34 PASS, 0 FAIL
+[info] [import] Login/Sprites/bg-login.jpg -> 1 artifact (ImageImporter, 3ms)
+[info] [import] Common/Fonts/Digitoy-Bold.ttf -> 3 artifact (FontImporter, 838ms)
+[info] [import] Login/Sprites/logo-bg.png -> 1 artifact (ImageImporter, 2ms)
+[info] [import] Common/Fonts/Digitoy-Light.ttf -> 3 artifact (FontImporter, 814ms)
+[info] [import] Login/Sprites/logo.png -> 1 artifact (ImageImporter, 3ms)
+[info] [import] Common/Fonts/Digitoy-Primary.ttf -> 3 artifact (FontImporter, 982ms)
+[info] [atlas] Common/AtlasGroup.asset: 951 bolge, 1 sayfa (3 uye)
+[info] [import] Common/AtlasGroup.asset -> 2 artifact (AtlasImporter, 1480ms)
+[info] [rpc] dinleniyor: localhost:5157  (http://localhost:5157/ -> C:\Work\digitoygames\game_rd\Projects\yuzbirextra\Build\wasm)
+[info] [player-build] 1/2 asset pack
+[info] [atlas] Common/AtlasGroup.asset: 634 bolge, 1 sayfa (2 uye)
+[info] [pak] 1 kok sahne -> 8/20 asset canli (12 strip), 10 giris (3 gorsel, 1 baked sahne/prefab, 4 yutulmus) -> C:\Work\digitoygames\game_rd\Projects\yuzbirextra\Build\game.pak (659.1 KB, acik 1164.9 KB, %56.6)
+[info] [pak] verify OK: 10 bayt-esit, Login/Sprites/bg-login.jpg pikselleri artifact ile BIREBIR (2080x960)
+[info] [player-build] 2/2 aotcompiler player C:\Work\digitoygames\game_rd\Projects\yuzbirextra --target wasm
+[info] [aot] managed: obj\aot-il\DigitoyEngine.wasm.dll
+[info] [aot]          C:\Work\digitoygames\game_rd\Projects\yuzbirextra\Library\aot\wasm\yuzbirextra.Game.dll
+[info] [aot]   [sure] Roslyn (engine AOT + oyun): 1.4 s
+[info] [aot] [corelib] CIL tani: 1 oge:
+[info] [aot]   skip attribute Microsoft.CodeAnalysis.EmbeddedAttribute on System.Runtime.CompilerServices.RefSafetyRulesAttribute: CIL: corelib yuzeyinde olmayan tip: Microsoft.CodeAnalysis.EmbeddedAttribute (gerekiyorsa corelib'e ekleyelim)
+[info] [aot]   [sure] corelib (Digitoy.CoreLib.dll, CIL): 0.1 s
+[info] [aot]   [sure] CIL frontend (engine+player): 0.3 s
+[info] [aot] CIL tani: 13 oge atlandi/stub'landi -> C:\Work\digitoygames\game_rd\Projects\yuzbirextra\Library\aot\wasm\diag.txt
+[info] [aot]   [sure] resolve/monomorph: 0.5 s
+[info] [aot] trim: profil lean; 12 pak component, 73 reflection tipi, 2514 erisilebilir kod
+[info] [aot]   [sure] trim analizi: 0.0 s
+[info] [aot]   [sure] C transpile: 1.1 s
+[info] [aot] transpile -> C:\Work\digitoygames\game_rd\Projects\yuzbirextra\Library\aot\wasm\gen: 1495 .c (396 yazildi, 2592 degismedi)
+[info] [aot] cc: 1505 derlendi, 0 guncel (71.6 s, 12 paralel)
+[info] [aot] link: C:\Work\digitoygames\game_rd\Projects\yuzbirextra\Build\wasm\game.js (116 KB, 7.6 s)
+[info] [aot] emcc ok -> C:\Work\digitoygames\game_rd\Projects\yuzbirextra\Build\wasm\game.wasm (1287 KB wasm, 659 KB data)
+[info] [aot] wasm kabugu mevcut, dokunulmadi: C:\Work\digitoygames\game_rd\Projects\yuzbirextra\Build\wasm\index.html
+[info] [aot] wasm hazir -> C:\Work\digitoygames\game_rd\Projects\yuzbirextra\Build\wasm  (HTTP sunucudan acin; file:// calismaz)
+[info] [aot]   [sure] emcc + link: 80.6 s
+[info] [player-build] OK -> web: C:\Work\digitoygames\game_rd\Projects\yuzbirextra\Build\wasm (1287 KB wasm, 86 s) - http://localhost:5157/
+[info] [player-build] 1/2 asset pack
+[info] [atlas] Common/AtlasGroup.asset: 634 bolge, 1 sayfa (2 uye)
+[info] [pak] 1 kok sahne -> 8/20 asset canli (12 strip), 10 giris (3 gorsel, 1 baked sahne/prefab, 4 yutulmus) -> C:\Work\digitoygames\game_rd\Projects\yuzbirextra\Build\game.pak (659.1 KB, acik 1164.9 KB, %56.6)
+[info] [pak] verify OK: 10 bayt-esit, Login/Sprites/bg-login.jpg pikselleri artifact ile BIREBIR (2080x960)
+[info] [player-build] 2/2 aotcompiler player C:\Work\digitoygames\game_rd\Projects\yuzbirextra --target windows
+[info] [aot] managed: obj\aot-il\DigitoyEngine.dll
+[info] [aot]          C:\Work\digitoygames\game_rd\Projects\yuzbirextra\Library\aot\windows\yuzbirextra.Game.dll
+[info] [aot]   [sure] Roslyn (engine AOT + oyun): 1.4 s
+[info] [aot] [corelib] CIL tani: 1 oge:
+[info] [aot]   skip attribute Microsoft.CodeAnalysis.EmbeddedAttribute on System.Runtime.CompilerServices.RefSafetyRulesAttribute: CIL: corelib yuzeyinde olmayan tip: Microsoft.CodeAnalysis.EmbeddedAttribute (gerekiyorsa corelib'e ekleyelim)
+[info] [aot]   [sure] corelib (Digitoy.CoreLib.dll, CIL): 0.1 s
+[info] [aot]   [sure] CIL frontend (engine+player): 0.2 s
+[info] [aot] CIL tani: 13 oge atlandi/stub'landi -> C:\Work\digitoygames\game_rd\Projects\yuzbirextra\Library\aot\windows\diag.txt
+[info] [aot]   [sure] resolve/monomorph: 0.6 s
+[info] [aot] trim: profil lean; 12 pak component, 73 reflection tipi, 2514 erisilebilir kod
+[info] [aot]   [sure] trim analizi: 0.1 s
+[info] [aot]   [sure] C transpile: 1.2 s
+[info] [aot] transpile -> C:\Work\digitoygames\game_rd\Projects\yuzbirextra\Library\aot\windows\gen: 1498 .c (2368 yazildi, 626 degismedi; giris DigitoyEngine_GameHost_Frame_Float_Int_Int_Float)
+[info] [aot]   [sure] C yaz: 16.8 s
+[info] [aot] native statik lib eski/yok -> 26 kaynak derleniyor (C:\Work\digitoygames\game_rd\engine\native)
+[info] [aot] cc: 1503 derlendi, 0 guncel (47.5 s, 12 paralel)
+[info] [aot]   [sure] clang (paralel/artimli): 70.7 s
+[info] [aot] link: C:\Work\digitoygames\game_rd\Projects\yuzbirextra\Build\yuzbirextra.exe (2602 KB, 0.7 s)
+[info] [aot]   [sure] link: 0.7 s
+[info] [player-build] OK -> C:\Work\digitoygames\game_rd\Projects\yuzbirextra\Build\yuzbirextra.exe (2602 KB, 94 s)

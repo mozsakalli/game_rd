@@ -118,10 +118,27 @@ namespace DigitoyEngine.Language
                     return t.Display;
             }
         }
+        // T[] KANONIK tip: (eleman, rank) basina TEK Primitive (.NET MethodTable / IL2CPP array class gibi birinci sinif).
+        // Tum dizi tipi uretimi buradan gecer (frontend, Resolver, GenericInstantiator); emisyon InternedArrays'i gezer.
+        static readonly Dictionary<(Primitive, int), Primitive> arrayIntern = new Dictionary<(Primitive, int), Primitive>();
+        static readonly List<Primitive> arrayList = new List<Primitive>();
+        public static IReadOnlyList<Primitive> InternedArrays => arrayList;
         public static Primitive ArrayOf(Primitive elementType, int rank = 1)
         {
             if (rank < 1) throw new System.ArgumentOutOfRangeException(nameof(rank));
-            return new Primitive { Name = rank == 1 ? $"[{elementType.Name}" : $"[{rank}:{elementType.Name}", Type = PrimitiveType.Array, ElementType = elementType, ArrayRank = rank };
+            if (elementType == null) throw new System.ArgumentNullException(nameof(elementType));
+            if (arrayIntern.TryGetValue((elementType, rank), out var a)) return a;
+            a = new Primitive
+            {
+                Name = rank == 1 ? $"[{elementType.Name}" : $"[{rank}:{elementType.Name}",
+                DisplayName = CsDisplay(elementType) + "[" + new string(',', rank - 1) + "]",
+                Type = PrimitiveType.Array,
+                ElementType = elementType,
+                ArrayRank = rank,
+            };
+            arrayIntern[(elementType, rank)] = a;
+            arrayList.Add(a);
+            return a;
         }
         public static Primitive FixedArrayOf(Primitive elementType, int size) => new Primitive { Name = $"]{elementType.Name}:{size}", Type = PrimitiveType.FixedArray, ElementType = elementType, FixedSize = size };
         // ham C pointer'i (*Float -> float*): GC'ye HIC girmez (mark/trace yok), atomic sayilir.

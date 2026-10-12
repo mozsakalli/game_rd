@@ -295,3 +295,35 @@ Invariantlar:
 - Baslangic/bitis fazi logo disinda (-0.4 / 1.6) -> parlama bant sinirda gorunmez.
 - Doc FxParams = son key (z=0) -> edit sahnesinde ve animasyon sonunda efekt no-op; Effects listesi kalsa da gorunum degismez.
 Dogrulama: iphone-14 landscape; f31 sol kenar hafif, f44 bant "0"/"xt" uzerinde, f60 sag kenar, f100 = statik (parlama yok).
+
+## 2026-10-12 — Acilis animasyonu 0.5s gecikmeyle baslar (SAHNE KAYDEDILMEDI; undo'lu)
+Prompt: "loginscene acilis animasyonunu 0.5 saniye sonra baslat"
+Yapi (ROOT(1) MovieClip comp[1]): MovieClip'te Delay alani YOK (comp.schema) -> tum key'ler +30 kare (60 fps = 0.5s) kaydirildi,
+FrameCount 96 -> 126 (2.1s). Tween ile baslayan T0/T1/T2'ye frame 0'da Hold key eklendi (deger = eski ilk key) -> 0..30 arasi
+baslangic pozu sabit; Hold ile baslayan T3..T8'de yalniz sonraki key'ler kaydi. Yeni ana anlar: carpma f48, toparlanma f56,
+butonlar f64/70/76/82 (+20), policy f90-114, shine f56-117.
+Ogrenilen: tek edit.batch icinde Tracks[i].Keys = [liste] ile track key'leri topluca yeniden yazilabilir (tek undo adimi).
+Invariantlar:
+- Ilk 30 kare (0.5s) sahne frame 0 pozunda bekler (dev logo 2.0, cerceve 0.3, alt UI gizli); gecikme degisirse ofset ve FrameCount birlikte guncellenir.
+- Onceki tum zamanlama invariantlari +30 kare ofsetle gecerli (carpma = f48 vb.).
+Dogrulama: iphone-14 landscape; f28 LOGO 2.0 / BG 0.3 (bekliyor); f48 LOGO 0.94, BG 0.6, GROUP 1.0 (carpma); f130 = statik (BG 2, butonlar 1, policy gorunur).
+
+## 2026-10-12 — Beklemede logo/cerceve gizli (SAHNE KAYDEDILMEDI; undo'lu)
+Prompt: "animasyon baslayana kadar logo 0.5 s asili gibi duruyor"
+Yapi (ROOT(1) MovieClip comp[1]): T1 BG ve T2 LOGO frame 0 Hold key Value "0 0 1 0" (onceden 0.3 / 2.0). f30 key'leri degismedi;
+Hold -> f30'da baslangic pozuna (BG 0.3, LOGO 2.0) atlar ve carpma akar. Beklemede yalniz ROOT arka plan isik huzmesi gorunur.
+Invariantlar:
+- 0..30 arasi LOGO ve BG olcek 0 (gorunmez); bekleme suresinde hicbir anime oge donuk durmaz.
+- Gecikme sonrasi koreografi oncekiyle birebir (carpma f48 LOGO 0.94 / BG 0.6).
+Dogrulama: iphone-14 landscape; f28 yalniz isik huzmesi (LOGO/BG 0); f31 LOGO 1.9998 hareketlendi; f48 carpma degismedi.
+
+## 2026-10-12 — Arka plan 0.2s gizli, sonra fade-in (SAHNE KAYDEDILMEDI; undo'lu)
+Prompt: "0.2 sn arka planda gozukmesin ve 0.2. saniyede fadein ile gorunsun"
+Yapi: ROOT(1) comp[2] RenderGroup eklendi (Alpha doc default 1). ROOT MovieClip T9: Target 1:RenderGroup:0, Path Alpha,
+Keys 0@0 Hold -> 12@0 OutSine -> 30@1 (fade 0.2s-0.5s, logo girisiyle biter). Toplam 10 track.
+Ogrenilen: ROOT LayoutBox'in sprite arka plani fill.color alfasiyla SOLMAZ (denendi, etkisiz) -> fade icin RenderGroup sart.
+ROOT RenderGroup tum agaci kapsar; f30'a kadar cocuklar zaten olcek 0 oldugundan yan etkisi yok.
+Invariantlar:
+- 0..12 ekran tamamen siyah; 12..30 arka plan OutSine ile belirir; f30'da Alpha 1 ve sonrasi anime edilmez.
+- ROOT.RenderGroup.Alpha doc degeri 1 kalir (edit sahnesinde onizleme 0 gosterebilir, MovieClip frame 0).
+Dogrulama: iphone-14 landscape; f10 siyah; f20 arka plan yari soluk; f130 = statik tam gorunur.

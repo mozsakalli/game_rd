@@ -872,7 +872,7 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
         {
             var baseMat = UiPieces.TexturedMaterial;
             baseMat.MainTexture = page;
-            baseMat.Shader = UiPieces.ShaderFor(page);
+            baseMat.Shader = UiPieces.UiShader;
             mat = baseMat.ForBlend(BlendMode).ForEffects(Effects);
             return new UiAtlas(page, page.PiecesX, page.PiecesY);
         }
@@ -1285,7 +1285,7 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
         }
         var baseMat = UiPieces.TexturedMaterial;
         baseMat.MainTexture = tex; // TexView DrawMesh aninda yakalanir (paylasilan materyal deseni)
-        baseMat.Shader = UiPieces.ShaderFor(tex); // varyantlar ForBlend/ForEffects'te tabandan kopyalanir
+        baseMat.Shader = UiPieces.UiShader; // varyantlar ForBlend/ForEffects'te tabandan kopyalanir
         var mat = baseMat.ForBlend(BlendMode).ForEffects(Effects);
         var user = UiPieces.TexturedUser;
         bool tinted = fill.Visible;

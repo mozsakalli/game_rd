@@ -508,6 +508,26 @@ static void trace_vmarray(GCHeader *h)
     for (int i = 0; i < a->len; i++)
         gc_shade(e[i]);
 }
+// Tek jenerik dizi trace'i (T[] descriptor'lari): eleman turune gore ref shade / struct inline trace / hicbir sey.
+// elem bilinmiyorsa (modul interp) ref dizisi varsayilir (eski vmarray_ref_type davranisi).
+void digitoyengine_trace_array(GCHeader *h)
+{
+    VmArray *a = (VmArray *)h;
+    const Type *e = a->elem;
+    if (!a->data)
+        return;
+    if (!e || digitoyengine_is_reftype(e))
+    {
+        trace_vmarray(h);
+        return;
+    }
+    if (e->trace_inline)
+    {
+        char *p = (char *)a->data;
+        for (int i = 0; i < a->len; i++, p += a->elemsize)
+            e->trace_inline(p);
+    }
+}
 Type vmarray_ref_type = {trace_vmarray, finalize_vmarray, sizeof(VmArray), 0, .vtable = vmobject_vtable, .nvtable = 3}; /* base: digitoyengine_array_init (System.Array) */
 Type vmarray_val_type = {0, finalize_vmarray, sizeof(VmArray), 1, .vtable = vmobject_vtable, .nvtable = 3};
 void digitoyengine_array_init(const Type *arrayBase)
@@ -2189,11 +2209,10 @@ unsigned short digitoyengine_elem_size(const Type *elem)
 VmArray *vmarray_new_e(int len, const Type *elem)
 {
     DIGITOYENGINE_NULLCHECK(elem);
-    const Type *alloc = digitoyengine_is_reftype(elem) ? &vmarray_ref_type
-                                                       : (elem->array_of ? elem->array_of : &vmarray_val_type); /* ref tasiyan struct: uretilen eleman-eleman trace tipi */
     if (len < 0)
         DIGITOYENGINE_throw_bounds(len, 0);
-    return vmarray_new_rank_te(1, &len, digitoyengine_elem_size(elem), alloc, elem);
+    /* kanonik T[] descriptor'u (uretilen ya da sentez) = tahsis tipi: GetType kimligi, trace eleman turunden */
+    return vmarray_new_rank_te(1, &len, digitoyengine_elem_size(elem), digitoyengine_array_type(elem, 1), elem);
 }
 static int de_is_array_alloc_type(const Type *t)
 {
@@ -2235,7 +2254,10 @@ const Type *digitoyengine_array_type(const Type *elem, int rank)
         if (s->type.elem_type == elem && s->type.rank == rank)
             return &s->type;
     DeSynthArrayType *s = (DeSynthArrayType *)calloc(1, sizeof(DeSynthArrayType));
+    s->type.trace = digitoyengine_trace_array; /* sentez de tahsis tipi olabilir (Array.CreateInstance) */
+    s->type.finalize = finalize_vmarray;
     s->type.size = sizeof(VmArray);
+    s->type.atomic = 0;                                                            /* trace eleman turune bakar */
     s->type.base = vmarray_ref_type.base ? vmarray_ref_type.base : &vmobject_type; /* System.Array (init sonrasi) */
     s->type.flags = DIGITOYENGINE_TYPE_ARRAY | DIGITOYENGINE_TYPE_SYNTH_ARRAY;
     s->type.vtable = vmobject_vtable;

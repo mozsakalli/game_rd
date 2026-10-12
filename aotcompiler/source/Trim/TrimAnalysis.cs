@@ -125,7 +125,9 @@ namespace DigitoyEngine.Language.Trim
             return cut >= 0 ? full.Substring(cut + 1) : full;
         }
 
-        // Pak component adlari -> Primitive: TypeCatalog kisa ad eslesmesi (Component turevi, somut).
+        // Pak tip adlari -> Primitive: TypeCatalog kisa ad eslesmesi. Component turevi (DSCN) tam facet; [Serializable]
+        // sinif (DOBJ: Font, SpriteTable, oyun [Asset] siniflari) Inline (ad+alanlar+ctor+attribute: Reflect.IsAssetClass
+        // [Asset]'i okur, SerializedType alanlari gezer). Koddan referanssiz DOBJ tipleri (SpriteTable) yalniz buradan yasar.
         static void ResolveComponentRoots(Context ctx, TrimRoots roots, TrimResult r)
         {
             if (roots.ComponentNames.Count == 0) return;
@@ -139,11 +141,13 @@ namespace DigitoyEngine.Language.Trim
             }
             foreach (var name in roots.ComponentNames)
             {
-                if (!byShort.TryGetValue(name, out var cands)) { roots.Notes.Add($"UYARI pak component tipi kodda yok: {name}"); continue; }
+                if (!byShort.TryGetValue(name, out var cands)) { roots.Notes.Add($"UYARI pak tipi kodda yok: {name}"); continue; }
                 var comps = cands.Where(IsComponent).ToList();
-                if (comps.Count == 0) { roots.Notes.Add($"UYARI pak tipi Component turevi degil: {name} ({cands.Count} aday)"); continue; }
-                if (comps.Count > 1) roots.Notes.Add($"UYARI pak tipi belirsiz, hepsi kok: {name} -> {string.Join(", ", comps.Select(c => c.Name))}");
+                var assets = comps.Count > 0 ? new List<Primitive>() : cands.Where(c => !c.IsStruct && IsSerializable(c)).ToList();
+                if (comps.Count == 0 && assets.Count == 0) { roots.Notes.Add($"UYARI pak tipi Component ya da [Serializable] degil: {name} ({cands.Count} aday)"); continue; }
+                if (comps.Count + assets.Count > 1) roots.Notes.Add($"UYARI pak tipi belirsiz, hepsi kok: {name} -> {string.Join(", ", comps.Concat(assets).Select(c => c.Name))}");
                 foreach (var p in comps) { roots.AddReflection(p, MemberKinds.Component); r.FacetWhy.TryAdd(p, "pak"); }
+                foreach (var p in assets) { roots.AddReflection(p, MemberKinds.Inline); r.FacetWhy.TryAdd(p, "pak asset"); }
             }
         }
         static bool IsComponent(Primitive p)

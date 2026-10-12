@@ -1,0 +1,23 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <!-- MsdfPort: msdfgen 1.12 (engine/native/msdfgen) + stb_truetype alt kumesinin saf C# portu.
+       Amac: Unity importer'in native'siz MTSDF uretmesi. Program, portu editor native DLL'indeki
+       de_msdf_font_glyph referansiyla bayt bayt karsilastirir (parite testi). -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <RootNamespace>MsdfPort</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+  <ItemGroup>
+    <Compile Include="Program.cs" />
+    <Compile Include="NativeReference.cs" /><Compile Include="Png.cs" />
+    <!-- Tek kaynak: Unity paketi (unity/Box). Buradaki araç yalnız parite testi. -->
+    <Compile Include="..\..\unity\Box\Editor\Msdf\*.cs" LinkBase="Msdf" />
+    <Compile Include="..\..\unity\Box\Editor\Font\TrueType.cs" LinkBase="Font" />
+    <Compile Include="..\..\unity\Box\Editor\Font\MsdfFontBaker.cs" LinkBase="Font" />
+  </ItemGroup>
+</Project>

@@ -22,8 +22,11 @@ public static class ObjectBinaryTests
         public float Amount;
     }
 
+    // Polimorfik referans sozlesmesi (ISpriteSource modeli): arayuz alani = asset referansi, somut tip yoldan.
+    public interface IObjTestTag { }
+
     [Serializable, Asset]
-    public sealed class ObjTestEnemy
+    public sealed class ObjTestEnemy : IObjTestTag
     {
         public string Name = "grunt";
         public int Hp = 10;
@@ -40,6 +43,7 @@ public static class ObjectBinaryTests
         public int[] Cells;
         public byte[] Packed;
         public ObjTestEnemy Boss;
+        public List<IObjTestTag> Tagged = new();
         public SortMode Mode = SortMode.Ui;
     }
 
@@ -90,6 +94,7 @@ public static class ObjectBinaryTests
         Check(SerializedType.Find(levelEntry.Schema, "Goals")?.ElementKind == SerializedType.Kind.Object, "Goal struct gomulu liste");
         Check(SerializedType.Find(levelEntry.Schema, "Packed")?.Kind == SerializedType.Kind.Blob, "byte[] Blob");
         Check(SerializedType.Find(levelEntry.Schema, "Cells")?.Kind == SerializedType.Kind.List, "int[] List kalir");
+        Check(SerializedType.Find(levelEntry.Schema, "Tagged")?.ElementKind == SerializedType.Kind.Asset, "arayuz listesi Kind.Asset (polimorfik)");
 
         // --- Kaynak: enemy (YAML) + level (YAML, enemy'ye referans) ---
         var src = new MemorySource();
@@ -111,8 +116,10 @@ public static class ObjectBinaryTests
         // Referans anahtara yazilsin diye boss onceden yuklenip anahtarla eslesir.
         level.Boss = (ObjTestEnemy)db.LoadObject("Defs/boss.asset", typeof(ObjTestEnemy));
         Check(level.Boss != null && level.Boss.Hp == 250, "YAML .asset LoadObject");
+        level.Tagged.Add(level.Boss);
         string levelYaml = SaveYaml(level, db);
         Check(levelYaml.Contains("Boss: Defs/boss.asset"), "YAML'da referans anahtar");
+        Check(levelYaml.Contains("Tagged:") && levelYaml.Contains("- Defs/boss.asset"), "YAML'da arayuz referansi anahtar");
         src.Data["Defs/L1.asset"] = Encoding.UTF8.GetBytes(levelYaml);
 
         // --- YAML -> nesne (editor yolu) ---
@@ -123,6 +130,8 @@ public static class ObjectBinaryTests
         Check(l1 != null && l1.Packed != null && l1.Packed.Length == 5 && l1.Packed[0] == 9 && l1.Packed[4] == 5, "YAML Blob base64");
         Check(l1 != null && l1.Mode == SortMode.Transparent, "YAML enum");
         Check(l1 != null && ReferenceEquals(l1.Boss, level.Boss), "Asset->Asset referansi TEK instance");
+        Check(l1 != null && l1.Tagged.Count == 1 && ReferenceEquals(l1.Tagged[0], level.Boss), "YAML arayuz referansi somut tipe cozuldu");
+        Check(db.LoadAsset("Defs/L1.asset", typeof(IObjTestTag)) == null, "arayuzu tasimayan asset -> null");
         Check(ReferenceEquals(db.LoadObject("Defs/L1.asset"), l1), "ikinci LoadObject ayni instance");
         Check(AssetDatabase.KeyOf(l1, db) == "Defs/L1.asset", "KeyOf nesne -> anahtar");
 
@@ -131,7 +140,7 @@ public static class ObjectBinaryTests
         var root = Yaml.Parse(levelYaml);
         byte[] baked = ObjectBinary.Bake(nameof(ObjTestLevel), root.Get("fields"), catalog, null, refs);
         Check(ObjectBinary.IsBaked(baked) && ObjectBinary.TypeNameOf(baked) == nameof(ObjTestLevel), "DOBJ magic + tip adi");
-        Check(refs.Count == 1 && refs[0] == "Defs/boss.asset", "bake asset referanslari");
+        Check(refs.Count == 1 && refs[0] == "Defs/boss.asset", "bake asset referanslari (ayni anahtar tek kenar)");
         var src2 = new MemorySource();
         var db2 = new AssetDatabase(src2) { Catalog = catalog };
         src2.Data["Defs/boss.asset"] = ObjectBinary.Bake(enemy, catalog, db);
@@ -144,6 +153,7 @@ public static class ObjectBinaryTests
         Check(l2 != null && l2.Mode == SortMode.Transparent, "DOBJ enum");
         Check(l2 != null && l2.Boss != null && l2.Boss.Name == "boss" && l2.Boss.Hp == 250, "DOBJ Asset->Asset cozumu");
         Check(l2 != null && ReferenceEquals(l2.Boss, db2.LoadObject("Defs/boss.asset")), "DOBJ referans tek instance");
+        Check(l2 != null && l2.Tagged.Count == 1 && ReferenceEquals(l2.Tagged[0], l2.Boss), "DOBJ arayuz referansi somut tipe cozuldu");
 
         // --- Tip uyusmazligi: beklenen tip farkli -> null ---
         Check(db2.LoadObject("Defs/L1.asset", typeof(ObjTestEnemy)) == null, "tip uyusmazligi null");

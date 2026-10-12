@@ -11,7 +11,7 @@ namespace DigitoyEngine;
 // atlas uyeliginden haber gitmez, metin quad cache'leri Sprite.BindVersion ile tazelenir.
 // Turetilmis tablolar (codepoint -> indeks, kern short[]) ilk kullanimda kurulur (OnLoaded kancasi yok).
 [Serializable, Asset]
-public sealed class Font
+public sealed class Font : ISpriteSource
 {
     [Serializable]
     public struct Glyph
@@ -160,7 +160,7 @@ public sealed class Font
             };
             var page = Page;
             _material.MainTexture = page;
-            _material.Shader = UiPieces.ShaderFor(page);
+            _material.Shader = UiPieces.UiShader;
             return _material;
         }
     }

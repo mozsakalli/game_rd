@@ -146,39 +146,16 @@ static class AssetPackBuilder
         var keys = new List<string>(live);
         keys.Sort(string.CompareOrdinal);
 
-        int dtexCount = 0, skipped = 0, bakedCount = 0;
+        int imgCount = 0, skipped = 0, bakedCount = 0;
         var items = new List<(string Key, string Guid, byte[] Data)>();
-        string texKey = null, texFile = null;
+        string texKey = null;
         foreach (var key in keys)
         {
             string file = Path.Combine(root, key);
             bool absorbed = absorbedBy.ContainsKey(key);
+            bool isImage = AssetDatabase.ImportTypeOf(key) == typeof(Sprite);
             byte[] data;
-            if (AssetDatabase.ImportTypeOf(key) == typeof(Sprite) && ImportPipeline.ImporterFor(key) == null)
-            {
-                if (absorbed)
-                {
-                    // Pikseller tuketicinin sayfasinda; guid->yol eslemesi icin bos stub girisi
-                    // kalir (sahne guid'le referanslar, LoadSprite bolge tablosundan baglar).
-                    items.Add((key, assets.PathToGuid(key), Array.Empty<byte>()));
-                    skipped++;
-                    continue;
-                }
-                data = DecodeToDtex(file);
-                if (data != null)
-                    dtexCount++;
-                else
-                {
-                    EditorLog.Warning($"[pak] decode edilemedi, ham kopyalandi: {key}");
-                    data = File.ReadAllBytes(file); // runtime stbi yolu hala calisir
-                }
-                if (texKey == null)
-                {
-                    texKey = key;
-                    texFile = file;
-                }
-            }
-            else if (ImportPipeline.ImporterFor(key) != null)
+            if (ImportPipeline.ImporterFor(key) != null)
             {
                 // Importer'li kaynak: pak'a ARTIFACT'ler girer, kaynak degil (ttf disarida
                 // kalir). "main" asset anahtariyla, digerleri "<anahtar>#<ad>" ile. Kapsam:
@@ -214,8 +191,20 @@ static class AssetPackBuilder
                 // Atlas main'i de tablo: sayfalar main'den once (AddDep(key, key#page) zaten var).
                 if (data == null)
                 {
+                    if (isImage && absorbed)
+                    {
+                        // Pikseller tuketicinin sayfasinda; guid->yol eslemesi icin bos stub girisi
+                        // kalir (sahne guid'le referanslar, LoadSprite bolge tablosundan baglar).
+                        items.Add((key, assets.PathToGuid(key), Array.Empty<byte>()));
+                        continue;
+                    }
                     EditorLog.Warning($"[pak] 'main' artifact yok, atlandi: {key}");
                     continue;
+                }
+                if (isImage)
+                {
+                    imgCount++;
+                    texKey ??= key;
                 }
             }
             else if (IsSceneLike(key) || IsDataAsset(key))
@@ -246,10 +235,10 @@ static class AssetPackBuilder
             if (!Skip(rel))
                 candidates++;
         EditorLog.Info($"[pak] {roots.Count} kok sahne -> {live.Count}/{candidates} asset canli ({candidates - live.Count} strip), " +
-            $"{items.Count} giris ({dtexCount} dtex, {bakedCount} baked sahne/prefab, {skipped} yutulmus) -> {outPath} " +
+            $"{items.Count} giris ({imgCount} gorsel, {bakedCount} baked sahne/prefab, {skipped} yutulmus) -> {outPath} " +
             $"({pakSize / 1024.0:0.0} KB, acik {rawTotal / 1024.0:0.0} KB, %{100.0 * pakSize / Math.Max(1, rawTotal):0.0})");
 
-        return Verify(outPath, items, texKey, texFile);
+        return Verify(outPath, items, texKey);
     }
 
     static bool IsSceneLike(string key)
@@ -297,19 +286,11 @@ static class AssetPackBuilder
 
     // Kaynak texture'i native worker'la cozup DTEX blobu uretir (build-time,
     // senkron bekleme kabul). Basarisiz olursa null (cagiran ham dosyaya duser).
-    static byte[] DecodeToDtex(string file)
-    {
-        var rgba = EditorPixels.DecodeFile(file, out int w, out int h);
-        return rgba != null ? DtexFormat.BuildFiltered(w, h, rgba) : null;
-    }
-
     static byte[] AwaitPixels(int job, out int w, out int h) => EditorPixels.Await(job, out w, out h);
 
-    // Yazilan pak'i geri okuyup dogrular: index sayisi, tum girisler bayt-esit
-    // (zlib round-trip dahil), texture pikselleri pak(DTEX+inflate+defilter)
-    // yolundan kaynagin dogrudan decode'uyla BIREBIR ayni mi.
-    static bool Verify(string pakPath, List<(string Key, string Guid, byte[] Data)> items,
-        string texKey, string texFile)
+    // Yazilan pak'i geri okuyup dogrular: index sayisi, tum girisler bayt-esit (zlib round-trip dahil),
+    // ilk gorselin pak yolundan decode'u editor artifact'inin decode'uyla BIREBIR ayni mi.
+    static bool Verify(string pakPath, List<(string Key, string Guid, byte[] Data)> items, string texKey)
     {
         try
         {
@@ -332,14 +313,14 @@ static class AssetPackBuilder
             if (texKey != null)
             {
                 var pakPx = AwaitPixels(pak.StartLoad(texKey), out int pw, out int ph);
-                var srcPx = AwaitPixels(Sokol.AssetLoad(texFile), out int sw, out int sh);
+                var srcPx = AwaitPixels(Sokol.AssetLoad(ImportPipeline.ArtifactPath(texKey, "main")), out int sw, out int sh);
                 if (pakPx == null || srcPx == null || pw != sw || ph != sh
                     || !pakPx.AsSpan().SequenceEqual(srcPx))
                 {
-                    EditorLog.Error($"[pak] verify FAIL: piksel farki {texKey} (pak {pw}x{ph}, kaynak {sw}x{sh})");
+                    EditorLog.Error($"[pak] verify FAIL: piksel farki {texKey} (pak {pw}x{ph}, artifact {sw}x{sh})");
                     return false;
                 }
-                EditorLog.Info($"[pak] verify OK: {items.Count} bayt-esit, {texKey} defilter pikselleri kaynakla BIREBIR ({pw}x{ph})");
+                EditorLog.Info($"[pak] verify OK: {items.Count} bayt-esit, {texKey} pikselleri artifact ile BIREBIR ({pw}x{ph})");
             }
             else
                 EditorLog.Info($"[pak] verify OK: {items.Count} bayt-esit (texture yok, decode atlandi)");

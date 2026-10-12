@@ -112,11 +112,14 @@ public static unsafe class UiPieces
         {
             if (_fallbackTex == null)
             {
+                // RGBA: tum sayfalarla ayni format/shader (SDF degeri dort kanala kopyali -> median == a).
                 const int w = 512, h = 128;
-                byte[] px = new byte[w * h];
-                BakeRegion(px, w, 0, 0);
-                fixed (byte* p = px)
-                    _fallbackTex = Texture.FromAlpha(w, h, p);
+                byte[] r8 = new byte[w * h];
+                BakeRegion(r8, w, 0, 0);
+                byte[] rgba = new byte[w * h * 4];
+                for (int i = 0; i < r8.Length; i++)
+                    rgba[i * 4] = rgba[i * 4 + 1] = rgba[i * 4 + 2] = rgba[i * 4 + 3] = r8[i];
+                _fallbackTex = Texture.FromRgba(w, h, rgba);
                 _fallbackTex.Name = "ui#pieces";
                 _fallbackTex.Persistent = true;
                 _fallbackTex.PiecesX = 0;
@@ -138,18 +141,15 @@ public static unsafe class UiPieces
     // genislik + S-egrisi veriyordu -> metin yumusak/bulanik gorunuyordu.
     // Acik smoothing (golge blur) smoothstep'te kalir — orada yumusaklik amac.
     //
-    // IKI VARYANT, sayfa piksel formatina gore (UiPieces.ShaderFor(page)):
-    //   R8   (SdfFragment):  d = .r (tek kanal SDF).
-    //   RGBA (MsdfFragment): d = median(r,g,b) (MTSDF: keskin kose), USER.y < 0 ise
-    //        d = .a (gercek SDF; golge/kontur gibi kenardan uzak okumalar — msdf
-    //        median'i kenardan uzakta guvenilir degildir). Kenar merkezi |USER.y|.
-    //        Tek kanal SDF iceren bolgeler (UiPieces, R8'den kopyalanan glyph'ler) dort
-    //        kanala kopyali -> median == a, her iki okuma da dogru.
-    // Instance verisi iki varyantta AYNI anlamda; metin yayicilari golge/konturda -c yazar.
-    const string _fragHead =
+    // TEK VARYANT, sayfalar hep RGBA8 (MTSDF font + duz sprite + UiPieces): d = median(r,g,b) (keskin kose),
+    // USER.y < 0 ise d = .a (gercek SDF; golge/kontur gibi kenardan uzak okumalar — msdf median'i kenardan
+    // uzakta guvenilir degildir). Kenar merkezi |USER.y|. Tek kanal SDF iceren bolgeler (UiPieces) dort kanala
+    // kopyali -> median == a, her iki okuma da dogru. Metin yayicilari golge/konturda -c yazar.
+    public const string Fragment =
         "VEC4 fs_main(VEC2 uv, VEC4 color) {\n" +
-        "  if (USER.w < 0.0) return SAMPLE(tex, uv) * color;\n";
-    const string _fragTail =
+        "  if (USER.w < 0.0) return SAMPLE(tex, uv) * color;\n" +
+        "  VEC4 t = SAMPLE(tex, uv);\n" +
+        "  FLOAT d = USER.y < 0.0 ? t.a : max(min(t.r, t.g), min(max(t.r, t.g), t.b));\n" +
         "  if (USER.w > 0.0) return VEC4(color.rgb, d * color.a);\n" +
         "  FLOAT c = USER.y != 0.0 ? abs(USER.y) : 0.5;\n" +
         "  FLOAT a;\n" +
@@ -166,23 +166,11 @@ public static unsafe class UiPieces
         "  }\n" +
         "  return VEC4(color.rgb, a * color.a);\n}"; // duz renk; premultiply wrapper'da
 
-    public const string SdfFragment = _fragHead +
-        "  FLOAT d = SAMPLE(tex, uv).r;\n" + _fragTail;
-
-    public const string MsdfFragment = _fragHead +
-        "  VEC4 t = SAMPLE(tex, uv);\n" +
-        "  FLOAT d = USER.y < 0.0 ? t.a : max(min(t.r, t.g), min(max(t.r, t.g), t.b));\n" + _fragTail;
-
     // Dokulu gecis modunun USER degeri (LayoutBox sprite yolu).
     public static readonly Vec4 TexturedUser = new(0f, 0f, 0f, -1f);
 
-    static Shader _shader, _msdfShader;
-    public static Shader UiShader => _shader ??= Shader.CreateEffect(SdfFragment);
-    public static Shader UiShaderMsdf => _msdfShader ??= Shader.CreateEffect(MsdfFragment);
-
-    // Sayfanin formatina gore UI shader'i (R8 -> .r, RGBA -> median/alpha).
-    public static Shader ShaderFor(Texture page)
-        => page != null && page.Channels == 4 ? UiShaderMsdf : UiShader;
+    static Shader _shader;
+    public static Shader UiShader => _shader ??= Shader.CreateEffect(Fragment);
 
     static Material _material;
 

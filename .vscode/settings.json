@@ -5,5 +5,11 @@
         "*.asset": "yaml",
         "*.meta": "yaml"
     },
-    "cmake.sourceDirectory": "C:/Work/digitoygames/game_rd/engine/native/glfw-master"
+    "cmake.sourceDirectory": "C:/Work/digitoygames/game_rd/engine/native/glfw-master",
+    "chat.tools.terminal.autoApprove": {
+        "/^dotnet build editor 2>&1 \\| Select-String -Pattern \"error\\|warning CS\\|Build succeeded\\|elapsed\" \\| Select-Object -First 30$/": {
+            "approve": true,
+            "matchCommandLine": true
+        }
+    }
 }

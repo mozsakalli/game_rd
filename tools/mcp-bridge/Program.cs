@@ -61,7 +61,7 @@ static class Program
                     ["protocolVersion"] = msg["params"]?["protocolVersion"]?.GetValue<string>() ?? "2024-11-05",
                     ["capabilities"] = new JsonObject { ["tools"] = new JsonObject() },
                     ["serverInfo"] = new JsonObject { ["name"] = "digitoy-editor", ["version"] = "0.1" },
-                    ["instructions"] = Instructions,
+                    ["instructions"] = BuildInstructions(),
                 },
                 "ping" => new JsonObject(),
                 "tools/list" => ToolsList(),
@@ -96,22 +96,33 @@ static class Program
         }
     }
 
-    const string Instructions =
-        "DigitoyEditor canli oturumu. KOORDINAT: tum input_* ve render_screenshot (scale=1) MANTIKSAL nokta, " +
-        "sol-ust orijin; screenshot pikseli == tiklama koordinati. Tipik akis: view_device(name) -> sim_run(frames, screenshot=true) " +
-        "-> goruntuyu incele -> input_tap/input_drag -> render_screenshot. Yeni component tipi icin ONCE comp_schema. " +
-        "Motor API'si icin engine_api (tip listesi / uyeler + protected override kancalari + tween extension'lari) — proje disina cikma. " +
-        "SAHNE/PREFAB YAML'INI ASLA DOGRUDAN DUZENLEME: prop_set/transform_set/comp_add/scene_addGo kullan (undo'lu, canli patch; " +
-        "kaydetme karari kullanicinin). prop_set 'value' skaler de alir (72, \"OutBack\", \"0 10 0\"). " +
-        "Sahne degisikliklerinde <sahne>.intent.md'yi oku/guncelle (asset_read/asset_write). " +
-        "ASSET BILGISI (yol/guid/tip, gorsel width/height, atlas) icin asset_list(filter,type)/asset_info(path) — " +
-        "boyut bulmak icin kod yazip calistirma. " +
-        "ANIMASYON: sahne intro/giris-cikis/idle gibi hedefi belli koreografi = MovieClip component'i (doc'ta, scrub/undo'lu); " +
-        "Tween yalniz runtime'da hesaplanan tepkisel hareket. MovieClip tarifi: comp_add(go,\"MovieClip\") → anim_props(type) ile yol " +
-        "(Transform: Position/Rotation/Scale/Active; LayoutBox: anchoredPos/width/fill.color...) → prop_set ic ice yol: " +
-        "Tracks[0].Target=\"goId:Transform:0\" (CompRef \"goId:Tip:ordinal\"), Tracks[0].Path=\"Scale\", Tracks[0].Keys[0].Value=\"0 0 1 0\", " +
-        "Tracks[0].Keys[0].Ease=\"OutBack\", Tracks[0].Keys[1].Frame=30, Tracks[0].Keys[1].Value=\"1 1 1 0\" (index==sayi → sona ekle; " +
-        "value null → sil). Frame = Fps*saniye (Fps 30). Dogrulama: sim_run(frames) + scene_dumpLive(play).";
+    // Sabit talimat YOK (surekli degisir): tek sahibi editorun rpc.guide'i. Baglanabiliyorsak icerigi
+    // initialize aninda cekip gomeriz (ajan ek cagri yapmaz); baglanamiyorsak yalniz "once rpc_guide cagir".
+    static string BuildInstructions()
+    {
+        const string hint = "DigitoyEditor canli oturumu. Ise baslamadan ONCE rpc_guide cagir (is akisi, kavramlar, deger bicimleri); " +
+            "komut semasi icin rpc_describe. Araclar editorden canli uretilir.";
+        try
+        {
+            var guide = Rpc("rpc.guide", null);
+            var sb = new StringBuilder(hint).Append("\n\n[rpc_guide]\n");
+            foreach (var kv in guide.AsObject())
+            {
+                sb.Append(kv.Key).Append(":\n");
+                if (kv.Value is JsonArray lines)
+                    foreach (var l in lines)
+                        sb.Append("- ").Append(l?.GetValue<string>()).Append('\n');
+                else
+                    sb.Append("- ").Append(kv.Value?.ToJsonString()).Append('\n');
+            }
+            return sb.ToString();
+        }
+        catch (Exception e)
+        {
+            Log("rpc.guide alinamadi (editor kapali?): " + e.Message);
+            return hint;
+        }
+    }
 
     // --- tools ---
 

@@ -396,7 +396,7 @@ public static unsafe class SceneBinary
             if (n < 0)
                 return null;
             var r = new byte[n];
-            Buffer.BlockCopy(_b, Pos, r, 0, n);
+            Array.Copy(_b, Pos, r, 0, n); // AOT corelib: Buffer.BlockCopy yok, Array.Copy memmove
             Pos += n;
             return r;
         }

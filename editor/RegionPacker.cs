@@ -46,6 +46,10 @@ public sealed class PackedPage
     public byte[] Pixels;
     public int PiecesX = -1, PiecesY = -1;
     public readonly List<(RegionSource Src, int X, int Y)> Placed = new();
+
+    // Sayfa PNG'si: satirlar TERS yazilir ki stb_image'in yukleme flip'i bellek duzenini (depolama
+    // satiri 0 = ilk) birebir geri getirsin — bolge koordinatlari degismez.
+    public byte[] EncodePng() => PngWriter.Encode(Pixels, Width, Height, flip: true);
 }
 
 // Ortak paketleyici (font sheet'i + atlas gruplari AYNI kodu kosar): shelf pack,
@@ -259,16 +263,6 @@ public static class RegionPacker
         s.Pad = 2;
         return s;
     }
-
-    // Sayfa R8 olabilir mi: her kaynak tek kanalli SDF olmali (MTSDF glyph 4 kanal ->
-    // RGBA sayfa gerekir; kind yine Sdf, kanal sayisi belirleyici).
-    public static bool AllSdf(IReadOnlyList<RegionSource> sources)
-    {
-        foreach (var s in sources)
-            if (s.Kind != RegionKind.Sdf || s.Channels != 1)
-                return false;
-        return true;
-    }
 }
 
 // Editor-zamani senkron piksel decode (native worker + sinirli bekleme; import/build
@@ -293,7 +287,16 @@ public static class EditorPixels
                 {
                     w = c.A; h = c.B;
                     rgba = new byte[w * h * 4];
-                    Marshal.Copy(c.Data, rgba, 0, rgba.Length);
+                    if (c.Len == (long)w * h)
+                    {
+                        // Gray kaynak (R8 decode): editor araclari RGBA bekler, dort kanala kopyala.
+                        var r8 = new byte[w * h];
+                        Marshal.Copy(c.Data, r8, 0, r8.Length);
+                        for (int k = 0; k < r8.Length; k++)
+                            rgba[k * 4] = rgba[k * 4 + 1] = rgba[k * 4 + 2] = rgba[k * 4 + 3] = r8[k];
+                    }
+                    else
+                        Marshal.Copy(c.Data, rgba, 0, rgba.Length);
                 }
                 NativeAsync.Free(c.Data);
                 return rgba;

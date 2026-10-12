@@ -20,6 +20,10 @@ static class PlayMode
 
     public static HotReloadMode HotReload = HotReloadMode.OnSave;
 
+    // RPC sim (sim.run/input.*): oyun sahnesi gercek saat yerine SABIT dt ile ilerler → kare numarasi
+    // deterministik (PNG yazimi, arka plan throttling, derleme dt'yi sisirmez). 0 = gercek saat.
+    public static float ForcedDt;
+
     public static void Play()
     {
         if (State == PlayState.Paused)
@@ -67,6 +71,10 @@ static class PlayMode
         var doc = App.EditScene.Doc;
         var s = Scene.Create(doc.Name + " (Oyun)");
         doc.InstantiateInto(s, App.Catalog, App.Assets); // aktif sahne = oyun
+        // SceneLoader paritesi: spawn'in suresi (instantiate + doku yukleme) bir sonraki frame'in
+        // dt'sine biner → MovieClip/Tween ilk gorunur karede zaten N kare ilerlemis olur
+        // ("fade 0'dan baslamiyor"). Ilk iki dt atilir; editor dt'si ayrica MaxDeltaTime ile sinirli.
+        s.DiscardDeltaFrames = 2;
         PlayScene = s;
         SpawnedDocVersion = App.EditScene.History.Version;
     }

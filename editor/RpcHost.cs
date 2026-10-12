@@ -153,6 +153,63 @@ public static class RpcRegistry
         }
     }
 
+    // DocNode args ile cagri (edit.batch: op args'i zaten DocNode agaci; JSON gidis-donusu yok).
+    public static DocNode Invoke(Entry e, RpcContext ctx, DocNode args)
+    {
+        var values = new object[e.Params.Length];
+        for (int i = 0; i < e.Params.Length; i++)
+        {
+            var p = e.Params[i];
+            if (p.ParameterType == typeof(RpcContext))
+            {
+                values[i] = ctx;
+                continue;
+            }
+            var node = args?.Get(p.Name);
+            if (node != null)
+            {
+                values[i] = BindArg(node, p.ParameterType, p.Name);
+                continue;
+            }
+            if (!p.HasDefaultValue)
+                throw new RpcError($"eksik parametre: '{p.Name}'");
+            values[i] = p.DefaultValue;
+        }
+        try
+        {
+            return (DocNode)e.Method.Invoke(null, values);
+        }
+        catch (TargetInvocationException tie) when (tie.InnerException != null)
+        {
+            throw tie.InnerException;
+        }
+    }
+
+    static object BindArg(DocNode n, Type t, string name)
+    {
+        if (t == typeof(DocNode))
+            return n.IsNull ? null : n.Clone();
+        if (n.Scalar == null)
+            throw new RpcError($"parametre '{name}' skaler olmali ({TypeLabel(t)})");
+        try
+        {
+            if (t == typeof(string))
+                return n.Scalar;
+            if (t == typeof(int))
+                return int.Parse(n.Scalar, NumberStyles.Integer, CultureInfo.InvariantCulture);
+            if (t == typeof(float))
+                return float.Parse(n.Scalar, NumberStyles.Float, CultureInfo.InvariantCulture);
+            if (t == typeof(bool))
+                return n.Scalar == "true" ? true : n.Scalar == "false" ? false
+                    : throw new FormatException();
+        }
+        catch (Exception ex) when (ex is not RpcError)
+        {
+            throw new RpcError($"parametre '{name}' {TypeLabel(t)} degil: {n.Scalar}");
+        }
+        throw new RpcError($"desteklenmeyen parametre tipi: {t.Name} ('{name}')");
+    }
+
     static object BindArg(JsonElement je, Type t, string name)
     {
         try
@@ -557,6 +614,8 @@ public static class RpcJson
                 Write(w, it);
             w.WriteEndArray();
         }
+        else if (n.IsNull)
+            w.WriteNullValue();
         else
         {
             string s = n.Scalar ?? "";
@@ -595,6 +654,8 @@ public static class RpcJson
             case JsonValueKind.Number:
                 // Kanonik doc formati: sayi invariant string olarak tasinir.
                 return DocNode.Scal(je.GetRawText());
+            case JsonValueKind.Null:
+                return DocNode.Null(); // ic ice null = "default'a don / elemani sil" (prop.set sozlesmesi)
             default:
                 return DocNode.Scal("");
         }

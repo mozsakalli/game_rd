@@ -226,9 +226,51 @@ public sealed class EditorScene
     public void DoUndo() => History.Undo(this);
     public void DoRedo() => History.Redo(this);
 
+    // --- Toplu mutasyon (edit.batch / scene.apply): tek undo grubu + canli projeksiyon
+    // batch sonunda BIR kez tazelenir (yapisal her op'ta full reload yerine). Hata →
+    // RollbackBatch: doc batch oncesine doner, journal'da iz kalmaz. ---
+
+    int _refreshSuspend;
+    bool _refreshPending;
+
+    public void BeginBatch()
+    {
+        History.BeginGroup();
+        _refreshSuspend++;
+    }
+
+    public void EndBatch()
+    {
+        History.EndGroup();
+        ResumeRefresh();
+    }
+
+    public void RollbackBatch()
+    {
+        History.RollbackGroup(this);
+        ResumeRefresh();
+    }
+
+    void ResumeRefresh()
+    {
+        if (_refreshSuspend > 0 && --_refreshSuspend == 0 && _refreshPending)
+        {
+            _refreshPending = false;
+            RefreshLive();
+        }
+    }
+
     // --- Yapisal mutasyonlar: doc + full reload (canli cerrahi yok — reload ucuz ve tek yol) ---
 
-    public void RefreshLive() => Instantiate(_catalog, _assets);
+    public void RefreshLive()
+    {
+        if (_refreshSuspend > 0)
+        {
+            _refreshPending = true;
+            return;
+        }
+        Instantiate(_catalog, _assets);
+    }
 
     int NextId()
     {

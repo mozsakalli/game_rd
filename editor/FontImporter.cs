@@ -10,28 +10,23 @@ namespace DigitoyEditor;
 // Font import ayarlari (.meta "importer:" blogu; Inspector duzenler).
 // charset: virgullu liste — "32-126" / "U+00A0-U+017F" araliklari, "U+20AC" tekil
 // codepoint, ya da dogrudan karakterler ("ĞğİıŞş€"). ' ' ve '?' her zaman eklenir.
-// mode: Sdf = tek kanal (R8 sheet, stb_truetype), Msdf = MTSDF (RGBA sheet; rgb msdf
-// keskin kose, a gercek sdf — golge/kontur/kalinlik oradan). Kutu/metrik/deger uzayi
-// iki modda da ayni; yalniz sheet formati degisir (shader secimi sayfadan).
-public enum FontSdfMode { Sdf, Msdf }
-
+// Tek mod: MTSDF (RGBA sheet; rgb msdf keskin kose, a gercek sdf — golge/kontur/kalinlik oradan).
+// Tek kanal SDF yolu KALDIRILDI (MSDF kadar net degil; tum sayfalar RGBA, tek shader).
 [Serializable]
 public sealed class FontImportSettings
 {
     public string charset = "32-126,160-383"; // ASCII + Latin-1 + Latin Extended-A (Turkce dahil)
     public int sdfSize = 32;                   // SDF taban puntosu (px); buyuk = daha keskin buyuk metin, daha cok alan
-    public FontSdfMode mode = FontSdfMode.Sdf;
 }
 
-// TTF -> prebaked SDF font: glyph'ler TEK TEK pisirilir (native stb_truetype ya da
-// msdfgen), ortak paketleyiciyle bir "sheet"e dizilir. Ciktilar:
+// TTF -> prebaked MTSDF font: glyph'ler TEK TEK pisirilir (msdfgen; metrik/kerning stb_truetype),
+// ortak paketleyiciyle bir "sheet"e dizilir. Ciktilar:
 //   main    : Font (DOBJ: metrikler + glyph tablosu + kerning; glyph'ler Sprite referansi "x.ttf#U+0041")
-//   sheet   : DPIX glyph sayfasi R8 (Sdf) / RGBA8 (Msdf) (+ UiPieces bandi) — Standalone:
-//             gruba alinmamis font bunu kullanir
+//   sheet   : PNG glyph sayfasi RGBA8 (+ UiPieces bandi) — Standalone: gruba alinmamis font bunu kullanir
 //   sprites : SpriteTable (DOBJ) — glyph bolgeleri sheet uzerinde; AtlasImporter buradan okuyup kendi
 //             sayfasina tasir, runtime (gruba alinmamis font) buradan baglar. Standalone.
 // Pak'a ttf girmez, runtime bake yok.
-[AssetImporter(".ttf", ".otf", Version = 10, Settings = typeof(FontImportSettings))]
+[AssetImporter(".ttf", ".otf", Version = 12, Settings = typeof(FontImportSettings))]
 public sealed unsafe class FontImporter : AssetImporter
 {
     const int SheetMaxSize = 4096;
@@ -55,14 +50,13 @@ public sealed unsafe class FontImporter : AssetImporter
         }
 
         byte[] ttf = File.ReadAllBytes(ctx.SourcePath);
-        IntPtr font, msdf = IntPtr.Zero;
+        IntPtr font, msdf;
         fixed (byte* p = ttf)
         {
-            font = Sokol.SdfFontOpen(p, ttf.Length);
-            if (font != IntPtr.Zero && settings.mode == FontSdfMode.Msdf)
-                msdf = Sokol.MsdfFontOpen(p, ttf.Length);
+            font = Sokol.SdfFontOpen(p, ttf.Length); // metrik + kerning (stb_truetype)
+            msdf = font != IntPtr.Zero ? Sokol.MsdfFontOpen(p, ttf.Length) : IntPtr.Zero;
         }
-        if (font == IntPtr.Zero || (settings.mode == FontSdfMode.Msdf && msdf == IntPtr.Zero))
+        if (font == IntPtr.Zero || msdf == IntPtr.Zero)
         {
             if (font != IntPtr.Zero)
                 Sokol.SdfFontClose(font);
@@ -76,8 +70,7 @@ public sealed unsafe class FontImporter : AssetImporter
         finally
         {
             Sokol.SdfFontClose(font);
-            if (msdf != IntPtr.Zero)
-                Sokol.MsdfFontClose(msdf);
+            Sokol.MsdfFontClose(msdf);
         }
     }
 
@@ -90,7 +83,7 @@ public sealed unsafe class FontImporter : AssetImporter
             return;
         }
 
-        int channels = msdf != IntPtr.Zero ? 4 : 1;
+        const int channels = 4;
         int n = codepoints.Count;
         var glyphs = new Font.Glyph[n];
         var sources = new List<RegionSource>(n);
@@ -101,9 +94,7 @@ public sealed unsafe class FontImporter : AssetImporter
             for (int i = 0; i < n; i++)
             {
                 int cp = codepoints[i];
-                int ok = channels == 4
-                    ? Sokol.MsdfFontGlyph(msdf, cp, sdfSize, BakePad, BakePixelDistScale, MsdfAngleThreshold, pBuf, buf.Length, g5)
-                    : Sokol.SdfFontGlyph(font, cp, sdfSize, pBuf, buf.Length, g5);
+                int ok = Sokol.MsdfFontGlyph(msdf, cp, sdfSize, BakePad, BakePixelDistScale, MsdfAngleThreshold, pBuf, buf.Length, g5);
                 if (ok == 0)
                 {
                     ctx.Fail($"glyph pisirilemedi: U+{cp:X4} (sdfSize {sdfSize} cok buyuk olabilir)");
@@ -153,7 +144,7 @@ public sealed unsafe class FontImporter : AssetImporter
         var index = new Dictionary<string, int>(n);
         for (int i = 0; i < n; i++)
             index[ctx.AssetPath + "#" + SpriteTable.GlyphName(glyphs[i].Codepoint)] = i;
-        var table = new SpriteTable { Channels = channels, SinglePage = true };
+        var table = new SpriteTable { SinglePage = true };
         table.Pages.Add(new SpriteTable.Page
         {
             Artifact = "sheet",
@@ -195,7 +186,7 @@ public sealed unsafe class FontImporter : AssetImporter
             Kern = kernBytes,
         };
         ctx.AddArtifact("main", fontAsset);
-        ctx.AddArtifact("sheet", PixelBlob.Build(channels, page.Width, page.Height, page.Pixels), ArtifactScope.Standalone);
+        ctx.AddArtifact("sheet", page.EncodePng(), ArtifactScope.Standalone);
         ctx.AddArtifact("sprites", table, ArtifactScope.Standalone);
     }
 

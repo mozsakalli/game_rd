@@ -123,6 +123,7 @@ public unsafe class App
         _assets.ScanMetas(createMissing: true); // GUID kimligi: eksik .meta uretilir
         ImportPipeline.Init(_project);
         _assets.ArtifactResolver = ImportPipeline.ResolveArtifact; // import'lu asset'ler Library'den
+        _assets.ArtifactPathResolver = ImportPipeline.ResolveArtifactPath;
         Audio.Source = _assets.Source; // muzik anahtarlari loose dosyadan
         PlayerPrefs.SetRoot(_project.LibraryPath); // oyun PlayerPrefs'i proje-yerel (Library/prefs.dat; git'e girmez)
         AssetDatabase.LogWarning = EditorLog.Warning;
@@ -223,6 +224,7 @@ public unsafe class App
             // oyun sahnesi (varsa) UpdateAll'da simule olur. Ekran = oyun cikti boyutu.
             float dt = _lastUpdateT > 0 ? (float)(t - _lastUpdateT) : 0f;
             _lastUpdateT = t;
+            if (dt > GameHost.MaxDeltaTime) dt = GameHost.MaxDeltaTime; // player paritesi: uzun frame (derleme, import, arka plan) tek dev adim olmasin
             _assets.Tick(2, dt); // async pompasi + biten async yuklemeleri butceli bagla
             var editLive = _editScene.LiveScene;
             if (editLive != null)
@@ -232,7 +234,8 @@ public unsafe class App
                 editLive.Update(dt, simulate: false);
                 PreviewSession.Step(dt);
             }
-            Scene.UpdateAll(dt, GameOutput.ViewW, GameOutput.ViewH, PlayMode.Simulate);
+            Scene.UpdateAll(PlayMode.ForcedDt > 0f && PlayMode.Simulate ? PlayMode.ForcedDt : dt,
+                GameOutput.ViewW, GameOutput.ViewH, PlayMode.Simulate);
 
             // Oyun ciktisi: oyun sahnesi (Play'de) yoksa edit projeksiyonu.
             // Sahnedeki aktif CameraComponent'ler depth sirasiyla havuz kameralarina

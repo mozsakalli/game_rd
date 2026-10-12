@@ -1657,14 +1657,11 @@ static VmObject *de_construct(const MethodInfo *ctor, VmArray *args)
     return (VmObject *)o;
 }
 VmObject *System_Reflection_ConstructorInfo_Invoke__System_Object(DigitoyEngineMethodObj *a0, VmArray *args) { return de_construct(method_of(a0), args); }
-// Activator.CreateInstance(string): tip tablosunda ada gore (Type.name = C# gosterimi) -> parametresiz ctor; yoksa null (.NET: exception; mevcut sozlesme null)
-VmObject *System_Activator_CreateInstanceByName_System_String(VmString *typeName)
+// Activator.CreateInstance(Type): descriptor'dan parametresiz ctor; struct/primitive -> kutulanmis default(T) (gc_alloc sifirlar).
+// interface/abstract/delegate/enum ya da ctor'suz class -> null (.NET: exception; mevcut sozlesme null).
+static VmObject *de_create_instance(const Type *t)
 {
-    DigitoyEngineTypeObj *tw = System_Type_GetType_System_String(typeName);
-    if (!tw)
-        return 0;
-    const Type *t = type_of(tw);
-    if (t->flags & (DIGITOYENGINE_TYPE_INTERFACE | DIGITOYENGINE_TYPE_ABSTRACT | DIGITOYENGINE_TYPE_DELEGATE | DIGITOYENGINE_TYPE_ENUM))
+    if (!t || (t->flags & (DIGITOYENGINE_TYPE_INTERFACE | DIGITOYENGINE_TYPE_ABSTRACT | DIGITOYENGINE_TYPE_DELEGATE | DIGITOYENGINE_TYPE_ENUM)))
         return 0;
     for (int i = 0; i < t->nmethods; i++)
     {
@@ -1672,7 +1669,20 @@ VmObject *System_Activator_CreateInstanceByName_System_String(VmString *typeName
         if ((m->flags & DIGITOYENGINE_METHOD_CTOR) && m->nparams == 0 && m->fn)
             return de_construct(m, 0);
     }
+    if (((t->flags & DIGITOYENGINE_TYPE_STRUCT) || (t->rootid >= 4 && t->rootid <= 15)) && t->size > sizeof(GCHeader))
+        return (VmObject *)gc_alloc(t); /* default(T) kutusu: payload sifir */
     return 0;
+}
+VmObject *System_Activator_CreateInstanceOf_System_Type(DigitoyEngineTypeObj *a0)
+{
+    DIGITOYENGINE_NULLCHECK(a0);
+    return de_create_instance(type_of(a0));
+}
+// Activator.CreateInstance(string): tip tablosunda ada gore (Type.name = C# gosterimi) -> ayni yol
+VmObject *System_Activator_CreateInstanceByName_System_String(VmString *typeName)
+{
+    DigitoyEngineTypeObj *tw = System_Type_GetType_System_String(typeName);
+    return tw ? de_create_instance(type_of(tw)) : 0;
 }
 typedef struct DigitoyEngineMemberObj
 {
@@ -1786,10 +1796,11 @@ DigitoyEngineTypeObj *System_Object_GetType(VmObject *a0)
 {
     const GCHeader *h = (const GCHeader *)a0;
     const Type *t = h->type;
-    if (t == &vmarray_ref_type || t == &vmarray_val_type || t->finalize == finalize_vmarray)
+    if (!(t->flags & DIGITOYENGINE_TYPE_ARRAY) && (t == &vmarray_ref_type || t == &vmarray_val_type || t->finalize == finalize_vmarray))
     {
+        /* kimliksiz tahsis tipi (corelib.c ham vmarray_new yolu): eleman biliniyorsa kanonik T[] */
         const VmArray *a = (const VmArray *)h;
-        if (a->elem) /* T[] kimlik descriptor'u (uretilen typeof(T[]) ya da sentez) */
+        if (a->elem)
             t = digitoyengine_array_type(a->elem, a->rank);
     }
     return (DigitoyEngineTypeObj *)digitoyengine_type_wrapper(t);

@@ -27,41 +27,42 @@
 #endif
 
 #ifdef __cplusplus
-extern "C" {
+extern "C"
+{
 #endif
 
-// Dosya acar -> job. Tamamlanma: code 1 -> a = handle (>= 0); -1 -> acilamadi.
-// Android: "asset:<ad>" yolu APK assets/ icinden fd+offset ile acilir (kopya yok; asset SIKISTIRILMAMIS
-// olmali — Gradle `noCompress`). Oncesinde de_fs_set_asset_manager cagrilmis olmali.
-DE_FS_API int de_fs_open(const char *path);
+    // Dosya acar -> job. Tamamlanma: code 1 -> a = handle (>= 0); -1 -> acilamadi.
+    // Android: "asset:<ad>" yolu APK assets/ icinden fd+offset ile acilir (kopya yok; asset SIKISTIRILMAMIS
+    // olmali — Gradle `noCompress`). Oncesinde de_fs_set_asset_manager cagrilmis olmali.
+    DE_FS_API int de_fs_open(const char *path);
 #if defined(__ANDROID__)
-DE_FS_API void de_fs_set_asset_manager(void *aassetManager); // AAssetManager* (host JNI'den)
+    DE_FS_API void de_fs_set_asset_manager(void *aassetManager); // AAssetManager* (host JNI'den)
 #endif
-DE_FS_API long long de_fs_size(int handle);
-DE_FS_API void de_fs_close(int handle);
+    DE_FS_API long long de_fs_size(int handle);
+    DE_FS_API void de_fs_close(int handle);
 
-// [offset, offset+length) araligini okur -> job; tamamlanma data/len (malloc'lu, de_async_free).
-// handle < 0 ise `path` kullanilir (editor loose dosyalari). length 0 = dosyanin tamami.
-// rawLength != length ise aralik zlib'lidir: worker inflate eder, len = rawLength.
-DE_FS_API int de_fs_read(int handle, const char *path, long long offset, long long length, long long rawLength);
+    // [offset, offset+length) araligini okur -> job; tamamlanma data/len (malloc'lu, de_async_free).
+    // handle < 0 ise `path` kullanilir (editor loose dosyalari). length 0 = dosyanin tamami.
+    // rawLength != length ise aralik zlib'lidir: worker inflate eder, len = rawLength.
+    DE_FS_API int de_fs_read(int handle, const char *path, long long offset, long long length, long long rawLength);
 
-// Ayni okuma + piksel decode (DTEX hizli yol, degilse stb_image) -> job;
-// tamamlanma data = RGBA8 (satir 0 altta), a/b = w/h.
-DE_FS_API int de_fs_decode(int handle, const char *path, long long offset, long long length, long long rawLength);
+    // Ayni okuma + piksel decode (stb_image) -> job;
+    // tamamlanma data = RGBA8 ya da R8 (gray kaynak; kanal = len / (w*h)), satir 0 altta, a/b = w/h.
+    DE_FS_API int de_fs_decode(int handle, const char *path, long long offset, long long length, long long rawLength);
 
-// --- Kalici anahtar/deger (DigitoyEngine.PlayerPrefs) --------------------------------------
-// iOS CFPreferences, Android SharedPreferences (host JNI_OnLoad de_android_prefs_bind), Web
-// localStorage, desktop <root>/prefs.dat. Degerler UTF-8 string; tip donusumu managed'da.
-DE_FS_API void de_prefs_set_root(const char *root);              // desktop dosya koku (digerleri yok sayar)
-DE_FS_API int de_prefs_get(const char *key, void **out, int *len); // 1 = var (*out malloc'lu, de_prefs_free)
-DE_FS_API void de_prefs_free(void *p);
-DE_FS_API void de_prefs_set(const char *key, const char *value);
-DE_FS_API void de_prefs_delete(const char *key);
-DE_FS_API void de_prefs_delete_all(void);
-DE_FS_API int de_prefs_has(const char *key);
-DE_FS_API void de_prefs_save(void);                               // desktop: diske yaz; iOS: synchronize; Android: apply
+    // --- Kalici anahtar/deger (DigitoyEngine.PlayerPrefs) --------------------------------------
+    // iOS CFPreferences, Android SharedPreferences (host JNI_OnLoad de_android_prefs_bind), Web
+    // localStorage, desktop <root>/prefs.dat. Degerler UTF-8 string; tip donusumu managed'da.
+    DE_FS_API void de_prefs_set_root(const char *root);                // desktop dosya koku (digerleri yok sayar)
+    DE_FS_API int de_prefs_get(const char *key, void **out, int *len); // 1 = var (*out malloc'lu, de_prefs_free)
+    DE_FS_API void de_prefs_free(void *p);
+    DE_FS_API void de_prefs_set(const char *key, const char *value);
+    DE_FS_API void de_prefs_delete(const char *key);
+    DE_FS_API void de_prefs_delete_all(void);
+    DE_FS_API int de_prefs_has(const char *key);
+    DE_FS_API void de_prefs_save(void); // desktop: diske yaz; iOS: synchronize; Android: apply
 #if defined(__ANDROID__)
-DE_FS_API void de_android_prefs_bind(void *vm, void *env, void *cls); // com/digitoy/host/Prefs
+    DE_FS_API void de_android_prefs_bind(void *vm, void *env, void *cls); // com/digitoy/host/Prefs
 #endif
 
 #ifdef __cplusplus

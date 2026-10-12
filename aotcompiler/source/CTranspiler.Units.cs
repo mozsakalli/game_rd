@@ -115,8 +115,6 @@ namespace DigitoyEngine.Language
             }
             foreach (var valueStruct in reflectedValueStructs.Values)
                 UnitOf(valueStruct).H.Append($"extern Type {CName(valueStruct.Name)}_type;\n");
-            foreach (var kv in structArrayTypes)
-                UnitOf(kv.Value).H.Append($"extern Type arr_{kv.Key}_type;\n");
             foreach (var p in ctx.AllPrimitives)
             {
                 if (!IsEmittableModel(p) || p.IsStruct || p == Primitive.Object || p == Primitive.String) continue;
@@ -137,12 +135,10 @@ namespace DigitoyEngine.Language
                 }
             foreach (var valueStruct in reflectedValueStructs.Values)
                 UnitOf(valueStruct).C.Append(EmitValueStructType(valueStruct));
-            foreach (var elem in structArrayTypes.Values) // ref tasiyan struct eleman dizileri (GC eleman tarama)
-                UnitOf(elem).C.Append(EmitStructArrayType(elem));
-            foreach (var array in reflectedArrays.Values)
+            foreach (var array in reflectedArrays.Values) // kanonik T[] descriptor'lari (kimlik + tahsis; tek ortak trace)
             {
                 sharedUnit.H.Append($"extern Type {TypeSym(array)};\n");
-                sharedUnit.C.Append($"Type {TypeSym(array)} = {{ 0, 0, sizeof(VmArray), 0, {ArrayBaseSym()}, &{strPool[array.Display]}, vmobject_vtable, 3, 0, 0, 0{TypeMetaTail(array)}, .flags = DIGITOYENGINE_TYPE_ARRAY, .elem_type = {ExportTypeSym(array.ElementType)}, .rank = {Math.Max(1, array.ArrayRank)} }};\n");
+                sharedUnit.C.Append(EmitArrayType(array));
             }
             // tahsis yardimcilari: header'da inline (extern X_type'tan sonra)
             foreach (var p in ctx.AllPrimitives)

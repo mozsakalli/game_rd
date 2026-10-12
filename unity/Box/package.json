@@ -1,0 +1,22 @@
+{
+    "name": "com.digitoygames.uibox",
+    "displayName": "Digitoy UIBox",
+    "version": "0.1.0",
+    "unity": "2021.3",
+    "description": "LayoutBox-style UI box + MTSDF text sharing one atlas (DigitoyEngine port). Editor-only .msdf font importer (pure C# msdfgen + stb_truetype, no native).",
+    "author": {
+        "name": "Digitoy Games",
+        "url": "https://digitoygames.com"
+    },
+    "keywords": [
+        "digitoy",
+        "ui",
+        "msdf",
+        "layout",
+        "box"
+    ],
+    "license": "UNLICENSED",
+    "dependencies": {
+        "com.unity.ugui": "1.0.0"
+    }
+}

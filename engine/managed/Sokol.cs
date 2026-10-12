@@ -165,6 +165,27 @@ public static unsafe class Sokol
     public static int MsdfFontGlyph(IntPtr handle, int codepoint, float sdfSize, int pad, float pixelDistScale,
         double angleThreshold, byte* buffer, int bufferSize, float* out5)
         => de_msdf_font_glyph((void*)handle, codepoint, sdfSize, pad, pixelDistScale, angleThreshold, buffer, bufferSize, out5);
+
+    // Piksel encoder (de_image_write.c, editor-only): kind 0 = PNG, 1 = JPG. flip: dosyaya satirlar ters
+    // yazilir (yukleme flip'iyle bellek duzeni birebir doner). Donus yonetilen kopya; hata = null.
+    [DllImport(Lib, EntryPoint = "de_image_encode")]
+    extern static byte* de_image_encode(byte* pixels, int w, int h, int comp, int kind, int quality, int flip, int* outLen);
+    [DllImport(Lib, EntryPoint = "de_image_free")]
+    extern static void de_image_free(void* p);
+
+    public static byte[] ImageEncode(ReadOnlySpan<byte> pixels, int w, int h, int comp, bool jpg, int quality, bool flip)
+    {
+        int len;
+        byte* p;
+        fixed (byte* px = pixels)
+            p = de_image_encode(px, w, h, comp, jpg ? 1 : 0, quality, flip ? 1 : 0, &len);
+        if (p == null)
+            return null;
+        var r = new byte[len];
+        new ReadOnlySpan<byte>(p, len).CopyTo(r);
+        de_image_free(p);
+        return r;
+    }
 #endif
 
     [DllImport(Lib, EntryPoint = "de_sokol_commit")]

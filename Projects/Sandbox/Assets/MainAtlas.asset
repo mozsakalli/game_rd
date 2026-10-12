@@ -2,7 +2,7 @@ type: AtlasGroup
 fields:
   folders:
     - Textures
-  fonts:
+  sources:
     - Fonts/arial.ttf
     - Fonts/NotoSans-Black.ttf
   padding: 2

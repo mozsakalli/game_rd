@@ -139,7 +139,9 @@ public static class AssetWatcher
         switch (ext)
         {
             case ".png" or ".jpg" or ".jpeg":
-                // Yerinde piksel patch'i: sahne/play/referanslar hic bozulmaz.
+                // Once artifact tazelenir (ImageImporter), sonra yerinde piksel patch'i: sahne/play/referanslar hic bozulmaz.
+                if (File.Exists(full))
+                    ImportPipeline.EnsureImported(rel, force: true);
                 if (assets.ReloadTexture(rel))
                     EditorLog.Info($"texture patched in-place: {rel}");
                 atlasDirty = true; // uye oldugu gruplar stamp'ten yeniden paketlenir

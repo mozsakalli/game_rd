@@ -7,50 +7,45 @@ using DigitoyEngine.Editor;
 
 namespace DigitoyEditor;
 
-public enum AtlasFormat
-{
-    Auto,  // tum uyeler SDF ise R8, degilse RGBA8
-    RGBA8,
-    R8,    // yalniz SDF uyeler (renkli uye varsa hata)
-}
-
-// Atlas grubu TANIMI (asset): hangi klasorler/fontlar girer + pack ayarlari. Saf
+// Atlas grubu TANIMI (asset): hangi klasorler/sprite kaynaklari girer + pack ayarlari. Saf
 // authoring tipi — runtime yalniz bolge tablosunu/sayfalari gorur, o yuzden EDITOR
 // assembly'sinde yasar. Tasarimci birden fazla fontu + ikonlari tek sayfaya merge
-// edebilir (tek draw); gruba girmeyen font/png kendi tekil dokusunda kalir.
+// edebilir (tek draw); gruba girmeyen kaynak/png kendi tekil dokusunda kalir.
+// Sayfalar hep RGBA8 PNG (MTSDF glyph + duz sprite + UiPieces ayni formatta; tek shader).
 [Serializable]
 [CreateAssetMenu(MenuName = "Atlas Group", FileName = "AtlasGroup")]
 public class AtlasGroup
 {
     public List<string> folders = new();  // Assets'e goreli klasor onekleri ("Textures/UI")
-    public List<Font> fonts = new();      // gruba alinan fontlar (glyph'ler sayfaya tasinir)
+    // Sprite ureten asset'ler (Font, ileride Spine): importer'inin "sprites" tablosu sayfaya tasinir.
+    // Tip-ozel degil — ISpriteSource tasiyan her [Asset] sinifi suruklenebilir.
+    [FormerlySerializedAs("fonts")] public List<ISpriteSource> sources = new();
     public int padding = 2;
     public int maxSize = 2048;            // asilinca otomatik yeni sayfa
-    public AtlasFormat format = AtlasFormat.Auto;
     public bool uiPieces = true;          // her sayfaya kutu/golge SDF parcalari (kutu + icerik tek draw)
 }
 
 // AtlasGroup .asset -> atlas artifact'i: uyeler (png, font glyph'leri, UiPieces)
 // RegionPacker ile sayfalara dizilir. Ciktilar:
-//   main    : DATL (sayfa tanimlari + bolge tablosu)
-//   pageN   : DPIX sayfa pikselleri
+//   main    : SpriteTable (DOBJ: sayfa tanimlari + bolge tablosu)
+//   pageN   : PNG sayfa (RGBA8, flip'li yazim)
 // Uyeler CollectDependencies'te Absorbs ile bildirilir: stamp'e girer (biri degisince
 // grup otomatik yeniden paketlenir) ve pak builder uyelerin tekil kopyasini atlayip
 // uye->grup kenari yazar. Pak build'inde ctx.IsLive filtresi uygulanir: sahne grafinin
 // erismedigi uye sayfaya girmez. Bolge ureticisi importer'lar (font, ileride spine)
-// "regions" manifestosu + piksel artifact'iyle katilir — bu importer baska format bilmez.
-[AssetImporter(".asset", AssetType = nameof(AtlasGroup), Version = 3)]
+// "sprites" tablosu + PNG sayfalariyla katilir — bu importer baska format bilmez.
+[AssetImporter(".asset", AssetType = nameof(AtlasGroup), Version = 5)]
 public sealed class AtlasImporter : AssetImporter
 {
     public const string TypeName = nameof(AtlasGroup);
 
     static readonly string[] ImageExts = { ".png", ".jpg", ".jpeg" };
 
-    // Grup yaml'ini runtime tipleri yuklemeden okur (font referanslari guid/yol).
-    static AtlasGroup ReadGroup(string sourcePath, out List<string> fontPaths)
+    // Grup yaml'ini runtime tipleri yuklemeden okur (kaynak referanslari guid/yol).
+    static AtlasGroup ReadGroup(string sourcePath, out List<string> sourcePaths)
     {
         var g = new AtlasGroup();
-        fontPaths = new List<string>();
+        sourcePaths = new List<string>();
         var root = Yaml.Parse(File.ReadAllText(sourcePath));
         var fields = root.Get("fields") ?? root;
         var folders = fields.Get("folders");
@@ -58,21 +53,20 @@ public sealed class AtlasImporter : AssetImporter
             foreach (var n in folders.Items)
                 if (!string.IsNullOrWhiteSpace(n.Scalar))
                     g.folders.Add(n.Scalar.Trim());
-        var fonts = fields.Get("fonts");
-        if (fonts?.Items != null)
+        var sources = fields.Get("sources") ?? fields.Get("fonts"); // "fonts" = eski ad (FormerlySerializedAs)
+        if (sources?.Items != null)
         {
-            foreach (var n in fonts.Items)
+            foreach (var n in sources.Items)
             {
                 if (string.IsNullOrWhiteSpace(n.Scalar))
                     continue;
                 string p = App.Assets?.ResolvePath(n.Scalar) ?? n.Scalar;
-                if (!fontPaths.Contains(p))
-                    fontPaths.Add(p);
+                if (!sourcePaths.Contains(p))
+                    sourcePaths.Add(p);
             }
         }
         if (int.TryParse(fields.GetScalar("padding", null), out int pad)) g.padding = pad;
         if (int.TryParse(fields.GetScalar("maxSize", null), out int ms)) g.maxSize = ms;
-        if (Enum.TryParse(fields.GetScalar("format", null), out AtlasFormat fmt)) g.format = fmt;
         string up = fields.GetScalar("uiPieces", null);
         if (up != null) g.uiPieces = up == "true";
         return g;
@@ -106,16 +100,16 @@ public sealed class AtlasImporter : AssetImporter
 
     public override void CollectDependencies(DependencyContext ctx)
     {
-        var g = ReadGroup(ctx.SourcePath, out var fontPaths);
+        var g = ReadGroup(ctx.SourcePath, out var sourcePaths);
         foreach (var m in ImageMembers(g, ctx.AllAssets))
             ctx.Absorbs(m); // uyenin pikselleri sayfada yasar; tekil kopyasi pak'a girmez
-        foreach (var f in fontPaths)
-            ctx.Absorbs(f); // glyph'ler sayfada; fontun kendi sheet'i (Standalone) gereksiz
+        foreach (var f in sourcePaths)
+            ctx.Absorbs(f); // bolgeler sayfada; kaynagin kendi sheet'i (Standalone) gereksiz
     }
 
     public override void Import(ImportContext ctx)
     {
-        var g = ReadGroup(ctx.SourcePath, out var fontPaths);
+        var g = ReadGroup(ctx.SourcePath, out var sourcePaths);
         var sources = new List<RegionSource>();
         var members = new List<string>();
         var errors = new StringBuilder();
@@ -140,7 +134,7 @@ public sealed class AtlasImporter : AssetImporter
 
         // Bolge ureticileri (font, spine...): "sprites" tablosu + sayfa piksel artifact'leri.
         int unit = 0;
-        foreach (var fp in fontPaths)
+        foreach (var fp in sourcePaths)
         {
             if (!ctx.IsLive(fp))
                 continue;
@@ -151,7 +145,7 @@ public sealed class AtlasImporter : AssetImporter
                 errors.Append(fp).Append(" sprite tablosu yok (import basarisiz?); ");
                 continue;
             }
-            var pixelBlobs = new Dictionary<string, (byte[] Px, int Ch, int W, int H)>();
+            var pixelBlobs = new Dictionary<string, (byte[] Px, int W, int H)>();
             bool ok = true;
             foreach (var e in man.Regions)
             {
@@ -160,19 +154,20 @@ public sealed class AtlasImporter : AssetImporter
                 string pixels = man.Pages[e.Page].Artifact;
                 if (!pixelBlobs.ContainsKey(pixels))
                 {
-                    var blob = ctx.ReadArtifact(fp, pixels);
-                    if (!PixelBlob.TryParse(blob, out int ch, out int pw, out int ph))
+                    // Sayfa PNG'si flip'li yazildi: decode flip'i geri alir -> bellek = depolama duzeni.
+                    string path = ctx.ArtifactPath(fp, pixels);
+                    int pw = 0, ph = 0;
+                    var px = path != null ? EditorPixels.DecodeFile(path, out pw, out ph) : null;
+                    if (px == null)
                     {
-                        errors.Append(fp).Append(" piksel artifact'i bozuk: ").Append(pixels).Append("; ");
+                        errors.Append(fp).Append(" sayfa artifact'i bozuk: ").Append(pixels).Append("; ");
                         ok = false;
                         break;
                     }
-                    var px = new byte[pw * ph * ch];
-                    Buffer.BlockCopy(blob, PixelBlob.HeaderSize, px, 0, px.Length);
-                    pixelBlobs[pixels] = (px, ch, pw, ph);
+                    pixelBlobs[pixels] = (px, pw, ph);
                 }
-                var (pix, pch, _, _) = pixelBlobs[pixels];
-                var s = RegionSource.FromBuffer(e.Name, e.Kind, pix, pch, pixelBlobs[pixels].W, e.X, e.Y, e.W, e.H);
+                var (pix, pstride, _) = pixelBlobs[pixels];
+                var s = RegionSource.FromBuffer(e.Name, e.Kind, pix, 4, pstride, e.X, e.Y, e.W, e.H);
                 s.OffX = e.OffX; s.OffY = e.OffY; s.OrigW = e.OrigW; s.OrigH = e.OrigH;
                 s.Pad = Math.Max(e.Pad, g.padding);
                 s.Unit = man.SinglePage ? unit : -1;
@@ -183,18 +178,7 @@ public sealed class AtlasImporter : AssetImporter
             unit++;
         }
 
-        int channels = g.format switch
-        {
-            AtlasFormat.R8 => 1,
-            AtlasFormat.RGBA8 => 4,
-            _ => RegionPacker.AllSdf(sources) ? 1 : 4,
-        };
-        if (channels == 1 && !RegionPacker.AllSdf(sources))
-        {
-            ctx.Fail("format R8 ama renkli ya da MTSDF uye var; Auto veya RGBA8 secin");
-            return;
-        }
-
+        const int channels = 4;
         List<PackedPage> pages;
         try
         {
@@ -208,7 +192,7 @@ public sealed class AtlasImporter : AssetImporter
             return;
         }
 
-        var data = new SpriteTable { Channels = channels };
+        var data = new SpriteTable();
         for (int p = 0; p < pages.Count; p++)
         {
             var page = pages[p];
@@ -238,13 +222,13 @@ public sealed class AtlasImporter : AssetImporter
                     Pad = src.Pad,
                 });
             }
-            ctx.AddArtifact(SpriteTable.PageArtifact(p), PixelBlob.Build(channels, page.Width, page.Height, page.Pixels));
+            ctx.AddArtifact(SpriteTable.PageArtifact(p), page.EncodePng());
         }
         ctx.AddArtifact("main", data);
 
         if (errors.Length > 0)
             EditorLog.Warning($"[atlas] {ctx.AssetPath}: {errors.ToString().TrimEnd(' ', ';')}");
-        EditorLog.Info($"[atlas] {ctx.AssetPath}: {data.Regions.Count} bolge, {pages.Count} sayfa ({(channels == 1 ? "R8" : "RGBA8")}, {members.Count} uye)");
+        EditorLog.Info($"[atlas] {ctx.AssetPath}: {data.Regions.Count} bolge, {pages.Count} sayfa ({members.Count} uye)");
     }
 }
 

@@ -81,6 +81,9 @@ public sealed class ImportContext
     // Bagimlilik artifact'i (gerekirse once import edilir). Importer'siz dosya icin null.
     public byte[] ReadArtifact(string assetPath, string name) => ImportPipeline.GetArtifact(assetPath, name);
 
+    // Bagimlilik artifact'inin dosya yolu (piksel decode gibi yol isteyen isler icin).
+    public string ArtifactPath(string assetPath, string name) => ImportPipeline.ArtifactPath(assetPath, name);
+
     public string FullPath(string assetPath) => ImportPipeline.FullPath(assetPath);
 
     // Girdi bu import'ta kullanilmali mi: editor'de daima true; pak build'inde yalniz
@@ -228,6 +231,13 @@ public static class ImportPipeline
         return hash < 0 ? GetArtifact(key, "main") : GetArtifact(key.Substring(0, hash), key.Substring(hash + 1));
     }
 
+    // AssetDatabase.ArtifactPathResolver hedefi: ayni cozum, dosya yolu olarak (native piksel decode).
+    public static string ResolveArtifactPath(string key)
+    {
+        int hash = key.IndexOf('#');
+        return hash < 0 ? ArtifactPath(key, "main") : ArtifactPath(key.Substring(0, hash), key.Substring(hash + 1));
+    }
+
     public static byte[] GetArtifact(string rel, string name)
     {
         if (ImporterFor(rel) == null)
@@ -237,6 +247,18 @@ public static class ImportPipeline
             return null;
         string p = Path.Combine(dir, name);
         return File.Exists(p) ? File.ReadAllBytes(p) : null;
+    }
+
+    // Artifact'in Library'deki dosya yolu (native decode gibi yol isteyen araclar icin); yoksa null.
+    public static string ArtifactPath(string rel, string name)
+    {
+        if (ImporterFor(rel) == null)
+            return null;
+        string dir = EnsureImported(rel);
+        if (dir == null)
+            return null;
+        string p = Path.Combine(dir, name);
+        return File.Exists(p) ? p : null;
     }
 
     // Artifact klasorundeki adlar ve kapsamlari (pak builder kapsama gore paketler).

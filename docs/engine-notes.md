@@ -1,5 +1,203 @@
 # DigitoyEngine R&D (game_rd)
 
+## TUZAK: clang-format EM_JS gövdesini bozuyor (2026-10-13, wasm link OK)
+- `de_fs.c` prefs EM_JS'lerinde `===` → `== =` olmuştu (formatter JS'i C sandı) → emcc link'te acorn
+  `SyntaxError: Unexpected token (6014:124)` (hata satırı `function de_js_prefs_get...`). Derleme geçer, LINK patlar.
+- Kural: her EM_JS/EM_ASM bloğu `// clang-format off ... on` içinde (de_net.c zaten öyleydi; de_fs.c + audio_shim.c eklendi).
+- Yayınlanmış editör (prebuilt sdk modu) native kaynağı REPODAN değil `C:\DigitoyPublish\<v>\...\sdk\native\engine\`
+  kopyasından derler; repo düzeltmesi oraya publish (EditorPublisher, hash'li kopya) ya da elle kopya ile gider.
+  Publisher'ın `managed` adımı açık editörün exe'sini kilitte bulur → önce editörü kapat.
+
+## RPC TOPLU MUTASYON: scene.apply + edit.batch (2026-10-12, Sandbox'ta RPC ile doğrulandı)
+- SORUN: AI sahne kurulumunda darboğaz RPC değil TUR SAYISI (her araç çağrısı = bir model turu). 10 GO'luk UI ≈ 80 çağrı.
+  Alternatif "YAML'ı doğrudan yaz" reddedildi: Dirty sahnede watcher dosyayı yutar (bellek kazanır), undo gider, şema
+  doğrulaması (enum case, ref format, prefab semantiği, id üretimi) reload'a kadar görünmez. Karar: TAŞIMA değil GRANÜLERLİK
+  değişti — aynı doc-mutasyon boğazları, tek istekte N op.
+- `scene.apply(objects, parent=0)`: bildirimsel alt ağaç `{name,id?,parent?,insertBefore?,active?,layer?,pos,rot,scale,
+  components:[{type,index?,enabled?,props:{Alan: v, "Tracks[0].Path": v}}],children:[...]}`. `id` varsa MEVCUT GO güncellenir
+  (component: index varsa o, yoksa aynı tipten ilki, o da yoksa eklenir). Dönüş girdiyle aynı yapıda `{name,id,components:[idx],
+  children}`. Prop değerleri prop.set çekirdeğinden (`SetPropPath`) geçer → iç içe yol + şema hatası aynı.
+- `edit.batch(ops)`: `[{cmd,args,as?}]`; izinli cmd ALLOWLIST (BatchAllowed: addGo/removeGo/rename/reparent/apply, comp.add/
+  remove/setEnabled, prop.set, transform.set, go.setActive, select.set) — deferred/oturum komutları (sim.run, scene.open…)
+  atomikliği bozar, reddedilir. `RpcRegistry.Invoke(entry, ctx, DocNode)` eklendi (JSON gidiş-dönüşsüz).
+- `$Ad` REFERANSI (her ikisinde, props dahil recursive): apply'da bu çağrıda adlandırılan GO → id; batch'te `as` alias'ı →
+  sonucun id'si (comp.add için index), `$x.alan` açık alan; alias yoksa sahnede o adla TEK GO (belirsizse hata). `$Ad:Transform:0`
+  CompRef kuyruğu korunur. '$' ile başlayan gerçek metin değerleri bu yüzden yasak (sözleşme).
+- ATOMİK + TEK UNDO + TEK RELOAD: `UndoStack.BeginGroup/EndGroup/RollbackGroup` + `GroupOp` (undo ters, redo ileri);
+  `EditorScene.BeginBatch/EndBatch/RollbackBatch` ayrıca `RefreshLive`'ı askıya alır (`_refreshSuspend`, batch sonunda bir
+  Instantiate). İlk hata → RollbackGroup: op'lar ters sırada undo'lanır ve journal'dan silinir (undo/redo'da iz yok), hata
+  mesajı `objects[1]: children[0]: components[0] LayoutBox.widht: ...` yol + "geri alındı" notu. İç içe (batch → apply) ikinci
+  grup açmaz (`History.InGroup` → inline, dış grup rollback'i üstlenir).
+- Askıdayken yeni GO'nun canlısı yok → `ApplyField/ApplyTransform` null-safe atlar, son reload doc'tan kurar (zaten öyleydi).
+- KAPSAM DIŞI (bilerek): prefab instantiate RPC'si hâlâ yok (apply `prefab:` almaz).
+- KÖR AJAN TESTİ (aynı gün, yalnız RPC yanıtlarıyla Settings paneli kuruldu — ilk denemede doğru çıktı). Takılma
+  noktaları ve yapılanlar:
+  * Yazım anı ŞEMA DOĞRULAMASI (`RpcCommands.Validate`, prop.set + apply + batch ortak yaprak): `Ease:"outback"`,
+    `color:"red"`, `width:"big"`, `"10,20"` vektör, olmayan asset/GO/CompRef, nested bilinmeyen alan — hepsi daha önce
+    SESSİZCE doc'a giriyordu (runtime'da default/beyaz/sıfır; screenshot'ta bile anlaşılmıyor). Artık yol + sebep +
+    öneri ile red (enum case: "'outback' değil 'OutBack' (değerler: ...)"). Normalize: `#rrggbb`→`#rrggbbff`, asset yolu→guid.
+  * `comp.schema` alanlara `default` ekler (CreateDefaultFieldNode; List/Object hariç) — ajan "yazmazsam ne olur" bilsin.
+  * `input.tap/drag` → `{gesture, hit, target:"BG/Panel/SoundBtn", handlers:N, note}` (`PointerInput.LastDownTarget/
+    LastGestureHandlers/LastDownMissed`, alloc'suz). Eski `{ok:true}` hiçbir şey söylemiyordu (handler yok mu, ıska mı?).
+  * `rpc.guide` = START HERE: iş akışı, UI=LayoutBox kavramı, "Buton tipi yok, davranış kod ister", değer biçimleri,
+    MovieClip tarifi, koordinat sözleşmesi. `rpc.describe` 10 KB tek satır — ajan dosyaya düşürüp ayrıştırmak zorunda kaldı.
+  * `scene.dumpLive` `depth` → `level` (kamera depth'iyle karışıyordu).
+  * JSON null artık `DocNode.Null()` (`IsNull`) olarak taşınır: apply props'ta ve batch içindeki `prop.set value:null`
+    "default'a dön/eleman sil" çalışır (önceden `""` skalerine dönüşüyordu — batch'te sessiz bug'dı).
+  * Doğrulandı: CameraComponent OPSİYONEL (piksel-ortho fallback'le UI 1:1 mantıksal ölçekte çizilir).
+  * MCP `instructions` (initialize yanıtı; istemci sistem promptuna gömer) ARTIK SABİT METİN DEĞİL: köprü initialize
+    anında editörden `rpc.guide` çeker ve gömer; editör kapalıysa yalnız "önce rpc_guide çağır" satırı. Kural metninin
+    tek sahibi editör (`RpcCommands.Guide`): değişiklik orada yapılır, köprüye dokunulmaz. Kullanıcı prompt'ta
+    "rpc_describe çağır" yazmak zorunda değil.
+
+## AOT: DİZİ = BİRİNCİ SINIF TİP (kanonik T[] descriptor) + Activator struct (2026-10-12, selftest 70/72 (2 eski), yuzbir AOT full+lean boot OK)
+- SORUN: AOT alan metasında dizi alanlarının tipi `0` idi (`ReflectionTypeSym` Array → "0") → `FieldInfo.FieldType == null`
+  → `SerializedType.TryKind(null)` NRE (Font.Glyphs ilk dizi alanlı pak tipi). Kök sebep: dizi IR'de ayrı Primitive ama
+  kanonik değil (`ArrayOf` her çağrıda yeni), descriptor tembel (typeof(T[]) ya da runtime sentez), tahsis tipi ayrı
+  (`vmarray_ref/val_type` + ref taşıyan struct için üretilen `arr_X_type`). .NET NativeAOT/IL2CPP modeli: T[] = eleman+rank'tan
+  türeyen kanonik tip, kimlik = tahsis.
+- ÇÖZÜM: `Primitive.ArrayOf` INTERN ((elem,rank) → tek Primitive, `InternedArrays`, DisplayName "int[]"). CTranspiler ön geçişi
+  elemanı descriptor'lu+canlı her kanonik diziye descriptor üretir (`RegisterArray`; typeof(T[]) hedefi zorunlu; jagged derinlik
+  sırasıyla). Descriptor = kimlik + TAHSİS tipi (`gc.type == typeof(T[])`): `{trace=digitoyengine_trace_array, finalize_vmarray,
+  atomic (ref'siz değer elemanda 1), base System.Array, name, flags ARRAY, elem_type, rank, hash}`. `NewArray` tahsisi bu
+  descriptor'ı kullanır; `ReflectionTypeSym/ExportTypeSym/GenericArgSym` dizi için `&T_arr_type`.
+- TEK TRACE (kullanıcı önerisi): `digitoyengine_trace_array` eleman türüne bakar — ref → shade; struct → `elem_type->trace_inline`;
+  atomik → yok. Struct descriptor'ına `trace_inline(void* payload)` eklendi (Type APPEND-ONLY alan); kutu trace'i onu sarar.
+  Tip başına `arr_X_type`/`EmitStructArrayType`/`array_of` SİLİNDİ. Sentez descriptor (`digitoyengine_array_type`) da tahsis
+  edilebilir (trace/finalize dolu) → `Array.CreateInstance` kanonik tipi kullanır. `vmarray_ref/val_type` yalnız corelib.c ham
+  `vmarray_new` + interp yedeği; `GetType` ARRAY bayraklı tipi doğrudan döner.
+- Corelib: `Activator.CreateInstance(Type)` ad aramasıyla değil handle ile (`CreateInstanceOf`); struct/primitive → kutulanmış
+  default(T) (`List<Page>.Add(object)` null'dan NRE veriyordu — serializer `NewElement` struct liste elemanı).
+- Trim: `ResolveComponentRoots` pak'taki `[Serializable]` DOBJ tipleri (Font, SpriteTable, oyun [Asset]) `Inline` facet'le kök sayar
+  (yalnız Component'ti). Dizi descriptor'ı facet'li tiplerin alan/kod dizileri için; ekstra kırpma gevşemesi yok.
+- Dizi arayüz haritası (`IList<T>`/`IEnumerable<T>` cast) HENÜZ YOK — kanonik tip altyapısı hazır, ayrı iş.
+
+## PAK GÖRSELLER KODLANMIŞ (PNG/JPG), DTEX/DPIX SİLİNDİ, R8 SDF YOLU KALKTI (2026-10-12, 15 grup PASS, pak/player OK)
+- SEBEP: pak her dokuyu ham RGBA(+filtre)+zlib yazıyordu; 57 KB jpg → 518 KB. Artık görseller KAYNAK KODLAMASIYLA
+  girer; runtime stb_image native worker'da async çözer (zaten vardı). `DtexFormat`, `PixelBlob`, `de_try_dtex`,
+  `MakePageTexture` SİLİNDİ. Kullanıcı kararı: ham doku yolu yok, "ha atlas ha png — fark yok".
+- `ImageImporter` (.png/.jpg/.jpeg, v1): `format Auto|Png|Jpg` (Auto = bayt-eşit kopya), `jpgQuality`. main Standalone
+  (atlas yutmuşsa pak'a girmez → builder guid stub'ı). Editörde `LoadTexture` artifact DOSYASINDAN decode eder
+  (`AssetDatabase.ArtifactPathResolver` → `ImportPipeline.ResolveArtifactPath`). Watcher png değişince önce reimport.
+- Atlas sayfası / font sheet = düz RGBA8 PNG, `LoadTexture(owner#pageN, w, h)` ile diğer png'lerle AYNI async yoldan
+  (`Texture.CreatePending(expectedW,H)`: UV'ler pikseller inmeden doğru). Preload `LoadNodeAsync` bayt İÇERİĞİNE bakar
+  (PNG/JPG magic → doku). Sayfalar flip'li yazılır: stbi yükleme flip'i bellek düzenini birebir geri getirir →
+  SpriteTable koordinatları değişmez. `AtlasFormat`/`Channels` kalktı; sayfa hep RGBA8.
+- R8 SDF font modu SİLİNDİ (kullanıcı: MSDF kadar net değil): `FontSdfMode` yok, FontImporter yalnız MTSDF (v12).
+  `UiPieces`: TEK shader (`Fragment`, median/alpha), `ShaderFor/UiShaderMsdf/SdfFragment` silindi, fallback dokusu RGBA.
+  GUI (editör) R8 raster/SDF fontu ayrı yol, dokunulmadı.
+- Native: `de_fs_decode` kanalı korur (gray PNG → R8, `len==w*h` ile anlaşılır; `Texture._AttachPixels(..., ch)`).
+  `de_image_write.c` (stb_image_write, editör-only) `de_image_encode` yalnız JPG için; PNG = `editor/PngWriter.cs`
+  (adaptif filtre + .NET ZLibStream SmallestSize — stb'nin deflate'i LZ77 yapmıyor, sayfa 970 KB çıkıyordu → 714 KB).
+  Screenshot `WriteRgb` de aynı sınıfa taşındı.
+- SONUÇ (Sandbox): 1119 → 1035 KB. Görseller 650 KB → 290 KB ✔; atlas sayfası 435 → 714 KB ✘ — içerik değişti: iki font
+  MSDF (3 farklı kanal, R8-kopyalı eski sayfadan az sıkışır). Küçültme: `sdfSize` / charset / maxSize. Yuzbir yeniden
+  build edilmedi (beklenti ~1.58 MB → ~600 KB).
+- AOT: `Buffer.BlockCopy` corelib'de YOK → release yolunda `Array.Copy` (SceneBinary Reader.Blob). `tools/pakls.ps1`: pak
+  içerik dökümü (boyuta göre).
+
+## ATLASGROUP.sources: ISpriteSource + ARAYÜZ ALANI = POLİMORFİK ASSET REFERANSI (2026-10-12, objtest 34 PASS, Sandbox atlas 643 bölge/11 üye)
+- SORUN (kullanıcı): AtlasGroup hâlâ `List<Font> fonts` istiyordu; importer ise tipi bilmeden yalnız `sprites` tablosunu
+  okuyordu (Spine vb. için jenerik). Font artık IAsset değil `[Asset]` saf veri → `List<IAsset>` Font'u kabul etmezdi.
+- KARAR: `ISpriteSource` marker arayüzü (engine Sprite.cs) = "importer'ı `sprites` SpriteTable + sayfa piksel artifact'i
+  yayar" sözleşmesi; Font uygular. `AtlasGroup.sources : List<ISpriteSource>` (`[FormerlySerializedAs("fonts")]`;
+  ReadGroup "sources" ?? "fonts"). Sandbox/yuzbirextra .asset'leri `sources:`a çevrildi.
+- GENEL KURAL: `AssetDatabase.IsAssetType` artık HER arayüz tipini Kind.Asset sayar (IAsset özel-case kalktı);
+  `LoadAsset(key, arayüz)` somut tipi yoldan (`ImportTypeOf ?? AssetClassOf`) çözer, arayüzü taşımıyorsa null (bozuk
+  referans sessiz boş). Drag-drop `IsAssignable` zaten `fieldType.IsAssignableFrom(concrete)`.
+- Tuzak kapatıldı: `AssetClassOf` editörde diskte olmayan kaynak (bellek/test) için yalnız DOBJ deniyordu; YAML baytından
+  da `type:` okur. ObjectBinaryTests `IObjTestTag`/`Tagged` listesi: şema Kind.Asset, YAML+DOBJ çözüm, uyumsuz → null.
+
+## MSDF C# PORTU (tools/MsdfPort) — Unity importer için native'siz MTSDF (2026-10-12, 4 font × 95..548 glyph BAYT-AYNI)
+- AMAÇ: LayoutBox'ın "metin + kutu aynı atlas/tek draw" modelini Unity'ye taşırken (`UIBox`) font sheet'ini Unity editöründe
+  native DLL'siz üretmek. Kullanıcı kararı: engine native'e DOKUNMA; msdfgen + stb_truetype'ın gereken kısmını C#'a port et,
+  mevcut `digitoyengine_native.dll` yalnız REFERANS olarak P/Invoke ile okunur.
+- Kaynak: engine/native/msdfgen (1.12) C++'ı satır satır — kullanıcının eski Haxe portu (daha eski msdfgen) KULLANILMADI:
+  `normalize` deconverge (convergent-curve-ordering + DECONVERGE_OVERSHOOT), `edgeColoringSimple` (initColor/seed, renk
+  konturlar arası taşınır), selector EdgeCache relevance kısa devresi, `pixelFloatToByte = ~int(255.5-255x)` farklı.
+- Dosyalar: `Msdf/Core.cs` (Vector2/Arith/SignedDistance/EquationSolver/Projection/DistanceMapping), `Msdf/EdgeSegments.cs`,
+  `Msdf/Shape.cs` (Contour/Shape/ConvergentCurveOrdering/EdgeColoring), `Msdf/Selectors.cs` (PerpendicularBase,
+  MultiAndTrue, OverlappingContourCombiner, ShapeDistanceFinder, Generator), `Msdf/ErrorCorrection.cs` (EDGE_PRIORITY +
+  CHECK_DISTANCE_AT_EDGE tam), `TrueType.cs` (stbtt alt kümesi: cmap 0/4/6/12/13, glyf shape + bileşik, bbox, hmtx/hhea,
+  kern fmt0 + GPOS PairPos 1/2; CFF/OTF YOK), `MsdfFontBaker.cs` (= de_msdf_font_glyph/de_sdf_font_metrics/kern_table
+  sözleşmesi), `NativeReference.cs`, `Program.cs` (bayt-diff).
+- PARİTE: `MsdfPort <font.ttf> [--size N] [--charset ...] [--dll ...] [--dump dir] [--no-ref]`. NotoSans-Black, arial,
+  Digitoy-Bold (64), Digitoy-Primary (48, Latin Ext-B dahil 548 glyph): tüm glyph bitmap'leri, out5, metrikler ve kern
+  tabloları BAYT-AYNI. Hız: port ≈ native × 1.3–1.5 (yeterli, editör-only).
+- Bayt-eşitlik için dikkat edilenler: tüm double math sırası C++ ile aynı (FMA yok: clang baseline x64 + RyuJIT); float texel
+  tipleri EC'de korundu (`mix<float,double>` → float cast, `fabsf`); stbtt kontur başlangıç/kapatma mantığı birebir (edge
+  coloring başlangıç kenarına bağlı); bileşik glyph dönüşümü float→short kırpma; generator/EC serpantin x yönü.
+- SIRADA: Unity `.msdf` ScriptedImporter bu kodu (Editor asm) kullanır; UiPieces bandı + sheet paketleme + DigitoyFont SO.
+- UNITY PAKETİ `unity/Box` (com.digitoygames.uibox, 2026-10-12, ADIM 1 = editör-only importer): port kaynağı ARTIK
+  PAKETTE (`Editor/Msdf/*.cs`, `Editor/Font/TrueType.cs|MsdfFontBaker.cs`), tools/MsdfPort bunları `<Compile Link>` ile
+  derler (tek kaynak; parite hâlâ 95/95). Namespace `Digitoy.Box` / `Digitoy.Box.Editor` (core.upm `Digitoy.UI.UIBox` ile
+  çakışmasın), asmdef `Digitoy.Box.Runtime` + `Digitoy.Box.Editor` (Editor-only). Blok namespace + C# 9 (Unity 2021.3
+  uyumu; 2022.3 UnityEngine/UnityEditor.dll'e karşı LangVersion 9 derleme kontrolü geçti).
+  * Runtime: `UIFont` (SO: metrikler, Glyph[] {codepoint, advance, xOff, yOff, w, h, inkL, inkR, x, y}, short[] kern,
+    sheet Texture2D, piecesX/Y; rect'ler SHEET px SATIR 0 ÜSTTE, `UvRect` çevirir; `SdfSpread=21`), `UIPieces`
+    (sabitler + `BakeRegion(Color32[])` 4 kanal eşit → median==a).
+  * Editor: `UIFontImporter` `[ScriptedImporter(1,"msdf")]` — `.msdf` = uzantısı değişmiş TTF (Unity .ttf'yi bırakmaz);
+    ayarlar charset/sdfSize; glyph MTSDF bake → `SheetPacker` (shelf, pow2 ≤4096, glyph pad 1, pieces margin 4+pad 2) →
+    RGBA32 linear/uncompressed/no-mip/bilinear/clamp sub-asset Texture2D (non-readable) + UIFont main. `UIFontMenu`:
+    Assets▸Create▸Digitoy▸"UIBox Font (.msdf) from TTF". CFF/OTF import hatası verir (TTF gerekli).
+  * Projeye ekleme: manifest `"com.digitoygames.uibox": "file:<yol>/game_rd/unity/Box"`.
+  * SIRADA (adım 2): uGUI SDF shader (USER=uv1) + minimal Graphic ile "Ag"+köşe parçası tek draw kanıtı; sonra UIBox layout.
+- ADIM 2 YAPILDI (2026-10-12, Unity 6 LoginScene'de DOĞRULANDI: radius 40 kutu + kontur/gölgeli MTSDF metin TEK draw):
+  * Yaşanan tuzaklar: (1) importer'da `Texture2D.Apply(false, makeNoLongerReadable:true)` → serileşen sheet BOŞ
+    (readable kalmalı); (2) Graphic alt sınıfı `[RequireComponent(typeof(CanvasRenderer))]` ister (Image gibi) yoksa
+    sessizce çizmez; (3) asmdef `UnityEngine.UI` referansı şart; (4) TextArea `\r` koyar → fallback '?' (kontrol
+    karakterleri atlanır, `IsSkipped`). Varsayılan textColor siyah (fill beyaz üstünde okunsun).
+  * `Runtime/Shaders/UIBoxSdf.shader` "Digitoy/UIBox SDF" = UI/Default iskeleti (stencil/RectMask2D/alphaclip) + engine
+    `MsdfFragment` birebir; USER = TEXCOORD1 (float4). `fwidth(d)` dallanma DIŞINDA hesaplanır. Canvas
+    `additionalShaderChannels |= TexCoord1` → `UIBoxMaterials.EnsureCanvasChannels` OnEnable/CanvasHierarchyChanged'de.
+  * `UIBoxMaterials`: sheet başına tek paylaşımlı materyal (dictionary), font'suz kutular için 512×128 fallback pieces
+    dokusu (`UIPieces.BakeRegion`), `Editor/UIBoxBuild.cs` shader'ı Always Included'a ekler (Shader.Find build'de bulsun).
+  * `UIBox.cs` (stil alanları: radius4/border4/borderColor/padding4/shadow*/innerShadow*; `Graphic.color` = fill, a=0 →
+    yok) + `UIBox.Draw.cs` (EmitQuad/EmitLayer/EmitShadow/SolidInterior — engine LayoutBox portu; kutu uzayı y-DOWN,
+    EmitQuad Unity'ye çevirir; UV `CV = 1 - row/H`; üst kenar v1/alt kenar v0 sözleşmesi korunur) + `UIBox.Text.cs`
+    (LayoutBox.Text portu: NextLine/FitCount/BuildTextQuads/EmitRun, wrap/ellipsis/hiza/weight/spacing/outline/shadow;
+    `TextPreferredWidth/Height` adım 3 ölçümü için hazır). Çizim sırası: gölge → border ring → fill → iç gölge → metin.
+  * `mainTexture`/`defaultMaterial` override → font sheet (yoksa fallback). Gradient/sprite(9-slice)/radial henüz YOK
+    (`FillAt/BorderAt` kancaları düz renk döner).
+  * Derleme kontrolü aracı repoya alındı: tools/UnityCheck/UnityCheck.csproj (2022.3 modül dll'leri + okeyextra
+    Library'den UnityEngine.UI.dll, LangVersion 9) — `dotnet build` ile Unity açmadan sözdizimi/API doğrulaması.
+  * SIRADA (adım 3): layout yarısı — RectTransform sürme (DrivenRectTransformTracker), flex/anchor/grow/wrap/justify,
+    lazy pull, Canvas.willRenderCanvases sweep; UIBox.Layout.cs olarak aynı sınıfa.
+- ADIM 3 KODLANDI (2026-10-12, Unity doğrulaması KULLANICIDA): `UIBox.Layout.cs` — LayoutBox yerleşim portu.
+  * Kaynak = component alanları (`width/height` authored, `grow`, `ignoreLayout`, `layout`, `spacing`, `alignChildren`,
+    `justifyChildren`, `reverse`, `overflowX/Y`); RectTransform PROJEKSİYON: `sizeDelta` HEP sürülür (nokta anchor →
+    preferred, stretch → authored delta); grup dizen çocukta anchor (0,1) + anchoredPosition da sürülür
+    (`DrivenRectTransformTracker` — struct, readonly alan OLMAZ). Pivot/anchor/pozisyon dizilmeyen kutuda Unity'nin.
+  * Çocuk konumu parent rect sol-üstüne göre y-down: `anchoredPosition = (x + pivot.x*w, -(y + pivot.y*h))`.
+  * Lazy pull `RectWidth/RectHeight`; sweep `Canvas.preWillRenderCanvases` (CanvasUpdateRegistry'den ÖNCE koşsun diye
+    willRender değil). `OnRectTransformDimensionsChange` → MarkDirty, kendi yazımlarımız `s_writing` ile yutulur.
+  * Hidden → aynı GO'ya `RectMask2D` (kullanıcı kararı; kendi metni kırpılmaz, çocuklar kırpılır). `ILayoutElement`
+    dışa preferred bildirir (uGUI LayoutGroup içine konabilir). fitScreen YOK (Canvas kökü stretch anchor).
+  * Inspector [Header] gruplandı. Testler henüz yok (engine LayoutTests'in 12 senaryosu EditMode testine port edilecek).
+- IMPORTER MODELİ DEĞİŞTİ → `UIBoxAtlas` (2026-10-12, kullanıcı kararı: "1 ttf = 1 msdf" yerine PROJE-TEK atlas ayarı):
+  `.msdf` importer + menü SİLİNDİ. `Editor/Font/UIBoxAtlasImporter.cs` `[ScriptedImporter(1,"uiboxatlas")]` — dosya boş
+  işaretçi, ayarlar importer'da: `fonts[] {Font ttf, name, sdfSize, charset}`, `maxPageSize`. Çıktı: `UIBoxAtlas` SO (ana)
+  + `PageN` Texture2D'ler + `UIFont` sub-asset'leri (`UIFont.page` eklendi). Paketleme: font = BÖLÜNMEZ birim (kutu+metin
+  tek doku); büyükten küçüğe, mevcut sayfalara `TryAddToPage` (mevcut+yeni birlikte yeniden paketlenir), sığmazsa yeni
+  sayfa; her sayfada UiPieces bandı. `DependsOnSourceAsset(ttf)` → TTF değişince otomatik rebake. Menü:
+  Assets▸Create▸Digitoy▸"UIBox Atlas". Görseller (sprite) aynı atlasa SONRAKİ adımda eklenecek.
+- MSDF KONTUR ÇENTİK TEŞHİSİ (2026-10-12): Unity'de metin konturu çentikli görünüyordu; kullanıcı importer'dan şüphelendi.
+  Teşhis: port A kanalı/kontur PNG dökümü (tools/MsdfPort `--png`) pürüzsüz; UIBox `Text Debug` (Alpha/Median ham rampa)
+  Unity'de A + USER transportunu doğruladı. Gerçek sebep: MSDF median'ın MENZİL DIŞI artifact'ları (köşe uzantılarının
+  kesişimi, harf dışında median>0.5 "X" bantları) — fill pass'i median ile konturun ÜSTÜNE çizildiğinden konturu ısırıyor.
+  Engine'de de aynı veri; arial/21px'te fark edilmemiş. ÇÖZÜM (UIBoxSdf.shader): |a-0.5| > 0.206 (~2.5 SDF px) ise
+  median yerine gerçek SDF (.a) kullan — köşe keskinliği korunur, uzak artifact'lar yok olur. UiPieces bölgeleri 4 kanal
+  eşit → etkilenmez. NOT: aynı düzeltme engine `UiPieces.MsdfFragment`'a da uygulanmalı (managed shader string; sonra).
+  Teşhis alanı `textDebug` UIBox'ta kaldı (Off varsayılan).
+- GRADIENT → `UIFill` TİPİ (2026-10-12, kullanıcı: "fillGradient gibi değil, adam gibi tip"): `UIFill {type Solid|Gradient,
+  color, UnityEngine.Gradient, horizontal}` + `Evaluate(t)`, `Visible`, `InnerKeyTimes`. Alanlar: `fill`, `borderFill`,
+  `textFill`, `textOutline` (hepsi UIFill; eski borderColor/textColor/UIBoxGradient SİLİNDİ). `Graphic.color` YOK SAYILIR
+  (Inspector'da `UIBoxEditor` gizler: m_Color/m_Material/m_OnCullStateChanged) — kullanıcı "tek color prop ne iş"
+  dedi + alfa 0'a çekilince her şey kayboluyordu. Tint = runtime-only `UIBox.Tint` (serileşmez; durum/fade koddan).
+  Band: kutu katmanları kutu rect'i (dikey t=0 üst), metin BLOK bandı (dikey blok yüksekliği, yatay availW; engine
+  TextGradAt). İç dolgu quad'ları key zamanlarında bölünür (`EmitSolidSplit`). `Editor/UIFillDrawer` PropertyDrawer:
+  Solid → tek satır (tip+renk), Gradient → gradient + yön popup. Radyal YOK.
+
 ## [Asset] VERİ SINIFI + ObjectBinary (DOBJ) — Faz A (2026-10-12, 15 test grubu PASS, editör Play + pak/player birebir)
 - KARAR (uzun tartışma, kullanıcı): çekirdek ÜÇ primitif bilir — Texture, Audio, serileşen C# sınıfı (+referansları). Geri
   kalan her şey (Settings, LevelDef, Spine, Font, Atlas) `[Asset]` sınıf = dosya olarak yaşar, alanlarda REFERANS (Kind.Asset,

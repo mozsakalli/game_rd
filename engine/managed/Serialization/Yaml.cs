@@ -16,6 +16,10 @@ public sealed class DocNode
 
     public bool IsMap => Fields != null;
     public bool IsSeq => Items != null;
+    // JSON null tasiyicisi (RPC): ne skaler ne koleksiyon. YAML bunu uretmez.
+    public bool IsNull => Scalar == null && Items == null && Fields == null;
+
+    public static DocNode Null() => new();
 
     public static DocNode Scal(string s) => new() { Scalar = s ?? "" };
     public static DocNode Seq() => new() { Items = new List<DocNode>() };

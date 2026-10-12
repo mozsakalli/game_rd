@@ -60,7 +60,6 @@ namespace DigitoyEngine.Language
             reflectedArrays.Clear();
             reflectedValueStructs.Clear();
             reflectedGenericDefs.Clear();
-            structArrayTypes.Clear(); // ayni surecte ikinci TranspileProgram (interp host) onceki programin dizi tiplerini gormesin
             nextTypeIndex = 0;
             foreach (var c in ctx.AllCodes)
                 if (IsEmittableCode(c) && c.NativeBody == null)
@@ -74,18 +73,8 @@ namespace DigitoyEngine.Language
                     {
                         if (op.Type == OpType.Push && op.Value is string s)
                             PoolAdd(s);
-                        if (op.Type == OpType.NewArray)
-                            StructArrayTypeSym(op.PrimitiveRef); // ref tasiyan struct dizisi -> uretilecek dizi Type'i kaydi
                         if (op.Type == OpType.TypeOf && op.PrimitiveRef.Type == PrimitiveType.Array)
-                        {
-                            var key = CName(op.PrimitiveRef.Name);
-                            if (!reflectedArrays.ContainsKey(key))
-                            {
-                                reflectedArrays[key] = op.PrimitiveRef;
-                                PoolAdd(op.PrimitiveRef.Display);
-                                typeIndex[op.PrimitiveRef] = nextTypeIndex++;
-                            }
-                        }
+                            RegisterArray(op.PrimitiveRef); // typeof(T[]) hedefi: eleman descriptor'suz olsa da kimlik descriptor'u var
                         // Kullanici struct descriptor'i: typeof + kutulama/kutudan cikarma hedefleri
                         // (Box/Unbox/UnboxOrDefault/AsType/CastClass/IsType) — box helper'i &X_type ister.
                         bool structRef = op.PrimitiveRef != null && TypeShape.IsStructModel(op.PrimitiveRef) && !op.PrimitiveRef.IsGenericParameter;
@@ -116,7 +105,6 @@ namespace DigitoyEngine.Language
                         typeNameCandidates.Add(p);
                         typeIndex[p] = nextTypeIndex++;
                     }
-                    StructArrayTypeSym(p); // ref tasiyan struct: T[] tahsis tipi her zaman var (Array.CreateInstance -> Type.array_of)
                 }
             var seen = new HashSet<Primitive>(); // Type.name'ler: EmitTraceAndTypeOrdered gezisiyle birebir
             foreach (var p in ctx.AllPrimitives)
@@ -138,6 +126,11 @@ namespace DigitoyEngine.Language
                     foreach (var m in p.EnumMembers.Keys) PoolAdd(m);
                     typeIndex[p] = nextTypeIndex++;
                 }
+            // Diziler birinci sinif tip: elemani descriptor'lu ve canli olan HER kanonik T[] icin descriptor (kimlik + tahsis).
+            // Ic ice (jagged) once icteki: ExportTypeSym(elem) o siradan sonra dolu olur.
+            foreach (var arr in Primitive.InternedArrays.OrderBy(ArrayDepth).ToList())
+                if (IsEmittableArray(arr))
+                    RegisterArray(arr);
             // acik generic sablonlar: her kapali ornegin GenericTemplate'i (+ typeof(List<>) hedefleri) boyutsuz descriptor alir
             foreach (var p in ctx.AllPrimitives)
             {
@@ -159,6 +152,25 @@ namespace DigitoyEngine.Language
         // Adsiz descriptor: kapali generic class/struct, sablonu descriptor'lu ve TUM argumanlari descriptor'lu (ad kurulabilir).
         // Interface/delegate descriptor'lari generic_args tasimiyor -> adlari yazilir.
         static readonly List<Primitive> typeNameCandidates = new List<Primitive>();
+
+        static int ArrayDepth(Primitive a) { int d = 0; for (var t = a; t != null && t.Type == PrimitiveType.Array; t = t.ElementType) d++; return d; }
+        // T[] descriptor'u uretilsin mi: eleman somut (acik generic degil), descriptor'lu (ExportTypeSym != 0) ve canli.
+        static bool IsEmittableArray(Primitive arr)
+        {
+            var e = arr.ElementType;
+            if (e == null || e.IsGenericParameter || HasOpenTypeArgs(e) || e.Type == PrimitiveType.Pointer || e.Type == PrimitiveType.FixedArray || e.Type == PrimitiveType.Void) return false;
+            if (e.Type == PrimitiveType.Model && e != Primitive.Object && e != Primitive.String && e != Primitive.ValueType && (!IsEmittableModel(e) || !TrimPlan.IsTypeLive(e))) return false;
+            return ExportTypeSym(e) != "0";
+        }
+        static bool IsReflectedArray(Primitive arr) => arr != null && arr.Type == PrimitiveType.Array && reflectedArrays.ContainsKey(CName(arr.Name));
+        static void RegisterArray(Primitive arr)
+        {
+            var key = CName(arr.Name);
+            if (reflectedArrays.ContainsKey(key)) return;
+            reflectedArrays[key] = arr;
+            PoolAdd(arr.Display);
+            typeIndex[arr] = nextTypeIndex++;
+        }
         static bool LazyTypeName(Primitive p) =>
             p.InstantiatedFrom != null && p.TypeArguments.Count > 0 && !p.IsInterface && !p.IsDelegate && !p.IsEnum
             && reflectedGenericDefs.ContainsKey(CName(p.InstantiatedFrom.Name))
@@ -467,15 +479,18 @@ namespace DigitoyEngine.Language
             var paths = new List<string>();
             foreach (var field in Hierarchy.AllFields(type))
                 CollectGcRefPaths(field.Type, "p->" + CName(field.Name), paths);
-            string traceFn = "0";
+            string traceFn = "0", traceInline = "0";
             if (paths.Count > 0)
             {
-                traceFn = $"trace_box_{cn}";
-                sb.Append($"static void {traceFn}(GCHeader* o) {{\n");
-                sb.Append($"    struct {cn}* p = (struct {cn}*)((char*)o + sizeof(GCHeader));\n");
+                // Inline tracer asil (dizi elemani / ic ice struct): payload adresi alir; kutu trace'i header'i atlayip onu cagirir.
+                traceInline = $"trace_inline_{cn}";
+                sb.Append($"static void {traceInline}(void* e) {{\n");
+                sb.Append($"    struct {cn}* p = (struct {cn}*)e;\n");
                 foreach (var path in paths)
                     sb.Append($"    gc_shade((GCHeader*){path});\n");
                 sb.Append("}\n");
+                traceFn = $"trace_box_{cn}";
+                sb.Append($"static void {traceFn}(GCHeader* o) {{ {traceInline}((char*)o + sizeof(GCHeader)); }}\n");
             }
             // Kutu vtable'i (Object slot sozlesmesi: 0=GetHashCode 1=Equals 2=ToString): struct override'i varsa kutuyu acan
             // thunk, yoksa ValueType varsayilani (payload memcmp/hash; ToString = tip adi). `((object)s).Equals(x)` ve
@@ -498,8 +513,18 @@ namespace DigitoyEngine.Language
                     : $"(const void*)&{CName(Primitive.Object.VTable[i].EncodeName())}");
             }
             sb.Append($"static const void* const {cn}_vtable[{vt.Count}] = {{ {string.Join(", ", vt)} }};\n");
-            sb.Append($"Type {cn}_type = {{ {traceFn}, 0, sizeof(GCHeader) + sizeof(struct {cn}), {(paths.Count > 0 ? 0 : 1)}, &vmvaluetype_type, {TypeNameRef(type)}, {cn}_vtable, {vt.Count}, 0, 0, 0, 0, {(HasReflectionMembers(type) ? cn + "_members" : "0")}, {ReflectionMemberCount(type)}, {genericArgs}, {genericArgCount}{TypeMetaTail(type)}{(StructArrayTypeSym(type) is string ats ? $", .array_of = &{ats}" : "")} }};\n");
+            sb.Append($"Type {cn}_type = {{ {traceFn}, 0, sizeof(GCHeader) + sizeof(struct {cn}), {(paths.Count > 0 ? 0 : 1)}, &vmvaluetype_type, {TypeNameRef(type)}, {cn}_vtable, {vt.Count}, 0, 0, 0, 0, {(HasReflectionMembers(type) ? cn + "_members" : "0")}, {ReflectionMemberCount(type)}, {genericArgs}, {genericArgCount}{TypeMetaTail(type)}{(traceInline != "0" ? $", .trace_inline = {traceInline}" : "")} }};\n");
             return sb.ToString();
+        }
+
+        // T[] descriptor'u: kimlik + tahsis tipi. Trace ortak (digitoyengine_trace_array), atomic yalniz ref'siz deger elemanda.
+        static string EmitArrayType(Primitive array)
+        {
+            var elem = array.ElementType;
+            var paths = new List<string>();
+            if (!TypeShape.IsGcRef(elem)) CollectGcRefPaths(elem, "e", paths);
+            int atomic = !TypeShape.IsGcRef(elem) && paths.Count == 0 ? 1 : 0;
+            return $"Type {TypeSym(array)} = {{ digitoyengine_trace_array, finalize_vmarray, sizeof(VmArray), {atomic}, {ArrayBaseSym()}, &{strPool[array.Display]}, vmobject_vtable, 3, 0, 0, 0, .hash = {Fnv64(array.Name)}ull, .flags = DIGITOYENGINE_TYPE_ARRAY, .elem_type = {ExportTypeSym(elem)}, .rank = {Math.Max(1, array.ArrayRank)} }};\n";
         }
 
         static string PrimTypeSym(Primitive p)
@@ -556,33 +581,6 @@ namespace DigitoyEngine.Language
         // C# kimligi: enum kutulama daima AYRI nesne (cache yok) - (object)E.X == (object)E.X false. Header'da inline (her birim kullanir).
         static string EnumBoxInline(Primitive p) =>
             $"static inline VmObject *digitoyengine_ebox_{CName(p.Name)}(int v) {{ return digitoyengine_box_enum(v, &{CName(p.Name)}_type); }}\n";
-
-        // Ref tasiyan struct eleman dizileri: eleman tipi -> uretilen dizi Type sembolu (yoksa null).
-        // Pre-pass (TranspileProgram) NewArray op''larini tarayip structArrayTypes''i doldurur.
-        static readonly Dictionary<string, Primitive> structArrayTypes = new Dictionary<string, Primitive>();
-        static string StructArrayTypeSym(Primitive elem)
-        {
-            if (elem == null || !TypeShape.IsStructModel(elem)) return null;
-            var paths = new List<string>();
-            CollectGcRefPaths(elem, "e", paths);
-            if (paths.Count == 0) return null;
-            var key = CName(elem.Name);
-            structArrayTypes[key] = elem;
-            return "arr_" + key + "_type";
-        }
-        static string EmitStructArrayType(Primitive elem)
-        {
-            var cn = CName(elem.Name);
-            var paths = new List<string>();
-            CollectGcRefPaths(elem, "e[i]", paths);
-            var sb = new StringBuilder();
-            sb.Append($"static void trace_arr_{cn}(GCHeader* o) {{\n    VmArray* a = (VmArray*)o; struct {cn}* e = (struct {cn}*)a->data;\n");
-            sb.Append($"    for (int i = 0; i < a->len; i++) {{ ");
-            foreach (var pth in paths) sb.Append($"gc_shade((GCHeader*){pth}); ");
-            sb.Append("}\n}\n");
-            sb.Append($"Type arr_{cn}_type = {{ trace_arr_{cn}, finalize_vmarray, sizeof(VmArray), 0, {ArrayBaseSym()}, 0, vmobject_vtable, 3 }};\n");
-            return sb.ToString();
-        }
 
         static string WithPostCallRemember(string call, Primitive ret, CVal[] values) => call; // tek artimli GC: remembered set yok, cagri sonrasi is yok
 
@@ -929,7 +927,8 @@ namespace DigitoyEngine.Language
         static bool HasReflectionMembers(Primitive p) => IsEmittableModel(p) && !p.IsInterface && !p.IsDelegate && ReflectionMemberCount(p) > 0;
 
         static string ReflectionTypeSym(Primitive type) =>
-            (type.Type == PrimitiveType.Array || type.Type == PrimitiveType.FixedArray || type.Type == PrimitiveType.Pointer) ? "0" :
+            (type.Type == PrimitiveType.FixedArray || type.Type == PrimitiveType.Pointer) ? "0" :
+            type.Type == PrimitiveType.Array ? (IsReflectedArray(type) ? "&" + TypeSym(type) : "0") :
             (TypeShape.IsStructModel(type)) ? (reflectedValueStructs.ContainsKey(CName(type.Name)) ? "&" + TypeSym(type) : "0") :
             "&" + TypeSym(type);
 
@@ -1516,11 +1515,12 @@ namespace DigitoyEngine.Language
                             var elem = op.PrimitiveRef;
                             int isref = TypeShape.IsGcRef(elem) ? 1 : 0;
                             var dn = $"__dims{tempCounter++}";
-                            // ref tasiyan struct eleman: uretilen dizi Type'i (GC eleman eleman tarar); yoksa runtime ref/atomic tipleri.
-                            // Eleman descriptor'u (is T[] / GetType / Array.GetValue): ExportTypeSym; jagged/pointer eleman -> 0 (bilinmiyor).
-                            string allocType = StructArrayTypeSym(elem) is string ats ? $"&{ats}" : (isref == 1 ? "&vmarray_ref_type" : "&vmarray_val_type");
+                            var arrType = Primitive.ArrayOf(elem, rank);
+                            // Kanonik T[] descriptor'u = tahsis tipi (gc.type == typeof(T[])); descriptor'suz eleman (jagged/pointer,
+                            // kirpilmis tip): runtime ref/atomic tahsis tipleri + elem 0 (bilinmiyor).
+                            string allocType = IsReflectedArray(arrType) ? $"&{TypeSym(arrType)}" : (isref == 1 ? "&vmarray_ref_type" : "&vmarray_val_type");
                             string alloc = $"vmarray_new_rank_te({rank}, {dn}, sizeof({CType(elem)}), {allocType}, {ExportTypeSym(elem)})";
-                            Push(new CVal($"(({{ int {dn}[{rank}] = {{ {string.Join(", ", dims.Select(d => d.Expr))} }}; {alloc}; }}))", Primitive.ArrayOf(elem, rank)));
+                            Push(new CVal($"(({{ int {dn}[{rank}] = {{ {string.Join(", ", dims.Select(d => d.Expr))} }}; {alloc}; }}))", arrType));
                             break;
                         }
                     case OpType.ArrayLength:

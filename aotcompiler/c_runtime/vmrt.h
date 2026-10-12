@@ -28,6 +28,7 @@ typedef struct DigitoyEngineMember DigitoyEngineMember;
 struct VmString; // runtime adlari (Type.name/MethodInfo.name) UTF-16 VmString'e isaret eder
 struct VmArray;
 typedef void (*TraceFn)(GCHeader *);
+typedef void (*TraceInlineFn)(void *payload); // struct descriptor'u: inline (kutusuz) yerlesimdeki ref'leri shade eder
 typedef void (*FrameTrace)(void *);
 typedef void (*FinalizeFn)(GCHeader *);
 typedef GCHeader *(*ReflectGetFn)(GCHeader *target);
@@ -104,6 +105,9 @@ struct Type
     unsigned char nattrs;
     unsigned int cilattrs;   // CIL TypeAttributes (System.Reflection.TypeAttributes)
     const Type *generic_def; // kapali generic ornek: acik tanim descriptor'u (typeof(List<>)); yoksa 0
+    // ---- dizi = birinci sinif tip: T[] descriptor'u hem KIMLIK hem TAHSIS tipidir (gc.type == typeof(T[])). Trace tek
+    // jenerik fonksiyon (digitoyengine_trace_array): eleman ref -> hepsini shade; struct -> elem_type->trace_inline; atomik -> yok.
+    TraceInlineFn trace_inline; // struct descriptor'u: ref tasiyan struct'ta dolu (dizi/inline eleman tarama); yoksa 0
 };
 enum
 {
@@ -598,6 +602,7 @@ const Type *digitoyengine_array_type(const Type *elem, int rank);          // T[
 GCHeader *digitoyengine_array_get(VmArray *a, int index);                  // kutulu eleman (Array.GetValue)
 void digitoyengine_array_set(VmArray *a, int index, GCHeader *value);      // kutudan elemana (Array.SetValue), ref'te barrier
 void finalize_vmarray(GCHeader *h);                                        // uretilen dizi Type'lari icin
+void digitoyengine_trace_array(GCHeader *h);                               // uretilen T[] descriptor'larinin ortak trace'i
 // System.Array yardimcilari: eleman tipinden bagimsiz (elemsize'i dizi tasir), memmove tabanli.
 void vmarray_copy(VmArray *src, int srcIndex, VmArray *dst, int dstIndex, int len); // overlap guvenli
 VmArray *vmarray_resize(VmArray *a, int newLen);                                    // yeni dizi dondurur (C# ref emulasyonu: a = Resize(a,n))

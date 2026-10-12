@@ -1228,6 +1228,7 @@ DE_API void de_music_shutdown(void)
 // Blob'a kopyalanir (MEMFS'te zaten bellekte; FS export'una bagimlilik yok). Autoplay
 // politikasi: play() reddedilirse wantPlay kalir, ilk kullanici jestinde (pointerdown/
 // touchend/keydown) yeniden denenir — oyun kodu bir sey yapmaz.
+// clang-format off  (EM_JS govdesi JS: formatter '===' vb. bozar)
 EM_JS(void, de_js_music_init, (void), {
     if (Module.deMusic) return;
     var M = Module.deMusic = { items: [] };
@@ -1321,6 +1322,7 @@ EM_JS(void, de_js_music_shutdown, (void), {
     }
     M.items = [];
 });
+// clang-format on
 
 static int de_is_url(const char *s)
 {

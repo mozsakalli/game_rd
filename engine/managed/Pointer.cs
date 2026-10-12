@@ -101,6 +101,11 @@ public sealed class PointerInput
     // Click/drag ayrim esigi (mantiksal piksel; dokunmatik icin genis).
     public float DragThreshold = 6f;
 
+    // Son jest teshisi (editor RPC: "neye tikladim, handler kostu mu"). Alloc'suz; Up'ta temizlenmez.
+    public GameObject LastDownTarget;   // null = son Down hicbir seye degmedi
+    public int LastGestureHandlers;     // son jestte cagrilan handler sayisi (Down'da sifirlanir)
+    public bool LastDownMissed;         // son Down hit bulamadi
+
     internal PointerInput(Scene scene) => _scene = scene;
 
     public void Down(float x, float y)
@@ -108,11 +113,18 @@ public sealed class PointerInput
         if (_pressed)
             return;
         _ev._used = false;
+        LastGestureHandlers = 0;
         if (!Pick(x, y, out var hit, out var cam))
+        {
+            LastDownTarget = null;
+            LastDownMissed = true;
             return;
+        }
+        LastDownMissed = false;
         _pressed = true;
         _dragged = false;
         _captured = hit.Renderer._gameObject;
+        LastDownTarget = _captured;
         _camera = cam;
         _downScreen = _curScreen = new Vec2(x, y);
         _planeZ = hit.Point.z;
@@ -311,6 +323,7 @@ public sealed class PointerInput
                 var c = g.ComponentAt(i);
                 if (c._destroyed || !c._enabled || (c._flags & flag) == 0)
                     continue;
+                LastGestureHandlers++;
                 switch (evCode)
                 {
                     case EvDown: c.OnPointerDown(_ev); break;

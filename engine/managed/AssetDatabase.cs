@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Text;
 using System.Threading.Tasks;
 
 namespace DigitoyEngine;
@@ -54,6 +55,9 @@ public sealed class AssetDatabase
     // Import edilen asset'lerin baytlari editorde Library/Artifacts'ten gelir
     // (ImportPipeline baglar); release'te null -> pak zaten artifact'i tasir.
     public Func<string, byte[]> ArtifactResolver;
+
+    // Editor: anahtarin artifact DOSYA yolu (piksel decode native'de yoldan okur); release'te null.
+    public Func<string, string> ArtifactPathResolver;
 
     // Preload tamponu: PreloadAsync ile indirilen ham baytlar (font/clip/prefab/atlas/fx).
     // Senkron Load* API'leri release'te YALNIZ buradan beslenir (bloklayan okuma yok);
@@ -145,16 +149,18 @@ public sealed class AssetDatabase
 
     public static void RegisterImporter(string extension, Type type) => _importers[extension.ToLowerInvariant()] = type;
 
-    // Serilesebilir asset-referans tipi mi: bir uzantidan yuklenebilen IAsset YA DA [Asset] veri sinifi.
-    // (Kayit defteri = tek kaynak; yeni asset turu RegisterImporter'la buraya da girer.)
+    // Serilesebilir asset-referans tipi mi: bir uzantidan yuklenebilen IAsset YA DA [Asset] veri sinifi
+    // YA DA arayuz (polimorfik referans: IAsset, ISpriteSource... — somut tip yoldan cozulur, alan tipine
+    // atanabilirlik LoadAsset'te denetlenir). (Kayit defteri = tek kaynak; yeni asset turu RegisterImporter'la
+    // buraya da girer.)
     public static bool IsAssetType(Type t)
     {
-        if (Reflect.IsAssetClass(t))
+        if (t.IsInterface || Reflect.IsAssetClass(t))
             return true;
         if (!typeof(IAsset).IsAssignableFrom(t))
             return false;
-        if (t == typeof(Texture) || t == typeof(IAsset))
-            return true; // dogrudan doku alanlari; IAsset = polimorfik referans (tip yoldan cozulur)
+        if (t == typeof(Texture))
+            return true; // dogrudan doku alanlari
         foreach (var v in _importers.Values)
             if (v == t)
                 return true;
@@ -205,6 +211,14 @@ public sealed class AssetDatabase
         {
             var bytes = ReadBlob(relPath);
             tn = ObjectBinary.TypeNameOf(bytes);
+#if DE_EDITOR
+            // Diskte olmayan kaynak (bellek/test) YAML verebilir: "type:" basligi baytlardan.
+            if (tn == null && bytes != null && !ObjectBinary.IsBaked(bytes))
+            {
+                try { tn = Yaml.Parse(Encoding.UTF8.GetString(bytes)).GetScalar("type", null); }
+                catch { tn = null; }
+            }
+#endif
         }
         var e = tn != null ? Catalog.Find(tn) : null;
         return e != null && e.IsAsset ? e.Type : null;
@@ -252,12 +266,15 @@ public sealed class AssetDatabase
     // Sprite bolgesi), AudioClip, [Asset] veri nesnesi (Font/PixelEffect/SpriteTable/oyun siniflari — hepsi DOBJ).
     public object LoadAsset(string keyOrGuid, Type type)
     {
-        if (type == typeof(IAsset))
+        if (type.IsInterface)
         {
-            // Polimorfik referans: somut tip yolun uzantisindan.
-            type = ImportTypeOf(ResolvePath(keyOrGuid)) ?? AssetClassOf(ResolvePath(keyOrGuid));
-            if (type == null)
+            // Polimorfik referans (IAsset, ISpriteSource...): somut tip yolun uzantisindan / .asset basligindan;
+            // alan arayuzunu tasimayan asset null (sessiz — bozuk referans, alan bos kalir).
+            string path = ResolvePath(keyOrGuid);
+            var concrete = ImportTypeOf(path) ?? AssetClassOf(path);
+            if (concrete == null || !type.IsAssignableFrom(concrete))
                 return null;
+            type = concrete;
         }
         if (Reflect.IsAssetClass(type))
         {
@@ -555,19 +572,37 @@ public sealed class AssetDatabase
                 return true; // atlas uyesi: pikseller sayfada (atlas dep olarak once yuklendi)
             if (!_source.Exists(k))
                 return false;
-            var op = new LoadOp();
-            LoadTexture(k, op);
-            while (!op.IsDone)
-                await Frame.Next();
-            return !op.Failed;
+            return await LoadTextureAsync(k);
         }
         var bytes = await PreloadAsync(k);
         if (bytes == null)
             return false;
+        if (IsImageBytes(bytes))
+        {
+            // Icerigi gorsel olan artifact (atlas sayfasi "x.asset#page0", font sheet'i): uzanti/anahtar
+            // sezgisi yok, magic'e bakilir; tablo aktivasyonu dokuyu hazir bulur.
+            Evict(k); // decode kendi okumasini yapar; ham baytlar tamponda durmasin
+            return await LoadTextureAsync(k);
+        }
         if (SpriteTable.IsTable(bytes))
             return LoadSpriteTable(OwnerOf(k), k); // aktivasyon: bolge tablosu + sayfa dokulari (sayfalar dep'ti)
         return true;
     }
+
+    async Task<bool> LoadTextureAsync(string k)
+    {
+        var op = new LoadOp();
+        LoadTexture(k, op);
+        while (!op.IsDone)
+            await Frame.Next();
+        return !op.Failed;
+    }
+
+    // PNG / JPEG basligi.
+    static bool IsImageBytes(byte[] b)
+        => b != null && b.Length >= 8
+        && ((b[0] == 0x89 && b[1] == 0x50 && b[2] == 0x4E && b[3] == 0x47)
+            || (b[0] == 0xFF && b[1] == 0xD8 && b[2] == 0xFF));
 
     // Yuklu/yuklenmekte sayilan anahtari unutur (sahne boşaltma / hot reload).
     public void Forget(string key) => _ensured.Remove(ResolvePath(key));
@@ -644,16 +679,15 @@ public sealed class AssetDatabase
         for (int i = 0; i < data.Pages.Count; i++)
         {
             var pi = data.Pages[i];
-            var blob = ReadArtifact(owner, pi.Artifact);
-            Texture tex = MakePageTexture(blob, pi.Width, pi.Height);
+            // Sayfa = siradan doku (PNG), diger png'lerle AYNI async yoldan; boyut tablodan bilindigi icin
+            // bolge UV'leri pikseller inmeden dogru. Tablo yeniden yuklenirken eski sayfa dusurulur.
+            string pageKey = owner + "#" + pi.Artifact;
+            var tex = LoadTexture(pageKey, pi.Width, pi.Height);
             if (tex == null)
             {
-                LogWarning?.Invoke($"[atlas] sayfa yok/bozuk: {owner}#{pi.Artifact} ({pi.Width}x{pi.Height}, {blob?.Length ?? -1} bayt)");
-                foreach (var t in lt.Pages)
-                    t.Destroy();
+                LogWarning?.Invoke($"[atlas] sayfa yuklenemedi: {pageKey}");
                 return false;
             }
-            tex.Name = owner + "#" + pi.Artifact;
             tex.PiecesX = pi.PiecesX;
             tex.PiecesY = pi.PiecesY;
             lt.Pages.Add(tex);
@@ -709,7 +743,10 @@ public sealed class AssetDatabase
                 s.BindFull(name.IndexOf('#') < 0 ? LoadTexture(name) : null);
         }
         foreach (var t in lt.Pages)
+        {
+            _textures.Remove(t.Name); // sonraki yukleme (reimport) taze PNG okur
             t.Destroy();
+        }
     }
 
     // Yuklu tablolar arasinda adi tasiyan: once yabanci (atlas), sonra oz.
@@ -771,21 +808,6 @@ public sealed class AssetDatabase
     // Uyari kanali (editor Console'a baglar; runtime'da null = sessiz).
     public static Action<string> LogWarning;
 
-    static unsafe Texture MakePageTexture(byte[] blob, int w, int h)
-    {
-        if (!PixelBlob.TryParse(blob, out int ch, out int bw, out int bh) || bw != w || bh != h)
-            return null;
-        if (ch == 1)
-        {
-            Texture t;
-            fixed (byte* p = &blob[PixelBlob.HeaderSize])
-                t = Texture.FromAlpha(w, h, p);
-            t.Persistent = true; // R8: CPU kopyasi yok, evict edilirse geri yuklenemez
-            return t;
-        }
-        return Texture.FromRgba(w, h, blob.AsSpan(PixelBlob.HeaderSize));
-    }
-
     void BindSpriteRegion(Sprite s, in SpriteTable.Region r)
     {
         if (!_regionPages.TryGetValue(r.Name, out var page))
@@ -827,7 +849,10 @@ public sealed class AssetDatabase
 
     public PixelEffect LoadPixelEffect(string key) => LoadObject(key, typeof(PixelEffect)) as PixelEffect;
 
-    public Texture LoadTexture(string key, LoadOp op = null)
+    public Texture LoadTexture(string key, LoadOp op = null) => LoadTexture(key, 0, 0, op);
+
+    // expectedW/H: boyut onceden biliniyorsa (sprite tablosu sayfasi) placeholder onu bildirir.
+    Texture LoadTexture(string key, int expectedW, int expectedH, LoadOp op = null)
     {
         key = ResolvePath(key); // guid -> yol (cache anahtari hep yol)
         if (string.IsNullOrEmpty(key))
@@ -839,10 +864,18 @@ public sealed class AssetDatabase
             return t;
         }
 
-        t = Texture.CreatePending();
+        t = Texture.CreatePending(expectedW, expectedH);
         t.Name = key;
         _textures[key] = t;
-        int job = _source.StartLoad(key);
+        int job = -1;
+#if DE_EDITOR
+        // Importer artifact'i (atlas sayfasi, yeniden kodlanmis gorsel): Library'deki dosyadan decode.
+        string art = ArtifactPathResolver?.Invoke(key);
+        if (art != null)
+            job = NativeFs.Decode(-1, art, 0, 0, 0);
+        else
+#endif
+            job = _source.StartLoad(key);
         if (job < 0)
         {
             t.Loading = false; // kuyruk dolu: placeholder'da kalir
@@ -913,7 +946,14 @@ public sealed class AssetDatabase
     {
         if (!_textures.TryGetValue(relPath, out var t))
             return false;
-        int job = _source.StartLoad(relPath);
+        int job = -1;
+#if DE_EDITOR
+        string art = ArtifactPathResolver?.Invoke(relPath);
+        if (art != null)
+            job = NativeFs.Decode(-1, art, 0, 0, 0);
+        else
+#endif
+            job = _source.StartLoad(relPath);
         if (job < 0)
             return false;
         Track(job, t, null);
@@ -932,13 +972,9 @@ public sealed class AssetDatabase
     {
         _ = Shader.Default;
         _ = UiPieces.UiShader;
-        _ = UiPieces.UiShaderMsdf;
         var list = new List<Texture>(); // bekleme sirasinda sozlukler degisebilir: once topla
         foreach (var t in _textures.Values)
             if (t.NeedsUpload) list.Add(t);
-        foreach (var la in _tables.Values)
-            foreach (var t in la.Pages)
-                if (t.NeedsUpload) list.Add(t);
         for (int i = 0; i < list.Count; i++)
         {
             list[i]._Sync();
@@ -958,7 +994,11 @@ public sealed class AssetDatabase
             if (!p.Done)
                 continue;
             if (p.Result.Ok)
-                p.Target._AttachPixels(p.Result.Data, p.Result.A, p.Result.B);
+            {
+                int w = p.Result.A, h = p.Result.B;
+                int ch = w > 0 && h > 0 && p.Result.Len == (long)w * h ? 1 : 4; // gray kaynak -> R8
+                p.Target._AttachPixels(p.Result.Data, w, h, ch);
+            }
             else
                 p.Target.Loading = false; // hata: placeholder'da kalir
             NativeAsync.Free(p.Result.Data);

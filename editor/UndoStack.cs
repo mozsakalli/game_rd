@@ -1,3 +1,4 @@
+using System;
 using System.Collections.Generic;
 using DigitoyEngine;
 using DigitoyEngine.Editor;
@@ -67,6 +68,71 @@ public sealed class UndoStack
         _redo.RemoveAt(_redo.Count - 1);
         op.Apply(es, undo: false);
         _undo.Add(op);
+    }
+
+    // --- Grup: BeginGroup..EndGroup arasindaki tum push'lar TEK undo adimi olur
+    // (toplu RPC: edit.batch / scene.apply). Ic ice grup yok. ---
+
+    int _groupMark = -1;
+
+    public bool InGroup => _groupMark >= 0;
+
+    public void BeginGroup()
+    {
+        if (_groupMark >= 0)
+            throw new InvalidOperationException("undo grubu zaten acik");
+        SealTop();
+        _groupMark = _undo.Count;
+    }
+
+    public void EndGroup()
+    {
+        if (_groupMark < 0)
+            return;
+        int n = _undo.Count - _groupMark;
+        if (n > 1)
+        {
+            var group = new GroupOp();
+            group.Ops.AddRange(_undo.GetRange(_groupMark, n));
+            _undo.RemoveRange(_groupMark, n);
+            _undo.Add(group);
+        }
+        SealTop();
+        _groupMark = -1;
+    }
+
+    // Grup basindan beri yapilanlari geri al ve journal'dan sil (atomik basarisizlik:
+    // ne undo ne redo'da iz kalmaz).
+    public void RollbackGroup(EditorScene es)
+    {
+        if (_groupMark < 0)
+            return;
+        while (_undo.Count > _groupMark)
+        {
+            var op = _undo[^1];
+            _undo.RemoveAt(_undo.Count - 1);
+            op.Apply(es, undo: true);
+        }
+        Version++;
+        _groupMark = -1;
+    }
+}
+
+// Birlesik undo adimi: undo ters sirada, redo ileri sirada uygulanir.
+public sealed class GroupOp : UndoOp
+{
+    public readonly List<UndoOp> Ops = new();
+
+    public GroupOp() => Sealed = true;
+
+    public override void Apply(EditorScene es, bool undo)
+    {
+        if (undo)
+            for (int i = Ops.Count - 1; i >= 0; i--)
+                Ops[i].Apply(es, true);
+        else
+            for (int i = 0; i < Ops.Count; i++)
+                Ops[i].Apply(es, false);
     }
 }
 

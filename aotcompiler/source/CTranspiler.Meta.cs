@@ -60,6 +60,7 @@ namespace DigitoyEngine.Language
             if (t.IsEnum) return typeIndex.ContainsKey(t) ? $"&{CName(t.Name)}_type" : "&vmint32_type";
             var prim = PrimTypeSym(t);
             if (prim != null) return "&" + prim;
+            if (t.Type == PrimitiveType.Array) return IsReflectedArray(t) ? $"&{TypeSym(t)}" : "0";
             if (t.Type != PrimitiveType.Model || !IsEmittableModel(t)) return "0";
             if (t.IsStruct) return reflectedValueStructs.ContainsKey(CName(t.Name)) ? $"&{CName(t.Name)}_type" : "0";
             return $"&{CName(t.Name)}_type";

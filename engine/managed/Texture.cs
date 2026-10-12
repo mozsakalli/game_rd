@@ -4,7 +4,8 @@ namespace DigitoyEngine;
 
 public unsafe class Texture : GpuResource
 {
-    Color* _pixels;
+    Color* _pixels;      // CPU kopyasi (Channels*_pixW*_pixH bayt; R8'de Color* yalnizca tasiyici)
+    int _pixW, _pixH;    // piksel tamponunun boyutu (pending placeholder'da 1x1, Width/Height beklenen boyut)
     bool _dirty;
 
     //sokol handles
@@ -96,11 +97,11 @@ public unsafe class Texture : GpuResource
             return;
         _dirty = false;
 
-        int byteSize = sizeof(Color) * Width * Height;
+        int byteSize = Channels * _pixW * _pixH;
         if (_texture == 0)
         {
             _texture = (int)Sokol.MakeImage(
-                Width, Height, SG.PixelFormatRgba8, 1, 1, 0 /*immutable(data)*/, _pixels, byteSize);
+                _pixW, _pixH, Channels == 1 ? SG.PixelFormatR8 : SG.PixelFormatRgba8, 1, 1, 0 /*immutable(data)*/, _pixels, byteSize);
             _textureView = (int)Sokol.MakeView((uint)_texture, SG.ViewTexture);
         }
         else
@@ -184,6 +185,8 @@ public unsafe class Texture : GpuResource
         texture._pixels = (Color*)System.Runtime.InteropServices.Marshal.AllocHGlobal(sizeof(Color) * width * height);
         texture.Width = width;
         texture.Height = height;
+        texture._pixW = width;
+        texture._pixH = height;
         texture._dirty = true;
         // Initialize the texture with the given color here.
         for (int y = 0; y < height; y++)
@@ -203,6 +206,8 @@ public unsafe class Texture : GpuResource
         var t = new Texture();
         t.Width = width;
         t.Height = height;
+        t._pixW = width;
+        t._pixH = height;
         long bytes = (long)width * height * 4;
         t._pixels = (Color*)System.Runtime.InteropServices.Marshal.AllocHGlobal((IntPtr)bytes);
         rgba.Slice(0, (int)bytes).CopyTo(new Span<byte>(t._pixels, (int)bytes));
@@ -234,25 +239,35 @@ public unsafe class Texture : GpuResource
         _dirty = true;
     }
 
-    // Async yukleme handle'i: pikseller gelene kadar 1x1 beyaz placeholder cizer.
-    internal static Texture CreatePending()
+    // Async yukleme handle'i: pikseller gelene kadar 1x1 beyaz placeholder cizer. Beklenen boyut
+    // biliniyorsa (sprite tablosu sayfasi) Width/Height onceden onu bildirir: bolge UV'leri ve
+    // LogicalWidth pikseller inmeden dogru hesaplanir.
+    internal static Texture CreatePending(int expectedW = 0, int expectedH = 0)
     {
         var t = FromColor(1, 1, Color.White);
         t.Loading = true;
+        if (expectedW > 0 && expectedH > 0)
+        {
+            t.Width = expectedW;
+            t.Height = expectedH;
+        }
         return t;
     }
 
-    // Worker'dan gelen decode edilmis RGBA8 pikselleri baglar (main thread).
-    internal void _AttachPixels(IntPtr rgba, int w, int h)
+    // Worker'dan gelen decode edilmis pikselleri baglar (main thread). channels 1 (R8) ya da 4 (RGBA8).
+    internal void _AttachPixels(IntPtr pixels, int w, int h, int channels = 4)
     {
         ReleaseGpu(); // 1x1 placeholder GPU nesneleri (varsa) gider; boyut degisiyor
         if (_pixels != null)
             System.Runtime.InteropServices.Marshal.FreeHGlobal((IntPtr)_pixels);
-        long bytes = (long)w * h * 4;
+        long bytes = (long)w * h * channels;
         _pixels = (Color*)System.Runtime.InteropServices.Marshal.AllocHGlobal((IntPtr)bytes);
-        Buffer.MemoryCopy((void*)rgba, _pixels, bytes, bytes);
+        Buffer.MemoryCopy((void*)pixels, _pixels, bytes, bytes);
         Width = w;
         Height = h;
+        _pixW = w;
+        _pixH = h;
+        Channels = channels;
         _dirty = true;
         Loading = false;
     }
