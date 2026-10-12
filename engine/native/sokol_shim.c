@@ -41,6 +41,10 @@
 #define SOKOL_API
 #endif
 
+#if defined(__APPLE__)
+#include <TargetConditionals.h> // TARGET_OS_OSX / TARGET_OS_IPHONE: macOS (GLFW+AppKit) ile iOS (UIKit) ayrimi
+#endif
+
 // ---------------------------------------------------------------------------
 // METAL HOST (macOS/iOS) — sokol_gfx swapchain'i icin MTLDevice + CAMetalLayer.
 // ---------------------------------------------------------------------------
@@ -52,14 +56,20 @@
 //
 // Bu blok Objective-C + ARC ile derlenir (build_editor.sh; -x objective-c
 // -fobjc-arc). Windows/GLCORE build'inde tamamen dislanir.
+// macOS: pencere GLFW'den gelir (glfwGetCocoaWindow -> NSView.layer). iOS: GLFW/AppKit
+// yok; host (GameViewController) UIView'in CAMetalLayer'ini de_metal_init_layer ile verir.
 #if defined(SOKOL_METAL)
+#if TARGET_OS_OSX
 #define GLFW_INCLUDE_NONE
 #include "GLFW/glfw3.h"
 #define GLFW_EXPOSE_NATIVE_COCOA
 #include "GLFW/glfw3native.h"
+#import <AppKit/AppKit.h>
+#else
+#import <UIKit/UIKit.h>
+#endif
 #import <Metal/Metal.h>
 #import <QuartzCore/CAMetalLayer.h>
-#import <AppKit/AppKit.h>
 
 // COK PENCERE: her native pencerenin kendi CAMetalLayer'i + bu frame'in
 // drawable'i + eslesen depth-stencil texture'i vardir. Slot 0 = ANA pencere;
@@ -81,23 +91,30 @@ typedef struct
 static id<MTLDevice> _de_mtl_device;
 static de_mtl_window_t _de_mtl_wins[DE_MTL_MAX_WINDOWS];
 
-// Verilen GLFW penceresinin NSView'ine bir CAMetalLayer takar (slot'a kaydeder).
-static void de_metal_attach_layer(int slot, void *glfwWindow)
+// Hazir bir CAMetalLayer'i slot'a baglar (device/format ayarlanir). macOS ve iOS ortak.
+static void de_metal_bind_layer(int slot, CAMetalLayer *layer)
 {
-    NSWindow *nswin = glfwGetCocoaWindow((GLFWwindow *)glfwWindow);
-    CAMetalLayer *layer = [CAMetalLayer layer];
     layer.device = _de_mtl_device;
     layer.pixelFormat = MTLPixelFormatRGBA8Unorm; // offscreen RT'ler ve pipeline varsayilaniyla ayni (RGBA8)
     layer.framebufferOnly = YES;
-    NSView *view = nswin.contentView;
-    view.wantsLayer = YES;
-    view.layer = layer;
     _de_mtl_wins[slot].layer = layer;
     _de_mtl_wins[slot].drawable = nil;
     _de_mtl_wins[slot].depth = nil;
     _de_mtl_wins[slot].depth_w = 0;
     _de_mtl_wins[slot].depth_h = 0;
     _de_mtl_wins[slot].active = true;
+}
+
+#if TARGET_OS_OSX
+// Verilen GLFW penceresinin NSView'ine bir CAMetalLayer takar (slot'a kaydeder).
+static void de_metal_attach_layer(int slot, void *glfwWindow)
+{
+    NSWindow *nswin = glfwGetCocoaWindow((GLFWwindow *)glfwWindow);
+    CAMetalLayer *layer = [CAMetalLayer layer];
+    NSView *view = nswin.contentView;
+    view.wantsLayer = YES;
+    view.layer = layer;
+    de_metal_bind_layer(slot, layer);
 }
 
 // C# ANA pencereyi (GLFW_NO_API) olusturduktan SONRA cagrilir: device'i kurar
@@ -136,6 +153,16 @@ SOKOL_API void de_metal_destroy_window(int handle)
     _de_mtl_wins[handle].layer = nil;
     _de_mtl_wins[handle].active = false;
 }
+#else // iOS: tek "pencere" (slot 0) = host UIView'in CAMetalLayer'i (layerClass = CAMetalLayer).
+// GameViewController viewDidLoad'da, de_app_init'ten (-> de_sokol_setup) ONCE cagirir. Layer'in drawableSize'i
+// her frame begin_pass'te (de_metal_acquire) fbw/fbh ile yazilir; contentsScale host'ta ayarlanir.
+void de_metal_init_layer(void *caMetalLayer)
+{
+    if (!_de_mtl_device)
+        _de_mtl_device = MTLCreateSystemDefaultDevice();
+    de_metal_bind_layer(0, (__bridge CAMetalLayer *)caMetalLayer);
+}
+#endif // TARGET_OS_OSX
 
 // de_sokol_setup icin device pointer'i (unretained __bridge).
 static const void *de_metal_device(void) { return (__bridge const void *)_de_mtl_device; }
@@ -1567,7 +1594,7 @@ SOKOL_API int de_dialog_pick_folder(void *glfwWindow, const char *title, char *o
     return de_dialog_file(glfwWindow, 2, title, NULL, NULL, out, cap);
 }
 
-#elif defined(__APPLE__) // macOS: pthread IO + Cocoa menu/dialog (editor). Android/wasm/iOS: menu/dialog yok (DllImport'lar weak, cagrilmaz).
+#elif defined(__APPLE__) && TARGET_OS_OSX // macOS: pthread IO + Cocoa menu/dialog (editor). Android/wasm/iOS: menu/dialog yok (DllImport'lar weak, cagrilmaz).
 // ---------------------------------------------------------------------------
 // Native menu (Cocoa): editor ana penceresine NSMenu bar takar; sag-tik
 // context menusu SENKRON secim dondurur. Item id'leri NSMenuItem.tag'inde.
@@ -1758,4 +1785,4 @@ SOKOL_API int de_dialog_pick_folder(void *glfwWindow, const char *title, char *o
 {
     return de_dialog_file(glfwWindow, 2, title, NULL, NULL, out, cap);
 }
-#endif // _WIN32 / __APPLE__
+#endif // _WIN32 / __APPLE__ && TARGET_OS_OSX

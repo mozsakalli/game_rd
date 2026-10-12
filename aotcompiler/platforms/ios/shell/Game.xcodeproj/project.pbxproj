@@ -1,0 +1,216 @@
+// !$*UTF8*$!
+// DigitoyEngine iOS kabugu (docs/platform-hosts.md H6). ILK uretimde sablondan kopyalanir, sonra KULLANICIYA aittir
+// (imza/team, capability, ek SDK'lar buraya). Degisken her sey generated/app.xcconfig'ten okunur (her build yazilir).
+// Kaynaklar: generated/cpp (Xcode 16 synchronized folder: dosya listesi burada tutulmaz, aotcompiler ne yazarsa derlenir)
+// Pak: generated/Build klasor referansi (bundle icinde Build/game.pak). Ikon: generated/Assets.xcassets.
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		A1000001000000000000000B /* Build in Resources */ = {isa = PBXBuildFile; fileRef = A1000001000000000000000A /* Build */; };
+		A1000001000000000000000D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A1000001000000000000000C /* Assets.xcassets */; };
+		A1000001000000000000000F /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = A1000001000000000000000E /* LaunchScreen.storyboard */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		A10000010000000000000001 /* Game.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = "Game.app"; sourceTree = BUILT_PRODUCTS_DIR; };
+		A10000010000000000000008 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		A10000010000000000000009 /* app.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; name = app.xcconfig; path = generated/app.xcconfig; sourceTree = "<group>"; };
+		A1000001000000000000000A /* Build */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Build; path = generated/Build; sourceTree = "<group>"; };
+		A1000001000000000000000C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; name = Assets.xcassets; path = generated/Assets.xcassets; sourceTree = "<group>"; };
+		A1000001000000000000000E /* LaunchScreen.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = LaunchScreen.storyboard; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedRootGroup section */
+		A10000010000000000000010 /* cpp */ = {isa = PBXFileSystemSynchronizedRootGroup; name = cpp; path = generated/cpp; sourceTree = "<group>"; };
+/* End PBXFileSystemSynchronizedRootGroup section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		A10000010000000000000004 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		A10000010000000000000006 = {
+			isa = PBXGroup;
+			children = (
+				A10000010000000000000007 /* Game */,
+				A10000010000000000000010 /* cpp */,
+				A1000001000000000000000A /* Build */,
+				A1000001000000000000000C /* Assets.xcassets */,
+				A10000010000000000000009 /* app.xcconfig */,
+				A10000010000000000000011 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		A10000010000000000000007 /* Game */ = {
+			isa = PBXGroup;
+			children = (
+				A10000010000000000000008 /* Info.plist */,
+				A1000001000000000000000E /* LaunchScreen.storyboard */,
+			);
+			path = Game;
+			sourceTree = "<group>";
+		};
+		A10000010000000000000011 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				A10000010000000000000001 /* Game.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		A10000010000000000000002 /* Game */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A10000010000000000000020 /* Build configuration list for PBXNativeTarget "Game" */;
+			buildPhases = (
+				A10000010000000000000003 /* Sources */,
+				A10000010000000000000004 /* Frameworks */,
+				A10000010000000000000005 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				A10000010000000000000010 /* cpp */,
+			);
+			name = Game;
+			packageProductDependencies = (
+			);
+			productName = Game;
+			productReference = A10000010000000000000001 /* Game.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		A10000010000000000000000 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastUpgradeCheck = 1630;
+				TargetAttributes = {
+					A10000010000000000000002 = {
+						CreatedOnToolsVersion = 16.3;
+					};
+				};
+			};
+			buildConfigurationList = A10000010000000000000030 /* Build configuration list for PBXProject "Game" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = A10000010000000000000006;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = A10000010000000000000011 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				A10000010000000000000002 /* Game */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		A10000010000000000000005 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A1000001000000000000000B /* Build in Resources */,
+				A1000001000000000000000D /* Assets.xcassets in Resources */,
+				A1000001000000000000000F /* LaunchScreen.storyboard in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		A10000010000000000000003 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		A10000010000000000000031 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = A10000010000000000000009 /* app.xcconfig */;
+			buildSettings = {
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_TESTABILITY = YES;
+				GCC_OPTIMIZATION_LEVEL = 1;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"DEBUG=1",
+					"DIGITOYENGINE_DEBUG",
+					"$(inherited)",
+				);
+				ONLY_ACTIVE_ARCH = YES;
+			};
+			name = Debug;
+		};
+		A10000010000000000000032 /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = A10000010000000000000009 /* app.xcconfig */;
+			buildSettings = {
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				GCC_OPTIMIZATION_LEVEL = 2;
+				VALIDATE_PRODUCT = YES;
+			};
+			name = Release;
+		};
+		A10000010000000000000021 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+			};
+			name = Debug;
+		};
+		A10000010000000000000022 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		A10000010000000000000020 /* Build configuration list for PBXNativeTarget "Game" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A10000010000000000000021 /* Debug */,
+				A10000010000000000000022 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A10000010000000000000030 /* Build configuration list for PBXProject "Game" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				A10000010000000000000031 /* Debug */,
+				A10000010000000000000032 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = A10000010000000000000000 /* Project object */;
+}

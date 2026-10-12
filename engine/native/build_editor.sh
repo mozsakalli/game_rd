@@ -89,6 +89,7 @@ AUDIO_OBJ="$OUTDIR/audio_shim.o"
 FS_OBJ="$OUTDIR/de_fs.o"
 ASYNC_OBJ="$OUTDIR/de_async.o"
 NET_OBJ="$OUTDIR/de_net.o"
+IW_OBJ="$OUTDIR/de_image_write.o"
 
 "$CLANG" -O1 -w -c \
     -fobjc-arc \
@@ -108,6 +109,8 @@ NET_OBJ="$OUTDIR/de_net.o"
 "$CLANG" -O1 -w -c "$HERE/de_fs.c" "${DEFINES[@]}" "${INCLUDES[@]}" -o "$FS_OBJ"
 "$CLANG" -O1 -w -c "$HERE/de_async.c" "${DEFINES[@]}" "${INCLUDES[@]}" -o "$ASYNC_OBJ"
 "$CLANG" -O1 -w -c "$HERE/de_net.c" "${DEFINES[@]}" "${INCLUDES[@]}" -o "$NET_OBJ"
+# Editor-only piksel encoder (stb_image_write: PNG/JPG) — build_editor.cmd ile parite
+"$CLANG" -O1 -w -c "$HERE/de_image_write.c" "${DEFINES[@]}" "${INCLUDES[@]}" -o "$IW_OBJ"
 
 # --- EDITOR-ONLY C++ parcasi: msdfgen core + msdf_shim.cpp (FontImporter Msdf modu; de_msdf_font_*).
 # build_editor.cmd ile ayni: C kaynaklariyla tek komutta -std=c++17 verilemez; once nesneye derlenir.
@@ -124,7 +127,7 @@ done
     -fvisibility=default \
     -Wno-deprecated-declarations \
     "${DEFINES[@]}" "${INCLUDES[@]}" \
-    "$SHIM_OBJ" "$AUDIO_OBJ" "$FS_OBJ" "$ASYNC_OBJ" "$NET_OBJ" \
+    "$SHIM_OBJ" "$AUDIO_OBJ" "$FS_OBJ" "$ASYNC_OBJ" "$NET_OBJ" "$IW_OBJ" \
     "${CXXOBJS[@]}" \
     "${SOURCES[@]}" \
     "${FRAMEWORKS[@]}" \

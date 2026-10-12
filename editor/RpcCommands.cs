@@ -1692,7 +1692,7 @@ static class RpcCommands
         return r;
     }
 
-    [RpcCommand("player.build", "game.pak + aotcompiler ile player uretir (target: windows=exe | android=Android Studio projesi | wasm=Build/wasm web cikti); sonuc build bitince doner")]
+    [RpcCommand("player.build", "game.pak + aotcompiler ile player uretir (target: windows=exe | android=Android Studio projesi | ios=Xcode projesi (Build/ios) | wasm=Build/wasm web cikti); sonuc build bitince doner")]
     static DocNode PlayerBuild(string target = "windows")
     {
         int v0 = PlayerBuilder.Version;

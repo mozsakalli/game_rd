@@ -36,12 +36,16 @@ public static class PlayerBuilder
     [MenuItem("Project/Build Android Project", 2)]
     static void BuildAndroidMenu() => Start("android");
 
+    // iOS: Xcode projesi uretilir (<proje>/Build/ios/Game.xcodeproj); imza + derleme kullanicinin Xcode'unda (yalniz macOS'ta anlamli).
+    [MenuItem("Project/Build iOS Project (Xcode)", 2)]
+    static void BuildIosMenu() => Start("ios");
+
     // Web: emscripten ile editorde derlenir (toolchain yoksa indirilir) -> <proje>/Build/wasm/{index.html,game.js,game.wasm,game.data}.
     [MenuItem("Project/Build Web (wasm)", 2)]
     static void BuildWasmMenu() => Start("wasm");
 
     // Donus: zincir baslatildi (arka plan surecinin sonucu Version/LastOk ile izlenir).
-    // false = on kosul/pak hatasi, loglandi. target: windows | android | wasm
+    // false = on kosul/pak hatasi, loglandi. target: windows | android | ios | wasm
     public static bool Start(string target = "windows")
     {
         if (IsRunning)
@@ -64,6 +68,11 @@ public static class PlayerBuilder
             try { appArgs += $" --props \"{AndroidBuildProps.Write(project)}\""; }
             catch (Exception e) { return Fail("android.properties yazilamadi: " + e.Message); }
         }
+        else if (target == "ios")
+        {
+            try { appArgs += $" --props \"{IosBuildProps.Write(project)}\""; }
+            catch (Exception e) { return Fail("ios.properties yazilamadi: " + e.Message); }
+        }
         if (!SdkLayout.TryAotCommand($"player \"{project.Root}\" --target {target}{appArgs}", out string aotFile, out string aotArgs, out string aotErr))
             return Fail(aotErr);
 
@@ -74,14 +83,15 @@ public static class PlayerBuilder
             return Fail("game.pak uretilemedi");
 
         string projName = Path.GetFileName(project.Root.TrimEnd('\\', '/'));
-        // Basari olcutu: windows -> exe; android -> uretilen proje (CMakeLists); wasm -> game.wasm
+        // Basari olcutu: windows -> exe; android -> uretilen proje (CMakeLists); ios -> app.xcconfig; wasm -> game.wasm
         string result = target switch
         {
             "android" => Path.Combine(project.Root, "Build", "android", "generated", "cpp", "CMakeLists.txt"),
+            "ios" => Path.Combine(project.Root, "Build", "ios", "generated", "app.xcconfig"),
             "wasm" => Path.Combine(project.Root, "Build", "wasm", "game.wasm"),
             _ => Path.Combine(project.Root, "Build", projName + ".exe"),
         };
-        Status = target switch { "android" => "Building android project...", "wasm" => "Building web (wasm)...", _ => "Building player..." };
+        Status = target switch { "android" => "Building android project...", "ios" => "Building iOS project...", "wasm" => "Building web (wasm)...", _ => "Building player..." };
         EditorLog.Info($"[player-build] 2/2 aotcompiler player {project.Root} --target {target}" + (SdkLayout.Installed ? " (kurulu sdk)" : ""));
         _task = Task.Run(() => RunAot(aotFile, aotArgs, result));
         return true;
@@ -148,6 +158,8 @@ public static class PlayerBuilder
         Status = ok ? "" : "Player build failed";
         if (ok && exe.EndsWith("CMakeLists.txt"))
             EditorLog.Info($"[player-build] OK -> Android Studio projesi: {Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(exe)))} ({sw.Elapsed.TotalSeconds:F0} s)");
+        else if (ok && exe.EndsWith(".xcconfig"))
+            EditorLog.Info($"[player-build] OK -> Xcode projesi: {Path.Combine(Path.GetDirectoryName(Path.GetDirectoryName(exe)), "Game.xcodeproj")} ({sw.Elapsed.TotalSeconds:F0} s)");
         else if (ok && exe.EndsWith(".wasm"))
             EditorLog.Info($"[player-build] OK -> web: {Path.GetDirectoryName(exe)} ({new FileInfo(exe).Length / 1024} KB wasm, {sw.Elapsed.TotalSeconds:F0} s) — http://localhost:{RpcHost.DefaultPort}/");
         else if (ok)

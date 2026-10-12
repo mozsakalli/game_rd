@@ -94,8 +94,9 @@ Aynı kural `Build/ios/`, `Build/wasm/` için.
   - `game.pak` APK `assets/`'inde sıkıştırılmadan (`noCompress "pak"`) → `AAssetManager_openFileDescriptor` ile offset+len alıp mevcut
     `de_fs` dosya yolu (fd + offset) kullanılır; ya da ilk açılışta files dizinine kopya (basit, 2 kat disk). İlki hedef.
   - Ses: SFX sokol_audio → AAudio hazır. Müzik → `Music.kt` (MediaPlayer; JNI köprüsü `audio_shim.c` `__ANDROID__` + `host_android.c` JNI_OnLoad) — BİTTİ (cihaz testi bekliyor).
-- **iOS**: dinamik .so/.dylib yok (App Store) → `libgame.a` Xcode target'ı olarak statik. Metal backend var (editörde kullanılıyor). Pak bundle
-  resource. `CADisplayLink` → `de_app_frame`; `touchesBegan/Moved/Ended/Cancelled` → kuyruk. Arka plan: `applicationWillResignActive` → pause.
+- **iOS**: dinamik .so/.dylib yok (App Store) → tüm C kaynak **app target'ının içinde** derlenir (statik lib bile yok). Metal backend (editörle aynı
+  sokol_gfx yolu, `de_metal_init_layer`). Pak bundle resource (`Build/game.pak` klasör referansı). `CADisplayLink` → `de_app_frame`;
+  `touchesBegan/Moved/Ended/Cancelled` → kuyruk. Arka plan: `didEnterBackground` → pause, `willResignActive` → FOCUS 0.
 - **wasm**: emsdk Platform Support olarak indirilir (llvm-mingw gibi cache'te). Tek thread, `emscripten_set_main_loop` → `de_app_frame`.
   Pak: başlangıçta `fetch` + `MEMFS`'e yaz (ya da `--preload-file`); `de_fs` worker thread'i yok → senkron okuma (zaten bellekte). GL = WebGL2
   (sokol `SOKOL_GLES3`). `de_music_*` → `HTMLAudioElement` JS shim. Shader'lar: bugün GLCORE GLSL; GLES3 varyantı gerekir (sokol-shdc ya da elle `#version 300 es`).
@@ -111,10 +112,26 @@ Aynı kural `Build/ios/`, `Build/wasm/` için.
 | H3 | Proje üretim altyapısı: `Build/<platform>/{generated,user}` kuralı, `Assets/Editor` → `<Ad>.Editor.dll`, `I*ProjectHook` API, `Platform.Send/OnMessage` + `de_host_message` | Windows'ta sahte kanca ile uçtan uca |
 | H4 | wasm spike → wasm host + emsdk Platform Support + GLES3 shader yolu | Sandbox tarayıcıda — **BİTTİ (ilk dilim)** |
 | H5 | Android: Kotlin host şablonu + CMakeLists + Gradle + JNI köprü + AAsset pak + `de_music_*` MediaPlayer | Android Studio'da aç → derle → cihazda Sandbox |
-| H6 | iOS: Xcode proje şablonu (xcodegen ya da elle pbxproj şablonu) + Swift host + Metal + AVPlayer | Xcode'da aç → derle → cihazda Sandbox |
+| H6 | iOS: Xcode proje şablonu (elle pbxproj, synchronized folder) + ObjC host + Metal + AVFoundation | Xcode'da aç → derle → cihazda Sandbox — **İLK DİLİM BİTTİ (simülatör)** |
 | H7 | GL kaynak kaybı sonrası GPU kaynaklarını yeniden bağlama (Android) | pause/resume turu sorunsuz |
 
 ## Durum
+- **H6 (iOS) İLK DİLİM BİTTİ (2026-10-13)**: Editör `Project ▸ Build iOS Project (Xcode)` / RPC `player.build {target:"ios"}` → `IosBuildProps.Write`
+  (`Library/Build/ios.properties`: bundleId, appName, version, buildNumber, minIos, teamId, orientation, icon) → `aotcompiler player --target ios --props`
+  → `<proje>/Build/ios/`: `generated/` (her build: `cpp/{gen,c_runtime,native}`, `Build/game.pak`, `Assets.xcassets/AppIcon` tek 1024 PNG, `app.xcconfig`)
+  + kabuk (ilk kez `platforms/ios/shell`: `Game.xcodeproj`, `Game/{Info.plist,LaunchScreen.storyboard}`, `shell.version`=1; sonra kullanıcıya ait — team/
+  capability/SDK orada). **Derleme listesi yok**: pbxproj `cpp/`'yi Xcode 16 `PBXFileSystemSynchronizedRootGroup` olarak görür → klasörde ne varsa derlenir;
+  bu yüzden aotcompiler `cpp/`'ye YALNIZ derlenecekleri kopyalar (c_runtime: vmrt/corelib/vmint*/de_app/`host_ios.m` + .h; native: `sokol_shim.c→sokol_shim.m`,
+  `audio_shim.c→audio_shim.m` (ObjC: Metal/AVFoundation), de_fs/de_async/de_net + .h + `sokol/`; `stb_vorbis.c` ve diğer host'lar kopyalanmaz, eskiyen
+  dosyalar silinir). Tüm ayar `app.xcconfig`'te (`PRODUCT_BUNDLE_IDENTIFIER`, `MARKETING_VERSION`, `CURRENT_PROJECT_VERSION`, `IPHONEOS_DEPLOYMENT_TARGET`,
+  `DE_APP_NAME`/`DE_ORIENTATION_1..4` → Info.plist `$(…)`, `GCC_PREPROCESSOR_DEFINITIONS = SOKOL_METAL SOKOL_IMPL DE_NO_DECODERS`, `HEADER_SEARCH_PATHS`,
+  framework'ler `OTHER_LDFLAGS`); pbxproj'da yalnız Debug(-O1, DIGITOYENGINE_DEBUG)/Release(-O2) ayrımı. Host `c_runtime/host_ios.m`: `DEMetalView`
+  (CAMetalLayer, contentsScale=nativeScale) → `de_metal_init_layer` (sokol_shim.c iOS dalı: device yarat + slot 0'a bağla) → `de_app_init(bundle
+  resourcePath, AppSupport/<bundleId>, fb, scale)`; CADisplayLink → `de_app_frame`; dokunma id'leri UITouch* tablosu (nokta=mantıksal px);
+  background/foreground → pause/resume; memory warning → low_memory. `sokol_shim.c`: GLFW/AppKit/Cocoa menü-dialog blokları `TARGET_OS_OSX`;
+  `de_fs.c` prefs iOS'ta CFPreferences; `de_net.c` Apple stub. Doğrulama: `xcodebuild -sdk iphonesimulator` ilk denemede BUILD SUCCEEDED, iPhone 16 Pro
+  simülatöründe Sandbox pak→18 tip→`sahne hazir`, Login sahnesi çizildi (sprite + SDF metin + 9-slice, yatay, @3x). **Kalanlar**: cihaz testi (imza),
+  müzik (`audio_shim` AVFoundation yolu iOS'ta derlendi, dinlenmedi), klavye/EV_TEXT, splash/ikon seti, `teamId` dışında imza seçeneği yok (Xcode'a bırakıldı).
 - **H1 BİTTİ**: `engine/managed/GameHost.cs` (platformsuz: Init/Event/Frame/Pause/Resume/Shutdown, async Boot, `de_game_register`),
   `c_runtime/de_app.h` (ABI) + `de_app.c` (olay kuyruğu, runtime init, GC safepoint) + `host_desktop.c` (GLFW pencere/GL ctx,
   callback → kuyruk, `main`). aotcompiler `main` üretmez; `de_managed_*` + `de_game_register(cat)` köprülerini generated.c'ye ekler,

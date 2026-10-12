@@ -50,6 +50,9 @@ public class PlayerSettings
     // Android'e ozel yayin ayarlari (Build Android Project -> generated/app.properties; kabuk Gradle her build okur).
     public AndroidSettings android = new();
 
+    // iOS'a ozel yayin ayarlari (Build iOS Project -> generated/app.xcconfig; Xcode kabugu her build okur).
+    public IosSettings ios = new();
+
     // Build kokleri: scenes + startScene (tekil, sira korunur, startScene listede yoksa basa).
     public List<string> BuildScenes()
     {
@@ -77,4 +80,16 @@ public class AndroidSettings
     public string keyAlias = "";
     public string iconForeground = "";     // Assets'e goreli PNG (adaptive icon on plani, 432x432 onerilir); bos = engine varsayilani
     public string iconBackground = "#1E1E1E"; // "#RRGGBB" renk ya da Assets'e goreli PNG
+}
+
+// iOS yayin ayarlari (PlayerSettings.ios; git'e girer). Imza/sertifika burada DEGIL: Xcode "Signing & Capabilities"
+// (Automatic; teamId verilirse xcconfig'e DEVELOPMENT_TEAM yazilir, ilk acilista secmek gerekmez).
+[Serializable]
+public class IosSettings
+{
+    public string bundleId = "";           // bos = bundleIdentifier
+    public int buildNumber = 1;            // CFBundleVersion; App Store her yuklemede artis ister (CFBundleShortVersionString = PlayerSettings.version)
+    public string minIos = "15.0";         // IPHONEOS_DEPLOYMENT_TARGET
+    public string teamId = "";             // Apple Developer Team ID (10 karakter); bos = Xcode'da secilir
+    public string icon = "";               // Assets'e goreli PNG (1024x1024, opak, kose yuvarlatma YOK); bos = engine varsayilani
 }

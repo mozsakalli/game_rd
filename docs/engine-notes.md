@@ -1,5 +1,33 @@
 # DigitoyEngine R&D (game_rd)
 
+## iOS HEDEFİ (H6 ilk dilim; 2026-10-13) — ayrıntı docs/platform-hosts.md "H6 (iOS)"
+- Jargon: hedef adı `ios` (Unity gibi; `apple-mobile` değil), `aotcompiler/platforms/ios/`, menü "Build iOS Project (Xcode)", RPC
+  `player.build target=ios`. `PlayerSettings.ios` (`IosSettings`: bundleId, buildNumber, minIos, teamId, icon) — imza Xcode'un işi.
+- Mimari: Android'in aynası. `Build/ios/generated/` her build (cpp/ artımlı), kabuk (`Game.xcodeproj`, `Game/Info.plist`, storyboard)
+  ilk kez kopyalanır, sonra kullanıcıya ait; değişken her şey `generated/app.xcconfig`'ten (Info.plist `$(DE_APP_NAME)`, `$(DE_ORIENTATION_n)`).
+- TUZAK (Xcode 16 synchronized folder): pbxproj'da kaynak listesi yok, `cpp/` altında NE VARSA derlenir → aotcompiler `cpp/`'ye yalnız
+  derlenecekleri koyar (host_desktop/host_android/stb_vorbis.c YOK), ObjC gerekenleri `.m` adıyla kopyalar (`sokol_shim.m`, `audio_shim.m`),
+  eskiyen dosyaları siler. `SOKOL_IMPL` proje geneli define'dır (yalnız bu iki dosya sokol impl header'ı include eder → güvenli).
+- TUZAK (pbxproj yolları): `SRCROOT` = `Build/ios` (xcodeproj'un dizini); `generated/...` yazılır, `../generated` DEĞİL — yanlış yolda
+  xcconfig sessizce okunmaz, hedef macOS'a düşer (`-showBuildSettings | grep SDKROOT` ile anla).
+- sokol_shim.c: GLFW/AppKit/Cocoa menü-dialog blokları `TARGET_OS_OSX`; iOS'ta `de_metal_init_layer(CAMetalLayer*)`. Host `c_runtime/host_ios.m`
+  (ARC; `release:` selector adı yasak → `freeTouch:`). Publisher `NativeSources` c_runtime `*.m` de kopyalar.
+- Doğrulama yolu: editör RPC `player.build ios` → `xcodebuild -project Build/ios/Game.xcodeproj -scheme Game -sdk iphonesimulator
+  -destination 'platform=iOS Simulator,name=iPhone 16 Pro' CODE_SIGNING_ALLOWED=NO build` → `xcrun simctl install/launch booted <bundleId>`
+  (`--console-pty` pipe'ı öldürülürse uygulama da ölür; screenshot için consolesuz launch).
+
+## TUZAK: RID'li publish IL'i x64 işaretler → mac'te "architecture not compatible" (2026-10-13)
+- Belirti: `~/DigitoyPublish/.../DigitoyEditor` → `FileLoadException ... DigitoyEditor.dll ... assembly architecture is not
+  compatible` (`file` çıktısı `PE32+ x86-64`). Sebep: `dotnet publish -r win-x64` SDK'da `PlatformTarget`'ı örtük x64 yapar;
+  paket tek IL + RID'e özgü apphost'lar (win-x64 exe, osx-arm64 Mach-O) kullandığı için arm64 runtime IL'i reddeder.
+- Fix: EditorPublisher `edCommon`'a `-p:PlatformTarget=AnyCPU` (her iki RID publish'inde). Paylaşılan IL üreten her RID'li
+  publish'te bu zorunlu. Doğrulama: `file DigitoyEditor.dll` → `PE32 ... Intel 80386` (AnyCPU).
+- Publisher'ın `managed` adımı kendi kaynağını hash'e katmaz; publisher değişince `sdk/manifest.json` sil ki yeniden üretsin.
+- AYNI GÜN 2. tuzak: yayınlanan dylib'de `de_msdf_font_open` yok → font import FAIL → text/LayoutBox/SDF görünmez. Publisher'ın
+  `NativeMac`/`EditorNativeWin` adımları `build_editor.sh/.cmd`'nin KOPYASI (msdfgen C++ + `de_image_write.c` eksikti) →
+  `CompileMsdf` eklendi, `-lc++`. KURAL: build_editor betiğine kaynak eklenince publisher'a da ekle (üç yer: .sh, .cmd, Program.cs).
+  `NativeInputs` hash'i artık `.cpp/.hpp` de kapsar.
+
 ## TUZAK: clang-format EM_JS gövdesini bozuyor (2026-10-13, wasm link OK)
 - `de_fs.c` prefs EM_JS'lerinde `===` → `== =` olmuştu (formatter JS'i C sandı) → emcc link'te acorn
   `SyntaxError: Unexpected token (6014:124)` (hata satırı `function de_js_prefs_get...`). Derleme geçer, LINK patlar.

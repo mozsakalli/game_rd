@@ -81,7 +81,7 @@ static class Program
         string dst = Path.Combine(Pkg, "sdk", "native");
         var map = new List<(string src, string rel)>();
         string cr = Path.Combine(RepoRoot, "aotcompiler", "c_runtime");
-        foreach (var f in Directory.GetFiles(cr, "*.c").Concat(Directory.GetFiles(cr, "*.h")))
+        foreach (var f in Directory.GetFiles(cr, "*.c").Concat(Directory.GetFiles(cr, "*.h")).Concat(Directory.GetFiles(cr, "*.m"))) // .m: host_ios.m
             map.Add((f, Path.Combine("c_runtime", Path.GetFileName(f))));
         string en = Path.Combine(RepoRoot, "engine", "native");
         foreach (var f in Directory.GetFiles(en, "*.c").Concat(Directory.GetFiles(en, "*.h")).Concat(Directory.GetFiles(en, "*.m")))
@@ -160,7 +160,9 @@ static class Program
         try
         {
             string common = "-c Release -v q --nologo -p:Deterministic=true -p:ContinuousIntegrationBuild=true -p:DebugType=portable";
-            string edCommon = common + " -p:DigitoyEditorBuild=true"; // engine'de DE_EDITOR (editor altyapisi) Release'te de acilir
+            // engine'de DE_EDITOR (editor altyapisi) Release'te de acilir. PlatformTarget=AnyCPU SART: RID'li publish
+            // IL'i ortuk x64 isaretler, arm64 runtime "architecture not compatible" ile reddeder (IL tek, apphost RID'e ozgu).
+            string edCommon = common + " -p:DigitoyEditorBuild=true -p:PlatformTarget=AnyCPU";
             string edOut = Path.Combine(tmp, "editor-win");
             Run("dotnet", $"publish \"{Path.Combine(RepoRoot, "editor", "DigitoyEditor.csproj")}\" {edCommon} -r win-x64 --self-contained false -o \"{edOut}\"");
             string edMac = Path.Combine(tmp, "editor-mac");
@@ -220,7 +222,7 @@ static class Program
 
     static IEnumerable<string> NativeInputs()
     {
-        foreach (var f in SourceFiles("engine/native", "*.c", "*.h", "*.m"))
+        foreach (var f in SourceFiles("engine/native", "*.c", "*.h", "*.m", "*.cpp", "*.hpp"))
         {
             string n = f.Replace('\\', '/');
             if (n.Contains("/glfw-master/") && !n.Contains("/glfw-master/src/") && !n.Contains("/glfw-master/include/")) continue;
@@ -276,11 +278,19 @@ static class Program
         if (UpToDate(marker, h) && File.Exists(dst)) { Skipped.Add("editor native (win)"); return; }
         Fresh(marker);
         string native = Path.Combine(RepoRoot, "engine", "native");
-        var srcs = new List<string> { "sokol_shim.c", "de_fs.c", "de_async.c", "de_net.c", "audio_shim.c" }.Select(s => Path.Combine(native, s)).ToList();
+        var srcs = new List<string> { "sokol_shim.c", "de_fs.c", "de_async.c", "de_net.c", "audio_shim.c", "de_image_write.c" }.Select(s => Path.Combine(native, s)).ToList();
         srcs.AddRange(GlfwWin.Select(g => Path.Combine(native, "glfw-master", "src", g + ".c")));
-        Run(ClangExe, $"-O1 -w -shared -DSOKOL_GLCORE -D_GLFW_WIN32 -D_GLFW_BUILD_DLL -DDE_BUILD_DLL -DSOKOL_IMPL -I\"{native}\" " +
-            string.Join(" ", srcs.Select(s => $"\"{s}\"")) + " -lopengl32 -lgdi32 -luser32 -lkernel32 -lshell32 -lole32 -loleaut32 -lmfplat -lmfuuid -luuid -lwinhttp " +
-            $"-o \"{dst}\"");
+        string tmp = Path.Combine(Path.GetTempPath(), "DigitoyPublish-win-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(tmp);
+        try
+        {
+            var cxx = CompileMsdf(ClangExe, tmp, $"-I\"{native}\"");
+            Run(ClangExe, $"-O1 -w -shared -DSOKOL_GLCORE -D_GLFW_WIN32 -D_GLFW_BUILD_DLL -DDE_BUILD_DLL -DSOKOL_IMPL -I\"{native}\" " +
+                string.Join(" ", srcs.Select(s => $"\"{s}\"")) + " " + string.Join(" ", cxx.Select(o => $"\"{o}\"")) +
+                " -lopengl32 -lgdi32 -luser32 -lkernel32 -lshell32 -lole32 -loleaut32 -lmfplat -lmfuuid -luuid -lwinhttp " +
+                $"-o \"{dst}\"");
+        }
+        finally { try { Directory.Delete(tmp, true); } catch { } }
         WriteManifest(marker, h, "llvm-mingw " + LlvmMingwTag, null);
         Done.Add("editor native (digitoyengine_native.dll)");
     }
@@ -302,22 +312,42 @@ static class Program
         {
             string defs = "-DSOKOL_METAL -D_GLFW_COCOA -DSOKOL_IMPL";
             string incs = $"-I\"{native}\" -I\"{Path.Combine(native, "glfw-master", "include")}\"";
-            string shim = Path.Combine(tmp, "sokol_shim.o"), audio = Path.Combine(tmp, "audio_shim.o"), fs = Path.Combine(tmp, "de_fs.o"), asy = Path.Combine(tmp, "de_async.o"), net = Path.Combine(tmp, "de_net.o");
+            string shim = Path.Combine(tmp, "sokol_shim.o"), audio = Path.Combine(tmp, "audio_shim.o"), fs = Path.Combine(tmp, "de_fs.o"), asy = Path.Combine(tmp, "de_async.o"), net = Path.Combine(tmp, "de_net.o"), iw = Path.Combine(tmp, "de_image_write.o");
             Run("clang", $"-O1 -w -c -fobjc-arc -x objective-c \"{Path.Combine(native, "sokol_shim.c")}\" {defs} {incs} -o \"{shim}\"");
             Run("clang", $"-O1 -w -c -fobjc-arc -x objective-c \"{Path.Combine(native, "audio_shim.c")}\" {defs} {incs} -o \"{audio}\""); // muzik: AVFoundation (ObjC)
             Run("clang", $"-O1 -w -c \"{Path.Combine(native, "de_fs.c")}\" {defs} {incs} -o \"{fs}\"");
             Run("clang", $"-O1 -w -c \"{Path.Combine(native, "de_async.c")}\" {defs} {incs} -o \"{asy}\"");
             Run("clang", $"-O1 -w -c \"{Path.Combine(native, "de_net.c")}\" {defs} {incs} -o \"{net}\"");
+            Run("clang", $"-O1 -w -c \"{Path.Combine(native, "de_image_write.c")}\" {defs} {incs} -o \"{iw}\""); // editor-only PNG/JPG encoder
+            var cxx = CompileMsdf("clang++", tmp, incs);
             var glfw = new[] { "context.c", "init.c", "input.c", "monitor.c", "platform.c", "vulkan.c", "window.c", "egl_context.c", "osmesa_context.c",
                 "null_init.c", "null_joystick.c", "null_monitor.c", "null_window.c",
                 "cocoa_init.m", "cocoa_joystick.m", "cocoa_monitor.m", "cocoa_window.m", "nsgl_context.m", "macos_time.c", "posix_module.c", "posix_thread.c" };
             string frameworks = "-framework Cocoa -framework IOKit -framework CoreFoundation -framework CoreGraphics -framework CoreVideo -framework AppKit -framework QuartzCore -framework Metal -framework MetalKit -framework AudioToolbox -framework AVFoundation -framework CoreMedia";
-            Run("clang", $"-O1 -w -dynamiclib -fvisibility=default -Wno-deprecated-declarations {defs} {incs} \"{shim}\" \"{audio}\" \"{fs}\" \"{asy}\" \"{net}\" " +
-                string.Join(" ", glfw.Select(g => $"\"{Path.Combine(src, g)}\"")) + $" {frameworks} -install_name \"@rpath/libdigitoyengine_native.dylib\" -o \"{dst}\"");
+            Run("clang", $"-O1 -w -dynamiclib -fvisibility=default -Wno-deprecated-declarations {defs} {incs} \"{shim}\" \"{audio}\" \"{fs}\" \"{asy}\" \"{net}\" \"{iw}\" " +
+                string.Join(" ", cxx.Select(o => $"\"{o}\"")) + " " +
+                string.Join(" ", glfw.Select(g => $"\"{Path.Combine(src, g)}\"")) + $" {frameworks} -lc++ -install_name \"@rpath/libdigitoyengine_native.dylib\" -o \"{dst}\"");
         }
         finally { try { Directory.Delete(tmp, true); } catch { } }
         WriteManifest(marker, h, "xcode clang", null);
         Done.Add("editor native (libdigitoyengine_native.dylib)");
+    }
+
+    // EDITOR-ONLY C++ parcasi: msdfgen core + msdf_shim.cpp (FontImporter Msdf modu, de_msdf_font_*). build_editor.sh/.cmd ile
+    // birebir: C kaynaklariyla ayni komutta -std=c++17 verilemez, once nesneye derlenir. Player derlemelerine girmez.
+    static List<string> CompileMsdf(string cxx, string objDir, string incs)
+    {
+        string native = Path.Combine(RepoRoot, "engine", "native");
+        var files = new List<string> { Path.Combine(native, "msdf_shim.cpp") };
+        files.AddRange(Directory.GetFiles(Path.Combine(native, "msdfgen", "core"), "*.cpp").OrderBy(x => x, StringComparer.Ordinal));
+        var objs = new List<string>();
+        foreach (var f in files)
+        {
+            string o = Path.Combine(objDir, Path.GetFileNameWithoutExtension(f) + ".o");
+            Run(cxx, $"-O2 -w -std=c++17 -c -DMSDFGEN_PUBLIC= {incs} \"{f}\" -o \"{o}\"");
+            objs.Add(o);
+        }
+        return objs;
     }
 
     // ---------------- manifest / hash ----------------

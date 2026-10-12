@@ -162,7 +162,7 @@ public static class Program
     static int RunSdkIl(string outDir)
     {
         Directory.CreateDirectory(outDir);
-        foreach (var src in new[] { CoreLibDll(), EngineAotDll("windows"), EngineAotDll("android"), EngineAotDll("wasm") })
+        foreach (var src in new[] { CoreLibDll(), EngineAotDll("windows"), EngineAotDll("android"), EngineAotDll("wasm"), EngineAotDll("ios") })
         {
             File.Copy(src, Path.Combine(outDir, Path.GetFileName(src)), true);
             string pdb = Path.ChangeExtension(src, ".pdb");
@@ -265,8 +265,8 @@ public static class Program
             $"void de_managed_pause(void) {{ {Sym(pauseCode)}(); }}\n" +
             $"void de_managed_resume(void) {{ {Sym(resumeCode)}(); }}\n" +
             $"void de_managed_shutdown(void) {{ {Sym(shutdownCode)}(); }}\n";
-        if (target != "windows" && target != "android" && target != "wasm")
-            throw new Exception("bilinmeyen hedef: " + target + " (windows | android | wasm)");
+        if (target != "windows" && target != "android" && target != "wasm" && target != "ios")
+            throw new Exception("bilinmeyen hedef: " + target + " (windows | android | ios | wasm)");
         // TRIM: kokler (host girisleri + game.pak component tipleri + koddan otomatik) -> analiz -> emisyon TrimResult'a sorar.
         // Profil full = bugunku cikti bire bir (her sey canli); lean = modul host yok, meta yalniz koklere.
         var profile = DigitoyEngine.Language.Trim.TrimProfile.Parse(app.Trim);
@@ -293,6 +293,12 @@ public static class Program
         {
             EmitAndroidProject(projectRoot, projName, files, app);
             Lap("android projesi");
+            return 0;
+        }
+        if (target == "ios")
+        {
+            EmitIosProject(projectRoot, projName, files, app);
+            Lap("ios projesi");
             return 0;
         }
         if (target == "wasm")
@@ -526,6 +532,154 @@ public static class Program
 
     // java.util.Properties: '\' kacis karakteri -> yollar '/' ile; satir sonu kacislanir.
     static string PropEscape(string v) => v.Replace("\\", "/").Replace("\r", "").Replace("\n", "\\n");
+
+    // ---- iOS (docs/platform-hosts.md H6): Xcode projesi, kaynak + xcconfig; kullanici Xcode'da derler/imzalar ----
+    // <proje>/Build/ios/
+    //   generated/   her build yazilir: cpp/{gen/, c_runtime/ (de_app + host_ios.m + runtime), native/ (shim'ler; sokol_shim/audio_shim .m)},
+    //                Build/game.pak (bundle'a klasor referansi), Assets.xcassets (AppIcon), app.xcconfig (Player Settings -> Xcode).
+    //                cpp/ SILINMEZ (mtime korunur -> Xcode yalniz degiseni derler); artik uretilmeyen gen/ dosyalari silinir.
+    //                Derleme listesi YOK: Game.xcodeproj cpp/'yi Xcode 16 "synchronized folder" olarak gorur (ne varsa derlenir;
+    //                bu yuzden cpp/'ye yalniz derlenecek dosyalar kopyalanir).
+    //   Game.xcodeproj, Game/{Info.plist, LaunchScreen.storyboard}, shell.version   ILK uretimde sablondan, sonra DOKUNULMAZ
+    //                (imza/team/capability kullanicinin; degisken her sey generated/app.xcconfig'ten okunur)
+    const int IosShellVersion = 1;
+
+    static void EmitIosProject(string projectRoot, string projName, List<CTranspiler.GeneratedFile> files, AppInfo app)
+    {
+        string tpl = Path.Combine(PlatformsDir, "ios");
+        if (!Directory.Exists(tpl)) throw new Exception("ios sablonu yok: " + tpl);
+        string root = Path.Combine(projectRoot, "Build", "ios");
+        string gen = Path.Combine(root, "generated");
+
+        var props = app.Props ?? new Dictionary<string, string>();
+        string P(string k, string def = "") => props.TryGetValue(k, out var v) && !string.IsNullOrWhiteSpace(v) ? v.Trim() : def;
+        string bundleId = P("bundleId", app.Id);
+        if (string.IsNullOrWhiteSpace(bundleId) || bundleId == "com.defaultcompany.game")
+        {
+            bundleId = "com.digitoy." + new string(projName.ToLowerInvariant().Where(ch => char.IsLetterOrDigit(ch)).ToArray());
+            if (bundleId.EndsWith(".")) bundleId += "game";
+        }
+        if (!System.Text.RegularExpressions.Regex.IsMatch(bundleId, @"^[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)+$"))
+            throw new Exception($"ios: gecersiz bundle identifier '{bundleId}' (Player Settings > Bundle Identifier / ios.bundleId; ornek com.sirket.oyun)");
+        string appName = P("appName", app.Name);
+        if (string.IsNullOrWhiteSpace(appName) || appName == "Game") appName = projName;
+        string version = P("version", app.Version);
+        if (!int.TryParse(P("buildNumber", "1"), out int buildNumber) || buildNumber <= 0)
+            throw new Exception("ios: buildNumber pozitif tam sayi olmali (Player Settings > ios.buildNumber)");
+        string minIos = P("minIos", "15.0");
+        if (!System.Text.RegularExpressions.Regex.IsMatch(minIos, @"^\d+(\.\d+)?$")) throw new Exception("ios: minIos '15.0' bicminde olmali: " + minIos);
+        string team = P("teamId");
+        string[] orient = P("orientation", app.Orientation) switch
+        {
+            "portrait" => new[] { "UIInterfaceOrientationPortrait", "UIInterfaceOrientationPortraitUpsideDown", "UIInterfaceOrientationPortrait", "UIInterfaceOrientationPortraitUpsideDown" },
+            "auto" => new[] { "UIInterfaceOrientationPortrait", "UIInterfaceOrientationPortraitUpsideDown", "UIInterfaceOrientationLandscapeLeft", "UIInterfaceOrientationLandscapeRight" },
+            _ => new[] { "UIInterfaceOrientationLandscapeLeft", "UIInterfaceOrientationLandscapeRight", "UIInterfaceOrientationLandscapeLeft", "UIInterfaceOrientationLandscapeRight" },
+        };
+        string icon = P("icon");
+        if (icon.Length > 0 && !File.Exists(icon)) throw new Exception("ios: icon dosyasi yok: " + icon);
+
+        // generated/: cpp/ disindaki her sey her build taze; cpp/ artimli
+        if (Directory.Exists(gen))
+        {
+            foreach (var d in Directory.GetDirectories(gen))
+                if (!string.Equals(Path.GetFileName(d), "cpp", StringComparison.OrdinalIgnoreCase)) Directory.Delete(d, true);
+            foreach (var f in Directory.GetFiles(gen)) File.Delete(f);
+        }
+
+        // cpp: YALNIZ derlenecekler (synchronized folder). gen/ + runtime (host_ios.m; host_desktop/host_android yok, vmint secimi) +
+        // shim'ler (ObjC gerektirenler .m uzantisiyla: sokol Metal + AVFoundation muzik; GLFW yok; decoder/stb_vorbis yok: DE_NO_DECODERS).
+        string cpp = Path.Combine(gen, "cpp");
+        string crt = Path.Combine(cpp, "c_runtime"), nat = Path.Combine(cpp, "native");
+        Directory.CreateDirectory(crt);
+        Directory.CreateDirectory(nat);
+        var genSrcs = CTranspiler.WriteFiles(Path.Combine(cpp, "gen"), files, out int written, out int unchanged);
+        Console.WriteLine($"transpile -> {Path.Combine(cpp, "gen")}: {genSrcs.Count} .c ({written} yazildi, {unchanged} degismedi)");
+        var wantCrt = new Dictionary<string, string> { ["vmrt.c"] = "vmrt.c", ["corelib.c"] = "corelib.c", [VmintSource] = VmintSource, ["de_app.c"] = "de_app.c", ["host_ios.m"] = "host_ios.m" };
+        foreach (var f in Directory.GetFiles(CRuntimeDir))
+        {
+            string n = Path.GetFileName(f);
+            if (n.EndsWith(".h")) { CopyIfChanged(f, Path.Combine(crt, n)); continue; }
+            if (wantCrt.TryGetValue(n, out var to)) CopyIfChanged(f, Path.Combine(crt, to));
+        }
+        var wantNat = new Dictionary<string, string> { ["sokol_shim.c"] = "sokol_shim.m", ["audio_shim.c"] = "audio_shim.m", ["de_fs.c"] = "de_fs.c", ["de_async.c"] = "de_async.c", ["de_net.c"] = "de_net.c" };
+        foreach (var f in Directory.GetFiles(EngineNativeDir))
+        {
+            string n = Path.GetFileName(f);
+            if (n.EndsWith(".h")) { CopyIfChanged(f, Path.Combine(nat, n)); continue; }
+            if (wantNat.TryGetValue(n, out var to)) CopyIfChanged(f, Path.Combine(nat, to));
+        }
+        CopyTree(Path.Combine(EngineNativeDir, "sokol"), Path.Combine(nat, "sokol"));
+        // Eski/artik istenmeyen dosyalar derlenmesin (synchronized folder her seyi alir).
+        foreach (var f in Directory.GetFiles(crt).Concat(Directory.GetFiles(nat)))
+        {
+            string n = Path.GetFileName(f);
+            if (n.EndsWith(".h")) continue;
+            bool keep = Path.GetDirectoryName(f) == crt ? wantCrt.ContainsValue(n) : wantNat.ContainsValue(n);
+            if (!keep) File.Delete(f);
+        }
+
+        // pak: bundle icinde Build/game.pak (klasor referansi) -> GameHost "<resourcePath>/Build/game.pak"
+        string pak = Path.Combine(projectRoot, "Build", "game.pak");
+        if (!File.Exists(pak)) throw new Exception("game.pak yok (once asset pack): " + pak);
+        Directory.CreateDirectory(Path.Combine(gen, "Build"));
+        File.Copy(pak, Path.Combine(gen, "Build", "game.pak"), true);
+
+        // AppIcon: tek 1024 PNG (Xcode 14+ "single size"); yoksa sablon varsayilani.
+        string iconSet = Path.Combine(gen, "Assets.xcassets", "AppIcon.appiconset");
+        Directory.CreateDirectory(iconSet);
+        File.WriteAllText(Path.Combine(gen, "Assets.xcassets", "Contents.json"), "{\n  \"info\" : { \"author\" : \"xcode\", \"version\" : 1 }\n}\n");
+        File.Copy(icon.Length > 0 ? icon : Path.Combine(tpl, "res", "icon-1024.png"), Path.Combine(iconSet, "icon-1024.png"), true);
+        File.WriteAllText(Path.Combine(iconSet, "Contents.json"),
+            "{\n  \"images\" : [\n    { \"filename\" : \"icon-1024.png\", \"idiom\" : \"universal\", \"platform\" : \"ios\", \"size\" : \"1024x1024\" }\n  ],\n" +
+            "  \"info\" : { \"author\" : \"xcode\", \"version\" : 1 }\n}\n");
+
+        // app.xcconfig: kabuk her build okur (kimlik, surum, yon, define'lar, include yollari, framework'ler).
+        string Xq(string s) => s.Replace("\\", "\\\\").Replace("\"", "\\\"");
+        File.WriteAllText(Path.Combine(gen, "app.xcconfig"),
+            "// DigitoyEngine: her build yeniden yazilir (Player Settings). Elle duzenlemeyin; Game.xcodeproj base configuration.\n" +
+            $"DE_APP_NAME = {appName}\n" +
+            $"PRODUCT_NAME = Game\n" +
+            $"PRODUCT_BUNDLE_IDENTIFIER = {bundleId}\n" +
+            $"MARKETING_VERSION = {version}\n" +
+            $"CURRENT_PROJECT_VERSION = {buildNumber}\n" +
+            $"IPHONEOS_DEPLOYMENT_TARGET = {minIos}\n" +
+            (team.Length > 0 ? $"DEVELOPMENT_TEAM = {team}\n" : "") +
+            "CODE_SIGN_STYLE = Automatic\n" +
+            $"DE_ORIENTATION_1 = {orient[0]}\nDE_ORIENTATION_2 = {orient[1]}\nDE_ORIENTATION_3 = {orient[2]}\nDE_ORIENTATION_4 = {orient[3]}\n" +
+            "SDKROOT = iphoneos\nTARGETED_DEVICE_FAMILY = 1,2\nSUPPORTED_PLATFORMS = iphoneos iphonesimulator\n" +
+            "INFOPLIST_FILE = Game/Info.plist\nASSETCATALOG_COMPILER_APPICON_NAME = AppIcon\nGENERATE_INFOPLIST_FILE = NO\n" +
+            "CLANG_ENABLE_OBJC_ARC = YES\nCLANG_ENABLE_MODULES = YES\nGCC_C_LANGUAGE_STANDARD = gnu11\nENABLE_BITCODE = NO\n" +
+            "GCC_PREPROCESSOR_DEFINITIONS = $(inherited) SOKOL_METAL SOKOL_IMPL DE_NO_DECODERS\n" +
+            "HEADER_SEARCH_PATHS = $(SRCROOT)/generated/cpp/c_runtime $(SRCROOT)/generated/cpp/gen $(SRCROOT)/generated/cpp/native\n" +
+            "OTHER_CFLAGS = -w -ffunction-sections -fdata-sections\n" +
+            "DEAD_CODE_STRIPPING = YES\nGCC_WARN_INHIBIT_ALL_WARNINGS = YES\n" +
+            "OTHER_LDFLAGS = $(inherited) -Wl,-dead_strip -framework UIKit -framework Foundation -framework Metal -framework QuartzCore -framework AVFoundation -framework AudioToolbox -framework CoreMedia -framework CoreFoundation\n");
+
+        // kabuk: yalniz yoksa (kullaniciya ait)
+        string shellVersionFile = Path.Combine(root, "shell.version");
+        if (!Directory.Exists(Path.Combine(root, "Game.xcodeproj")))
+        {
+            string shell = Path.Combine(tpl, "shell");
+            foreach (var f in Directory.GetFiles(shell, "*", SearchOption.AllDirectories))
+            {
+                string to = Path.Combine(root, Path.GetRelativePath(shell, f));
+                Directory.CreateDirectory(Path.GetDirectoryName(to));
+                File.WriteAllText(to, File.ReadAllText(f).Replace("{{APP_NAME}}", Xq(appName)));
+            }
+            File.WriteAllText(shellVersionFile, IosShellVersion.ToString());
+            Console.WriteLine($"ios kabugu olusturuldu: {root}");
+        }
+        else
+        {
+            int have = File.Exists(shellVersionFile) && int.TryParse(File.ReadAllText(shellVersionFile).Trim(), out int v) ? v : 0;
+            if (have < IosShellVersion)
+                Console.WriteLine($"[uyari] ios kabugu eski (v{have} < v{IosShellVersion}). Ozel degisikliginiz yoksa {root} altindaki kabuk dosyalarini (generated/ haric) silip yeniden build edin.");
+            else
+                Console.WriteLine("ios kabugu mevcut, dokunulmadi: " + root);
+        }
+        Console.WriteLine($"ios projesi hazir -> {root}  (bundle {bundleId}, v{version} ({buildNumber}), iOS {minIos}+, " +
+            (team.Length > 0 ? $"team {team}" : "team: Xcode'da secin") + ")  Xcode: open Game.xcodeproj -> Signing & Capabilities -> Run");
+    }
 
     // Icerik ayniysa dokunma (mtime korunur -> artimli native derleme gereksiz yere tetiklenmez).
     static void CopyIfChanged(string src, string dst)
