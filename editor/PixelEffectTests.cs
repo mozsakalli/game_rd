@@ -30,7 +30,7 @@ static class PixelEffectTests
             var p3 = Shader.TryCreateEffect("VEC4 fs_main(VEC2 uv, VEC4 color) { return color * VEC4(LOCALUV, 1.0, 1.0); }", true, out string e3);
             Check(p3 != null, "probe: LOCALUV kullanimli VALID (" + e3 + ")");
 
-            var fx = new PixelEffect { Name = "test-gray" };
+            var fx = new PixelEffect();
             fx.SetBody(GrayBody);
             var list = new List<PixelEffect> { fx };
 
@@ -49,7 +49,7 @@ static class PixelEffectTests
                 && Sokol.ShaderValid(m3.Shader.Handle) != 0, "USER'li core compose olur");
 
             // Bozuk fx: log + efektsiz core'a dusus (crash yok).
-            var bad = new PixelEffect { Name = "test-bad" };
+            var bad = new PixelEffect();
             bad.SetBody("VEC4 fx(VEC4 c, VEC2 uv) { bozuk }");
             var badList = new List<PixelEffect> { bad };
             var mb = new Material();
@@ -60,7 +60,7 @@ static class PixelEffectTests
             Check(!ReferenceEquals(mb.ForEffects(badList), mb), "reload sonrasi iyilesir");
 
             // Zincir: iki efekt tek shader'da.
-            var fx2 = new PixelEffect { Name = "test-invert" };
+            var fx2 = new PixelEffect();
             fx2.SetBody("VEC4 fx(VEC4 c, VEC2 uv) { return VEC4(1.0 - c.rgb, c.a); }");
             var mc = new Material().ForEffects(new List<PixelEffect> { fx, fx2 });
             Check(mc.Shader != null && Sokol.ShaderValid(mc.Shader.Handle) != 0, "iki efekt zinciri compose olur");

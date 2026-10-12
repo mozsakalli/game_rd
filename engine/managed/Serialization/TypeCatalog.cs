@@ -16,6 +16,9 @@ public sealed class TypeCatalog
         public Type Type;
         public string Name;
         public Func<Component> Create;
+        // [Asset] veri tipi (dosya olarak yasayan [Serializable] sinif): Create null, CreateObject dolu.
+        public bool IsAsset;
+        public Func<object> CreateObject;
         // Alan kopyalama (Instantiate/clone): editor'de reflection, release'te
         // source-gen duz atamalar. TUM public alanlar shallow kopyalanir
         // (Unity gibi: nesne referanslari by-ref, Texture/Material dahil).
@@ -81,8 +84,27 @@ public sealed class TypeCatalog
     // CatalogWriter alias'lari uretilen koda gecirir.
     public IReadOnlyDictionary<string, string> Aliases => _aliases;
 
-    // Editor menuleri icin: kayitli tum tipler (ad sirasiz).
-    public Dictionary<string, Entry>.ValueCollection Entries => _byName.Values;
+    // Editor menuleri icin: kayitli COMPONENT tipleri (ad sirasiz). Asset tipleri AssetEntries'te.
+    public IEnumerable<Entry> Entries
+    {
+        get
+        {
+            foreach (var e in _byName.Values)
+                if (!e.IsAsset)
+                    yield return e;
+        }
+    }
+
+    public IEnumerable<Entry> AssetEntries
+    {
+        get
+        {
+            foreach (var e in _byName.Values)
+                if (e.IsAsset)
+                    yield return e;
+        }
+    }
+
     public int Count => _byName.Count;
 
     public void Register(Entry e)
@@ -102,7 +124,24 @@ public sealed class TypeCatalog
         var cat = new TypeCatalog();
         foreach (var t in Reflect.ComponentTypes(assemblies))
             cat.RegisterReflective(t);
+        foreach (var t in Reflect.AssetTypes(assemblies))
+            cat.RegisterAsset(t);
         return cat;
+    }
+
+    // [Asset] veri tipi kaydi: ad -> sema + kurucu (ObjectBinary/ObjectSerializer okur). Lifecycle/anim yok.
+    public void RegisterAsset(Type t)
+    {
+        Register(new Entry
+        {
+            Type = t,
+            Name = t.Name,
+            IsAsset = true,
+            CreateObject = () => Reflect.NewInstance(t),
+            Schema = SerializedType.Build(t),
+        });
+        foreach (var oldName in Reflect.MovedFrom(t))
+            RegisterAlias(oldName, t.Name);
     }
 
     // Tek tipin reflection-tabanli kaydi.
@@ -121,6 +160,7 @@ public sealed class TypeCatalog
             Type = tt,
             Name = tt.Name,
             Create = () => (Component)Reflect.NewInstance(tt),
+            CreateObject = () => Reflect.NewInstance(tt),
             CopyTo = (src, dst) =>
             {
                 for (int i = 0; i < copy.Length; i++)

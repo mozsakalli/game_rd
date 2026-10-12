@@ -292,26 +292,26 @@ public sealed unsafe partial class LayoutBox
     // Glyph run'ini quad'lara doker; pen/prev SDF-px kalem durumu satir icinde surer.
     void EmitRun(ReadOnlySpan<char> s, float xs, float baseY, float scale, ref float pen, ref int prev)
     {
-        var page = font.Page;
-        float invW = page != null ? 1f / page.Width : 0f, invH = page != null ? 1f / page.Height : 0f;
         for (int i = 0; i < s.Length; i++)
         {
             int gi = font.GlyphIndex(s[i]);
             if (prev >= 0)
                 pen += font.Kerning(prev, gi) + SpacingSdf;
             ref readonly var g = ref font.GlyphAt(gi);
-            if (g.W > 0 && g.H > 0)
+            if (g.W > 0 && g.H > 0 && g.Sprite != null)
             {
+                // V takasi: sayfada satir 0 ustte, quad V0 = alt kenar.
+                var sp = g.Sprite;
                 _tq[_tqCount++] = new TextQuad
                 {
                     X0 = xs + (pen + g.XOff) * scale,
                     Y0 = baseY + g.YOff * scale,
                     X1 = xs + (pen + g.XOff + g.W) * scale,
                     Y1 = baseY + (g.YOff + g.H) * scale,
-                    U0 = g.AtlasX * invW,
-                    V0 = (g.AtlasY + g.H) * invH,
-                    U1 = (g.AtlasX + g.W) * invW,
-                    V1 = g.AtlasY * invH,
+                    U0 = sp.U0,
+                    V0 = sp.V1,
+                    U1 = sp.U1,
+                    V1 = sp.V0,
                 };
             }
             pen += g.Advance;

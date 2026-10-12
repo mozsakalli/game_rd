@@ -97,6 +97,7 @@ public unsafe class App
         _catalog = TypeCatalog.FromReflection(); // oyun assembly reload'unda yeniden kurulacak
         _assets = new AssetDatabase(AssetsPath);
         Scene.Active.Catalog = _catalog;
+        _assets.Catalog = _catalog;
 #if DE_EDITOR
         LifecycleTests.Run(_catalog); // izole sahnede kenar durum smoke testleri
         SerializationTests.Run(_catalog);

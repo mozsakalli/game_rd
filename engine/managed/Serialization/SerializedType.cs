@@ -14,7 +14,8 @@ namespace DigitoyEngine;
 //   SINIR: ic ice STRUCT icinde Go/CompRef yok (boxed kopya vs deferred cozum)
 public static class SerializedType
 {
-    public enum Kind : byte { Float, Int, Bool, String, Enum, Vec2, Vec3, Color, Asset, GoRef, CompRef, List, Object, Vec4 }
+    // Blob = byte[]: ham ikili veri (kern tablosu, paketlenmis mesh...). Binary'de ham kopya, YAML'da base64.
+    public enum Kind : byte { Float, Int, Bool, String, Enum, Vec2, Vec3, Color, Asset, GoRef, CompRef, List, Object, Vec4, Blob }
 
     public sealed class FieldSchema
     {
@@ -223,8 +224,8 @@ public static class SerializedType
                 return DocNode.Scal(compEnc((Component)v));
             case Kind.Asset:
                 {
-                    // GUID varsa guid yazilir (tasima/rename kirmaz); yoksa yol.
-                    var name = (v as IAsset)?.Name ?? "";
+                    // GUID varsa guid yazilir (tasima/rename kirmaz); yoksa anahtar (yol / "asset#alt").
+                    var name = AssetDatabase.KeyOf(v, assets);
                     return DocNode.Scal(assets?.PathToGuid(name) ?? name);
                 }
             case Kind.List:
@@ -349,6 +350,7 @@ public static class SerializedType
         if (ft == typeof(Vec3)) { k = Kind.Vec3; return true; }
         if (ft == typeof(Vec4)) { k = Kind.Vec4; return true; }
         if (ft == typeof(Color)) { k = Kind.Color; return true; }
+        if (ft == typeof(byte[])) { k = Kind.Blob; return true; }
         if (AssetDatabase.IsAssetType(ft)) { k = Kind.Asset; return true; }
         if (ft == typeof(GameObject)) { k = Kind.GoRef; return true; }
         if (typeof(Component).IsAssignableFrom(ft)) { k = Kind.CompRef; return true; }
@@ -370,7 +372,8 @@ public static class SerializedType
         Kind.Vec3 => FormatVec3((Vec3)v),
         Kind.Vec4 => FormatVec4((Vec4)v),
         Kind.Color => FormatColor((Color)v),
-        Kind.Asset => (v as IAsset)?.Name ?? "", // asset anahtari (AssetDatabase key)
+        Kind.Blob => v is byte[] blob ? Convert.ToBase64String(blob) : "",
+        Kind.Asset => AssetDatabase.KeyOf(v, null), // asset anahtari (AssetDatabase key)
         // Go/CompRef sahne baglami ister (localId haritasi) — SceneDoc ozel isler.
         Kind.GoRef or Kind.CompRef => "",
         _ => "",
@@ -387,9 +390,18 @@ public static class SerializedType
         Kind.Vec3 => ParseVec3(s),
         Kind.Vec4 => ParseVec4(s),
         Kind.Color => ParseColor(s),
+        Kind.Blob => ParseBlob(s),
         Kind.Asset => string.IsNullOrEmpty(s) ? null : assets?.LoadAsset(s, fieldType),
         _ => null,
     };
+
+    static byte[] ParseBlob(string s)
+    {
+        if (string.IsNullOrEmpty(s))
+            return Array.Empty<byte>();
+        try { return Convert.FromBase64String(s); }
+        catch (FormatException) { return Array.Empty<byte>(); }
+    }
 
     static string F(float v) => v.ToString("R", CultureInfo.InvariantCulture);
     static string FormatVec2(Vec2 v) => F(v.x) + " " + F(v.y);

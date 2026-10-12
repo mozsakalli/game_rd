@@ -39,7 +39,7 @@ public class AtlasGroup
 // uye->grup kenari yazar. Pak build'inde ctx.IsLive filtresi uygulanir: sahne grafinin
 // erismedigi uye sayfaya girmez. Bolge ureticisi importer'lar (font, ileride spine)
 // "regions" manifestosu + piksel artifact'iyle katilir — bu importer baska format bilmez.
-[AssetImporter(".asset", AssetType = nameof(AtlasGroup), Version = 2)]
+[AssetImporter(".asset", AssetType = nameof(AtlasGroup), Version = 3)]
 public sealed class AtlasImporter : AssetImporter
 {
     public const string TypeName = nameof(AtlasGroup);
@@ -138,38 +138,41 @@ public sealed class AtlasImporter : AssetImporter
             members.Add(rel);
         }
 
-        // Bolge ureticileri (font): manifesto + piksel artifact'leri.
+        // Bolge ureticileri (font, spine...): "sprites" tablosu + sayfa piksel artifact'leri.
         int unit = 0;
         foreach (var fp in fontPaths)
         {
             if (!ctx.IsLive(fp))
                 continue;
-            var mb = ctx.ReadArtifact(fp, "regions");
-            var man = mb != null ? RegionManifest.Parse(mb) : null;
+            var mb = ctx.ReadArtifact(fp, "sprites");
+            var man = mb != null && SpriteTable.IsTable(mb) ? ObjectBinary.Read(mb, App.Catalog, App.Assets) as SpriteTable : null;
             if (man == null)
             {
-                errors.Append(fp).Append(" bolge manifestosu yok (import basarisiz?); ");
+                errors.Append(fp).Append(" sprite tablosu yok (import basarisiz?); ");
                 continue;
             }
             var pixelBlobs = new Dictionary<string, (byte[] Px, int Ch, int W, int H)>();
             bool ok = true;
-            foreach (var e in man.Entries)
+            foreach (var e in man.Regions)
             {
-                if (!pixelBlobs.ContainsKey(e.Pixels))
+                if (e.Page < 0 || e.Page >= man.Pages.Count)
+                    continue;
+                string pixels = man.Pages[e.Page].Artifact;
+                if (!pixelBlobs.ContainsKey(pixels))
                 {
-                    var blob = ctx.ReadArtifact(fp, e.Pixels);
+                    var blob = ctx.ReadArtifact(fp, pixels);
                     if (!PixelBlob.TryParse(blob, out int ch, out int pw, out int ph))
                     {
-                        errors.Append(fp).Append(" piksel artifact'i bozuk: ").Append(e.Pixels).Append("; ");
+                        errors.Append(fp).Append(" piksel artifact'i bozuk: ").Append(pixels).Append("; ");
                         ok = false;
                         break;
                     }
                     var px = new byte[pw * ph * ch];
                     Buffer.BlockCopy(blob, PixelBlob.HeaderSize, px, 0, px.Length);
-                    pixelBlobs[e.Pixels] = (px, ch, pw, ph);
+                    pixelBlobs[pixels] = (px, ch, pw, ph);
                 }
-                var (pix, pch, _, _) = pixelBlobs[e.Pixels];
-                var s = RegionSource.FromBuffer(fp + "#" + e.Sub, e.Kind, pix, pch, pixelBlobs[e.Pixels].W, e.X, e.Y, e.W, e.H);
+                var (pix, pch, _, _) = pixelBlobs[pixels];
+                var s = RegionSource.FromBuffer(e.Name, e.Kind, pix, pch, pixelBlobs[pixels].W, e.X, e.Y, e.W, e.H);
                 s.OffX = e.OffX; s.OffY = e.OffY; s.OrigW = e.OrigW; s.OrigH = e.OrigH;
                 s.Pad = Math.Max(e.Pad, g.padding);
                 s.Unit = man.SinglePage ? unit : -1;
@@ -205,25 +208,39 @@ public sealed class AtlasImporter : AssetImporter
             return;
         }
 
-        var data = new AtlasData { Channels = channels };
+        var data = new SpriteTable { Channels = channels };
         for (int p = 0; p < pages.Count; p++)
         {
             var page = pages[p];
-            data.Pages.Add(new AtlasData.PageInfo
+            data.Pages.Add(new SpriteTable.Page
             {
-                Width = page.Width, Height = page.Height, PiecesX = page.PiecesX, PiecesY = page.PiecesY,
+                Artifact = SpriteTable.PageArtifact(p),
+                Width = page.Width,
+                Height = page.Height,
+                PiecesX = page.PiecesX,
+                PiecesY = page.PiecesY,
             });
             foreach (var (src, x, y) in page.Placed)
             {
-                data.Regions.Add(new AtlasRegion
+                data.Regions.Add(new SpriteTable.Region
                 {
-                    Name = src.Name, Page = p, X = x, Y = y, W = src.W, H = src.H,
-                    OffX = src.OffX, OffY = src.OffY, OrigW = src.OrigW, OrigH = src.OrigH, Kind = src.Kind,
+                    Name = src.Name,
+                    Page = p,
+                    X = x,
+                    Y = y,
+                    W = src.W,
+                    H = src.H,
+                    OffX = src.OffX,
+                    OffY = src.OffY,
+                    OrigW = src.OrigW,
+                    OrigH = src.OrigH,
+                    Kind = src.Kind,
+                    Pad = src.Pad,
                 });
             }
-            ctx.AddArtifact(AtlasData.PageArtifact(p), PixelBlob.Build(channels, page.Width, page.Height, page.Pixels));
+            ctx.AddArtifact(SpriteTable.PageArtifact(p), PixelBlob.Build(channels, page.Width, page.Height, page.Pixels));
         }
-        ctx.AddArtifact("main", data.Write());
+        ctx.AddArtifact("main", data);
 
         if (errors.Length > 0)
             EditorLog.Warning($"[atlas] {ctx.AssetPath}: {errors.ToString().TrimEnd(' ', ';')}");

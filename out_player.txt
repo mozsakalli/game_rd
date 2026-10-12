@@ -1,8 +1,9 @@
-[host] pak: ../Build/game.pak
-[host] katalog: reflection (AOT), 16 component tipi
-[host] yukleniyor 0/17
-[host] yukleniyor 2/17
-[host] yukleniyor 13/17
-[host] yukleniyor 16/17
-[host] yukleniyor 17/17
+[host] pak: Projects\Sandbox/Build/game.pak
+[player] katalog: reflection + Yuzbir Extra.Game.dll
+[host] yukleniyor 0/18
+[host] yukleniyor 4/18
+[host] yukleniyor 16/18
+[host] yukleniyor 17/18
+[host] yukleniyor 18/18
+[probe] game=Sandbox fps=60 music=1.1333325 showFps=False
 [host] sahne hazir: Scenes/Login.scene

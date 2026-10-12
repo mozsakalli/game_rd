@@ -1,5 +1,53 @@
 # DigitoyEngine R&D (game_rd)
 
+## [Asset] VERİ SINIFI + ObjectBinary (DOBJ) — Faz A (2026-10-12, 15 test grubu PASS, editör Play + pak/player birebir)
+- KARAR (uzun tartışma, kullanıcı): çekirdek ÜÇ primitif bilir — Texture, Audio, serileşen C# sınıfı (+referansları). Geri
+  kalan her şey (Settings, LevelDef, Spine, Font, Atlas) `[Asset]` sınıf = dosya olarak yaşar, alanlarda REFERANS (Kind.Asset,
+  GUID), pak'a referanslandığı için girer. Düz `[Serializable]` = GÖMÜLÜ (Kind.Object). Unity ScriptableObject/Serializable
+  ayrımı miras yerine attribute ile; `[CreateAssetMenu]` `[Asset]`'i ima eder. Ayrı "Settings" sınıfı/penceresi/yol kuralı YOK:
+  `[Serializable, CreateAssetMenu] ServerSettings` → Create → .asset → component alanına sürükle (Sandbox SettingsProbe örneği).
+- Faz A yapıldı: `AssetAttribute`; `Reflect.IsAssetClass/AssetTypes`; `Kind.Blob` (yalnız byte[]: binary ham, YAML base64 —
+  int[]/float[] List kaldı, inspector semantiği bozulmasın); `ObjectBinary` (DOBJ: string tablosu + tip adı + SceneBinary'nin
+  PAYLAŞILAN alan tablosu/alan kodlayıcısı; Go/CompRef yazılmaz); `TypeCatalog.RegisterAsset` (Entry.IsAsset/CreateObject,
+  `Entries` yalnız component, `AssetEntries` ayrı); PakRoots DOBJ tip adlarını trim kökü sayar (ilk 8 bayt zlib peek, dokular
+  şişirilmez); `AssetDatabase.LoadObject/ReloadObject/KeyOf/AssetClassOf/Catalog` (anahtar başına TEK instance, okumadan ÖNCE
+  cache'e girer → A→B→A döngüsü güvenli; editörde .asset kaynağı YAML dosyası, importer artifact'i değil); `ImportContext.
+  AddArtifact(name, object)` → DOBJ; AssetPackBuilder importer'sız .asset'i YAML→DOBJ pişirir, referansları graf kenarı.
+- Editör: Inspector .asset'i AssetDatabase'in CANLI instance'ında düzenler (Play'deki component aynı nesneyi görür);
+  AssetWatcher .asset değişince `ReloadObject` yerinde (referans kırılmaz); katalog rebuild → nesne cache düşer.
+- Tuzak: `ObjectSerializer.ToNode` Kind.Asset'i `AssetDatabase.KeyOf(v, assets)` ile yazar — [Asset] nesnenin anahtarı
+  yüklendiği AssetDatabase'te kayıtlı; başka db'den/elle `new` edilmiş nesne "" yazar (referans kaybolur).
+- SIRADA: AOT lean build ile [Asset] trim doğrulaması ve scene-dump paritesi henüz koşulmadı. `_importers` (uzantı→tip)
+  sözlüğü duruyor: yükleme yolu değil, editör drag-drop/IsAssignable tohumu — Spine gibi yeni tür importer kaydıyla girer.
+
+## FAZ D: ÇEKİRDEK ÜÇ PRİMİTİF (2026-10-12, 15 grup PASS, editör + pak/player uyarısız)
+- `LoadAsset` = `[Asset]` sınıf → `LoadObject`; Sprite/Texture; AudioClip. Font/PixelEffect özel dalları SİLİNDİ.
+- PixelEffect `[Asset] { string Body }` saf veri (Name/Version/BodyText yok); FxImporter v2 DOBJ üretir; FxCompose cache
+  govde string REFERANSIYLA bayatlar (reload yeni string → yeniden derleme; frame'de yalnız referans kıyası).
+- `InvalidateImported`: klip özel; gerisi `#sprites` tablosu + `ReloadObject` (font, fx, oyun sınıfları tek yol).
+
+## FAZ B+C: TEK SPRITE TABLOSU + FONT SAF VERİ (2026-10-12, 15 grup PASS, editör Login screenshot + pak/player uyarısız)
+- `AtlasData`(DATL) + `RegionManifest`(DRGN) SİLİNDİ → tek `[Asset] SpriteTable {Channels, SinglePage, Pages[{Artifact,W,H,
+  PiecesX/Y}], Regions[{Name,Page,X,Y,W,H,Off,Orig,Kind,Pad}]}` (DOBJ ile pişer — kendi altyapımız). Atlas `main`, üretici
+  (font/spine) `sprites` (Standalone: sheet'le birlikte yutulunca düşer). AtlasImporter üye tablolarını `sprites`'tan okur.
+- Runtime `AssetDatabase.LoadSpriteTable(owner, tableKey)` jenerik (`LoadAtlas` sarmal). ÖNCELİK: yabancı tablo (atlas) öz
+  tabloyu (fontun sheet'i) ezer, öz yabancıyı ezmez → yükleme sırasından bağımsız. Tablo düşünce bölge diğer yüklü tablodan
+  yeniden çözülür (FindRegion), yoksa png kaynağına döner. `LoadSprite("x#alt")` öz tabloyu tembel yükler (`EnsureOwnTable`);
+  alt bölgenin kendi dosyası yok → bulunamazsa sayfasız Sprite (tablo gelince bağlanır).
+- TUZAK (crash dersi): `LoadSpriteTable` tabloyu `_tables`'a bölge atamadan ÖNCE kaydetmeli; aksi halde atama → BindFont →
+  EnsureOwnTable → tekrar yükleme → sonsuz özyineleme → IMAGE_POOL_EXHAUSTED.
+- `Sprite.U0/V0/U1/V1` + `BindVersion` bind anında (kullanıcı önerisi): SpriteRenderer/ParticleSystem/LayoutBox/metin frame'de
+  bölme yapmaz. Pak builder: tablo artifact'i → sayfa artifact'lerine kenar (aktivasyon senkron okur); `#`'li referans
+  sahibine indirgenir.
+- Font ARTIK `[Asset]` SAF VERİ: `{Ascent,Descent,LineHeight,KernScale,SdfSize, Glyph[] Glyphs, byte[] Kern(Blob)}`,
+  `Glyph{Codepoint,Advance,XOff,YOff,W,H,InkL,InkR, Sprite Sprite}` — glyph sprite anahtarı "x.ttf#U+0041". Font doku bilmez:
+  `Page/BindVersion/Pieces` ilk pikselli glyph'in Sprite'ından; codepoint tabloları + kern short[] ilk kullanımda türetilir
+  (`[NonSerialized]`, Glyphs referansı değişince yeniden). SİLİNDİ: DFNT, WriteArtifact/FromArtifact/ReloadFrom, BindSheet/
+  BeginAtlasBind/SetGlyphPosition/Unbind, AtlasX/Y, SheetWidth/Height, `AssetDatabase._fonts/BindFont`. `LoadFont` =
+  `LoadObject(key, typeof(Font))` + DefaultFont. Reimport: `InvalidateImported` önce `#sprites` tablosunu, sonra nesneyi yerinde.
+- FontImporter v10: main = Font (DOBJ, glyph Sprite'ları `Sprite.FromTexture(null, key)` yalnız anahtar yazılır), sheet DPIX,
+  sprites SpriteTable. AtlasImporter v3.
+
 ## LAYOUTBOX IC GOLGE (innerShadowColor/Blur) — ek draw/doku yok (2026-10-11)
 - Unity UIBox karsilastirmasindan: iç gölge, border ring yolunun (EmitLayer) yumusak-ic-bandli hali. Dolgu USTUNE, border
   ALTINA (border'in ic kutusu), 8 quad (4 hucre + 4 serit), ic dolgu yok; ayni UiPieces materyali -> kutunun draw'ina merge.

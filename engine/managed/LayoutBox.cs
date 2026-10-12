@@ -1280,9 +1280,8 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
         float uu0 = 0f, uuS = 1f, vv0 = 0f, vvS = 1f;
         if (sprite.IsRegion)
         {
-            float aw = tex.Width, ah = tex.Height;
-            uu0 = sprite.X / aw; uuS = sprite.W / aw;
-            vv0 = sprite.Y / ah; vvS = sprite.H / ah;
+            uu0 = sprite.U0; uuS = sprite.U1 - sprite.U0;
+            vv0 = sprite.V0; vvS = sprite.V1 - sprite.V0;
         }
         var baseMat = UiPieces.TexturedMaterial;
         baseMat.MainTexture = tex; // TexView DrawMesh aninda yakalanir (paylasilan materyal deseni)

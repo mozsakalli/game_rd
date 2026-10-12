@@ -71,6 +71,11 @@ public sealed class ImportContext
     public void AddArtifact(string name, byte[] data, ArtifactScope scope = ArtifactScope.Runtime)
         => Artifacts.Add((name, data, scope));
 
+    // [Asset] nesnesi cikti: ObjectBinary (DOBJ) olarak pisirilir — Library'de ve pak'ta ayni baytlar,
+    // runtime AssetDatabase.LoadObject ile okur. Importer ozel format yazmaz.
+    public void AddArtifact(string name, object obj, ArtifactScope scope = ArtifactScope.Runtime)
+        => Artifacts.Add((name, ObjectBinary.Bake(obj, App.Catalog, App.Assets, m => EditorLog.Warning($"{m} ({AssetPath})")), scope));
+
     public void Fail(string message) => Error = message;
 
     // Bagimlilik artifact'i (gerekirse once import edilir). Importer'siz dosya icin null.

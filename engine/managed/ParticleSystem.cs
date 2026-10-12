@@ -1296,9 +1296,7 @@ public sealed unsafe class ParticleSystem : Renderer, IEditorPreview
             F.Sx = F.Sy = 1f; F.Ox = F.Oy = 0f; F.Aspect = 1f;
             if (!ownMat && s.IsRegion)
             {
-                float aw = s.Page.Width, ah = s.Page.Height;
-                F.U0 = s.X / aw; F.V0 = s.Y / ah;
-                F.U1 = (s.X + s.W) / aw; F.V1 = (s.Y + s.H) / ah;
+                F.U0 = s.U0; F.V0 = s.V0; F.U1 = s.U1; F.V1 = s.V1;
                 F.Sx = s.W / (float)s.OrigW;
                 F.Sy = s.H / (float)s.OrigH;
                 F.Ox = (s.OffX + s.W * 0.5f) / s.OrigW - 0.5f;

@@ -22,13 +22,15 @@ namespace DigitoyEngine.Language.Trim
         }
     }
 
-    // game.pak okuyucu (aotcompiler tarafi): pismis sahne/prefab girislerindeki component tip adlarini cikarir.
-    // Format: engine/managed/AssetSource.cs (DPK3) + Serialization/SceneBinary.cs (DSCN v2). Pak = tek gercek kaynak;
-    // ayri kok dosyasi yok.
+    // game.pak okuyucu (aotcompiler tarafi): pismis sahne/prefab girislerindeki component tip adlarini ve pismis
+    // nesne (DOBJ, [Asset] sinif) girislerindeki tip adlarini cikarir.
+    // Format: engine/managed/AssetSource.cs (DPK3) + Serialization/SceneBinary.cs (DSCN v2) + ObjectBinary.cs (DOBJ).
+    // Pak = tek gercek kaynak; ayri kok dosyasi yok.
     public static class PakRoots
     {
         const int PakMagic = 0x334B5044;   // "DPK3"
         const int SceneMagic = 0x4E435344; // "DSCN"
+        const int ObjectMagic = 0x4A424F44; // "DOBJ"
 
         public static List<string> ComponentTypeNames(string pakPath, List<string> notes)
         {
@@ -37,7 +39,7 @@ namespace DigitoyEngine.Language.Trim
             if (bytes.Length < 12 || BitConverter.ToInt32(bytes, 0) != PakMagic)
                 throw new Exception("pak magic uyusmuyor: " + pakPath);
             int count = BitConverter.ToInt32(bytes, 4), indexLen = BitConverter.ToInt32(bytes, 8);
-            int p = 12, scenes = 0;
+            int p = 12, scenes = 0, objects = 0;
             for (int i = 0; i < count; i++)
             {
                 string key = Str(bytes, ref p);
@@ -47,23 +49,45 @@ namespace DigitoyEngine.Language.Trim
                 long raw = BitConverter.ToInt64(bytes, p); p += 8;
                 int nDep = bytes[p] | (bytes[p + 1] << 8); p += 2;
                 for (int d = 0; d < nDep; d++) Str(bytes, ref p);
-                if (stored <= 0 || !(key.EndsWith(".scene", StringComparison.OrdinalIgnoreCase) || key.EndsWith(".prefab", StringComparison.OrdinalIgnoreCase)))
+                if (stored <= 0)
                     continue;
-                var data = new byte[stored];
-                Array.Copy(bytes, off, data, 0, stored);
+                // Once yalniz 8 baytlik baslik acilir (dokular MB'larca: tamamini sismirmeden magic'e bak).
+                byte[] data;
                 if (raw != stored)
                 {
-                    var inflated = new byte[raw];
-                    using var z = new System.IO.Compression.ZLibStream(new MemoryStream(data), System.IO.Compression.CompressionMode.Decompress);
-                    z.ReadExactly(inflated);
-                    data = inflated;
+                    using var z = new System.IO.Compression.ZLibStream(new MemoryStream(bytes, (int)off, (int)stored), System.IO.Compression.CompressionMode.Decompress);
+                    var head = new byte[8];
+                    if (raw < 8) continue;
+                    z.ReadExactly(head);
+                    int hm = BitConverter.ToInt32(head, 0);
+                    if (hm != SceneMagic && hm != ObjectMagic) continue;
+                    data = new byte[raw];
+                    Array.Copy(head, data, 8);
+                    z.ReadExactly(data, 8, (int)raw - 8);
                 }
-                if (data.Length < 8 || BitConverter.ToInt32(data, 0) != SceneMagic) continue;
-                ReadSceneTypes(data, names);
-                scenes++;
+                else
+                {
+                    if (stored < 8) continue;
+                    data = new byte[stored];
+                    Array.Copy(bytes, off, data, 0, stored);
+                }
+                int magic = BitConverter.ToInt32(data, 0);
+                if (magic == SceneMagic) { ReadSceneTypes(data, names); scenes++; }
+                else if (magic == ObjectMagic) { ReadObjectType(data, names); objects++; }
             }
-            notes?.Add($"pak kokleri: {pakPath} -> {scenes} sahne/prefab, {names.Count} component tipi");
+            notes?.Add($"pak kokleri: {pakPath} -> {scenes} sahne/prefab, {objects} nesne, {names.Count} tip");
             return new List<string>(names);
+        }
+
+        // DOBJ: magic, version, strings, typeNameStr ... yalniz tip adi.
+        static void ReadObjectType(byte[] b, SortedSet<string> names)
+        {
+            int p = 8;
+            int nStr = BitConverter.ToInt32(b, p); p += 4;
+            var strs = new string[nStr];
+            for (int i = 0; i < nStr; i++) strs[i] = Str(b, ref p);
+            int ti = BitConverter.ToInt32(b, p);
+            if (ti >= 0 && ti < nStr) names.Add(strs[ti]);
         }
 
         // DSCN v2: magic, version, strings, aliases, types(name + alan tablosu) ... yalniz tip adlari + alias yeni adlari.

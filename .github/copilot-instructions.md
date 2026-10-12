@@ -17,6 +17,9 @@ yeni işe başlamadan ilgili bölümü oku; oturum sonunda yeni kararları oraya
 - Hot path sıfır alloc. Statik tip cache yasak (ALC reload). Frame ortasında GPU destroy yasak (Resources.Tick'e akar).
 - IMGUI: hot control varken kontrol sayısını değiştirme; GuiRenderer.Draw* yalnız Repaint'te.
 - UI metinleri İngilizce, kod yorumları Türkçe. Yeni asset türü = importer kaydı; hiçbir şey tip-özel hardcode edilmez (şema sürer).
+- Veri = `[Asset]` (veya `[CreateAssetMenu]`) `[Serializable]` sınıf → `.asset` dosyası, alanlarda REFERANS (GUID), pak'ta
+  ObjectBinary (DOBJ). Düz `[Serializable]` gömülüdür. Ayarlar/level/tanımlar için ayrı "Settings" API'si YOK: component
+  alanına referans verilir (docs/engine-notes.md "[Asset] VERİ SINIFI").
 
 ## AI çalışma döngüsü (RPC / MCP)
 - Editör açıkken TCP `localhost:5157` satır-bazlı JSON RPC (`tools/rpc.ps1`; here-string değil `@('...','...')` dizisi

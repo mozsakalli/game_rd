@@ -65,7 +65,7 @@ static class ProgressTests
             Check(q.Count == 3, "radial: border + track + fill");
 
             // .fx zinciri: USER'li core compose olur, batch materyali degisir.
-            var fx = new PixelEffect { Name = "pr-gray" };
+            var fx = new PixelEffect();
             fx.SetBody("VEC4 fx(VEC4 c, VEC2 uv) { FLOAT g = dot(c.rgb, VEC3(0.299, 0.587, 0.114)); return VEC4(g, g, g, c.a); }");
             p.Effects = new List<PixelEffect> { fx };
             q.Begin(); p.Encode(q);

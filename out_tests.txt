@@ -1,4 +1,4 @@
-[gamecode] yuklendi: Yuzbir Extra.Game (6 script)
+[gamecode] yuklendi: Yuzbir Extra.Game (7 script)
 [lifecycle] 23 PASS, 0 FAIL
 [movieclip] 65 PASS, 0 FAIL
 [particle] 19 PASS, 0 FAIL
@@ -8,10 +8,27 @@
 [pointer] 22 PASS, 0 FAIL
 [rendergroup] 12 PASS, 0 FAIL
 [fx] 9 PASS, 0 FAIL
-[audio] 33 PASS, 0 FAIL
 [prefs] 15 PASS, 0 FAIL
 [async] 28 PASS, 0 FAIL
 [net] 18 PASS, 0 FAIL
 [progress] 11 PASS, 0 FAIL
 [catalogtest] 13 PASS 0 FAIL
-[info] [rpc] dinleniyor: localhost:5157
+[objtest] 29 PASS, 0 FAIL
+[info] [import] Effects/Shine.fx -> 1 artifact (FxImporter, 3ms)
+[info] [rpc] dinleniyor: localhost:5157  (http://localhost:5157/ -> C:\Work\digitoygames\game_rd\Projects\Sandbox\Build\wasm)
+[probe] game=Sandbox fps=60 music=1.1333325 showFps=False
+[warning] [bake] semada olmayan alan atlandi: LayoutBox.fillColor (Scenes/Login.scene)
+[warning] [bake] semada olmayan alan atlandi: LayoutBox.fillColor2 (Scenes/Login.scene)
+[warning] [bake] semada olmayan alan atlandi: LayoutBox.gradient (Scenes/Login.scene)
+[warning] [bake] semada olmayan alan atlandi: LayoutBox.fillColor (Scenes/Login.scene)
+[warning] [bake] semada olmayan alan atlandi: LayoutBox.fillColor (Scenes/Login.scene)
+[warning] [bake] semada olmayan alan atlandi: LayoutBox.fillColor (Scenes/Login.scene)
+[warning] [bake] semada olmayan alan atlandi: LayoutBox.fillColor (Scenes/Login.scene)
+[warning] [bake] semada olmayan alan atlandi: LayoutBox.borderColor (Scenes/Login.scene)
+[warning] [bake] semada olmayan alan atlandi: LayoutBox.fillColor (Scenes/Login.scene)
+[info] [pak] 2 kok sahne -> 19/35 asset canli (16 strip), 21 giris (3 dtex, 3 baked sahne/prefab, 13 yutulmus) -> C:\Work\digitoygames\game_rd\Projects\Sandbox\Build\game.pak (1119.2 KB, acik 7555.8 KB, %14.8)
+[info] [pak] verify OK: 21 bayt-esit, bg.jpg defilter pikselleri kaynakla BIREBIR (1040x480)
+[info] code change detected, compiling...
+[gamecode] yuklendi: Yuzbir Extra.Game (7 script)
+[probe] game=Sandbox fps=60 music=1.1333325 showFps=False
+[info] code reloaded (7 scripts)

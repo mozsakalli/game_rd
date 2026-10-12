@@ -47,7 +47,6 @@ public sealed class AssetDatabase
     readonly Dictionary<string, Texture> _textures = new();
     readonly Dictionary<string, Sprite> _sprites = new();
     readonly Dictionary<string, Prefab> _prefabs = new();
-    readonly Dictionary<string, Font> _fonts = new();
     readonly List<Pending> _pending = new();
     readonly Dictionary<string, string> _guidToPath = new();
     readonly Dictionary<string, string> _pathToGuid = new();
@@ -146,10 +145,12 @@ public sealed class AssetDatabase
 
     public static void RegisterImporter(string extension, Type type) => _importers[extension.ToLowerInvariant()] = type;
 
-    // Serilesebilir asset-referans tipi mi: bir uzantidan yuklenebilen IAsset.
+    // Serilesebilir asset-referans tipi mi: bir uzantidan yuklenebilen IAsset YA DA [Asset] veri sinifi.
     // (Kayit defteri = tek kaynak; yeni asset turu RegisterImporter'la buraya da girer.)
     public static bool IsAssetType(Type t)
     {
+        if (Reflect.IsAssetClass(t))
+            return true;
         if (!typeof(IAsset).IsAssignableFrom(t))
             return false;
         if (t == typeof(Texture) || t == typeof(IAsset))
@@ -182,9 +183,60 @@ public sealed class AssetDatabase
     // Bu asset verilen alana atanabilir mi (alan tipi, asset'in yuklenebilir tipi).
     public bool IsAssignable(string relPath, Type fieldType)
     {
-        var t = ImportTypeOf(relPath);
+        var t = ImportTypeOf(relPath) ?? AssetClassOf(relPath);
         return t != null && fieldType.IsAssignableFrom(t);
     }
+
+    // .asset dosyasinin [Asset] tipi (editor: YAML "type:" basligi; release: DOBJ tip adi). Yoksa null.
+    public Type AssetClassOf(string relPath)
+    {
+        if (relPath == null || Catalog == null || !relPath.EndsWith(".asset", StringComparison.OrdinalIgnoreCase))
+            return null;
+        string tn = null;
+#if DE_EDITOR
+        if (_root != null)
+        {
+            string full = Path.Combine(_root, relPath);
+            if (File.Exists(full))
+                tn = ObjectSerializer.TypeNameOf(full);
+        }
+#endif
+        if (tn == null)
+        {
+            var bytes = ReadBlob(relPath);
+            tn = ObjectBinary.TypeNameOf(bytes);
+        }
+        var e = tn != null ? Catalog.Find(tn) : null;
+        return e != null && e.IsAsset ? e.Type : null;
+    }
+
+    // Serilestirmenin asset anahtari: IAsset -> Name; [Asset] veri nesnesi -> yuklendigi anahtar.
+    public static string KeyOf(object v, AssetDatabase assets)
+    {
+        if (v == null)
+            return "";
+        if (v is IAsset a)
+            return a.Name ?? "";
+        return assets != null && assets._objectKeys.TryGetValue(v, out var k) ? k : "";
+    }
+
+    // Tip katalogu ([Asset] siniflarini cozmek icin): host/editor katalog kurunca atar; reload'da nesne cache'i duser.
+    TypeCatalog _catalog;
+    public TypeCatalog Catalog
+    {
+        get => _catalog;
+        set
+        {
+            if (ReferenceEquals(_catalog, value))
+                return;
+            _catalog = value;
+            _objects.Clear();   // eski assembly tipleri koklenmesin
+            _objectKeys.Clear();
+        }
+    }
+
+    readonly Dictionary<string, object> _objects = new();
+    readonly Dictionary<object, string> _objectKeys = new();
 
     // Anahtar guid ise yola cevirir; degilse oldugu gibi (insan elle yol da yazabilir).
     public string ResolvePath(string keyOrGuid)
@@ -196,30 +248,145 @@ public sealed class AssetDatabase
         return !string.IsNullOrEmpty(k) && _source.Exists(k);
     }
 
-    // Serilestirme (Kind.Asset) tek bogazdan yukler — alan tipi hangi asset'se o.
+    // Serilestirme (Kind.Asset) tek bogazdan yukler. Cekirdegin bildigi uc primitif: Texture (ve ustundeki
+    // Sprite bolgesi), AudioClip, [Asset] veri nesnesi (Font/PixelEffect/SpriteTable/oyun siniflari — hepsi DOBJ).
     public object LoadAsset(string keyOrGuid, Type type)
     {
         if (type == typeof(IAsset))
         {
             // Polimorfik referans: somut tip yolun uzantisindan.
-            type = ImportTypeOf(ResolvePath(keyOrGuid));
+            type = ImportTypeOf(ResolvePath(keyOrGuid)) ?? AssetClassOf(ResolvePath(keyOrGuid));
             if (type == null)
                 return null;
+        }
+        if (Reflect.IsAssetClass(type))
+        {
+            var obj = LoadObject(keyOrGuid, type);
+            if (obj is Font f && UiPieces.DefaultFont == null)
+                UiPieces.DefaultFont = f;
+            return obj;
         }
         if (type == typeof(Sprite))
             return LoadSprite(keyOrGuid);
         if (type == typeof(Texture))
             return LoadTexture(keyOrGuid);
-        if (type == typeof(Font))
-            return LoadFont(keyOrGuid);
-        if (type == typeof(PixelEffect))
-            return LoadPixelEffect(keyOrGuid);
         if (type == typeof(AudioClip))
             return LoadAudioClip(keyOrGuid);
         return null;
     }
 
     readonly Dictionary<string, AudioClip> _clips = new();
+
+    // [Asset] veri nesnesi: anahtar basina TEK instance (paylasilir). Bayt kaynagi DOBJ (pak / importer
+    // artifact) ya da editorde loose YAML (.asset). Instance okumadan ONCE cache'e girer (A->B->A dongusu
+    // kilitlenmesin); referanslari assets'ten senkron cozulur. Tip uyusmazligi -> uyari + null.
+    public object LoadObject(string keyOrGuid, Type expected = null)
+    {
+        string key = ResolvePath(keyOrGuid);
+        if (string.IsNullOrEmpty(key))
+            return null;
+        if (!_objects.TryGetValue(key, out var obj))
+        {
+            var bytes = ReadObjectBytes(key);
+            if (bytes == null || Catalog == null)
+                return null;
+            obj = ReadObject(key, bytes, null);
+            if (obj == null)
+                return null;
+        }
+        if (expected != null && !expected.IsInstanceOfType(obj))
+        {
+            LogWarning?.Invoke($"[assets] tip uyusmazligi: {key} = {obj.GetType().Name}, beklenen {expected.Name}");
+            return null;
+        }
+        return obj;
+    }
+
+    // Editor: .asset degisti / reimport -> AYNI instance yerinde tazelenir (component referanslari bozulmaz).
+    public bool ReloadObject(string keyOrGuid)
+    {
+        string key = ResolvePath(keyOrGuid);
+        if (string.IsNullOrEmpty(key) || !_objects.TryGetValue(key, out var existing))
+            return false;
+        var bytes = ReadObjectBytes(key);
+        if (bytes == null)
+            return false;
+        return ReadObject(key, bytes, existing) != null;
+    }
+
+    // Elle yazilan .asset: editorde KAYNAK YAML (importer artifact'i degil; AtlasGroup gibi importer'li
+    // .asset'lerin artifact'i baska format). Release/importer ciktisi: pismis blob.
+    byte[] ReadObjectBytes(string key)
+    {
+#if DE_EDITOR
+        if (_root != null && key.EndsWith(".asset", StringComparison.OrdinalIgnoreCase))
+            return _source.ReadBytes(key);
+#endif
+        return ReadBlob(key);
+    }
+
+    object ReadObject(string key, byte[] bytes, object into)
+    {
+        try
+        {
+            if (ObjectBinary.IsBaked(bytes))
+            {
+                string tn = ObjectBinary.TypeNameOf(bytes);
+                var e = tn != null ? Catalog.Find(tn) : null;
+                if (e == null || !e.IsAsset)
+                {
+                    LogWarning?.Invoke($"[assets] bilinmeyen asset tipi: {key} ({tn})");
+                    return null;
+                }
+                var obj = into ?? e.CreateObject();
+                Remember(key, obj);
+                ObjectBinary.Read(bytes, Catalog, this, obj);
+                return obj;
+            }
+#if DE_EDITOR
+            // Loose YAML (.asset): type: + fields:.
+            var root = Yaml.Parse(System.Text.Encoding.UTF8.GetString(bytes));
+            string typeName = root.GetScalar("type", null);
+            var entry = typeName != null ? Catalog.Find(typeName) : null;
+            if (entry == null || !entry.IsAsset)
+            {
+                LogWarning?.Invoke($"[assets] bilinmeyen asset tipi: {key} ({typeName})");
+                return null;
+            }
+            var o = into ?? entry.CreateObject();
+            Remember(key, o);
+            ObjectSerializer.FromNode(o, root.Get("fields") ?? root, this);
+            return o;
+#else
+            LogWarning?.Invoke("[assets] pismis olmayan asset verisi: " + key);
+            return null;
+#endif
+        }
+        catch (Exception ex)
+        {
+            LogWarning?.Invoke($"[assets] asset okunamadi: {key}: {ex.Message}");
+            if (into == null)
+                ForgetObject(key);
+            return null;
+        }
+    }
+
+    void Remember(string key, object obj)
+    {
+        if (_objects.TryGetValue(key, out var old) && !ReferenceEquals(old, obj))
+            _objectKeys.Remove(old);
+        _objects[key] = obj;
+        _objectKeys[obj] = key;
+    }
+
+    void ForgetObject(string key)
+    {
+        if (_objects.TryGetValue(key, out var old))
+        {
+            _objects.Remove(key);
+            _objectKeys.Remove(old);
+        }
+    }
 
     // SFX klibi: DPCM artifact (import'ta PCM'e cozulmus) SENKRON okunur ve native
     // mixer'a kopyalanir — klipler kucuk, sahne kurulumunda bir kez. "Stream" tipli
@@ -252,34 +419,29 @@ public sealed class AssetDatabase
             return null;
         if (_sprites.TryGetValue(key, out var s))
             return s;
-        // Atlas uyesi: kaynak png hic yuklenmez, sayfaya baglanir.
+        // Alt bolge ("hero.ttf#U+0041"): ureticinin kendi tablosu henuz yuklenmemisse tembel yukle.
+        bool sub = key.IndexOf('#') > 0;
+        if (sub && !_regions.ContainsKey(key))
+            EnsureOwnTable(OwnerOf(key));
+        // Tablo uyesi: kaynak png hic yuklenmez, sayfaya baglanir.
         if (_regions.TryGetValue(key, out var reg))
         {
             s = Sprite.FromTexture(null, key);
             BindSpriteRegion(s, in reg);
         }
         else
-            s = Sprite.FromTexture(LoadTexture(key), key);
+            s = Sprite.FromTexture(sub ? null : LoadTexture(key), key); // alt bolgenin kendi dosyasi yok: tablo gelince baglanir
         _sprites[key] = s;
         return s;
     }
 
-    // Prebaked font: baytlar artifact'ten (editor: Library, release: pak) SENKRON
-    // gelir — metrikler layout girdisi oldugu icin async placeholder anlamsiz.
-    // Glyph sayfasi: atlas grubu bu fontu almissa onun sayfasi, yoksa kendi sheet'i.
+    // Prebaked font: [Asset] nesne (DOBJ / editorde de DOBJ artifact), glyph Sprite referanslari yuklenirken
+    // sprite tablosundan baglanir. Ilk yuklenen font varsayilan UI atlasi olur (UiPieces.DefaultFont).
     public Font LoadFont(string key)
     {
-        key = ResolvePath(key);
-        if (string.IsNullOrEmpty(key))
-            return null;
-        if (_fonts.TryGetValue(key, out var f))
-            return f;
-        var bytes = ReadArtifact(key, null);
-        f = bytes != null ? Font.FromArtifact(bytes, key) : null;
-        if (f == null)
-            return null; // basarisiz yukleme cache'lenmez (sonraki deneme taze okur)
-        _fonts[key] = f;
-        BindFont(f);
+        var f = LoadObject(key, typeof(Font)) as Font;
+        if (f != null && UiPieces.DefaultFont == null)
+            UiPieces.DefaultFont = f;
         return f;
     }
 
@@ -402,8 +564,8 @@ public sealed class AssetDatabase
         var bytes = await PreloadAsync(k);
         if (bytes == null)
             return false;
-        if (AtlasData.IsAtlas(bytes))
-            return LoadAtlas(k); // aktivasyon: bolge tablosu + sayfa dokulari (sayfalar dep'ti)
+        if (SpriteTable.IsTable(bytes))
+            return LoadSpriteTable(OwnerOf(k), k); // aktivasyon: bolge tablosu + sayfa dokulari (sayfalar dep'ti)
         return true;
     }
 
@@ -417,158 +579,182 @@ public sealed class AssetDatabase
         return tcs.Task;
     }
 
-    // --- Atlas: bolge tablosu + sayfa dokulari ---
+    // --- Sprite tablolari: bolge -> (sayfa dokusu, rect). Tek kanal: png atlasi, font sheet'i, spine sayfasi ---
+    //
+    // Tablo anahtari = artifact anahtari ("MainAtlas.asset" ya da "hero.ttf#sprites"); sahibi = '#' oncesi.
+    // ONCELIK: yabanci tablo (atlas: sahibi bolgenin sahibi degil) OZ tabloyu (fontun kendi sheet'i) ezer; oz tablo
+    // yabanciyi asla ezmez -> yukleme sirasi ne olursa olsun deterministik. Tablo dusunce bolge baska bir yuklu
+    // tablodan yeniden cozulur, yoksa kaynaga doner (png -> kendi dokusu).
 
-    sealed class LoadedAtlas
+    sealed class LoadedTable
     {
-        public string Key;
+        public string Key, Owner;
         public readonly List<Texture> Pages = new();
-        public readonly List<string> RegionNames = new();
+        public readonly List<SpriteTable.Region> Regions = new();
+        public bool Owns(string name) => name == Owner || name.StartsWith(Owner) && name.Length > Owner.Length && name[Owner.Length] == '#';
     }
 
-    readonly Dictionary<string, AtlasRegion> _regions = new();
+    readonly Dictionary<string, SpriteTable.Region> _regions = new();
     readonly Dictionary<string, Texture> _regionPages = new(); // bolge adi -> sayfa dokusu
-    readonly Dictionary<string, LoadedAtlas> _atlases = new();
+    readonly Dictionary<string, LoadedTable> _regionTables = new(); // bolge adi -> su an cozuldugu tablo
+    readonly Dictionary<string, LoadedTable> _tables = new();
 
     public bool HasRegion(string name) => _regions.ContainsKey(name);
 
-    // Atlas uyeligi + bolge verisi (editor tooling: boyut sorgusu dokuyu yuklemeden).
-    public bool TryGetRegion(string name, out AtlasRegion region) => _regions.TryGetValue(name, out region);
+    // Bolge verisi (editor tooling: boyut sorgusu dokuyu yuklemeden).
+    public bool TryGetRegion(string name, out SpriteTable.Region region) => _regions.TryGetValue(name, out region);
 
-    public IEnumerable<string> LoadedAtlases => _atlases.Keys;
+    public IEnumerable<string> LoadedAtlases => _tables.Keys;
 
-    // Atlas artifact'ini (DATL "main" + "pageN" DPIX) yukler; bolgeleri tabloya
-    // yazar ve YUKLU sprite/font'lari yerinde yeniden baglar (referanslar bozulmaz).
-    public bool LoadAtlas(string key)
+    static string OwnerOf(string key)
     {
-        key = ResolvePath(key);
-        if (string.IsNullOrEmpty(key))
-            return false;
-        if (_atlases.ContainsKey(key))
-            UnloadAtlas(key);
-        var bytes = ReadArtifact(key, null);
-        var data = bytes != null ? AtlasData.Parse(bytes) : null;
-        if (data == null)
-            return false;
+        int h = key.IndexOf('#');
+        return h < 0 ? key : key.Substring(0, h);
+    }
 
-        var la = new LoadedAtlas { Key = key };
+    // Atlas .asset'i (main artifact'i tablo) yukler.
+    public bool LoadAtlas(string key) => LoadSpriteTable(ResolvePath(key), ResolvePath(key));
+    public void UnloadAtlas(string key) => UnloadSpriteTable(ResolvePath(key));
+    public bool ReloadAtlas(string key) => LoadAtlas(key);
+
+    // Tabloyu (DOBJ SpriteTable) ve sayfa dokularini yukler; bolgeleri birlestirir, YUKLU sprite/font'lari
+    // yerinde yeniden baglar (referanslar bozulmaz). owner: sayfa artifact'lerinin sahibi; tableKey: tablo baytlari.
+    public bool LoadSpriteTable(string owner, string tableKey)
+    {
+        if (string.IsNullOrEmpty(owner) || string.IsNullOrEmpty(tableKey))
+            return false;
+        if (Catalog == null)
+        {
+            LogWarning?.Invoke("[atlas] katalog yok, tablo yuklenemedi: " + tableKey);
+            return false;
+        }
+        if (_tables.ContainsKey(tableKey))
+            UnloadSpriteTable(tableKey);
+        var bytes = ReadBlob(tableKey);
+        if (!SpriteTable.IsTable(bytes))
+            return false;
+        var data = ObjectBinary.Read(bytes, Catalog, this) as SpriteTable;
+        if (data == null)
+        {
+            LogWarning?.Invoke("[atlas] tablo okunamadi: " + tableKey);
+            return false;
+        }
+
+        var lt = new LoadedTable { Key = tableKey, Owner = owner };
         for (int i = 0; i < data.Pages.Count; i++)
         {
             var pi = data.Pages[i];
-            var blob = ReadArtifact(key, AtlasData.PageArtifact(i));
+            var blob = ReadArtifact(owner, pi.Artifact);
             Texture tex = MakePageTexture(blob, pi.Width, pi.Height);
             if (tex == null)
             {
-                foreach (var t in la.Pages)
+                LogWarning?.Invoke($"[atlas] sayfa yok/bozuk: {owner}#{pi.Artifact} ({pi.Width}x{pi.Height}, {blob?.Length ?? -1} bayt)");
+                foreach (var t in lt.Pages)
                     t.Destroy();
                 return false;
             }
-            tex.Name = key + "#" + AtlasData.PageArtifact(i);
+            tex.Name = owner + "#" + pi.Artifact;
             tex.PiecesX = pi.PiecesX;
             tex.PiecesY = pi.PiecesY;
-            la.Pages.Add(tex);
+            lt.Pages.Add(tex);
         }
 
-        var touchedFonts = new HashSet<string>();
+        // Bolge atamasi BindFont'u tetikler, o da EnsureOwnTable'a gelir: tablo ONCE kayitli olmali (ozyineleme yok).
+        _tables[tableKey] = lt;
         foreach (var r in data.Regions)
         {
-            if (r.Page < 0 || r.Page >= la.Pages.Count)
+            if (r.Page < 0 || r.Page >= lt.Pages.Count)
                 continue;
-            if (_regions.TryGetValue(r.Name, out var old) && _regionPages.TryGetValue(r.Name, out var oldPage))
-                LogWarning?.Invoke($"[atlas] bolge iki atlasta: {r.Name} ({oldPage.Name} vs {key}) — sonuncusu kazanir");
-            _regions[r.Name] = r;
-            _regionPages[r.Name] = la.Pages[r.Page];
-            la.RegionNames.Add(r.Name);
-            int hash = r.Name.IndexOf('#');
-            if (hash < 0)
-            {
-                if (_sprites.TryGetValue(r.Name, out var s))
-                    BindSpriteRegion(s, in r);
-            }
-            else
-                touchedFonts.Add(r.Name.Substring(0, hash));
+            lt.Regions.Add(r);
+            if (_regionTables.TryGetValue(r.Name, out var cur) && !cur.Owns(r.Name) && lt.Owns(r.Name))
+                continue; // yabanci (atlas) tablo zaten sahip; oz tablo ezmez
+            if (cur != null && !cur.Owns(r.Name) && !lt.Owns(r.Name))
+                LogWarning?.Invoke($"[atlas] bolge iki atlasta: {r.Name} ({cur.Key} vs {tableKey}) — sonuncusu kazanir");
+            Assign(lt, in r);
         }
-        foreach (var fk in touchedFonts)
-            if (_fonts.TryGetValue(fk, out var f))
-                BindFont(f);
-        _atlases[key] = la;
         return true;
     }
 
-    // Atlas duser: uyeler kaynaklarina geri doner (png -> kendi dokusu, font -> sheet).
-    public void UnloadAtlas(string key)
+    // Bolgeyi tabloya yazar; YUKLU sprite (png ya da glyph "x#U+0041") yerinde yeniden baglanir.
+    void Assign(LoadedTable lt, in SpriteTable.Region r)
     {
-        key = ResolvePath(key);
-        if (key == null || !_atlases.TryGetValue(key, out var la))
+        _regions[r.Name] = r;
+        _regionPages[r.Name] = lt.Pages[r.Page];
+        _regionTables[r.Name] = lt;
+        if (_sprites.TryGetValue(r.Name, out var s))
+            BindSpriteRegion(s, in r);
+    }
+
+    // Tablo duser: bolgeler baska yuklu tablodan yeniden cozulur, yoksa kaynaga doner (png -> kendi dokusu;
+    // alt bolgenin kaynagi yok -> sayfasiz kalir).
+    public void UnloadSpriteTable(string tableKey)
+    {
+        if (tableKey == null || !_tables.TryGetValue(tableKey, out var lt))
             return;
-        _atlases.Remove(key);
-        var touchedFonts = new HashSet<string>();
-        foreach (var name in la.RegionNames)
+        _tables.Remove(tableKey);
+        foreach (var r in lt.Regions)
         {
-            if (!_regionPages.TryGetValue(name, out var page) || !la.Pages.Contains(page))
-                continue; // baska atlas bu adi sonradan almis
+            string name = r.Name;
+            if (!_regionTables.TryGetValue(name, out var cur) || cur != lt)
+                continue; // baska tablo bu adi sonradan almis
             _regions.Remove(name);
             _regionPages.Remove(name);
-            int hash = name.IndexOf('#');
-            if (hash < 0)
+            _regionTables.Remove(name);
+            if (FindRegion(name, out var other, out var orr))
             {
-                if (_sprites.TryGetValue(name, out var s))
-                    s.BindFull(LoadTexture(name));
+                Assign(other, in orr);
+                continue;
             }
-            else
-                touchedFonts.Add(name.Substring(0, hash));
+            if (_sprites.TryGetValue(name, out var s))
+                s.BindFull(name.IndexOf('#') < 0 ? LoadTexture(name) : null);
         }
-        foreach (var fk in touchedFonts)
-            if (_fonts.TryGetValue(fk, out var f))
-                BindFont(f);
-        foreach (var t in la.Pages)
+        foreach (var t in lt.Pages)
             t.Destroy();
     }
 
-    public bool ReloadAtlas(string key) => LoadAtlas(key);
+    // Yuklu tablolar arasinda adi tasiyan: once yabanci (atlas), sonra oz.
+    bool FindRegion(string name, out LoadedTable table, out SpriteTable.Region region)
+    {
+        table = null;
+        region = default;
+        foreach (var lt in _tables.Values)
+        {
+            foreach (var r in lt.Regions)
+            {
+                if (r.Name != name)
+                    continue;
+                if (table == null || (table.Owns(name) && !lt.Owns(name)))
+                {
+                    table = lt;
+                    region = r;
+                }
+            }
+        }
+        return table != null;
+    }
 
-    // Tum atlas tanimlarini bulup yukler (acilis): ".asset" anahtarlarindan artifact'i
-    // DATL olanlar. Editorde ArtifactResolver gerekirse once import eder.
+    // Ureticinin KENDI tablosu ("<owner>#sprites"): font/spine yuklenirken sheet bolgeleri cozulsun diye.
+    // Yabanci (atlas) tablo zaten yukluyse yine yuklenir ama ezmez; sheet artifact'i yoksa (yutulmus) sessiz false.
+    bool EnsureOwnTable(string owner)
+    {
+        string tk = owner + "#sprites";
+        if (_tables.ContainsKey(tk))
+            return true;
+        var bytes = ReadBlob(tk);
+        return SpriteTable.IsTable(bytes) && LoadSpriteTable(owner, tk);
+    }
+
+    // Tum tablo artifact'lerini bulup yukler (acilis, loose/editor): ".asset" anahtarlarindan main'i tablo
+    // olanlar. Editorde ArtifactResolver gerekirse once import eder.
     public int LoadAtlases()
     {
         int n = 0;
         foreach (var k in AtlasCandidates())
         {
             var bytes = ReadBlob(k);
-            if (AtlasData.IsAtlas(bytes) && LoadAtlas(k))
+            if (SpriteTable.IsTable(bytes) && LoadSpriteTable(k, k))
                 n++;
         }
-        return n;
-    }
-
-    // Release acilisi: aday .asset'ler + sayfa artifact'leri tampona indirilir, sonra
-    // LoadAtlas (senkron, tampondan) kosar. Bloklamaz; donus yuklenen atlas sayisi.
-    public async Task<int> LoadAtlasesAsync()
-    {
-        var cands = AtlasCandidates();
-        var mains = new List<Task<byte[]>>(cands.Count);
-        foreach (var k in cands)
-            mains.Add(PreloadAsync(k));
-        var pageLoads = new List<Task<byte[]>>();
-        var atlasKeys = new List<string>();
-        for (int i = 0; i < cands.Count; i++)
-        {
-            var bytes = await mains[i];
-            if (!AtlasData.IsAtlas(bytes))
-                continue;
-            var data = AtlasData.Parse(bytes);
-            if (data == null)
-                continue;
-            atlasKeys.Add(cands[i]);
-            for (int p = 0; p < data.Pages.Count; p++)
-                pageLoads.Add(PreloadAsync(cands[i] + "#" + AtlasData.PageArtifact(p)));
-        }
-        foreach (var t in pageLoads)
-            await t;
-        int n = 0;
-        foreach (var k in atlasKeys)
-            if (LoadAtlas(k))
-                n++;
         return n;
     }
 
@@ -600,48 +786,18 @@ public sealed class AssetDatabase
         return Texture.FromRgba(w, h, blob.AsSpan(PixelBlob.HeaderSize));
     }
 
-    void BindSpriteRegion(Sprite s, in AtlasRegion r)
+    void BindSpriteRegion(Sprite s, in SpriteTable.Region r)
     {
         if (!_regionPages.TryGetValue(r.Name, out var page))
             return;
         s.BindRegion(page, r.X, r.Y, r.W, r.H, r.OffX, r.OffY, r.OrigW, r.OrigH);
     }
 
-    // Font sayfasi: atlas bolgeleri varsa (pikselli ilk glyph'in anahtari tabloda)
-    // atlas sayfasi, yoksa fontun kendi "sheet" artifact'i.
-    void BindFont(Font f)
-    {
-        if (f.GlyphCount == 0)
-            return;
-        Texture page = null;
-        for (int i = 0; i < f.GlyphCount && page == null; i++)
-        {
-            ref readonly var g = ref f.GlyphAt(i);
-            if (g.W > 0 && g.H > 0)
-                _regionPages.TryGetValue(f.Name + "#" + AtlasData.GlyphName(g.Codepoint), out page);
-        }
-        if (page != null)
-        {
-            f.BeginAtlasBind(page);
-            for (int i = 0; i < f.GlyphCount; i++)
-            {
-                string gk = f.Name + "#" + AtlasData.GlyphName(f.GlyphAt(i).Codepoint);
-                if (_regions.TryGetValue(gk, out var r))
-                    f.SetGlyphPosition(i, r.X, r.Y);
-            }
-            return;
-        }
-        var sheet = ReadArtifact(f.Name, "sheet");
-        if (sheet == null || !f.BindSheet(sheet))
-        {
-            f.Unbind();
-            LogWarning?.Invoke($"[font] sayfa yok: {f.Name} (sheet artifact'i eksik, atlas uyesi degil)");
-        }
-    }
+    // Font sayfasi artik glyph Sprite'larindan gelir (Font.Page); tablo yukle/bosalt glyph sprite'larini
+    // diger sprite'lar gibi yerinde baglar — font'a ozel yol yok.
 
-    // Dis degisiklik (reimport): font AYNI instance'ta yerinde tazelenir ve sayfasi
-    // yeniden baglanir (BindVersion artar, metin quad'lari yenilenir); pixel effect
-    // de yerinde tazelenir (Version++ compose cache'leri bayatlatir).
+    // Dis degisiklik (reimport): pixel effect yerinde tazelenir (Version++ compose cache'leri bayatlatir);
+    // [Asset] nesneler (font dahil) once kendi sprite tablosu, sonra nesne yerinde (ReloadObject).
     public bool InvalidateImported(string relPath)
     {
         if (_clips.TryGetValue(relPath, out var clip))
@@ -660,44 +816,16 @@ public sealed class AssetDatabase
                 _clips.Remove(relPath);
             return true;
         }
-        if (_fx.TryGetValue(relPath, out var fx))
-        {
-            var bytes = ReadBlob(relPath);
-            fx.SetBody(bytes != null ? System.Text.Encoding.UTF8.GetString(bytes) : null);
-            return true;
-        }
-        if (_fonts.TryGetValue(relPath, out var f))
-        {
-            var bytes = ReadArtifact(relPath, null);
-            if (bytes != null && f.ReloadFrom(bytes))
-            {
-                BindFont(f);
-                return true;
-            }
-            _fonts.Remove(relPath);
-            return true;
-        }
-        return false;
+        bool any = false;
+        string tk = relPath + "#sprites";
+        if (_tables.ContainsKey(tk))
+            any |= LoadSpriteTable(relPath, tk);
+        if (_objects.ContainsKey(relPath))
+            any |= ReloadObject(relPath);
+        return any;
     }
 
-    readonly Dictionary<string, PixelEffect> _fx = new();
-
-    // .fx govdesi SENKRON yuklenir (kucuk metin); instance kalici, reload yerinde.
-    public PixelEffect LoadPixelEffect(string key)
-    {
-        key = ResolvePath(key);
-        if (string.IsNullOrEmpty(key))
-            return null;
-        if (_fx.TryGetValue(key, out var fx))
-            return fx;
-        var bytes = ReadBlob(key);
-        if (bytes == null)
-            return null;
-        fx = new PixelEffect { Name = key };
-        fx.SetBody(System.Text.Encoding.UTF8.GetString(bytes));
-        _fx[key] = fx;
-        return fx;
-    }
+    public PixelEffect LoadPixelEffect(string key) => LoadObject(key, typeof(PixelEffect)) as PixelEffect;
 
     public Texture LoadTexture(string key, LoadOp op = null)
     {
@@ -808,7 +936,7 @@ public sealed class AssetDatabase
         var list = new List<Texture>(); // bekleme sirasinda sozlukler degisebilir: once topla
         foreach (var t in _textures.Values)
             if (t.NeedsUpload) list.Add(t);
-        foreach (var la in _atlases.Values)
+        foreach (var la in _tables.Values)
             foreach (var t in la.Pages)
                 if (t.NeedsUpload) list.Add(t);
         for (int i = 0; i < list.Count; i++)

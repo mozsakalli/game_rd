@@ -26,8 +26,17 @@ public sealed class RegionSource
         int stride, int x, int y, int w, int h)
         => new()
         {
-            Name = name, Kind = kind, Pixels = pixels, Channels = channels, Stride = stride,
-            SrcX = x, SrcY = y, W = w, H = h, OrigW = w, OrigH = h,
+            Name = name,
+            Kind = kind,
+            Pixels = pixels,
+            Channels = channels,
+            Stride = stride,
+            SrcX = x,
+            SrcY = y,
+            W = w,
+            H = h,
+            OrigW = w,
+            OrigH = h,
         };
 }
 
@@ -259,80 +268,6 @@ public static class RegionPacker
             if (s.Kind != RegionKind.Sdf || s.Channels != 1)
                 return false;
         return true;
-    }
-}
-
-// Bolge manifestosu ("regions" artifact'i): bolge URETICISI importer'lar (font,
-// spine, texturepacker...) ciktilarini bu sozlesmeyle bildirir; AtlasImporter
-// baska hicbir sey bilmez. Pikseller ayni importer'in bir piksel artifact'inde
-// (DPIX) yasar; her giris o artifact'in adini ve icindeki dikdortgeni verir.
-// [magic][version][singlePage][count]{sub, pixels, x,y,w,h, offX,offY,origW,origH, kind, pad}
-public sealed class RegionManifest
-{
-    public const int Magic = 0x4E475244; // "DRGN"
-    public const int Version = 1;
-
-    public struct Entry
-    {
-        public string Sub;       // alt ad ("U+0041"); tam anahtar = asset + "#" + Sub
-        public string Pixels;    // piksel artifact adi ("sheet")
-        public int X, Y, W, H;
-        public int OffX, OffY, OrigW, OrigH;
-        public RegionKind Kind;
-        public int Pad;
-    }
-
-    public bool SinglePage; // tum bolgeler ayni sayfada olmali (font)
-    public readonly List<Entry> Entries = new();
-
-    public byte[] Write()
-    {
-        var ms = new MemoryStream();
-        using var w = new BinaryWriter(ms, Encoding.UTF8, leaveOpen: true);
-        w.Write(Magic);
-        w.Write(Version);
-        w.Write(SinglePage);
-        w.Write(Entries.Count);
-        foreach (var e in Entries)
-        {
-            w.Write(e.Sub ?? "");
-            w.Write(e.Pixels ?? "");
-            w.Write(e.X); w.Write(e.Y); w.Write(e.W); w.Write(e.H);
-            w.Write(e.OffX); w.Write(e.OffY); w.Write(e.OrigW); w.Write(e.OrigH);
-            w.Write((byte)e.Kind);
-            w.Write(e.Pad);
-        }
-        w.Flush();
-        return ms.ToArray();
-    }
-
-    public static RegionManifest Parse(byte[] blob)
-    {
-        try
-        {
-            using var r = new BinaryReader(new MemoryStream(blob), Encoding.UTF8);
-            if (r.ReadInt32() != Magic || r.ReadInt32() != Version)
-                return null;
-            var m = new RegionManifest { SinglePage = r.ReadBoolean() };
-            int n = r.ReadInt32();
-            for (int i = 0; i < n; i++)
-            {
-                m.Entries.Add(new Entry
-                {
-                    Sub = r.ReadString(),
-                    Pixels = r.ReadString(),
-                    X = r.ReadInt32(), Y = r.ReadInt32(), W = r.ReadInt32(), H = r.ReadInt32(),
-                    OffX = r.ReadInt32(), OffY = r.ReadInt32(), OrigW = r.ReadInt32(), OrigH = r.ReadInt32(),
-                    Kind = (RegionKind)r.ReadByte(),
-                    Pad = r.ReadInt32(),
-                });
-            }
-            return m;
-        }
-        catch (Exception)
-        {
-            return null;
-        }
     }
 }
 

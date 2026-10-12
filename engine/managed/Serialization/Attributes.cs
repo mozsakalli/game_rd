@@ -82,10 +82,20 @@ public sealed class HideInInspectorAttribute : Attribute
 {
 }
 
+// Unity ScriptableObject'in tip-duzeyi karsiligi (miras yerine attribute): isaretli [Serializable]
+// sinif DOSYA olarak yasar (.asset ya da importer "main" artifact'i) ve alanlarda REFERANS
+// (Kind.Asset, GUID) olarak gecer — paylasilir, pak'a referanslandigi icin girer, ObjectBinary ile
+// piser. Isaretsiz [Serializable] = sahibinin icine GOMULU (Kind.Object). TypeCatalog bu tipleri
+// de kaydeder (ad -> sema), PakRoots trim koku sayar. [CreateAssetMenu] bunu ima eder.
+[AttributeUsage(AttributeTargets.Class)]
+public sealed class AssetAttribute : Attribute
+{
+}
+
 // Unity [CreateAssetMenu] karsiligi: [Serializable] tipin Project panelindeki
 // Create menusunde gorunmesi ACIK OPT-IN'dir — her serializable menuye dusmez.
 // MenuName '/' ile alt menu kurar ("Config/Game Settings"). Tanim her yapida (oyun kodu kullanir);
-// tuketicisi (ObjectSerializer.IsCreatable) yalniz editor.
+// tuketicisi (ObjectSerializer.IsCreatable) yalniz editor. [Asset] semantigini ima eder.
 [AttributeUsage(AttributeTargets.Class)]
 public sealed class CreateAssetMenuAttribute : Attribute
 {

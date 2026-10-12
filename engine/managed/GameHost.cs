@@ -227,6 +227,7 @@ public static class GameHost
         Audio.Source = _source;
         Scene.Active.Catalog = catalog;
         Scene.Active.Assets = assets;
+        assets.Catalog = catalog;
         _assets = assets;
         var op = SceneLoader.LoadAsync(startScene, assets, catalog);
         int lastDone = -1;
@@ -260,6 +261,7 @@ public static class GameHost
         Audio.Source = _source;
         Scene.Active.Catalog = catalog;
         Scene.Active.Assets = assets;
+        assets.Catalog = catalog;
         _assets = assets;
         assets.LoadAtlases();
         var sceneBytes = _source.ReadBytes(startScene);

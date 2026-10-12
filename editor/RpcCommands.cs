@@ -937,9 +937,9 @@ static class RpcCommands
         return r;
     }
 
-    // Uzanti -> tip adi: importer kaydi (AssetType) oncelikli, yoksa AssetDatabase tohumu.
+    // Uzanti -> tip adi: importer kaydi (AssetType) oncelikli, yoksa AssetDatabase tohumu, yoksa [Asset] .asset tipi.
     static string AssetTypeName(string rel)
-        => ImportPipeline.ImporterFor(rel)?.AssetType ?? AssetDatabase.ImportTypeOf(rel)?.Name ?? "";
+        => ImportPipeline.ImporterFor(rel)?.AssetType ?? AssetDatabase.ImportTypeOf(rel)?.Name ?? App.Assets?.AssetClassOf(rel)?.Name ?? "";
 
     static DocNode AssetEntry(RpcContext ctx, string rel, string typeName)
     {

@@ -217,7 +217,12 @@ public sealed class ObjectDrawer
                     break;
                 }
             case SerializedType.Kind.Asset:
-                DrawAssetRef(valueRect, value as IAsset, valueType, setValue, deferredCommit);
+                DrawAssetRef(valueRect, value, valueType, setValue, deferredCommit);
+                break;
+            case SerializedType.Kind.Blob:
+                if (Event.Current.Type == EventType.Repaint)
+                    GuiRenderer.DrawTextIn(valueRect, (value is byte[] blob ? blob.Length : 0) + " bytes",
+                        InspectorPanel.SmallFont, InspectorPanel.LabelDimColor, false, 2);
                 break;
             default:
                 if (Event.Current.Type == EventType.Repaint)
@@ -353,7 +358,7 @@ public sealed class ObjectDrawer
         }
     }
 
-    static void DrawAssetRef(in Rect rect, IAsset asset, Type valueType,
+    static void DrawAssetRef(in Rect rect, object asset, Type valueType,
         Action<object> setValue, Action deferredCommit)
     {
         Event ev = Event.Current;
@@ -366,7 +371,8 @@ public sealed class ObjectDrawer
         {
             GuiRenderer.DrawRect(body, hover ? new Color(70, 135, 85, 255)
                 : acceptable ? new Color(52, 74, 58, 255) : new Color(45, 48, 58, 255), 0);
-            GuiRenderer.DrawTextIn(body, asset?.Name ?? "(none)", InspectorPanel.SmallFont,
+            string key = AssetDatabase.KeyOf(asset, App.Assets);
+            GuiRenderer.DrawTextIn(body, key.Length > 0 ? key : "(none)", InspectorPanel.SmallFont,
                 InspectorPanel.RefTextColor, false, 2);
             if (hover)
                 DragDrop.RegisterTarget(() =>

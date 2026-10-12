@@ -42,13 +42,22 @@ public static class Reflect
 
     public static bool IsAnimatable(MemberInfo m) => m.IsDefined(typeof(AnimatableAttribute), false);
 
-    // Inline serilesen duz tip: [Serializable] sinif/struct — motor/Unity nesnesi degil.
+    // Inline serilesen duz tip: [Serializable] sinif/struct — motor/Unity nesnesi ve [Asset] (dosya) degil.
     public static bool IsInlineObject(Type t)
         => (t.Attributes & TypeAttributes.Serializable) != 0 && !t.IsAbstract && !t.IsEnum && !t.IsPrimitive
             && t != typeof(string)
             && !typeof(Component).IsAssignableFrom(t)
             && t != typeof(GameObject) && !typeof(IAsset).IsAssignableFrom(t)
+            && !IsAssetClass(t)
             && (t.IsValueType || t.GetConstructor(AllInstance, null, Type.EmptyTypes, null) != null);
+
+    // [Asset] / [CreateAssetMenu] tasiyan somut, parametresiz-ctor'lu, Component olmayan sinif:
+    // dosya olarak yasar, alanlarda referanstir (Kind.Asset), katalogda ad->sema kaydi vardir.
+    public static bool IsAssetClass(Type t)
+        => t.IsClass && !t.IsAbstract && !t.IsGenericTypeDefinition
+            && (t.IsDefined(typeof(AssetAttribute), false) || t.IsDefined(typeof(CreateAssetMenuAttribute), false))
+            && !typeof(Component).IsAssignableFrom(t)
+            && t.GetConstructor(AllInstance, null, Type.EmptyTypes, null) != null;
 
     public static bool IsArray(Type t, out Type elem)
     {
@@ -84,6 +93,23 @@ public static class Reflect
             catch { continue; }
             foreach (var t in types)
                 if (!t.IsAbstract && typeof(Component).IsAssignableFrom(t) && t != typeof(Transform))
+                    result.Add(t);
+        }
+        return result;
+    }
+
+    // Verilen assembly'lerdeki [Asset] siniflari (TypeCatalog veri tipleri).
+    public static List<Type> AssetTypes(Assembly[] assemblies)
+    {
+        var result = new List<Type>();
+        foreach (var asm in assemblies)
+        {
+            if (asm == null) continue;
+            Type[] types;
+            try { types = asm.GetTypes(); }
+            catch { continue; }
+            foreach (var t in types)
+                if (IsAssetClass(t))
                     result.Add(t);
         }
         return result;

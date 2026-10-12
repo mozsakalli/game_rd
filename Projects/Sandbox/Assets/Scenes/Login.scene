@@ -783,3 +783,12 @@ objects:
           direction: Vertical
           color: '#00000092'
           color2: '#ffffffff'
+  - id: 28
+    parent: 0
+    name: SettingsProbe
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: SettingsProbe
+        settings: 5e4ef6c24aca4fa4ba2af9107ae9795a

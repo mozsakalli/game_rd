@@ -56,6 +56,7 @@ public sealed class Module
                 return m.Fail("modul pak'ta kod yok (" + CodeKey + "): Build > Module ile uretin");
 
             m.Catalog = new TypeCatalog(hostCatalog ?? Scene.Active.Catalog);
+            m.Assets.Catalog = m.Catalog;
             if (!m.LoadCode(code, out var err))
                 return m.Fail(err);
 
@@ -172,12 +173,20 @@ public sealed class Module
         for (int i = 0; i < count; i++)
         {
             var t = vmint_type_at((void*)_vm, i);
-            if (t == null || t.IsAbstract || !typeof(Component).IsAssignableFrom(t) || t == typeof(Transform))
+            if (t == null || t.IsAbstract)
+                continue;
+            if (Reflect.IsAssetClass(t))
+            {
+                Catalog.RegisterAsset(t);
+                registered++;
+                continue;
+            }
+            if (!typeof(Component).IsAssignableFrom(t) || t == typeof(Transform))
                 continue;
             Catalog.RegisterReflective(t);
             registered++;
         }
-        Console.WriteLine("[module] " + registered + " component tipi kaydedildi (reflection)");
+        Console.WriteLine("[module] " + registered + " tip kaydedildi (reflection)");
         error = null;
         return true;
     }

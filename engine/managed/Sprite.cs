@@ -27,6 +27,16 @@ public sealed class Sprite : IAsset
 
     public bool IsRegion => W > 0;
 
+    // Normalize UV (sayfa uzayinda, satir 0 = depolama ilk satiri): bind aninda bir kez hesaplanir,
+    // yayicilar frame'de bolme yapmaz. Tum-sayfa modu 0..1.
+    public float U0 { get; private set; }
+    public float V0 { get; private set; }
+    public float U1 { get; private set; } = 1f;
+    public float V1 { get; private set; } = 1f;
+
+    // Her (yeniden) baglanista artar: sprite'a dayali quad cache'leri (metin) tazelenir.
+    public int BindVersion { get; private set; }
+
     // Mantiksal boyut; tum-sayfa modunda Page boyutu (yukleme bitmeden 0 olabilir).
     public int LogicalWidth => IsRegion ? OrigW : Page?.Width ?? 0;
     public int LogicalHeight => IsRegion ? OrigH : Page?.Height ?? 0;
@@ -45,6 +55,11 @@ public sealed class Sprite : IAsset
         OffX = offX; OffY = offY;
         OrigW = origW; OrigH = origH;
         Rotated = false;
+        float iw = page != null && page.Width > 0 ? 1f / page.Width : 0f;
+        float ih = page != null && page.Height > 0 ? 1f / page.Height : 0f;
+        U0 = x * iw; V0 = y * ih;
+        U1 = (x + w) * iw; V1 = (y + h) * ih;
+        BindVersion++;
     }
 
     // Atlas uyeligi dusunce kaynak dokuya geri doner (tum-sayfa modu).
@@ -55,5 +70,8 @@ public sealed class Sprite : IAsset
         OffX = OffY = 0;
         OrigW = OrigH = 0;
         Rotated = false;
+        U0 = V0 = 0f;
+        U1 = V1 = 1f;
+        BindVersion++;
     }
 }

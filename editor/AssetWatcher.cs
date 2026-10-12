@@ -168,6 +168,8 @@ public static class AssetWatcher
             case ".asset":
                 AssetChangeVersion++;
                 LastChangedAsset = full;
+                if (File.Exists(full) && assets.ReloadObject(rel))
+                    EditorLog.Info($"asset object reloaded in-place: {rel}");
                 atlasDirty = true; // grup tanimi degisti/silindi: RefreshAll karar verir
                 EditorLog.Info($"asset changed: {rel}");
                 break;

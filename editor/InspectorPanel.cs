@@ -309,8 +309,18 @@ public sealed partial class InspectorPanel : EditorWindow
                 var t = App.AssetTypes.Find(x => x.Name == tn);
                 if (t != null)
                 {
-                    object obj = Activator.CreateInstance(t);
-                    ObjectSerializer.LoadInto(obj, path, App.Assets);
+                    // [Asset] veri nesnesi: AssetDatabase'in CANLI instance'i duzenlenir (Play'deki component'ler
+                    // ayni nesneyi gorur; kaydetmek yeniden yukleme gerektirmez). Importer'li .asset (AtlasGroup)
+                    // ya da katalogda olmayan tip: ayri kopya.
+                    string arel = RelAssetPath(path);
+                    object obj = arel != null && ImportPipeline.ImporterFor(arel) == null && App.Catalog.Find(t) is { IsAsset: true }
+                        ? App.Assets.LoadObject(arel)
+                        : null;
+                    if (obj == null)
+                    {
+                        obj = Activator.CreateInstance(t);
+                        ObjectSerializer.LoadInto(obj, path, App.Assets);
+                    }
                     _aDrawer.Bind(obj);
                 }
             }

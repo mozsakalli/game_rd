@@ -25,12 +25,13 @@ public sealed class FontImportSettings
 
 // TTF -> prebaked SDF font: glyph'ler TEK TEK pisirilir (native stb_truetype ya da
 // msdfgen), ortak paketleyiciyle bir "sheet"e dizilir. Ciktilar:
-//   main    : DFNT (metrikler + glyph tablosu + kerning; doku YOK)
+//   main    : Font (DOBJ: metrikler + glyph tablosu + kerning; glyph'ler Sprite referansi "x.ttf#U+0041")
 //   sheet   : DPIX glyph sayfasi R8 (Sdf) / RGBA8 (Msdf) (+ UiPieces bandi) — Standalone:
 //             gruba alinmamis font bunu kullanir
-//   regions : bolge manifestosu — Editor: AtlasImporter glyph'leri kendi sayfasina tasir
+//   sprites : SpriteTable (DOBJ) — glyph bolgeleri sheet uzerinde; AtlasImporter buradan okuyup kendi
+//             sayfasina tasir, runtime (gruba alinmamis font) buradan baglar. Standalone.
 // Pak'a ttf girmez, runtime bake yok.
-[AssetImporter(".ttf", ".otf", Version = 8, Settings = typeof(FontImportSettings))]
+[AssetImporter(".ttf", ".otf", Version = 10, Settings = typeof(FontImportSettings))]
 public sealed unsafe class FontImporter : AssetImporter
 {
     const int SheetMaxSize = 4096;
@@ -125,7 +126,7 @@ public sealed unsafe class FontImporter : AssetImporter
                 {
                     var px = new byte[w * h * channels];
                     Buffer.BlockCopy(buf, 0, px, 0, px.Length);
-                    var s = RegionSource.FromBuffer(ctx.AssetPath + "#" + AtlasData.GlyphName(cp),
+                    var s = RegionSource.FromBuffer(ctx.AssetPath + "#" + SpriteTable.GlyphName(cp),
                         RegionKind.Sdf, px, channels, w, 0, 0, w, h);
                     s.Pad = GlyphPad;
                     s.Unit = 0;
@@ -148,20 +149,28 @@ public sealed unsafe class FontImporter : AssetImporter
         }
         var page = pages[0];
 
-        // Yerlesimi glyph tablosuna ve manifestoya yaz (ad -> indeks).
+        // Yerlesimi glyph tablosuna ve sprite tablosuna yaz (ad -> indeks).
         var index = new Dictionary<string, int>(n);
         for (int i = 0; i < n; i++)
-            index[ctx.AssetPath + "#" + AtlasData.GlyphName(glyphs[i].Codepoint)] = i;
-        var manifest = new RegionManifest { SinglePage = true };
+            index[ctx.AssetPath + "#" + SpriteTable.GlyphName(glyphs[i].Codepoint)] = i;
+        var table = new SpriteTable { Channels = channels, SinglePage = true };
+        table.Pages.Add(new SpriteTable.Page
+        {
+            Artifact = "sheet",
+            Width = page.Width,
+            Height = page.Height,
+            PiecesX = page.PiecesX,
+            PiecesY = page.PiecesY,
+        });
         foreach (var (src, x, y) in page.Placed)
         {
             int gi = index[src.Name];
-            glyphs[gi].AtlasX = x;
-            glyphs[gi].AtlasY = y;
-            manifest.Entries.Add(new RegionManifest.Entry
+            // Glyph sprite'i: serilesirken yalniz anahtari yazilir ("hero.ttf#U+0041"); runtime tablodan baglar.
+            glyphs[gi].Sprite = Sprite.FromTexture(null, src.Name);
+            table.Regions.Add(new SpriteTable.Region
             {
-                Sub = AtlasData.GlyphName(glyphs[gi].Codepoint),
-                Pixels = "sheet",
+                Name = src.Name,
+                Page = 0,
                 X = x,
                 Y = y,
                 W = src.W,
@@ -173,10 +182,21 @@ public sealed unsafe class FontImporter : AssetImporter
             });
         }
 
-        ctx.AddArtifact("main", Font.WriteArtifact(metrics[0], metrics[1], metrics[2], metrics[3], metrics[4],
-            page.Width, page.Height, page.PiecesX, page.PiecesY, glyphs, kern));
+        var kernBytes = new byte[kern.Length * 2];
+        Buffer.BlockCopy(kern, 0, kernBytes, 0, kernBytes.Length);
+        var fontAsset = new Font
+        {
+            Ascent = metrics[0],
+            Descent = metrics[1],
+            LineHeight = metrics[2],
+            KernScale = metrics[3],
+            SdfSize = metrics[4],
+            Glyphs = glyphs,
+            Kern = kernBytes,
+        };
+        ctx.AddArtifact("main", fontAsset);
         ctx.AddArtifact("sheet", PixelBlob.Build(channels, page.Width, page.Height, page.Pixels), ArtifactScope.Standalone);
-        ctx.AddArtifact("regions", manifest.Write(), ArtifactScope.Editor);
+        ctx.AddArtifact("sprites", table, ArtifactScope.Standalone);
     }
 
     // SDF bitmap'inden gorunen murekkebin sol/sag kenari (bitmap px, alt-piksel):

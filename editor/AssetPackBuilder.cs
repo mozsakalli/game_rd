@@ -102,23 +102,40 @@ static class AssetPackBuilder
                 if (data == null)
                     continue; // hata loglandi; sahne pak'a girmez
                 baked[key] = data;
-                foreach (var r in refs)
-                {
-                    string p = assets.ResolvePath(r); // guid -> yol (yol ise aynen)
-                    if (!assets.AllAssets.ContainsKey(p))
-                    {
-                        unresolved.Add($"{p} <- {key}");
-                        continue;
-                    }
-                    AddDep(key, p);
-                    queue.Enqueue(p);
-                }
+                EnqueueRefs(key, refs);
+            }
+            else if (IsDataAsset(key))
+            {
+                // [Asset] veri nesnesi (.asset, importer'siz): YAML -> ObjectBinary; referanslari da kenar.
+                var refs = new List<string>();
+                var data = BakeObject(key, Path.Combine(root, key), catalog, refs);
+                if (data == null)
+                    continue;
+                baked[key] = data;
+                EnqueueRefs(key, refs);
             }
             live.Add(key);
             if (absorbedBy.TryGetValue(key, out var consumer))
             {
                 AddDep(key, consumer); // uye yuklenmeden once tuketici (sayfa) hazir olmali
                 queue.Enqueue(consumer);
+            }
+        }
+        void EnqueueRefs(string key, List<string> refs)
+        {
+            foreach (var r in refs)
+            {
+                string p = assets.ResolvePath(r); // guid -> yol (yol ise aynen)
+                int hash = p.IndexOf('#');
+                if (hash > 0)
+                    p = p.Substring(0, hash); // alt bolge ("x.ttf#U+0041"): sahibi canli olsun yeter
+                if (!assets.AllAssets.ContainsKey(p))
+                {
+                    unresolved.Add($"{p} <- {key}");
+                    continue;
+                }
+                AddDep(key, p);
+                queue.Enqueue(p);
             }
         }
         foreach (var u in unresolved)
@@ -189,14 +206,19 @@ static class AssetPackBuilder
                     }
                     items.Add((key + "#" + name, "", bytes));
                     AddDep(key, key + "#" + name);
+                    // Sprite tablosu aktivasyonu sayfa dokularini SENKRON okur: sayfalar tablodan once insin.
+                    if (SpriteTable.IsTable(bytes) && ObjectBinary.Read(bytes, catalog, null) is SpriteTable st)
+                        foreach (var pg in st.Pages)
+                            AddDep(key + "#" + name, key + "#" + pg.Artifact);
                 }
+                // Atlas main'i de tablo: sayfalar main'den once (AddDep(key, key#page) zaten var).
                 if (data == null)
                 {
                     EditorLog.Warning($"[pak] 'main' artifact yok, atlandi: {key}");
                     continue;
                 }
             }
-            else if (IsSceneLike(key))
+            else if (IsSceneLike(key) || IsDataAsset(key))
             {
                 // Faz 1'de pisti: YAML -> SceneBinary (prefab'lar ACILMIS, override'lar
                 // uygulanmis, alanlar sema indeksiyle). Runtime YAML/DocNode gormez.
@@ -233,6 +255,30 @@ static class AssetPackBuilder
     static bool IsSceneLike(string key)
         => key.EndsWith(".scene", StringComparison.OrdinalIgnoreCase)
         || key.EndsWith(".prefab", StringComparison.OrdinalIgnoreCase);
+
+    // Importer'siz .asset = [Asset] veri nesnesi (importer'li .asset'ler, AtlasGroup gibi, artifact yolundan gider).
+    static bool IsDataAsset(string key)
+        => key.EndsWith(".asset", StringComparison.OrdinalIgnoreCase) && ImportPipeline.ImporterFor(key) == null;
+
+    static byte[] BakeObject(string key, string file, TypeCatalog catalog, List<string> assetRefs)
+    {
+        try
+        {
+            var root = Yaml.Parse(File.ReadAllText(file));
+            string typeName = root.GetScalar("type", null);
+            if (typeName == null || catalog.Find(typeName) is not { IsAsset: true })
+            {
+                EditorLog.Warning($"[pak] .asset tipi katalogda yok, atlandi: {key} ({typeName})");
+                return null;
+            }
+            return ObjectBinary.Bake(typeName, root.Get("fields") ?? root, catalog, m => EditorLog.Warning($"{m} ({key})"), assetRefs);
+        }
+        catch (Exception e)
+        {
+            EditorLog.Error($"[pak] asset bake basarisiz, atlandi: {key}: {e.Message}");
+            return null;
+        }
+    }
 
     static byte[] BakeScene(string key, string file, TypeCatalog catalog, AssetDatabase assets, List<string> assetRefs)
     {

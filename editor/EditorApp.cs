@@ -149,6 +149,7 @@ public unsafe class App
         NetTests.Run();
         ProgressTests.Run(_catalog);
         CatalogTests.Run(_catalog);
+        ObjectBinaryTests.Run(_catalog);
 #endif
         // Kullanici ayarlari (standart: [Serializable] + ObjectSerializer).
         // Otomatik sahne ACILMAZ: yalniz kullanicinin son actigi sahne (varsa) geri gelir.
@@ -527,6 +528,7 @@ public unsafe class App
         foreach (var r in _gameCode.Renames)
             _catalog.RegisterAlias(r.Key, r.Value); // typemap rename'leri: eski ad cozulur
         Scene.Active.Catalog = _catalog;
+        _assets.Catalog = _catalog; // [Asset] nesne cache'i eski tiplerle birlikte duser
 
         // SceneView araclari: builtin'ler + oyun assembly'sinin [EditorTool]'lari.
         EditorTools.Rebuild(typeof(App).Assembly, _gameCode.GameAssembly);

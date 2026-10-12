@@ -41,8 +41,9 @@ public static unsafe class SceneBinary
         => data != null && data.Length >= 8 && ReadI32(data, 0) == Magic;
 
     // --- Pak alan tablosu (okuyucu tarafi): pak'taki alan -> kod semasindaki alan (null = atla) ---
+    // Alan tablosu/alan kodlamasi ObjectBinary (DOBJ) ile PAYLASILIR: iki format ayni yardimcilari kullanir.
 
-    sealed class PakField
+    internal sealed class PakField
     {
         public string Name;
         public SerializedType.Kind Kind, ElementKind;
@@ -50,7 +51,7 @@ public static unsafe class SceneBinary
         public SerializedType.FieldSchema Target; // null = kodda yok / uyumsuz -> deger atlanir
     }
 
-    static PakField[] ReadFieldTable(Reader r)
+    internal static PakField[] ReadFieldTable(Reader r)
     {
         int n = r.U16();
         var arr = new PakField[n];
@@ -65,7 +66,7 @@ public static unsafe class SceneBinary
     }
 
     // Ad (ya da FormerName) ile esle; kind/elemKind farkliysa uyumsuz say. Ic ice tablolar ozyinelemeli.
-    static void BindFieldTable(PakField[] pak, SerializedType.FieldSchema[] schema, string owner)
+    internal static void BindFieldTable(PakField[] pak, SerializedType.FieldSchema[] schema, string owner)
     {
         if (schema == null)
             return;
@@ -228,7 +229,7 @@ public static unsafe class SceneBinary
 
     // Boxed okuma yolu (FieldSchema.Get/Set) — editor, .NET player ve AOT ayni kod. Sahne yukleme tek seferlik;
     // sicak yol degil (animasyon Reflect tipli erisimcilerle). Faz 4+: alan basina boxing istenirse GetRef'e gecilir.
-    static void ReadFields(Reader r, object owner, PakField[] table, AssetDatabase assets, List<DeferredRef> deferred)
+    internal static void ReadFields(Reader r, object owner, PakField[] table, AssetDatabase assets, List<DeferredRef> deferred)
     {
         int n = r.U16();
         for (int i = 0; i < n; i++)
@@ -333,10 +334,15 @@ public static unsafe class SceneBinary
     {
         switch (kind)
         {
-            case SerializedType.Kind.Float: case SerializedType.Kind.Int: case SerializedType.Kind.String:
-            case SerializedType.Kind.Enum: case SerializedType.Kind.Asset: case SerializedType.Kind.GoRef:
+            case SerializedType.Kind.Float:
+            case SerializedType.Kind.Int:
+            case SerializedType.Kind.String:
+            case SerializedType.Kind.Enum:
+            case SerializedType.Kind.Asset:
+            case SerializedType.Kind.GoRef:
                 r.Pos += 4; break;
             case SerializedType.Kind.Bool: r.Pos += 1; break;
+            case SerializedType.Kind.Blob: { int n = r.I32(); if (n > 0) r.Pos += n; break; }
             case SerializedType.Kind.Vec2: r.Pos += 8; break;
             case SerializedType.Kind.Vec3: r.Pos += 12; break;
             case SerializedType.Kind.Vec4: r.Pos += 16; break;
@@ -382,6 +388,18 @@ public static unsafe class SceneBinary
         internal readonly List<DeferredRef> Deferred = new();
 
         internal Reader(byte[] b, AssetDatabase assets) { _b = b; Pos = 0; Assets = assets; }
+
+        // Ham blob: i32 uzunluk (-1 null) + baytlar.
+        public byte[] Blob()
+        {
+            int n = I32();
+            if (n < 0)
+                return null;
+            var r = new byte[n];
+            Buffer.BlockCopy(_b, Pos, r, 0, n);
+            Pos += n;
+            return r;
+        }
 
         public byte U8() => _b[Pos++];
         public ushort U16() { int v = _b[Pos] | (_b[Pos + 1] << 8); Pos += 2; return (ushort)v; }
@@ -448,6 +466,7 @@ public static unsafe class SceneBinary
                 case SerializedType.Kind.Vec3: return V3();
                 case SerializedType.Kind.Vec4: return V4();
                 case SerializedType.Kind.Color: return Col();
+                case SerializedType.Kind.Blob: return Blob();
                 case SerializedType.Kind.Asset:
                     {
                         int i = I32();
@@ -576,7 +595,7 @@ public static unsafe class SceneBinary
 
     // Pak alan tablosu: ad + kind (+ ic ice). Indeksler kod semasiyla ayni sirada -> WriteFields'in
     // Array.IndexOf(schema, f) indeksi dogrudan bu tabloya isaret eder.
-    static void WriteFieldTable(Writer w, SerializedType.FieldSchema[] schema, Func<string, int> str)
+    internal static void WriteFieldTable(Writer w, SerializedType.FieldSchema[] schema, Func<string, int> str)
     {
         int n = schema?.Length ?? 0;
         w.U16((ushort)n);
@@ -592,7 +611,8 @@ public static unsafe class SceneBinary
         }
     }
 
-    static void WriteFields(Writer w, List<KeyValuePair<string, DocNode>> props, SerializedType.FieldSchema[] schema,
+    // doc/baked null = sahne baglami yok (ObjectBinary): Go/CompRef alanlari uyariyla atlanir.
+    internal static void WriteFields(Writer w, List<KeyValuePair<string, DocNode>> props, SerializedType.FieldSchema[] schema,
         SceneDoc doc, Dictionary<int, List<(SceneDoc.CompDoc Doc, TypeCatalog.Entry Entry)>> baked,
         Func<string, int> str, Func<string, int> assetStr, Action<string> warn, string ctx)
     {
@@ -604,6 +624,11 @@ public static unsafe class SceneBinary
             if (f == null)
             {
                 warn?.Invoke($"[bake] semada olmayan alan atlandi: {ctx}.{kv.Key}");
+                continue;
+            }
+            if (baked == null && f.Kind is SerializedType.Kind.GoRef or SerializedType.Kind.CompRef)
+            {
+                warn?.Invoke($"[bake] sahne referansi asset'te tasinamaz, atlandi: {ctx}.{kv.Key}");
                 continue;
             }
             w.U16((ushort)Array.IndexOf(schema, f));
@@ -635,6 +660,14 @@ public static unsafe class SceneBinary
             case SerializedType.Kind.Vec3: w.V3(SerializedType.ParseVec3(s)); break;
             case SerializedType.Kind.Vec4: w.V4(SerializedType.ParseVec4(s)); break;
             case SerializedType.Kind.Color: w.Col(SerializedType.ParseColor(s)); break;
+            case SerializedType.Kind.Blob:
+                {
+                    var blob = node?.Scalar == null ? null : (byte[])SerializedType.Parse(s, kind, null, null);
+                    if (blob == null) { w.I32(-1); break; }
+                    w.I32(blob.Length);
+                    w.Bytes(blob);
+                    break;
+                }
             case SerializedType.Kind.Asset: w.I32(string.IsNullOrEmpty(s) ? -1 : assetStr(s)); break;
             case SerializedType.Kind.GoRef:
                 w.I32(int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out int goId) ? goId : 0);
@@ -706,7 +739,7 @@ public static unsafe class SceneBinary
         return (id, -1);
     }
 
-    sealed class Writer
+    internal sealed class Writer
     {
         byte[] _b = new byte[4096];
         public int Length;
@@ -716,6 +749,7 @@ public static unsafe class SceneBinary
             if (Length + n > _b.Length)
                 Array.Resize(ref _b, Math.Max(_b.Length * 2, Length + n));
         }
+        public void Bytes(byte[] src) { Ensure(src.Length); Buffer.BlockCopy(src, 0, _b, Length, src.Length); Length += src.Length; }
         public void U8(byte v) { Ensure(1); _b[Length++] = v; }
         public void U16(ushort v) { Ensure(2); _b[Length++] = (byte)v; _b[Length++] = (byte)(v >> 8); }
         public void I32(int v)

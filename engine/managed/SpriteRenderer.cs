@@ -132,10 +132,8 @@ public sealed unsafe class SpriteRenderer : Renderer
             model.m[14] += model.m[2] * cx + model.m[6] * cy;
             model.m[0] *= sx; model.m[1] *= sx; model.m[2] *= sx;
             model.m[4] *= sy; model.m[5] *= sy; model.m[6] *= sy;
-            float aw = spr.Page.Width, ah = spr.Page.Height;
             queue.DrawMesh(Mesh.Quad(), mat, in model, Color, Color, Color, Color, default, in FxParams,
-                spr.X / aw, spr.Y / ah,
-                (spr.X + spr.W) / aw, (spr.Y + spr.H) / ah, _effectiveOrder);
+                spr.U0, spr.V0, spr.U1, spr.V1, _effectiveOrder);
             return;
         }
         if (Width != 1f)

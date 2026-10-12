@@ -224,8 +224,6 @@ public sealed unsafe class TextSprite : Renderer
 
         // y-down dunya (SpriteRenderer paritesi): blok merkezi orijinde.
         float top = -blockH * 0.5f;
-        var page = font.Page;
-        float invW = page != null ? 1f / page.Width : 0f, invH = page != null ? 1f / page.Height : 0f;
         int curLine = 0, prev = -1;
         float penX = LineStartX(lineW[0], maxW);
         float baseY = top + font.Ascent * scale;
@@ -245,19 +243,20 @@ public sealed unsafe class TextSprite : Renderer
             if (prev >= 0)
                 penX += font.Kerning(prev, gi) * scale;
             ref readonly var g = ref font.GlyphAt(gi);
-            if (g.W > 0 && g.H > 0)
+            if (g.W > 0 && g.H > 0 && g.Sprite != null)
             {
-                // V takasi: CPU atlasinda satir 0 ustte (GuiRenderer SDF yoluyla ayni).
+                // V takasi: sayfada satir 0 ustte (GuiRenderer SDF yoluyla ayni).
+                var sp = g.Sprite;
                 _quads[q++] = new GlyphQuad
                 {
                     X0 = penX + g.XOff * scale,
                     Y0 = baseY + g.YOff * scale,
                     X1 = penX + (g.XOff + g.W) * scale,
                     Y1 = baseY + (g.YOff + g.H) * scale,
-                    U0 = g.AtlasX * invW,
-                    V0 = (g.AtlasY + g.H) * invH,
-                    U1 = (g.AtlasX + g.W) * invW,
-                    V1 = g.AtlasY * invH,
+                    U0 = sp.U0,
+                    V0 = sp.V1,
+                    U1 = sp.U1,
+                    V1 = sp.V0,
                 };
             }
             penX += g.Advance * scale + Spacing;
