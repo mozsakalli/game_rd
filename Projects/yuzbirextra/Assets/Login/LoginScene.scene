@@ -254,8 +254,8 @@ objects:
                 Ease: Linear
                 Value: 1 0 0 0
                 Ref: ''
-        Labels:
-        Actions:
+        Labels: ''
+        Actions: ''
       - type: RenderGroup
   - id: 11
     parent: 1
@@ -317,6 +317,11 @@ objects:
           direction: Vertical
           color: '#00000000'
           color2: '#000000ff'
+        lightColor: '#ffffff00'
+        lightWidth: 0.52666503
+        lightOffset: 7.9333315 -1.4333313
+        lightHeight: 26.986668
+        reverse: false
       - type: Button
         buttonId: facebook
   - id: 5

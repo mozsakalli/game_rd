@@ -515,7 +515,7 @@ public unsafe class App
         RebuildCatalog();
         _editScene.Instantiate(_catalog, _assets); // bellekteki doc'tan (kaydedilmemis duzenlemeler korunur)
         // AOT uyumluluk: scriptler corelib'e karsi ikinci kez derlenir (bilgi amacli; editor play'ini etkilemez).
-        AotCompatCheck.Check(job.Scripts);
+        AotCompatCheck.Check(job.Scripts, job.Plugins);
     }
 
     internal static Project Project => _project;
@@ -525,29 +525,34 @@ public unsafe class App
     // Tek katalog yolu: reflection (docs/registry-removal.md). Player da ayni yoldan kurar.
     static void RebuildCatalog()
     {
-        _catalog = _gameCode.GameAssembly != null
-            ? TypeCatalog.FromAssemblies(typeof(GameObject).Assembly, typeof(App).Assembly, _gameCode.GameAssembly)
-            : TypeCatalog.FromAssemblies(typeof(GameObject).Assembly, typeof(App).Assembly);
+        // Plugin dll'leri + oyun assembly'si: tek liste (GameCode.CodeAssemblies); null yok.
+        var code = _gameCode.CodeAssemblies;
+        var all = new System.Reflection.Assembly[2 + code.Length];
+        all[0] = typeof(GameObject).Assembly; all[1] = typeof(App).Assembly;
+        Array.Copy(code, 0, all, 2, code.Length);
+        var editorAndCode = new System.Reflection.Assembly[1 + code.Length];
+        editorAndCode[0] = typeof(App).Assembly;
+        Array.Copy(code, 0, editorAndCode, 1, code.Length);
+
+        _catalog = TypeCatalog.FromAssemblies(all);
         foreach (var r in _gameCode.Renames)
             _catalog.RegisterAlias(r.Key, r.Value); // typemap rename'leri: eski ad cozulur
         Scene.Active.Catalog = _catalog;
         _assets.Catalog = _catalog; // [Asset] nesne cache'i eski tiplerle birlikte duser
 
-        // SceneView araclari: builtin'ler + oyun assembly'sinin [EditorTool]'lari.
-        EditorTools.Rebuild(typeof(App).Assembly, _gameCode.GameAssembly);
+        // SceneView araclari: builtin'ler + oyun/plugin assembly'lerinin [EditorTool]'lari.
+        EditorTools.Rebuild(editorAndCode);
 
-        // RPC komutlari: builtin'ler + oyun assembly'sinin [RpcCommand]'lari.
-        RpcRegistry.Rebuild(typeof(App).Assembly, _gameCode.GameAssembly);
+        // RPC komutlari: builtin'ler + oyun/plugin assembly'lerinin [RpcCommand]'lari.
+        RpcRegistry.Rebuild(editorAndCode);
 
-        // Asset importer'lari: builtin'ler + oyun assembly'sinin [AssetImporter]'lari.
-        ImportPipeline.Rebuild(typeof(App).Assembly, _gameCode.GameAssembly);
+        // Asset importer'lari: builtin'ler + oyun/plugin assembly'lerinin [AssetImporter]'lari.
+        ImportPipeline.Rebuild(editorAndCode);
 
         // [CreateAssetMenu] tipleri: sag-tik Create menusu YALNIZ opt-in'lerden kurulur
-        // (motor + editor authoring tipleri + oyun assembly'si).
+        // (motor + editor authoring tipleri + oyun/plugin assembly'leri).
         AssetTypes.Clear();
-        foreach (var asm in _gameCode.GameAssembly != null
-            ? new[] { typeof(GameObject).Assembly, typeof(App).Assembly, _gameCode.GameAssembly }
-            : new[] { typeof(GameObject).Assembly, typeof(App).Assembly })
+        foreach (var asm in all)
         {
             foreach (var t in asm.GetTypes())
                 if (ObjectSerializer.IsCreatable(t))

@@ -2,11 +2,45 @@
 // PERFORMANS SOZLESMESI: steady-state SIFIR tahsis (alloc yalniz buyumede, kapasite 2x);
 // Dictionary = pow2 bucket + zincir, paralel diziler (struct-dizisi GC siniri nedeniyle
 // entry struct'i YOK: hashes/nexts/keys/values ayri - GC ref dizilerini normal tarar).
-// Anahtar hash/eq: kisitsiz T'de object uyeleri (transpiler deger tiplerinde boxing'siz inline'lar).
-// BILINCLI KISMI YUZEY: IEnumerable/foreach yok,
-// EqualityComparer yok (GetHashCode/Equals dogrudan).
+// Anahtar hash/eq: kisitsiz T'de object uyeleri (transpiler deger tiplerinde boxing'siz inline'lar);
+// comparer verilmisse (IEqualityComparer<T>, orn. StringComparer.OrdinalIgnoreCase) onun uzerinden.
+// BILINCLI KISMI YUZEY: IEnumerable/foreach yok.
 namespace System.Collections.Generic
 {
+    public interface IEqualityComparer<T>
+    {
+        public bool Equals(T x, T y);
+        public int GetHashCode(T obj);
+    }
+
+    // .NET: EqualityComparer<T>.Default. Roslyn anonim tip / record Equals-GetHashCode'u ve Dictionary varsayilan comparer
+    // deseni bunu kullanir. Varsayilan: object.Equals/GetHashCode (kisitsiz T -> deger tiplerinde transpiler inline'lar).
+    public abstract class EqualityComparer<T> : IEqualityComparer<T>
+    {
+        static EqualityComparer<T> defaultComparer; // ornekleme basina ayri static
+        public static EqualityComparer<T> Default
+        {
+            get
+            {
+                if (defaultComparer == null) defaultComparer = new DefaultEqualityComparer<T>();
+                return defaultComparer;
+            }
+        }
+        public abstract bool Equals(T x, T y);
+        public abstract int GetHashCode(T obj);
+    }
+
+    public sealed class DefaultEqualityComparer<T> : EqualityComparer<T>
+    {
+        public override bool Equals(T x, T y)
+        {
+            if (x == null) return y == null;
+            if (y == null) return false;
+            return x.Equals(y);
+        }
+        public override int GetHashCode(T obj) { return obj == null ? 0 : obj.GetHashCode(); }
+    }
+
     public class KeyNotFoundException : Exception
     {
         public KeyNotFoundException() : base("The given key was not present in the dictionary.") { }
@@ -304,6 +338,7 @@ namespace System.Collections.Generic
         public T[] items;
         public int size;
         public int count;
+        public IEqualityComparer<T> comparer; // null = T.GetHashCode/Equals dogrudan (sifir ek maliyet)
 
         public HashSet()
         {
@@ -314,6 +349,11 @@ namespace System.Collections.Generic
             size = 0;
             count = 0;
         }
+        public HashSet(IEqualityComparer<T> comparer) : this() { this.comparer = comparer; }
+        public HashSet(int capacity, IEqualityComparer<T> comparer) : this() { this.comparer = comparer; }
+
+        int HashOf(T item) { return (comparer == null ? item.GetHashCode() : comparer.GetHashCode(item)) & 0x7FFFFFFF; }
+        bool Eq(T stored, T item) { return comparer == null ? stored.Equals(item) : comparer.Equals(stored, item); }
 
         public int Count { get { return count; } }
         public HashSet<T>.Enumerator GetEnumerator() { return new HashSet<T>.Enumerator { set = this, index = -1 }; }
@@ -322,11 +362,11 @@ namespace System.Collections.Generic
 
         public int Find(T item)
         {
-            int hash = item.GetHashCode() & 0x7FFFFFFF;
+            int hash = HashOf(item);
             int index = buckets[hash & (buckets.Length - 1)] - 1;
             while (index >= 0)
             {
-                if (hashes[index] == hash && items[index].Equals(item)) return index;
+                if (hashes[index] == hash && Eq(items[index], item)) return index;
                 index = nexts[index] - 1;
             }
             return -1;
@@ -338,7 +378,7 @@ namespace System.Collections.Generic
         {
             if (Find(item) >= 0) return false;
             if (size == items.Length) { Grow(); }
-            int hash = item.GetHashCode() & 0x7FFFFFFF;
+            int hash = HashOf(item);
             int bucket = hash & (buckets.Length - 1);
             hashes[size] = hash;
             items[size] = item;
@@ -351,13 +391,13 @@ namespace System.Collections.Generic
 
         public bool Remove(T item)
         {
-            int hash = item.GetHashCode() & 0x7FFFFFFF;
+            int hash = HashOf(item);
             int bucket = hash & (buckets.Length - 1);
             int index = buckets[bucket] - 1;
             int previous = -1;
             while (index >= 0)
             {
-                if (hashes[index] == hash && items[index].Equals(item))
+                if (hashes[index] == hash && Eq(items[index], item))
                 {
                     if (previous < 0) buckets[bucket] = nexts[index];
                     else nexts[previous] = nexts[index];
@@ -504,7 +544,10 @@ namespace System.Collections.Generic
         public K[] keys;
         public V[] values;
         public int size;
+        public IEqualityComparer<K> comparer; // null = K.GetHashCode/Equals dogrudan (sifir ek maliyet)
         public Dictionary(int capacity) : this() { } // kapasite ipucu: buyume zaten dinamik
+        public Dictionary(IEqualityComparer<K> comparer) : this() { this.comparer = comparer; }
+        public Dictionary(int capacity, IEqualityComparer<K> comparer) : this() { this.comparer = comparer; }
         public Dictionary()
         {
             buckets = new int[8];
@@ -514,6 +557,8 @@ namespace System.Collections.Generic
             values = new V[8];
             size = 0;
         }
+        int HashOf(K key) { return (comparer == null ? key.GetHashCode() : comparer.GetHashCode(key)) & 0x7FFFFFFF; }
+        bool Eq(K stored, K key) { return comparer == null ? stored.Equals(key) : comparer.Equals(stored, key); }
         public int Count { get { return size; } }
         public Dictionary<K, V>.KeyCollection Keys { get { return new Dictionary<K, V>.KeyCollection { dictionary = this }; } }
         public Dictionary<K, V>.ValueCollection Values { get { return new Dictionary<K, V>.ValueCollection { dictionary = this }; } }
@@ -524,11 +569,11 @@ namespace System.Collections.Generic
         void ICollection<KeyValuePair<K, V>>.Add(KeyValuePair<K, V> item) { this[item.Key] = item.Value; }
         public int Find(K key)
         {
-            int h = key.GetHashCode() & 0x7FFFFFFF;
+            int h = HashOf(key);
             int i = buckets[h & (buckets.Length - 1)] - 1;
             while (i >= 0)
             {
-                if (hashes[i] == h && keys[i].Equals(key)) { return i; }
+                if (hashes[i] == h && Eq(keys[i], key)) { return i; }
                 i = nexts[i] - 1;
             }
             return -1;
@@ -536,13 +581,13 @@ namespace System.Collections.Generic
         public bool ContainsKey(K key) { return Find(key) >= 0; }
         public bool Remove(K key)
         {
-            int hash = key.GetHashCode() & 0x7FFFFFFF;
+            int hash = HashOf(key);
             int bucket = hash & (buckets.Length - 1);
             int previous = -1;
             int index = buckets[bucket] - 1;
             while (index >= 0)
             {
-                if (hashes[index] == hash && keys[index].Equals(key)) { break; }
+                if (hashes[index] == hash && Eq(keys[index], key)) { break; }
                 previous = index;
                 index = nexts[index] - 1;
             }
@@ -603,7 +648,7 @@ namespace System.Collections.Generic
                 int i = Find(key);
                 if (i >= 0) { values[i] = value; return; } // upsert
                 if (size == keys.Length) { Grow(); }
-                int h = key.GetHashCode() & 0x7FFFFFFF;
+                int h = HashOf(key);
                 int b = h & (buckets.Length - 1);
                 hashes[size] = h;
                 keys[size] = key;

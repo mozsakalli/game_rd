@@ -133,6 +133,11 @@ typedef struct
     double pad; // payload alani: header'dan hemen sonra, 8 hizali
 } DigitoyEngineBoxSlot;
 
+// .NET Math.Round(double) = MidpointRounding.ToEven (banker's); C rint() varsayilan yuvarlama modunda (FE_TONEAREST) ayni
+double System_Math_Round_Double(double value)
+{
+    return rint(value);
+}
 double System_Math_Ceiling_Double(double value)
 {
     return ceil(value);

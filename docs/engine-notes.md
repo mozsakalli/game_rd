@@ -1,82 +1,66 @@
 # DigitoyEngine R&D (game_rd)
 
-## iOS HEDEFİ (H6 ilk dilim; 2026-10-13) — ayrıntı docs/platform-hosts.md "H6 (iOS)"
-- Jargon: hedef adı `ios` (Unity gibi; `apple-mobile` değil), `aotcompiler/platforms/ios/`, menü "Build iOS Project (Xcode)", RPC
-  `player.build target=ios`. `PlayerSettings.ios` (`IosSettings`: bundleId, buildNumber, minIos, teamId, icon) — imza Xcode'un işi.
-- Mimari: Android'in aynası. `Build/ios/generated/` her build (cpp/ artımlı), kabuk (`Game.xcodeproj`, `Game/Info.plist`, storyboard)
-  ilk kez kopyalanır, sonra kullanıcıya ait; değişken her şey `generated/app.xcconfig`'ten (Info.plist `$(DE_APP_NAME)`, `$(DE_ORIENTATION_n)`).
-- TUZAK (Xcode 16 synchronized folder): pbxproj'da kaynak listesi yok, `cpp/` altında NE VARSA derlenir → aotcompiler `cpp/`'ye yalnız
-  derlenecekleri koyar (host_desktop/host_android/stb_vorbis.c YOK), ObjC gerekenleri `.m` adıyla kopyalar (`sokol_shim.m`, `audio_shim.m`),
-  eskiyen dosyaları siler. `SOKOL_IMPL` proje geneli define'dır (yalnız bu iki dosya sokol impl header'ı include eder → güvenli).
-- TUZAK (pbxproj yolları): `SRCROOT` = `Build/ios` (xcodeproj'un dizini); `generated/...` yazılır, `../generated` DEĞİL — yanlış yolda
-  xcconfig sessizce okunmaz, hedef macOS'a düşer (`-showBuildSettings | grep SDKROOT` ile anla).
-- sokol_shim.c: GLFW/AppKit/Cocoa menü-dialog blokları `TARGET_OS_OSX`; iOS'ta `de_metal_init_layer(CAMetalLayer*)`. Host `c_runtime/host_ios.m`
-  (ARC; `release:` selector adı yasak → `freeTouch:`). Publisher `NativeSources` c_runtime `*.m` de kopyalar.
-- Doğrulama yolu: editör RPC `player.build ios` → `xcodebuild -project Build/ios/Game.xcodeproj -scheme Game -sdk iphonesimulator
-  -destination 'platform=iOS Simulator,name=iPhone 16 Pro' CODE_SIGNING_ALLOWED=NO build` → `xcrun simctl install/launch booted <bundleId>`
-  (`--console-pty` pipe'ı öldürülürse uygulama da ölür; screenshot için consolesuz launch).
-
-## TUZAK: RID'li publish IL'i x64 işaretler → mac'te "architecture not compatible" (2026-10-13)
-- Belirti: `~/DigitoyPublish/.../DigitoyEditor` → `FileLoadException ... DigitoyEditor.dll ... assembly architecture is not
-  compatible` (`file` çıktısı `PE32+ x86-64`). Sebep: `dotnet publish -r win-x64` SDK'da `PlatformTarget`'ı örtük x64 yapar;
-  paket tek IL + RID'e özgü apphost'lar (win-x64 exe, osx-arm64 Mach-O) kullandığı için arm64 runtime IL'i reddeder.
-- Fix: EditorPublisher `edCommon`'a `-p:PlatformTarget=AnyCPU` (her iki RID publish'inde). Paylaşılan IL üreten her RID'li
-  publish'te bu zorunlu. Doğrulama: `file DigitoyEditor.dll` → `PE32 ... Intel 80386` (AnyCPU).
-- Publisher'ın `managed` adımı kendi kaynağını hash'e katmaz; publisher değişince `sdk/manifest.json` sil ki yeniden üretsin.
-- AYNI GÜN 2. tuzak: yayınlanan dylib'de `de_msdf_font_open` yok → font import FAIL → text/LayoutBox/SDF görünmez. Publisher'ın
-  `NativeMac`/`EditorNativeWin` adımları `build_editor.sh/.cmd`'nin KOPYASI (msdfgen C++ + `de_image_write.c` eksikti) →
-  `CompileMsdf` eklendi, `-lc++`. KURAL: build_editor betiğine kaynak eklenince publisher'a da ekle (üç yer: .sh, .cmd, Program.cs).
-  `NativeInputs` hash'i artık `.cpp/.hpp` de kapsar.
-
-## TUZAK: clang-format EM_JS gövdesini bozuyor (2026-10-13, wasm link OK)
-- `de_fs.c` prefs EM_JS'lerinde `===` → `== =` olmuştu (formatter JS'i C sandı) → emcc link'te acorn
-  `SyntaxError: Unexpected token (6014:124)` (hata satırı `function de_js_prefs_get...`). Derleme geçer, LINK patlar.
-- Kural: her EM_JS/EM_ASM bloğu `// clang-format off ... on` içinde (de_net.c zaten öyleydi; de_fs.c + audio_shim.c eklendi).
-- Yayınlanmış editör (prebuilt sdk modu) native kaynağı REPODAN değil `C:\DigitoyPublish\<v>\...\sdk\native\engine\`
-  kopyasından derler; repo düzeltmesi oraya publish (EditorPublisher, hash'li kopya) ya da elle kopya ile gider.
-  Publisher'ın `managed` adımı açık editörün exe'sini kilitte bulur → önce editörü kapat.
-
-## RPC TOPLU MUTASYON: scene.apply + edit.batch (2026-10-12, Sandbox'ta RPC ile doğrulandı)
-- SORUN: AI sahne kurulumunda darboğaz RPC değil TUR SAYISI (her araç çağrısı = bir model turu). 10 GO'luk UI ≈ 80 çağrı.
-  Alternatif "YAML'ı doğrudan yaz" reddedildi: Dirty sahnede watcher dosyayı yutar (bellek kazanır), undo gider, şema
-  doğrulaması (enum case, ref format, prefab semantiği, id üretimi) reload'a kadar görünmez. Karar: TAŞIMA değil GRANÜLERLİK
-  değişti — aynı doc-mutasyon boğazları, tek istekte N op.
-- `scene.apply(objects, parent=0)`: bildirimsel alt ağaç `{name,id?,parent?,insertBefore?,active?,layer?,pos,rot,scale,
-  components:[{type,index?,enabled?,props:{Alan: v, "Tracks[0].Path": v}}],children:[...]}`. `id` varsa MEVCUT GO güncellenir
-  (component: index varsa o, yoksa aynı tipten ilki, o da yoksa eklenir). Dönüş girdiyle aynı yapıda `{name,id,components:[idx],
-  children}`. Prop değerleri prop.set çekirdeğinden (`SetPropPath`) geçer → iç içe yol + şema hatası aynı.
-- `edit.batch(ops)`: `[{cmd,args,as?}]`; izinli cmd ALLOWLIST (BatchAllowed: addGo/removeGo/rename/reparent/apply, comp.add/
-  remove/setEnabled, prop.set, transform.set, go.setActive, select.set) — deferred/oturum komutları (sim.run, scene.open…)
-  atomikliği bozar, reddedilir. `RpcRegistry.Invoke(entry, ctx, DocNode)` eklendi (JSON gidiş-dönüşsüz).
-- `$Ad` REFERANSI (her ikisinde, props dahil recursive): apply'da bu çağrıda adlandırılan GO → id; batch'te `as` alias'ı →
-  sonucun id'si (comp.add için index), `$x.alan` açık alan; alias yoksa sahnede o adla TEK GO (belirsizse hata). `$Ad:Transform:0`
-  CompRef kuyruğu korunur. '$' ile başlayan gerçek metin değerleri bu yüzden yasak (sözleşme).
-- ATOMİK + TEK UNDO + TEK RELOAD: `UndoStack.BeginGroup/EndGroup/RollbackGroup` + `GroupOp` (undo ters, redo ileri);
-  `EditorScene.BeginBatch/EndBatch/RollbackBatch` ayrıca `RefreshLive`'ı askıya alır (`_refreshSuspend`, batch sonunda bir
-  Instantiate). İlk hata → RollbackGroup: op'lar ters sırada undo'lanır ve journal'dan silinir (undo/redo'da iz yok), hata
-  mesajı `objects[1]: children[0]: components[0] LayoutBox.widht: ...` yol + "geri alındı" notu. İç içe (batch → apply) ikinci
-  grup açmaz (`History.InGroup` → inline, dış grup rollback'i üstlenir).
-- Askıdayken yeni GO'nun canlısı yok → `ApplyField/ApplyTransform` null-safe atlar, son reload doc'tan kurar (zaten öyleydi).
-- KAPSAM DIŞI (bilerek): prefab instantiate RPC'si hâlâ yok (apply `prefab:` almaz).
-- KÖR AJAN TESTİ (aynı gün, yalnız RPC yanıtlarıyla Settings paneli kuruldu — ilk denemede doğru çıktı). Takılma
-  noktaları ve yapılanlar:
-  * Yazım anı ŞEMA DOĞRULAMASI (`RpcCommands.Validate`, prop.set + apply + batch ortak yaprak): `Ease:"outback"`,
-    `color:"red"`, `width:"big"`, `"10,20"` vektör, olmayan asset/GO/CompRef, nested bilinmeyen alan — hepsi daha önce
-    SESSİZCE doc'a giriyordu (runtime'da default/beyaz/sıfır; screenshot'ta bile anlaşılmıyor). Artık yol + sebep +
-    öneri ile red (enum case: "'outback' değil 'OutBack' (değerler: ...)"). Normalize: `#rrggbb`→`#rrggbbff`, asset yolu→guid.
-  * `comp.schema` alanlara `default` ekler (CreateDefaultFieldNode; List/Object hariç) — ajan "yazmazsam ne olur" bilsin.
-  * `input.tap/drag` → `{gesture, hit, target:"BG/Panel/SoundBtn", handlers:N, note}` (`PointerInput.LastDownTarget/
-    LastGestureHandlers/LastDownMissed`, alloc'suz). Eski `{ok:true}` hiçbir şey söylemiyordu (handler yok mu, ıska mı?).
-  * `rpc.guide` = START HERE: iş akışı, UI=LayoutBox kavramı, "Buton tipi yok, davranış kod ister", değer biçimleri,
-    MovieClip tarifi, koordinat sözleşmesi. `rpc.describe` 10 KB tek satır — ajan dosyaya düşürüp ayrıştırmak zorunda kaldı.
-  * `scene.dumpLive` `depth` → `level` (kamera depth'iyle karışıyordu).
-  * JSON null artık `DocNode.Null()` (`IsNull`) olarak taşınır: apply props'ta ve batch içindeki `prop.set value:null`
-    "default'a dön/eleman sil" çalışır (önceden `""` skalerine dönüşüyordu — batch'te sessiz bug'dı).
-  * Doğrulandı: CameraComponent OPSİYONEL (piksel-ortho fallback'le UI 1:1 mantıksal ölçekte çizilir).
-  * MCP `instructions` (initialize yanıtı; istemci sistem promptuna gömer) ARTIK SABİT METİN DEĞİL: köprü initialize
-    anında editörden `rpc.guide` çeker ve gömer; editör kapalıysa yalnız "önce rpc_guide çağır" satırı. Kural metninin
-    tek sahibi editör (`RpcCommands.Guide`): değişiklik orada yapılır, köprüye dokunulmaz. Kullanıcı prompt'ta
-    "rpc_describe çağır" yazmak zorunda değil.
+## AOT KİMLİK = YAPISAL; isim yalnız emisyon (CoreCLR/IL2CPP modeli; 2026-10-13, selftest 80/82 (2 eski), yuzbirextra+Common.dll exe OK)
+- Belirti: `class EncodedSerializer : Serializer<Encoded> { override ShouldEncode(Encoded) }` → "override edilecek virtual yok":
+  vtable slotu MANGLED İSİMLE eşleniyordu; generic örnek klonları şablon adını (`ShouldEncode_T`) taşırken türeyen somut sınıf
+  `ShouldEncode_M_Encoded` üretiyordu. Matristeki `Derived<T>:Base<T>` yalnız iki tarafın da `T` harfini kullandığı için geçiyordu —
+  imzasında T taşıyan sanal üye hiç test edilmemişti. Aynı kök: `Apply`/`PointerOf` intern'siz → `SameType` ad karşılaştırıyordu;
+  `Context.Codes` string anahtarlı; `FindCode` 3 mekanizma (TryGetCode / MangleCandidates kartezyen / FindGenericMethod).
+- KARAR (tek seferde, geçişsiz): .NET `MethodTableBuilder`/IL2CPP kuralı — kimlik yapısal, mangled ad yalnız C sembolü/trace çıktısı.
+  * Tip: `Context.Definitions` yalnız CLR tam ad → TANIM (metadata zaten isimle gelir; alias burada). Generic uygulama
+    `ctx.Apply(def,args)` yapısal intern (ApplyKey); kapalı uygulama somutlanınca AYNI nesne yerinde örneğe döner
+    (`InstantiatedFrom` set, `GenericTemplate` null) → önceki referanslar geçerli kalır. `PointerOf/FixedArrayOf` dizi gibi intern.
+    Tip eşitliği her yerde `==`. `Primitive.Definition` = `GenericTemplate ?? InstantiatedFrom ?? this` ("(x.GenericTemplate ?? x)"
+    kalıbının tek doğru hali — somut örnekte eski kalıp kendisini döndürüp yanlış sonuç verirdi).
+  * Code: `SimpleName` (metadata adı) kaynak; `Name` TÜRETİLMİŞ get-only (simple + param tip adları; klon = şablon adı
+    [+`<margs>`] → `Ov<int>.Foo(T)/Foo(int)` sembolleri `Foo_T`/`Foo_Int` ayrı kalır; corelib byref `out_/ref_` sözleşmesi
+    `ByrefNamedMangle` + `Argument.IsOutParam` flag'inden — corelib.c sembolleri ve host/modül Fnv64 hash'leri DEĞİŞMEDİ).
+    Kayıt anahtarı `CodeKey(owner, RootTemplate, methodTypeArgs)`; `ctx.MembersOf(owner)` indeksi; `ctx.FindMember(owner,
+    simple, paramCount)` yalnız ctor/cctor/finalize/get_X gibi metadata adı sorguları için. Property `Getter/Setter` Code referansı
+    frontend'de bağlanır (`ReflectionAccessor(model,"set_X_Type")` string araması silindi).
+  * `Signature.cs` tek yer: `Matches` (ad + arity + param tipleri `==`, generic metot parametreleri konumsal; DÖNÜŞ TİPİ HARİÇ —
+    .NET override kuralı, covariant return serbest), `MatchesCall`/`Unify` (MemberRef çözümü; generic metotta arity + unify yeter,
+    T yalnız dönüşte olabilir: `Array.Empty<T>()`). `Hierarchy`: override → parent vtable'da imza eşleşen İLK slot; explicit iface
+    impl'leri slot eşlemesine girmez; newslot her zaman yeni slot (`Ov<int>.Foo(T)/Foo(int)` çakışması .NET'te de geçerli — eski
+    "virtual slot zaten var" hatası kaldırıldı). GENERIC SANAL METOT: şablon slot açmaz; her (metot, margs) örneklemesi ayrı slot,
+    türeyen override'ın aynı margs örneği Hierarchy'de üretilir (IL2CPP generic virtual method table karşılığı) → Resolver sabit
+    noktası Hierarchy/Concretize yeni kod kaydettiyse tekrar döner. CallVirtual slot = `VTable.IndexOf(op.Code)`.
+  * Silinen miras (MiniCs dönemi, hiçbir yerden çağrılmıyordu): ACode/APrimitive/OpAsm/IteratorLowering/TextIO, `Code/Primitive
+    Encode/Decode`, `Unresolved` placeholder çözümü (Resolver.Register/ResolvePrimitive/ResolveCode).
+- TESTLER: `Cases/Test63.cs` (case 74–83): somut argümanlı taban (`IntSer : Ser<int>`), farklı harf `D<U>:B<U>`, 3 seviye
+  `Base<T>→Mid<T>→Leaf:Mid<string>` + `base.`, `override Mix(ref T, out T)`, generic sınıfta generic metot override `Pair<U>(T,U)`,
+  `Foo(T)/Foo(int)` çakışması, `IConv<int>` explicit/generic/miras impl, `virtual T Value` + reflection SetValue, `abstract T Make()`,
+  comparer/Format (83). Sandbox windows exe çalışır, wasm lean linkler, editor build OK. Yan bulgu düzeltildi: sanal trampolin
+  (`de_tramp_v_*`) `DeSlot a[]`/`r` yerelleri C# param adı `a`/`b` ile çakışıyordu → CArgNames'e rezerve.
+- CORELIB EKLERİ (Digitoy.Common.dll'in istedikleri): `IEqualityComparer<T>`, `EqualityComparer<T>.Default` (örnekleme başına
+  singleton, object.Equals/GetHashCode varsayılanı), `StringComparer : IEqualityComparer<string>`, `Dictionary/HashSet(comparer)`
+  ctor'ları (`comparer == null` yolu eski sıfır-alloc davranışı birebir; `HashOf/Eq` yardımcıları), `IFormatProvider`,
+  `string.Format(object…)/(IFormatProvider, string, object[])` (`{i[,align][:fmt]}`; align uygulanır, fmt/provider yok sayılır —
+  Roslyn anonim tip/record ToString'i bunu üretir), `FormatException/ArgumentException/ArgumentNullException`, `Math.Round(double)`
+  (C `rint` = ToEven), `Span<T>.Fill/Clear` saf C# (indexer intrinsic'i üzerinden; extern'di ama frontend lowering'i yoktu → link hatası).
+  Emisyon düzeltmesi: tek-dosya `TranspileProgram` ileri `struct X;` bildirimlerini paylaşımlı header'dan SONRA basıyordu → String
+  prototipi `struct System_IFormatProvider*` görünce tag prototip kapsamında kalıp "incompatible pointer types" veriyordu; sıra
+  düzeltildi (çok-dosya yolu zaten doğruydu). yuzbirextra + Digitoy.Common.dll → `yuzbirextra.exe` (9045 KB) linkliyor.
+- TUZAK (bu oturumda yaşandı): PowerShell 5 `Get-Content`/`Set-Content -Encoding UTF8` BOM'suz UTF-8 dosyayı ANSI okuyup BOM'lu
+  yazar → "—" gibi karakterler `â€”` olur, BOM eklenir. Toplu metin değişiminde `[IO.File]::ReadAllBytes` + `UTF8Encoding(false)`
+  kullan; sonrasında `git diff` ile non-ASCII satırları kontrol et. Ayrıca çok satırlı `.Replace()` CRLF dosyada sessizce tutmaz.
+- STUB KAPISI KÖKLERİ (2026-10-13): kapı yalnız 6 host girişinden yürüyordu; cctor'lar op'la çağrılmadığı (EmitInit doğrudan) için stub
+  cctor (`M.CodecTypes.cctor` → ConcurrentDictionary yok) build'de görünmeyip runtime'da patlıyordu. Şimdi kapı trim planından SONRA
+  koşar, kökler = host girişleri + `CTranspiler.InitRoots` (EmitInit ile aynı kaynak: canlı eager cctor'lar + finalizer'lar +
+  exception-kind ctor'ları). Yol raporunda `<cctor: EmitInit eager>`. Lean'de ölü cctor hata değil.
+- CORELIB: `System.Collections.Concurrent.ConcurrentDictionary<K,V>` (Concurrent.cs) — TEK THREAD sarmalayıcı (kilit yok), yüzey .NET
+  ile birebir. DERS: corelib imzaları DÖNÜŞ TİPİ DAHİL .NET'le aynı olmalı — kullanıcı DLL'i gerçek .NET'e karşı derlenir; `GetEnumerator`
+  struct dönünce IL arayüz bekleyip kutuladı → InvalidCast (case 84 yakaladı). Frontend'de ad-remap/intrinsic YAPILMADI (kimlik = tip).
+  Regex: corelib'deki `Regex` gerçek motor değil (statik prefix/suffix) → `new Regex(p, RegexOptions)` (M.NickValidator.cctor) kapıda
+  kırmızı — bilinçli; çözüm Common'da regex'siz doğrulama ya da ayrı planla sınırlı motor.
+- TRIM: LEAN'DE CCTOR KÖKÜ = DOKUNULAN TİP (2026-10-13). Eskiden TÜM cctor'lar kök + EmitInit hepsini eager çağırıyordu → referanssız
+  plugin (Digitoy.Common) lean'de bile canlı kalıyor, cctor'ları koşuyordu. Şimdi [TrimAnalysis.Reach](../aotcompiler/source/Trim/TrimAnalysis.cs)
+  `Touch(tip)`: üyesi çağrılan / statik alanına erişilen / `New`'lenen / reflection facet'li (Ctors|Methods|Props|Fields) tipin cctor'u
+  canlı; EmitInit zaten yalnız canlı cctor'ları basar (IsEmittableCode→IsCodeLive), StaticDeps sırası aynen. `full` (modül host)
+  eager kalır: dmod kodu host'un her statiğine dokunabilir. Sonuç: yuzbirextra lean 9045→4065 KB, `M.*` 1772 kod ölü, 0 canlı
+  (yalnız 2 attribute tipi reflection facet'i — CollectAutoRoots her kullanılan attribute tipini kök sayar, konservatif); Sandbox
+  lean 3019 KB çalışır, yuzbirextra lean Login sahnesine kadar çalışır. Lazy cctor (.NET beforefieldinit, A seçeneği) bilinçli
+  ertelendi: her statik erişime dal + descriptor'a ensure gerekir; ihtiyaç doğarsa plan engine-notes'ta (bu girdi).
 
 ## AOT: DİZİ = BİRİNCİ SINIF TİP (kanonik T[] descriptor) + Activator struct (2026-10-12, selftest 70/72 (2 eski), yuzbir AOT full+lean boot OK)
 - SORUN: AOT alan metasında dizi alanlarının tipi `0` idi (`ReflectionTypeSym` Array → "0") → `FieldInfo.FieldType == null`
@@ -217,6 +201,16 @@
   median yerine gerçek SDF (.a) kullan — köşe keskinliği korunur, uzak artifact'lar yok olur. UiPieces bölgeleri 4 kanal
   eşit → etkilenmez. NOT: aynı düzeltme engine `UiPieces.MsdfFragment`'a da uygulanmalı (managed shader string; sonra).
   Teşhis alanı `textDebug` UIBox'ta kaldı (Off varsayılan).
+- RADIAL + LIGHT (2026-10-13): `UIFillType.Radial` (gradient 0 = merkez, 1 = kenar; tek lineer rampa, ara duraklar yok;
+  yalnız `fill`'de anlamlı, diğer katmanlar kenar rengini kullanır) → taban katman kenar rengiyle düz + `EmitRadial`
+  overlay (engine portu: Shadow parçası ham rampa USER.w>0, 4 çeyrek quad, closest-side elips). `UIBoxLight {enabled,
+  color, width, height, offsetX/Y}` = aynı EmitRadial ile üst-orta prosedürel gloss (16 vertex, doku/draw yok); sprite
+  override atlas sprite fazında. Çizim: fill(+radial) → iç gölge → light → metin. Dikey gradient t=0 ALT (kullanıcı).
+- ENGINE LayoutBox LIGHT (2026-10-13, layout testleri 40/40 PASS, görsel kullanıcıda): Unity'deki Light'ın engine muadili.
+  Alanlar `lightColor` (a>0 = açık), `lightWidth` (oran, 0.9), `lightHeight` (px, 24), `lightOffset` (Vec2 0,2); stil
+  setter'ları düz assignment. `EmitRadial` artık renk parametresi alır (radyal fill `fill.color` geçer); `EmitLight` =
+  üst-orta dikdörtgene EmitRadial → +4 instanced quad, aynı draw. Düz VE dokulu (sprite) yolda çizilir, metinden önce.
+  Test: StyleMeshSmoke "light +4 quad".
 - GRADIENT → `UIFill` TİPİ (2026-10-12, kullanıcı: "fillGradient gibi değil, adam gibi tip"): `UIFill {type Solid|Gradient,
   color, UnityEngine.Gradient, horizontal}` + `Evaluate(t)`, `Visible`, `InnerKeyTimes`. Alanlar: `fill`, `borderFill`,
   `textFill`, `textOutline` (hepsi UIFill; eski borderColor/textColor/UIBoxGradient SİLİNDİ). `Graphic.color` YOK SAYILIR

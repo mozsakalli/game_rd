@@ -38,6 +38,54 @@ namespace System
         public extern static bool IsNullOrWhiteSpace(string value);
         public extern static string Format(string format, byte arg0);
         public extern static string Format(string format, byte arg0, byte arg1, byte arg2, byte arg3);
+        // Bilesik bicimleme: {index[,align][:fmt]} -> args[index].ToString(), align uygulanir (fmt/provider YOK SAYILIR: kultur yok),
+        // {{ }} kacislari. Roslyn anonim tip/record ToString'i Format(IFormatProvider, string, object[]) uretir.
+        public static string Format(string format, object arg0) { return Format(null, format, new object[] { arg0 }); }
+        public static string Format(string format, object arg0, object arg1) { return Format(null, format, new object[] { arg0, arg1 }); }
+        public static string Format(string format, object arg0, object arg1, object arg2) { return Format(null, format, new object[] { arg0, arg1, arg2 }); }
+        public static string Format(string format, params object[] args) { return Format(null, format, args); }
+        public static string Format(IFormatProvider provider, string format, params object[] args)
+        {
+            if (format == null) throw new ArgumentNullException("format");
+            var sb = new Text.StringBuilder();
+            int n = format.Length;
+            for (int i = 0; i < n; i++)
+            {
+                char c = format[i];
+                if (c == '{')
+                {
+                    if (i + 1 < n && format[i + 1] == '{') { sb.Append('{'); i++; continue; }
+                    int j = i + 1, index = 0;
+                    if (j >= n || format[j] < '0' || format[j] > '9') throw new FormatException("Input string was not in a correct format.");
+                    while (j < n && format[j] >= '0' && format[j] <= '9') { index = index * 10 + (format[j] - '0'); j++; }
+                    int align = 0; bool neg = false;
+                    if (j < n && format[j] == ',')
+                    {
+                        j++;
+                        while (j < n && format[j] == ' ') j++;
+                        if (j < n && format[j] == '-') { neg = true; j++; }
+                        while (j < n && format[j] >= '0' && format[j] <= '9') { align = align * 10 + (format[j] - '0'); j++; }
+                    }
+                    while (j < n && format[j] != '}') j++; // :fmt atlanir (kultur/IFormattable yok)
+                    if (j >= n) throw new FormatException("Input string was not in a correct format.");
+                    if (args == null || index >= args.Length) throw new FormatException("Index (zero based) must be greater than or equal to zero and less than the size of the argument list.");
+                    object a = args[index];
+                    string text = a == null ? "" : a.ToString();
+                    if (text == null) text = "";
+                    if (!neg && text.Length < align) sb.Append(' ', align - text.Length);
+                    sb.Append(text);
+                    if (neg && text.Length < align) sb.Append(' ', align - text.Length);
+                    i = j;
+                }
+                else if (c == '}')
+                {
+                    if (i + 1 < n && format[i + 1] == '}') { sb.Append('}'); i++; continue; }
+                    throw new FormatException("Input string was not in a correct format.");
+                }
+                else sb.Append(c);
+            }
+            return sb.ToString();
+        }
         public static string Concat(string a, string b) { return Concat(a, b, ""); } // Roslyn well-known uye: `a + b` BUNA lower edilir (govdede + yazilamaz: ozyineleme)
         public extern static string Concat(string a, string b, string c);
         public static string Concat(string a, string b, string c, string d) { return Concat(Concat(a, b, c), d, ""); }

@@ -101,7 +101,7 @@ namespace DigitoyEngine.Language
             public bool IsLocalCode(Code c, out bool preferHost)
             {
                 preferHost = false;
-                if (c == null || c.Unresolved || c.IsExternal || c.NativeBody != null) return false; // govde C'de -> host'ta olmali
+                if (c == null || c.IsExternal || c.NativeBody != null) return false; // govde C'de -> host'ta olmali
                 if (c.GenericParameters.Count > 0 || (c.Owner != null && (c.Owner.IsGeneric || c.Owner.GenericTemplate != null))) return false;
                 if (c.Owner != null && IsLocalType(c.Owner, out var ownerPrefer))
                 {
@@ -149,7 +149,7 @@ namespace DigitoyEngine.Language
                 var r = new List<PrimitiveAttribute>();
                 if (attrs == null) return r;
                 foreach (var a in attrs)
-                    if (a.Type != null && a.Type.Type == PrimitiveType.Model && !a.Type.IsStruct && !a.Type.IsGeneric && a.Ctor != null && !a.Ctor.Unresolved
+                    if (a.Type != null && a.Type.Type == PrimitiveType.Model && !a.Type.IsStruct && !a.Type.IsGeneric && a.Ctor != null
                         && a.Ctor.Arguments.Count == a.FixedArgs.Count + 1)
                         r.Add(a);
                 return r;
@@ -199,7 +199,7 @@ namespace DigitoyEngine.Language
                         Method(c, "uye:" + p.Name);
                 foreach (var m in p.VTable) Method(m, "vtable:" + p.Name);
                 for (int i = 0; i < p.VTable.Count; i++) // slot kok bildirenleri (WriteType ile ayni yuruyus; parent host olsa da ref gerekir)
-                    for (var t = p.Parent; t != null && !t.Unresolved && i < t.VTable.Count; t = t.Parent)
+                    for (var t = p.Parent; t != null && i < t.VTable.Count; t = t.Parent)
                         Method(t.VTable[i], "vtable-decl:" + p.Name);
                 foreach (var kv in p.ITables) { Type(kv.Key); foreach (var m in kv.Value) Method(m, "itable:" + p.Name); foreach (var im in kv.Key.VTable) Method(im, "iface:" + kv.Key.Name); }
             }
@@ -331,7 +331,7 @@ namespace DigitoyEngine.Language
             for (int i = 0; i < p.VTable.Count; i++)
             {
                 var decl = p.VTable[i];
-                for (var t = p.Parent; t != null && !t.Unresolved && i < t.VTable.Count; t = t.Parent)
+                for (var t = p.Parent; t != null && i < t.VTable.Count; t = t.Parent)
                     decl = t.VTable[i];
                 b.Write(w.Method(decl, "vtable-decl")); b.Write(w.Method(p.VTable[i], "vtable"));
             }
@@ -369,7 +369,7 @@ namespace DigitoyEngine.Language
             bool local = w.IsLocalCode(c, out var prefer);
             b.Write((byte)(local ? 1 : 0));
             b.Write(w.Str(c.EncodeName())); b.Write(w.Type(c.Owner));
-            b.Write((byte)((c.IsStatic ? 1 : 0) | (c.IsVirtual || c.IsOverride ? 2 : 0) | (prefer ? 4 : 0) | (c.Name == "ctor" || c.Name.StartsWith("ctor_") ? 8 : 0) | (c.UntranslatableReason != null ? 16 : 0)));
+            b.Write((byte)((c.IsStatic ? 1 : 0) | (c.IsVirtual || c.IsOverride ? 2 : 0) | (prefer ? 4 : 0) | (c.SimpleName == "ctor" ? 8 : 0) | (c.UntranslatableReason != null ? 16 : 0)));
             b.Write(w.Type(c.ReturnType)); b.Write(c.Arguments.Count);
             foreach (var a in c.Arguments) { b.Write(w.Type(a.Type)); b.Write((byte)((a.IsRef ? 1 : 0) | (a.IsOut ? 2 : 0))); }
             if (!local) return;

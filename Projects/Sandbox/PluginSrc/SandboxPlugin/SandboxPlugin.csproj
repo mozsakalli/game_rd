@@ -1,0 +1,27 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Managed plugin ORNEGI: ciktisi Assets/Plugins/SandboxPlugin.dll (Unity Plugins modeli). Editor dll'i oyun
+       ALC'sine yukler, aotcompiler IL'ini player'a alir. Derle: dotnet build Projects/Sandbox/PluginSrc/SandboxPlugin
+       Yalniz bu dll kopyalanir (engine referansi Private=false; DigitoyEngine.dll Assets'e DUSMEMELI). -->
+  <PropertyGroup>
+    <TargetFramework>net9.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>SandboxPlugin</AssemblyName>
+    <RootNamespace></RootNamespace>
+    <OutDir>..\..\Assets\Plugins\</OutDir>
+    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>
+    <GenerateDependencyFile>false</GenerateDependencyFile>
+    <CopyLocalLockFileAssemblies>false</CopyLocalLockFileAssemblies>
+    <DebugType>portable</DebugType>
+    <BaseIntermediateOutputPath>..\..\Library\PluginSrc\SandboxPlugin\obj\</BaseIntermediateOutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Reference Include="DigitoyEngine">
+      <HintPath>..\..\..\..\editor\bin\Debug\net9.0\DigitoyEngine.dll</HintPath>
+      <Private>false</Private>
+    </Reference>
+  </ItemGroup>
+
+</Project>

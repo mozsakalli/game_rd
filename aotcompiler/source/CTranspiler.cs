@@ -9,7 +9,7 @@ namespace DigitoyEngine.Language
     // Op akisini "derleme-zamani C ifade metni" stack'i uzerinden C koduna katlar (old_dotnet_compiler'daki
     // PlainEmitter/CVal fikrinden ilham). VM.Run ile AYNI switch iskeleti; fark: deger yerine C metni tasinir.
     // Kapsam: Model (struct), FixedArray alan, GetIndex/SetIndex, New, Call, Label/Br/Brtrue/Brfalse, Ceq/Cgt/Clt,
-    // aritmetik. Generic template'ler ve Unresolved kayitlar atlanir (yalniz somut/concrete emit edilir).
+    // aritmetik. Generic template'ler atlanir (yalniz somut/concrete emit edilir).
     public static partial class CTranspiler
     {
         class CVal
@@ -421,7 +421,7 @@ namespace DigitoyEngine.Language
             return false;
         }
         // iface methodlari govdesizdir; generic template'ler ve uyeleri yalniz klon kaynagi - ikisi de emit edilmez
-        static bool IsEmittableCode(Code c) => !c.Unresolved && c.GenericParameters.Count == 0 && !(c.Owner != null && (c.Owner.IsInterface || c.Owner.IsGeneric || HasOpenTypeArgs(c.Owner))) && TrimPlan.IsCodeLive(c);
+        static bool IsEmittableCode(Code c) => c.GenericParameters.Count == 0 && !(c.Owner != null && (c.Owner.IsInterface || c.Owner.IsGeneric || HasOpenTypeArgs(c.Owner))) && TrimPlan.IsCodeLive(c);
 
         // TranspileProgram / TranspileFiles: CTranspiler.Units.cs (birim tabanli emisyon)
 
@@ -498,8 +498,9 @@ namespace DigitoyEngine.Language
             var vt = new List<string>();
             for (int i = 0; i < Primitive.Object.VTable.Count; i++)
             {
-                var slotName = Primitive.Object.VTable[i].Name;
-                var ov = EmitCtx.AllCodes.FirstOrDefault(c => c.Owner == type && c.Name == slotName && c.IsOverride && IsEmittableCode(c));
+                var slotMethod = Primitive.Object.VTable[i];
+                var slotName = slotMethod.SimpleName;
+                var ov = EmitCtx.MembersOf(type).FirstOrDefault(c => c.IsOverride && Signature.Matches(c, slotMethod) && IsEmittableCode(c));
                 if (ov != null)
                 {
                     var an = CArgNames(ov, new HashSet<string>());
@@ -509,7 +510,7 @@ namespace DigitoyEngine.Language
                     vt.Add($"(const void*)&{cn}_boxvt{i}");
                 }
                 else vt.Add(slotName == "GetHashCode" ? "(const void*)&digitoyengine_valuetype_hash"
-                    : slotName.StartsWith("Equals", StringComparison.Ordinal) ? "(const void*)&digitoyengine_valuetype_eq"
+                    : slotName == "Equals" ? "(const void*)&digitoyengine_valuetype_eq"
                     : $"(const void*)&{CName(Primitive.Object.VTable[i].EncodeName())}");
             }
             sb.Append($"static const void* const {cn}_vtable[{vt.Count}] = {{ {string.Join(", ", vt)} }};\n");
@@ -710,7 +711,7 @@ namespace DigitoyEngine.Language
             // runtime exception kind'lari: catch aninda TAZE nesne (DIGITOYENGINE_ex_materialize); singleton
             // yeniden kullanimi izi ezip orijini kaybettiriyordu. Firlatma hala alloc'suz; alloc yalniz catch'te.
             var notImpl = ctx.AllPrimitives.FirstOrDefault(p => p.Name == "System.NotImplementedException");
-            var exMsgCtor = ctx.AllCodes.FirstOrDefault(c => c.EncodeName() == "System.Exception$ctor_System_String");
+            var exMsgCtor = ctx.TryGetPrimitive("System.Exception", out var sysEx) ? ctx.MembersOf(sysEx).FirstOrDefault(c => c.SimpleName == "ctor" && c.ParamCount == 1 && c.Arguments[1].Type == Primitive.String) : null;
             if (notImpl != null && exMsgCtor != null)
             {
                 sb.Append($"    DIGITOYENGINE_notimpl_type = &{TypeSym(notImpl)};\n");
@@ -721,7 +722,8 @@ namespace DigitoyEngine.Language
                 {
                     var kt = ctx.ExceptionKindTypes[k];
                     sb.Append($"    DIGITOYENGINE_ex_kind_type[{k}] = &{TypeSym(kt)};\n");
-                    if (ctx.TryGetCode(kt.Name + "$ctor", out var kctor)) // kind ctor'u C# default mesajini atar
+                    var kctor = ctx.FindMember(kt, "ctor", 0); // kind ctor'u C# default mesajini atar
+                    if (kctor != null)
                         sb.Append($"    DIGITOYENGINE_ex_kind_ctor[{k}] = (void (*)(GCHeader*))&{CName(kctor.EncodeName())};\n");
                 }
             // cctor sirasi: .NET'te beforefieldinit statik alan erisiminde tetiklenir; burada hepsi eager
@@ -729,7 +731,7 @@ namespace DigitoyEngine.Language
             // metodlar uzerinden) o tipin cctor'u ONCE kosmali — ornegin AnimRegistry..cctor lambdalari
             // <>c.<>9 singleton'u uzerinden delegate yapar; <>9 null kalirsa delegate target'siz dogar
             // ve cagri ABI'si kayar (crash). Dongu -> kayit sirasi korunur.
-            var cctors = ctx.AllCodes.Where(c => IsEmittableCode(c) && !c.IsExternal && c.Name == "cctor").ToList();
+            var cctors = InitCctors(ctx);
             var cctorOf = new Dictionary<Primitive, Code>();
             foreach (var cc in cctors)
                 cctorOf[cc.Owner] = cc;
@@ -770,6 +772,21 @@ namespace DigitoyEngine.Language
                 EmitCctor(cc);
             sb.Append("}\n");
             return sb.ToString();
+        }
+
+        // EmitInit'in baslangicta eager cagiracagi cctor'lar (trim planina gore canli olanlar). Stub kapisi da bu listeyi kok sayar.
+        static List<Code> InitCctors(Context ctx) =>
+            ctx.AllCodes.Where(c => IsEmittableCode(c) && !c.IsExternal && c.SimpleName == "cctor").ToList();
+
+        // Runtime'in cagri grafi disinda dogrudan cagirdigi kokler: eager cctor'lar, finalizer'lar (digitoyengine_fin_X zinciri),
+        // exception kind ctor'lari (DIGITOYENGINE_ex_kind_ctor). Program.ReachableStubs (stub kapisi) host girislerine ekler.
+        public static IEnumerable<Code> InitRoots(Context ctx)
+        {
+            foreach (var c in InitCctors(ctx)) yield return c;
+            foreach (var c in ctx.AllCodes)
+                if (IsEmittableCode(c) && !c.IsExternal && c.SimpleName == "finalize") yield return c;
+            for (int k = 1; k < ctx.ExceptionKindTypes.Length; k++)
+                if (ctx.ExceptionKindTypes[k] is Primitive kt && ctx.FindMember(kt, "ctor", 0) is Code kctor && IsEmittableCode(kctor)) yield return kctor;
         }
 
         static void EmitTraceAndTypeOrdered(StringBuilder sb, Primitive p, HashSet<Primitive> done)
@@ -827,7 +844,7 @@ namespace DigitoyEngine.Language
         static Primitive FindFinalizerDeclarer(Context ctx, Primitive model)
         {
             for (var t = model; t != null && !t.IsStruct; t = t.Parent)
-                if (t != Primitive.Object && t != Primitive.String && ctx.TryGetCode(t.Name + "$finalize", out _))
+                if (t != Primitive.Object && t != Primitive.String && ctx.FindMember(t, "finalize", 0) != null)
                     return t;
             return null;
         }
@@ -891,7 +908,7 @@ namespace DigitoyEngine.Language
             {
                 var baseDecl = model.Parent != null ? FindFinalizerDeclarer(EmitCtx, model.Parent) : null;
                 sb.Append($"void digitoyengine_fin_{cn}(GCHeader* o) {{\n");
-                sb.Append($"    {CName(model.Name + "$finalize")}((struct {cn}*)o);\n");
+                sb.Append($"    {CSym(EmitCtx.FindMember(model, "finalize", 0))}((struct {cn}*)o);\n");
                 if (baseDecl != null)
                     sb.Append($"    digitoyengine_fin_{CName(baseDecl.Name)}(o);\n");
                 sb.Append("}\n");
@@ -953,8 +970,6 @@ namespace DigitoyEngine.Language
                 ? "digitoyengine_reflect_unsupported();"
                 : $"{access} = {ReflectSetValue(type, value)};";
 
-        static Code ReflectionAccessor(Primitive model, string name) =>
-            EmitCtx.TryGetCode(model.Name + "$" + name, out var code) ? code : null;
 
         // target: GCHeader* (class nesnesi ya da struct kutusu). self: C imzasinin bekledigi struct pointer'i.
         static string ReflectSelf(Primitive model) =>
@@ -999,8 +1014,8 @@ namespace DigitoyEngine.Language
             foreach (var property in ReflectionProperties(model))
             {
                 var suffix = $"{cn}_{index++}";
-                var getter = property.HasGet ? ReflectionAccessor(model, "get_" + property.Name) : null;
-                var setter = property.HasSet ? ReflectionAccessor(model, "set_" + property.Name + "_" + property.Type.Name.Replace('.', '_')) : null;
+                var getter = property.Getter;
+                var setter = property.Setter;
                 string get = "0", set = "0";
                 if (getter != null)
                 {
@@ -1865,7 +1880,7 @@ namespace DigitoyEngine.Language
                             }
                             if (vRecv.Type != null && (IsNumericVal(vRecv.Type) || vRecv.Type.Type == PrimitiveType.Bool) && op.Code.Owner == Primitive.Object)
                             {
-                                if (op.Code.Name == "GetHashCode" && vArgc == 1)
+                                if (op.Code.SimpleName == "GetHashCode" && vArgc == 1)
                                 {
                                     var hv = MaterializeVal(Pop());
                                     string hx = vRecv.Type.Type switch
@@ -1879,7 +1894,7 @@ namespace DigitoyEngine.Language
                                     Push(new CVal(hx, Primitive.Int));
                                     break;
                                 }
-                                if (op.Code.Name.StartsWith("Equals") && vArgc == 2 && stack[stack.Count - 1].Type == vRecv.Type)
+                                if (op.Code.SimpleName == "Equals" && vArgc == 2 && stack[stack.Count - 1].Type == vRecv.Type)
                                 {
                                     var eb = MaterializeVal(Pop());
                                     var ea = MaterializeVal(Pop());

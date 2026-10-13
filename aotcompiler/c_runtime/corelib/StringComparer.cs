@@ -1,9 +1,9 @@
 // corelib: StringComparer (yalniz Ordinal / OrdinalIgnoreCase; kultur yok). IComparer<string>
-// olarak List<string>.Sort(comparer) ve Array.Sort'a verilir. IEqualityComparer modeli YOK
-// (Dictionary/HashSet comparer'siz: GetHashCode/Equals dogrudan) — bilincli sinir.
+// olarak List<string>.Sort(comparer) ve Array.Sort'a; IEqualityComparer<string> olarak Dictionary/HashSet'e verilir
+// (comparer verilmezse Dictionary/HashSet GetHashCode/Equals dogrudan kullanir).
 namespace System
 {
-    public class StringComparer : Collections.Generic.IComparer<string>
+    public class StringComparer : Collections.Generic.IComparer<string>, Collections.Generic.IEqualityComparer<string>
     {
         public static StringComparer ordinal = new StringComparer(false);
         public static StringComparer ordinalIgnoreCase = new StringComparer(true);

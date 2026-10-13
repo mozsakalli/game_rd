@@ -191,10 +191,12 @@ namespace DigitoyEngine.Language
             BuildUnits(ctx);
             var sb = new StringBuilder();
             sb.Append("#include \"vmrt.h\"\n\n");
-            sb.Append(sharedUnit.H);
             var ordered = OrderedTypeUnits();
-            foreach (var u in ordered) sb.Append(ForwardDecls(u.H.ToString(), u.Key));
+            // ileri bildirimler TUM header'lardan once: paylasimli header'daki prototipler (orn. string.Format(IFormatProvider,..))
+            // birim struct'larina isaret edebilir; prototip icinde ilk goruldugunde tag prototip kapsaminda kalir -> tip uyusmazligi
             sb.Append(ForwardDecls(sharedUnit.H.ToString(), SharedKey));
+            foreach (var u in ordered) sb.Append(ForwardDecls(u.H.ToString(), u.Key));
+            sb.Append(sharedUnit.H);
             foreach (var u in ordered) sb.Append(u.H).Append('\n');
             foreach (var smp in shapeSamples) sb.Append($"void {ThunkSym(ShapeKey(smp))}(const void *fn, DeSlot *a, DeSlot *r);\n"); // metot tablolari meta'dan once adres alir
             sb.Append(EmitStringPool()).Append('\n');

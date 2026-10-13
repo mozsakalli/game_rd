@@ -106,13 +106,14 @@ namespace DigitoyEngine.Language
         public object Value;
         public bool IsRef;
         public bool IsOut;
+        public bool IsOutParam; // CIL `out` parametresi (tip Pointer kalir; IsOut MiniCs sozlesmesidir ve pointer EKLER) - yalniz corelib sembol adi icin
     }
 
     public class Code
     {
-        public bool Unresolved;
         public Primitive Owner;
-        public string Name;
+        public string SimpleName; // metadata adi: "ctor", "cctor", "finalize", "op_add", "get_X", "ShouldEncode" (acik iface impl'de de yalin ad)
+        public bool ByrefNamedMangle; // corelib: C sembolunde byref parametre `out_/ref_` + eleman adi (corelib.c sozlesmesi)
         public string Assembly; // tanimlayan assembly adi (CilFrontend; generic klonlar sablonunkini tasir)
         public Code Template; // generic METHOD somutlamasi ise kaynagi (GenericInstantiator); modul yazici "gomulu generic" karari
         public bool IsExternal;
@@ -120,8 +121,8 @@ namespace DigitoyEngine.Language
         public bool Inline;
         public List<Argument> Arguments = new List<Argument>();
         public bool IsStatic;
-        public bool IsVirtual;  // vtable'da yeni slot acar
-        public bool IsOverride; // parent'taki ayni isimli virtual slotu ezer
+        public bool IsVirtual;  // vtable'da yeni slot acar (newslot)
+        public bool IsOverride; // parent'ta AD + substitute edilmis PARAMETRE imzasi eslesen slotu ezer (Hierarchy/Signature)
         public Primitive ExplicitInterface; // null degilse yalniz bu interface'in itable implementasyonu
         public Primitive ReturnType = Primitive.Void; // Call'da sonuc push edilecek mi karari icin
         public List<Primitive> GenericParameters = new List<Primitive>();
@@ -143,223 +144,37 @@ namespace DigitoyEngine.Language
 
         public string EncodeName() => (Owner != null ? Owner.Name + "$" : "") + Name;
 
-        // overload mangling'inin TEK tanimi (front-end + Intrinsics ayni sozlesmeyi kullanir)
-        public static string Mangle(string methodName, IEnumerable<Primitive> paramTypes)
+        // EMISYON ADI (C sembolu / trace). KIMLIK DEGIL: hicbir arama bununla yapilmaz (Context.CodeKey yapisal).
+        // Turetilmis: basit ad + parametre tipleri (+ generic metot argumanlari / arity). Klon argumanlari somut oldugundan
+        // Serializer<Encoded>.Encode(Encoded,Codec) -> "Encode_M_Encoded_M_Codec" cikar; owner oneki benzersizligi tamamlar.
+        public string Name
         {
-            var sb = new System.Text.StringBuilder(methodName);
-            foreach (var t in paramTypes) sb.Append('_').Append(t.Name.Replace('.', '_'));
-            return sb.ToString();
-        }
-        public void DecodeName(string encodedName)
-        {
-            string[] ownerAndName = encodedName.Split('$');
-            if (ownerAndName.Length == 2)
+            get
             {
-                Owner = new Primitive { Name = ownerAndName[0], Unresolved = true };
-            }
-            Name = ownerAndName.Length == 2 ? ownerAndName[1] : ownerAndName[0];
-        }
-        public string Encode()
-        {
-            var w = new TextWriter();
-            w.Str(EncodeName());
-            w.Line(IsStatic);
-            w.Line(IsExternal);
-            w.Line(Inline);
-            w.Line(IsVirtual);
-            w.Line(IsOverride);
-            w.Str(ExplicitInterface != null ? ExplicitInterface.Name : null);
-            w.Str(NativeHeader);
-            w.Str(NativeBody);
-            w.Str(ExternalSymbol);
-            w.Str(ReturnType != null ? ReturnType.Name : null);
-
-            w.Line(Arguments.Count);
-            foreach (var arg in Arguments)
-            {
-                w.Str(arg.Name);
-                w.Str(arg.Type != null ? arg.Type.Name : null);
-                w.Line(arg.IsRef);
-                w.Line(arg.IsOut);
-            }
-
-            w.Line(GenericParameters.Count);
-            foreach (var gp in GenericParameters)
-                w.Str(gp.Name);
-
-            w.Line(Locals.Count);
-            foreach (var local in Locals)
-                w.Str(local != null ? local.Name : null);
-
-            w.Line(Operations.Count);
-            foreach (var op in Operations)
-            {
-                w.Line(op.Type);
-                w.Line(op.Slot);
-                w.Line(op.Line);
-                w.Str(op.Field != null ? op.Field.Owner.Name + "$" + op.Field.Name : null);
-                if (op.Value != null)
+                // Klon: sablonun adi (sablon icinde benzersiz -> Ov<int>.Foo(T)/Foo(int) "Foo_T"/"Foo_Int" ayri kalir) + metot argumanlari
+                if (Template != null)
                 {
-                    if (op.Value is string str) { w.Line("str"); w.Str(str); }
-                    else if (op.Value is int i) { w.Line("int"); w.Str(i.ToString()); }
-                    else if (op.Value is float f) { w.Line("float"); w.Str(f.ToString()); }
-                    else if (op.Value is double d) { w.Line("double"); w.Str(d.ToString()); }
-                    else if (op.Value is bool b) { w.Line("bool"); w.Str(b.ToString()); }
-                    else if (op.Value is long l) { w.Line("long"); w.Str(l.ToString()); }
-                    else if (op.Value is char c) { w.Line("char"); w.Str(c.ToString()); }
-                    else if (op.Value is short s) { w.Line("short"); w.Str(s.ToString()); }
-                    else if (op.Value is byte b2) { w.Line("byte"); w.Str(b2.ToString()); }
-                    else
-                        throw new System.Exception("Unsupported value type: " + op.Value.GetType().Name);
+                    var baseName = Template.Name;
+                    if (MethodTypeArguments != null && MethodTypeArguments.Count > 0 && Template.MethodTypeArguments == null)
+                        baseName += "<" + string.Join(",", MethodTypeArguments.Select(a => a.Name)) + ">";
+                    return baseName;
                 }
-                else w.Line("null");
-
-                w.Str(op.Code != null ? op.Code.EncodeName() : null);
-                w.Str(op.PrimitiveRef != null ? op.PrimitiveRef.Name : null);
-                w.Line(op.TypeArguments.Count);
-                foreach (var ta in op.TypeArguments)
-                    w.Str(ta.Name);
-            }
-            return w.ToString();
-        }
-
-        public static Code Decode(string encoded)
-        {
-            var r = new TextReader(encoded);
-            string encodedName = r.Str();
-            var codeName = new Code();
-            codeName.DecodeName(encodedName);
-            var code = new Code
-            {
-                Owner = codeName.Owner,
-                Name = codeName.Name,
-                IsStatic = r.Bool(),
-                IsExternal = r.Bool(),
-                Inline = r.Bool(),
-                IsVirtual = r.Bool(),
-                IsOverride = r.Bool()
-            };
-            var explicitInterfaceName = r.Str();
-            code.ExplicitInterface = explicitInterfaceName != null
-                ? new Primitive { Name = explicitInterfaceName, Unresolved = true }
-                : null;
-            code.NativeHeader = r.Str();
-            code.NativeBody = r.Str();
-            code.ExternalSymbol = r.Str();
-            var returnTypeName = r.Str();
-            code.ReturnType = returnTypeName != null ? new Primitive { Name = returnTypeName, Unresolved = true } : null;
-
-            var argCount = r.Int();
-            for (int i = 0; i < argCount; i++)
-            {
-                var argName = r.Str();
-                var argTypeName = r.Str();
-                var isRef = r.Bool();
-                var isOut = r.Bool();
-                code.Arguments.Add(new Argument { Name = argName, Type = argTypeName != null ? new Primitive { Name = argTypeName, Unresolved = true } : null, IsRef = isRef, IsOut = isOut });
-            }
-
-            var genericParamCount = r.Int();
-            for (int i = 0; i < genericParamCount; i++)
-                code.GenericParameters.Add(new Primitive { Name = r.Str(), IsGenericParameter = true });
-
-            var localCount = r.Int();
-            for (int i = 0; i < localCount; i++)
-            {
-                var localName = r.Str();
-                code.Locals.Add(localName != null ? new Primitive { Name = localName, Unresolved = true } : null);
-            }
-
-            int operationCount = r.Int();
-            for (int i = 0; i < operationCount; i++)
-            {
-                var op = new Op();
-                op.Type = (OpType)System.Enum.Parse(typeof(OpType), r.Line());
-                op.Slot = r.Int();
-                op.Line = r.Int();
-                string fieldStr = r.Str();
-                if (fieldStr != null)
+                var sb = new System.Text.StringBuilder();
+                if (ExplicitInterface != null) sb.Append("__iface_").Append(ExplicitInterface.Name.Replace('.', '_')).Append("__");
+                sb.Append(SimpleName);
+                for (int i = IsStatic ? 0 : 1; i < Arguments.Count; i++)
                 {
-                    string[] fieldParts = fieldStr.Split('$');
-                    op.Field = new PrimitiveField
-                    {
-                        Owner = new Primitive { Name = fieldParts[0], Unresolved = true },
-                        Name = fieldParts[1]
-                    };
+                    var t = Arguments[i].Type;
+                    sb.Append('_');
+                    if (t == null) { sb.Append('?'); continue; }
+                    // corelib.c sembol sozlesmesi: byref parametre `out_Int`/`ref_Int` (eleman adi), ham pointer degil
+                    if (ByrefNamedMangle && t.Type == PrimitiveType.Pointer) sb.Append(Arguments[i].IsOutParam ? "out_" : "ref_").Append(t.ElementType.Name.Replace('.', '_'));
+                    else sb.Append(t.Name.Replace('.', '_'));
                 }
-                string valueTag = r.Line();
-                if (valueTag != "null")
-                {
-                    string value = r.Str();
-                    switch (valueTag)
-                    {
-                        case "str": op.Value = value; break;
-                        case "int": op.Value = int.Parse(value); break;
-                        case "float": op.Value = float.Parse(value); break;
-                        case "double": op.Value = double.Parse(value); break;
-                        case "bool": op.Value = bool.Parse(value); break;
-                        case "long": op.Value = long.Parse(value); break;
-                        case "char": op.Value = char.Parse(value); break;
-                        case "short": op.Value = short.Parse(value); break;
-                        case "byte": op.Value = byte.Parse(value); break;
-                        default: throw new System.Exception("Unsupported value type: " + valueTag);
-                    }
-                }
-
-                string encodedCodeName = r.Str();
-                if (encodedCodeName != null)
-                {
-                    var codeObj = new Code();
-                    codeObj.DecodeName(encodedCodeName);
-                    codeObj.Unresolved = true;
-                    op.Code = codeObj;
-                }
-
-                string primitiveRefName = r.Str();
-                if (primitiveRefName != null)
-                    op.PrimitiveRef = new Primitive { Name = primitiveRefName, Unresolved = true };
-
-                var typeArgCount = r.Int();
-                for (int t = 0; t < typeArgCount; t++)
-                    op.TypeArguments.Add(new Primitive { Name = r.Str(), Unresolved = true });
-
-                code.Operations.Add(op);
+                return sb.ToString();
             }
-            return code;
         }
-
-        // Elle yazilabilir tek-satirlik Op assembly'si (bkz. OpAsm) - Encode/Decode'un tam formatindan
-        // AYRI ve ek bir temsil, sadece Operations listesini kapsar (Arguments/Locals ayrica kurulmali).
-        public string ToAssembly()
-        {
-            var labelNames = new System.Collections.Generic.Dictionary<Label, string>();
-            int n = 0;
-            string NameOf(Label l)
-            {
-                if (!labelNames.TryGetValue(l, out var nm)) { nm = l.Name ?? ("L" + n++); labelNames[l] = nm; }
-                return nm;
-            }
-            return string.Join("\n", Operations.Select(op => OpAsm.Encode(op, NameOf)));
-        }
-
-        public static List<Op> ParseAssembly(string text)
-        {
-            var labels = new Dictionary<string, Label>();
-            Label LabelFor(string name)
-            {
-                if (!labels.TryGetValue(name, out var l)) { l = new Label { Name = name }; labels[name] = l; }
-                return l;
-            }
-            var ops = new List<Op>();
-            foreach (var rawLine in text.Split('\n'))
-            {
-                var line = rawLine.Trim();
-                if (line.Length == 0) continue;
-                ops.Add(OpAsm.Parse(line, LabelFor));
-            }
-            return ops;
-        }
-
+        public int ParamCount => Arguments.Count - (IsStatic ? 0 : 1); // this haric
         public override string ToString()
         {
             return $"Code(Owner={(Owner != null ? Owner.Name : "null")}, Name={Name}, Operations=[{string.Join(", ", Operations)}])";

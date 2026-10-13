@@ -79,8 +79,9 @@ public static class AssetWatcher
             if (full.EndsWith(".meta", StringComparison.OrdinalIgnoreCase))
                 continue; // sahibiyle birlikte gelir; tek basina ilginc degil
             _lastEventAt = now;
-            if (full.EndsWith(".cs", StringComparison.OrdinalIgnoreCase))
+            if (full.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) || full.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
             {
+                // .dll = managed plugin: script gibi derleme+reload (ALC'ye birlikte yuklenir)
                 if (!full.Replace('\\', '/').Contains("/Editor/"))
                     _codeDirty = true;
             }

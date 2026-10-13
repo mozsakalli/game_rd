@@ -305,7 +305,7 @@ namespace DigitoyEngine.Cil
                                 var iface = ihandle.Kind == HandleKind.TypeSpecification
                                     ? DecodeTypeSpecHandle((TypeSpecificationHandle)ihandle, new GenCtx { TypeParams = p.GenericParameters })
                                     : ResolveName(RefName(ihandle));
-                                var tmpl = iface.GenericTemplate ?? iface;
+                                var tmpl = iface.Definition;
                                 // DLL'de tanimli VEYA corelib'de modellenmis (whitelist) arayuzler itable'a girer;
                                 // digerleri dusurulur (yoksa Hierarchy tum uyeleri arar -> fatal).
                                 if (!prims.ContainsValue(tmpl) && !IsModeledInterface(tmpl))
@@ -381,7 +381,8 @@ namespace DigitoyEngine.Cil
                             var iface = declParent.Kind == HandleKind.TypeSpecification
                                 ? DecodeTypeSpecHandle((TypeSpecificationHandle)declParent, new GenCtx { TypeParams = p.GenericParameters })
                                 : ResolveName(RefName(declParent));
-                            var tmpl = iface.GenericTemplate ?? iface;
+                            var tmpl = iface.Definition;
+                            if (!tmpl.IsInterface) continue; // sinif duzeyi MethodImpl (covariant return vb.): imza eslesmesi zaten yakalar
                             if (prims.ContainsValue(tmpl) || IsModeledInterface(tmpl)) // yalniz tuttugumuz arayuzler
                                 explicitImpls[(MethodDefinitionHandle)mi.MethodBody] = (iface, declName);
                         }
@@ -427,28 +428,13 @@ namespace DigitoyEngine.Cil
                                 if ((pr.Attributes & ParameterAttributes.Out) != 0) paramOut.Add(pr.SequenceNumber - 1);
                             }
                         }
-                        // corelib: byref parametreler corelib.c sembol sozlesmesiyle (`out_Int`/`ref_Int`) mangle'lanir;
-                        // aramalar (FindCode -> MangleCandidates) her iki bicimi de dener.
-                        string MangleParams(string nm)
-                        {
-                            if (!isCoreLib) return Code.Mangle(nm, s.ParameterTypes);
-                            var sbm = new System.Text.StringBuilder(nm);
-                            for (int i = 0; i < s.ParameterTypes.Length; i++)
-                            {
-                                var t = s.ParameterTypes[i];
-                                sbm.Append('_');
-                                if (t.Type == PrimitiveType.Pointer) sbm.Append(paramOut.Contains(i) ? "out_" : "ref_").Append(t.ElementType.Name.Replace('.', '_'));
-                                else sbm.Append(t.Name.Replace('.', '_'));
-                            }
-                            return sbm.ToString();
-                        }
                         var code = new Code
                         {
                             Owner = p,
                             Assembly = assemblyName,
-                            Name = expl.iface != null
-                                ? "__iface_" + expl.iface.Name.Replace('.', '_') + "__" + MangleParams(expl.simple)
-                                : MangleParams(simple),
+                            SimpleName = expl.iface != null ? expl.simple : simple,
+                            // corelib: C sembollerinde byref parametreler corelib.c sozlesmesiyle (`out_Int`/`ref_Int`) adlanir
+                            ByrefNamedMangle = isCoreLib,
                             IsStatic = isStatic,
                             ReturnType = s.ReturnType,
                             // iface uyeleri MiniCs'teki gibi ortuk virtual sayilir (itable dispatch)
@@ -462,7 +448,7 @@ namespace DigitoyEngine.Cil
                             code.Arguments.Add(new Argument { Name = "this", Type = p, IsRef = p.IsStruct }); // struct this = managed pointer (mutasyon gorunur)
                         code.GenericParameters.AddRange(mgps); // generic method sablonu (Pick<T>) -> monomorfize edilir
                         for (int i = 0; i < s.ParameterTypes.Length; i++)
-                            code.Arguments.Add(new Argument { Name = paramNames.TryGetValue(i, out var pn) ? pn : $"a{i}", Type = s.ParameterTypes[i] });
+                            code.Arguments.Add(new Argument { Name = paramNames.TryGetValue(i, out var pn) ? pn : $"a{i}", Type = s.ParameterTypes[i], IsOutParam = paramOut.Contains(i) });
                         // P/Invoke ([DllImport]): govde yok; C sembolu = EntryPoint (kutuphane adi AOT'ta yok sayilir,
                         // gercek .NET host'ta platform native lib'inden yuklenir). Mangling yerine bu ad emit edilir.
                         if ((m.Attributes & MethodAttributes.PinvokeImpl) != 0)
@@ -508,6 +494,8 @@ namespace DigitoyEngine.Cil
                                 IsStatic = isStatic,
                                 HasGet = !acc.Getter.IsNil,
                                 HasSet = !acc.Setter.IsNil,
+                                Getter = !acc.Getter.IsNil && methodMap.TryGetValue(acc.Getter, out var gacc) ? gacc : null,
+                                Setter = !acc.Setter.IsNil && methodMap.TryGetValue(acc.Setter, out var sacc) ? sacc : null,
                                 CilAttributes = (ushort)pd.Attributes,
                             });
                         }
@@ -558,7 +546,8 @@ namespace DigitoyEngine.Cil
                 try
                 {
                     var t = ResolveName(typeName);
-                    if (t == null || !ctx.TryGetCode(typeName + "$ctor", out var c)) return null;
+                    var c = t == null ? null : ctx.FindMember(t, "ctor", 0);
+                    if (c == null) return null;
                     return (t, c);
                 }
                 catch { return null; }
@@ -747,7 +736,7 @@ namespace DigitoyEngine.Cil
                 throw new Exception($"CIL: beklenmeyen uye handle: {h.Kind}");
             }
             // Apply node ya da somut tip icin delegate mi? (sablona bak)
-            public static bool IsDelegateType(Primitive p) => (p.GenericTemplate ?? p).IsDelegate;
+            public static bool IsDelegateType(Primitive p) => p.Definition.IsDelegate;
 
             public Primitive DecodeTypeSpecHandle(TypeSpecificationHandle h, GenCtx gc)
                 => md.GetTypeSpecification(h).DecodeSignature(sig, gc);
@@ -766,12 +755,13 @@ namespace DigitoyEngine.Cil
             public Primitive ConcreteType(Code tmpl, List<Primitive> typeArgs, Primitive t)
                 => typeArgs.Count == 0 ? t : GenericInstantiator.Substitute(ctx, t, BuildMap(tmpl, typeArgs));
 
-            // Apply node owner'in generic parametreleriyle tipi somutla (delegate donus/param tipi icin)
+            // Uygulama dugumu / somut ornek owner'in generic argumanlariyla sablon tipini somutla (delegate donus/param tipi icin)
             public Primitive ConcreteTypeForOwner(Primitive appliedOwner, Primitive t)
             {
-                if (appliedOwner.GenericTemplate == null) return t;
+                var def = appliedOwner.Definition;
+                if (def == appliedOwner) return t;
                 var map = new Dictionary<Primitive, Primitive>();
-                var tps = appliedOwner.GenericTemplate.GenericParameters;
+                var tps = def.GenericParameters;
                 for (int i = 0; i < tps.Count && i < appliedOwner.TypeArguments.Count; i++) map[tps[i]] = appliedOwner.TypeArguments[i];
                 return GenericInstantiator.Substitute(ctx, t, map);
             }
@@ -817,13 +807,13 @@ namespace DigitoyEngine.Cil
                 if (mr.Parent.Kind == HandleKind.TypeSpecification) // generic tip ornegi uyesi (Box<int>.Get)
                 {
                     var applied = DecodeTypeSpecHandle((TypeSpecificationHandle)mr.Parent, gc);
-                    var template = applied.GenericTemplate ?? applied;
+                    var template = applied.Definition;
                     typeArgs.AddRange(applied.TypeArguments);
-                    // uye imzasini sablonun kendi generic parametreleriyle coz (mangle eslesmesi icin); generic METOT uyesinde
-                    // !!N icin cagri baglaminin somut metot argumanlari (MethodSpec'ten) -> FindGenericMethod unify ile sablonu bulur
+                    // uye imzasini sablonun kendi generic parametreleriyle coz (yapisal esleme sablon uyeleriyle); generic METOT
+                    // uyesinde !!N icin cagri baglaminin somut metot argumanlari (MethodSpec'ten) -> unify ile sablon bulunur
                     var s2 = mr.DecodeMethodSignature(sig, new GenCtx { TypeParams = template.GenericParameters, MethodParams = gc.MethodParams });
                     var simple2 = name == ".ctor" ? "ctor" : OperatorRemap(name);
-                    return FindCode(template, simple2, s2.ParameterTypes);
+                    return FindCode(template, simple2, s2.ParameterTypes, s2.GenericParameterCount);
                 }
                 var ownerName = RefName(mr.Parent);
                 var s = mr.DecodeMethodSignature(sig, gc);
@@ -833,7 +823,7 @@ namespace DigitoyEngine.Cil
                     && s.ParameterTypes[0] == Primitive.String && s.ParameterTypes[1] == Primitive.String)
                     return FindCode(Primitive.String, "op_add", s.ParameterTypes);
                 var simple = name == ".ctor" ? "ctor" : OperatorRemap(name);
-                return FindCode(owner, simple, s.ParameterTypes);
+                return FindCode(owner, simple, s.ParameterTypes, s.GenericParameterCount);
             }
 
             // Roslyn'in operator metot adlarini (op_Equality vb.) bizim MiniCs adlarina (op_eq vb.) esle
@@ -853,120 +843,38 @@ namespace DigitoyEngine.Cil
                 _ => name
             };
 
-            public Code FindCode(Primitive owner, string simple, ImmutableArray<Primitive> ps)
+            // MemberRef -> Code: owner zincirinde AD + PARAMETRE TIPLERI (+ generic arity) yapisal eslesme (CoreCLR
+            // MemberRef cozumunun karsiligi; mangled isim yok). Generic metotta sablon parametreleri joker (unify).
+            public Code FindCode(Primitive owner, string simple, ImmutableArray<Primitive> ps, int genericArity = 0)
             {
-                // aday mangle'lar: IL byref (Pointer) ref/out ayrimini korumaz; corelib ise
-                // `ref_`/`out_` + eleman-adi ile mangle'lar. Her Pointer param icin {*Name, out_Name, ref_Name}
-                // varyantlarini uret, kalitim zincirinde ara.
-                foreach (var mangled in MangleCandidates(simple, ps))
-                    for (var t = owner; t != null; t = t.Parent)
-                        if (ctx.TryGetCode(t.Name + "$" + mangled, out var c)) return c;
-                // generic METHOD (method-duzeyi generic'ler, orn. Enumerable.FirstOrDefault<T>(IEnumerable<T>,...)):
-                // exact mangle tutmaz (IEnumerable<Int> vs IEnumerable<T>) -> template'i unify ile bul.
-                var gm = FindGenericMethod(owner, simple, ps);
-                if (gm != null) return gm;
+                var map = genericArity > 0 ? new Dictionary<Primitive, Primitive>() : null;
+                for (var t = owner; t != null; t = t.Parent)
+                    foreach (var c in ctx.MembersOf(t))
+                        if (c.MethodTypeArguments == null && Signature.MatchesCall(c, simple, ps, genericArity, map))
+                            return c; // generic metot: arity + unify yeter (T yalniz donuste olabilir: Array.Empty<T>())
                 throw new Exception($"CIL: corelib yuzeyinde olmayan uye: {owner.Name}.{simple}({string.Join(",", ps.Select(x => x.Name))}) (gerekiyorsa corelib'e ekleyelim)"
                     + NearMissReport(owner, simple, ps));
             }
 
-            // near-miss raporu: denenen anahtarlar + owner zincirinde ayni ada sahip adaylar ve eleme sebepleri
+            // near-miss raporu: owner zincirinde ayni ada sahip adaylar ve eleme sebepleri
             string NearMissReport(Primitive owner, string simple, ImmutableArray<Primitive> ps)
             {
                 var sb = new System.Text.StringBuilder();
-                sb.Append("\n  denenen anahtarlar: ").Append(string.Join(", ", MangleCandidates(simple, ps).Take(6)));
                 var near = new List<string>();
                 for (var t = owner; t != null && near.Count < 8; t = t.Parent)
-                    foreach (var c in ctx.AllCodes)
+                    foreach (var c in ctx.MembersOf(t))
                     {
-                        if (c.Owner != t) continue;
-                        var disp = c.DisplayName ?? c.Name;
-                        int par = disp.IndexOf('(');
-                        var sn = par >= 0 ? disp.Substring(0, par) : disp;
-                        if (sn != simple && !c.Name.StartsWith(simple + "_") && c.Name != simple) continue;
-                        int thisOff = c.IsStatic ? 0 : 1;
-                        string neden = c.Arguments.Count - thisOff != ps.Length
-                            ? $"arg sayisi {c.Arguments.Count - thisOff} != {ps.Length}"
+                        if (c.SimpleName != simple) continue;
+                        string neden = c.ParamCount != ps.Length
+                            ? $"arg sayisi {c.ParamCount} != {ps.Length}"
                             : c.GenericParameters.Count > 0 ? "generic unify tutmadi" : "imza tipi uyusmadi";
-                        near.Add($"{t.Name}${c.Name} ({neden})");
+                        near.Add($"{t.Name}.{c.DisplayName ?? c.Name} ({neden})");
                         if (near.Count >= 8) break;
                     }
                 if (near.Count > 0) sb.Append("\n  yakin adaylar: ").Append(string.Join("; ", near));
                 else sb.Append($"\n  yakin aday yok: '{simple}' adinda uye {owner.Name} zincirinde tanimli degil");
                 return sb.ToString();
             }
-
-            // template param'lari (kendi generic'leri joker) somut cagri param'lariyla unify eden esleyici
-            Code FindGenericMethod(Primitive owner, string simple, ImmutableArray<Primitive> ps)
-            {
-                for (var t = owner; t != null && !t.Unresolved; t = t.Parent)
-                    foreach (var c in ctx.AllCodes)
-                    {
-                        if (c.Owner != t || c.GenericParameters.Count == 0) continue;
-                        int thisOff = c.IsStatic ? 0 : 1; // instance metotta Arguments[0]=this, ps disinda
-                        if (c.Arguments.Count - thisOff != ps.Length) continue;
-                        var disp = c.DisplayName ?? "";
-                        int par = disp.IndexOf('(');
-                        var sn = par >= 0 ? disp.Substring(0, par) : disp;
-                        if (sn != simple) continue;
-                        var map = new Dictionary<Primitive, Primitive>();
-                        bool ok = true;
-                        for (int i = 0; i < ps.Length && ok; i++) ok = UnifyType(c.Arguments[i + thisOff].Type, ps[i], c.GenericParameters, map);
-                        if (ok && map.Count == c.GenericParameters.Count) return c;
-                    }
-                return null;
-            }
-            static bool UnifyType(Primitive template, Primitive concrete, List<Primitive> generics, Dictionary<Primitive, Primitive> map)
-            {
-                if (template == null || concrete == null) return template == concrete;
-                if (generics.Contains(template))
-                    return map.TryGetValue(template, out var bound) ? bound == concrete : (map[template] = concrete) != null;
-                if (template.GenericTemplate != null && concrete.GenericTemplate != null)
-                {
-                    if (template.GenericTemplate != concrete.GenericTemplate || template.TypeArguments.Count != concrete.TypeArguments.Count) return false;
-                    for (int i = 0; i < template.TypeArguments.Count; i++)
-                        if (!UnifyType(template.TypeArguments[i], concrete.TypeArguments[i], generics, map)) return false;
-                    return true;
-                }
-                if (template.Type == PrimitiveType.Array && concrete.Type == PrimitiveType.Array)
-                    return UnifyType(template.ElementType, concrete.ElementType, generics, map);
-                if (template.Type == PrimitiveType.Pointer && concrete.Type == PrimitiveType.Pointer) // ref/out T[] vs *Component[]
-                    return UnifyType(template.ElementType, concrete.ElementType, generics, map);
-                if (concrete.Type == PrimitiveType.Pointer && template.Type != PrimitiveType.Pointer) // corelib `ref T[]` = IsRef arg (tip Array), IL tarafi byref Pointer
-                    return UnifyType(template, concrete.ElementType, generics, map);
-                return template == concrete;
-            }
-
-            // param-basi token varyantlarinin kartezyen carpimi (Pointer param -> 3 form; digerleri -> 1 form)
-            static IEnumerable<string> MangleCandidates(string simple, ImmutableArray<Primitive> ps)
-            {
-                var perParam = new List<string[]>();
-                foreach (var t in ps)
-                {
-                    if (t.Type == PrimitiveType.Pointer)
-                    {
-                        var elem = t.ElementType.Name.Replace('.', '_');
-                        perParam.Add(new[] { t.Name.Replace('.', '_'), "out_" + elem, "ref_" + elem });
-                    }
-                    else perParam.Add(new[] { t.Name.Replace('.', '_') });
-                }
-                foreach (var combo in Cartesian(perParam))
-                    yield return simple + string.Concat(combo.Select(x => "_" + x));
-            }
-
-            static IEnumerable<string[]> Cartesian(List<string[]> options)
-            {
-                var idx = new int[options.Count];
-                while (true)
-                {
-                    var row = new string[options.Count];
-                    for (int i = 0; i < options.Count; i++) row[i] = options[i][idx[i]];
-                    yield return row;
-                    int k = options.Count - 1;
-                    while (k >= 0 && ++idx[k] >= options[k].Length) { idx[k] = 0; k--; }
-                    if (k < 0) yield break;
-                }
-            }
-
 
             public PrimitiveField ResolveField(EntityHandle h) => ResolveField(h, GenCtx.None, out _);
 
@@ -986,7 +894,7 @@ namespace DigitoyEngine.Cil
                     if (mr.Parent.Kind == HandleKind.TypeSpecification)
                     {
                         var applied = DecodeTypeSpecHandle((TypeSpecificationHandle)mr.Parent, gc);
-                        owner = applied.GenericTemplate ?? applied;
+                        owner = applied.Definition;
                         typeArgs.AddRange(applied.TypeArguments);
                     }
                     else
@@ -1091,7 +999,7 @@ namespace DigitoyEngine.Cil
             public Primitive GetByReferenceType(Primitive elementType) => Primitive.PointerOf(elementType); // ref/out = managed pointer (IL: ldarg->ptr, ldind->deref)
             public Primitive GetPointerType(Primitive elementType) => Primitive.PointerOf(elementType); // unsafe T* : byte-adresli pointer (ldind/stind eleman tipiyle deref)
             public Primitive GetFunctionPointerType(MethodSignature<Primitive> signature) => throw new Exception("CIL: fnptr tipi yok");
-            public Primitive GetGenericInstantiation(Primitive genericType, ImmutableArray<Primitive> typeArguments) => Primitive.Apply(genericType, typeArguments.ToArray());
+            public Primitive GetGenericInstantiation(Primitive genericType, ImmutableArray<Primitive> typeArguments) => loader.ctx.Apply(genericType, typeArguments);
             public Primitive GetGenericMethodParameter(GenCtx ctx2, int index) => ctx2.MethodParams != null && index < ctx2.MethodParams.Count ? ctx2.MethodParams[index] : throw new Exception("CIL: generic method parametresi baglam disi");
             public Primitive GetGenericTypeParameter(GenCtx ctx2, int index) => ctx2.TypeParams != null && index < ctx2.TypeParams.Count ? ctx2.TypeParams[index] : throw new Exception("CIL: generic tip parametresi baglam disi");
             public Primitive GetModifiedType(Primitive modifier, Primitive unmodifiedType, bool isRequired) => unmodifiedType;
@@ -1163,7 +1071,7 @@ namespace DigitoyEngine.Cil
             void Emit(OpType t) => EmitOp(new Op { Type = t });
             // Terfi etmis struct (async SM): Apply node ise sablon adina bakilir.
             bool IsPromoted(Primitive t) => t != null && t.Type == PrimitiveType.Model && !t.IsStruct
-                && loader.promotedStructs.Contains((t.GenericTemplate ?? t).Name);
+                && loader.promotedStructs.Contains(t.Definition.Name);
             void EmitOp(Op o)
             {
                 o.Line = curLine;
@@ -2060,12 +1968,12 @@ namespace DigitoyEngine.Cil
                                 }
                                 var ct = pendingConstrained;
                                 pendingConstrained = null;
-                                if (ct.IsStruct || ct.GenericTemplate?.IsStruct == true)
+                                if (ct.Definition.IsStruct)
                                 {
-                                    var ctpl = ct.GenericTemplate ?? ct;
+                                    var ctpl = ct.Definition;
                                     var ctArgs = ct.TypeArguments != null ? new List<Primitive>(ct.TypeArguments) : new List<Primitive>();
                                     Code cm = null;
-                                    try { cm = loader.FindCode(ctpl, cname == ".ctor" ? "ctor" : Loader.OperatorRemap(cname), csig.ParameterTypes); }
+                                    try { cm = loader.FindCode(ctpl, cname == ".ctor" ? "ctor" : Loader.OperatorRemap(cname), csig.ParameterTypes, csig.GenericParameterCount); }
                                     catch (Exception) when (ctpl.Parent == null || ctpl.Parent == Primitive.ValueType) { cm = null; }
                                     if (cm != null && cm.Owner != null && cm.Owner.IsStruct)
                                     {
@@ -2140,7 +2048,7 @@ namespace DigitoyEngine.Cil
                                 if (gname == "Start" || gname == "AwaitUnsafeOnCompleted")
                                 {
                                     var asyncOwner = loader.OwnerPrimOf(msp.Method, gc);
-                                    var asyncTmplName = (asyncOwner?.GenericTemplate ?? asyncOwner)?.Name ?? "";
+                                    var asyncTmplName = asyncOwner?.Definition.Name ?? "";
                                     if (asyncTmplName.StartsWith("System.Runtime.CompilerServices.AsyncTaskMethodBuilder"))
                                     {
                                         var gargs = msp.DecodeSignature(loader.Sig, gc);
@@ -2166,7 +2074,7 @@ namespace DigitoyEngine.Cil
                                         Emit(OpType.Pop); Pop(); // builder adresi
                                         EmitOp(new Op { Type = OpType.GetLocal, Slot = tmpAw }); Push(Primitive.PointerOf(awaiterType));
                                         EmitOp(new Op { Type = OpType.GetLocal, Slot = tmpSm }); Push(smType);
-                                        var awTmpl = awaiterType.GenericTemplate ?? awaiterType;
+                                        var awTmpl = awaiterType.Definition;
                                         var sched = loader.FindCode(awTmpl, "Schedule", ImmutableArray.Create(asmIface));
                                         var sop = new Op { Type = OpType.Call, Code = sched };
                                         if (awaiterType.TypeArguments != null && awaiterType.TypeArguments.Count > 0)
@@ -2181,7 +2089,7 @@ namespace DigitoyEngine.Cil
                             if (TryReflectIntrinsic(h, ownerOfCall)) return p + 4; // FieldInfo.RefAt<T> (offset'e tipli erisim)
                             if (Loader.IsDelegateType(ownerOfCall) && (h.Kind != HandleKind.MemberReference ? "Invoke" : md.GetString(md.GetMemberReference((MemberReferenceHandle)h).Name)) == "Invoke")
                             {
-                                var delTmpl = ownerOfCall.GenericTemplate ?? ownerOfCall; // imza sablondan (Apply node bos)
+                                var delTmpl = ownerOfCall.Definition; // imza sablondan (Apply node bos)
                                 for (int i = 0; i < delTmpl.DelegateParams.Count + 1; i++) Pop(); // arglar + delegate
                                 EmitOp(new Op { Type = OpType.CallIndirect, PrimitiveRef = ownerOfCall });
                                 if (delTmpl.DelegateReturn != Primitive.Void)
@@ -2234,7 +2142,7 @@ namespace DigitoyEngine.Cil
                             }
                             var ctor = loader.ResolveMethod(h, gc, out var ctorTypeArgs);
                             var t2 = ctor.Owner;
-                            var ownerConcrete = ctorTypeArgs.Count > 0 ? Primitive.Apply(t2, ctorTypeArgs.ToArray()) : t2; // Box<int>
+                            var ownerConcrete = ctorTypeArgs.Count > 0 ? loader.ctx.Apply(t2, ctorTypeArgs) : t2; // Box<int>
                             // CIL: arglar stack'te, nesne YOK -> arglari temp'e indir
                             int n = ctor.Arguments.Count - 1;
                             var tmps = new int[n];
@@ -2466,16 +2374,16 @@ namespace DigitoyEngine.Cil
             // donusumleri burada op dizisine acilir. GC tasimaz -> ham adres guvenli (fixed ile ayni gerekce).
             static bool IsSpanTemplate(Primitive t)
             {
-                var n = (t?.GenericTemplate ?? t)?.Name;
+                var n = t?.Definition.Name;
                 return n == "System.Span`1" || n == "System.ReadOnlySpan`1";
             }
             Primitive SpanOf(bool readOnly, Primitive elem)
-                => Primitive.Apply(loader.ResolveName(readOnly ? "System.ReadOnlySpan`1" : "System.Span`1"), new[] { elem });
+                => loader.ctx.Apply(loader.ResolveName(readOnly ? "System.ReadOnlySpan`1" : "System.Span`1"), new[] { elem });
             void EmitSizeOf(Primitive t) { EmitOp(new Op { Type = OpType.SizeOf, PrimitiveRef = t }); Push(Primitive.Int); }
             // stack: Pointer(span) -> alan degeri (_ptr: Long, _len: Int)
             void EmitSpanField(Primitive span, string name)
             {
-                var tmpl = span.GenericTemplate ?? span;
+                var tmpl = span.Definition;
                 PrimitiveField f = null;
                 foreach (var x in tmpl.Fields) if (x.Name == name) f = x;
                 if (f == null) throw new Exception("CIL: Span alani yok: " + name);
@@ -2497,7 +2405,7 @@ namespace DigitoyEngine.Cil
             // yeni span degeri: ctor(long ptr, int len); pushPtr Long, pushLen Int birakmali
             void EmitMakeSpan(Primitive span, Action pushPtr, Action pushLen)
             {
-                var tmpl = span.GenericTemplate ?? span;
+                var tmpl = span.Definition;
                 var targs = new List<Primitive>(span.TypeArguments);
                 int sv = NewLocal(span);
                 EmitOp(new Op { Type = OpType.Default, PrimitiveRef = tmpl, TypeArguments = targs });
@@ -2560,7 +2468,7 @@ namespace DigitoyEngine.Cil
                 if (mr.Parent.Kind == HandleKind.TypeSpecification)
                 {
                     var applied = loader.DecodeTypeSpecHandle((TypeSpecificationHandle)mr.Parent, gc);
-                    var template = applied.GenericTemplate ?? applied;
+                    var template = applied.Definition;
                     s = mr.DecodeMethodSignature(loader.Sig, new GenCtx { TypeParams = template.GenericParameters });
                 }
                 else s = mr.DecodeMethodSignature(loader.Sig, margs.Count > 0 ? new GenCtx { TypeParams = gc.TypeParams, MethodParams = margs } : gc); // generic method: !!T -> somut arg
@@ -2584,7 +2492,7 @@ namespace DigitoyEngine.Cil
 
             bool TrySpanCall(EntityHandle h, Primitive owner)
             {
-                var ownerName = (owner?.GenericTemplate ?? owner)?.Name;
+                var ownerName = owner?.Definition.Name;
                 bool isSpanOwner = IsSpanTemplate(owner);
                 if (!isSpanOwner && ownerName != "System.MemoryExtensions" && ownerName != "System.Buffer") return false;
                 var (name, ps, margs) = CallSigOf(h);

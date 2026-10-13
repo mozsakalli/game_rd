@@ -355,8 +355,9 @@ namespace Digitoy.Box
             for (int i = 0; i < _tqCount; i++)
             {
                 ref readonly var g = ref _tq[i];
-                Color c0 = f.Evaluate((gh ? g.X0 : g.Y0) * invBand) * _tint;
-                Color c1 = f.Evaluate((gh ? g.X1 : g.Y1) * invBand) * _tint;
+                // Dikey: blok bandinda t = 1 - y/H (0 = alt, 1 = ust).
+                Color c0 = f.Evaluate(gh ? g.X0 * invBand : 1f - g.Y0 * invBand) * _tint;
+                Color c1 = f.Evaluate(gh ? g.X1 * invBand : 1f - g.Y1 * invBand) * _tint;
                 EmitQuad(ox + g.X0, oy + g.Y0, ox + g.X1, oy + g.Y1, g.U0, g.V0, g.U1, g.V1, c0, c1, gh, user);
             }
         }

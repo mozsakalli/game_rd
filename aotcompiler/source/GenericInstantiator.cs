@@ -53,19 +53,20 @@ namespace DigitoyEngine.Language
             finally { draining = false; }
         }
 
-        public static string MangleName(string baseName, List<Primitive> typeArgs) =>
+
+        public static string MangleName(string baseName, IReadOnlyList<Primitive> typeArgs) =>
             $"{baseName}<{string.Join(",", typeArgs.Select(a => a.Name))}>";
 
         public static Primitive Substitute(Context ctx, Primitive t, Dictionary<Primitive, Primitive> map)
         {
             if (t == null) return null;
             if (map.TryGetValue(t, out var mapped)) return mapped;
-            if (t.GenericTemplate != null) // "Box<T>" gibi ic ice generic uygulama ifadesi
+            if (t.GenericTemplate != null) // acik uygulama ("Box<T>"): argumanlari yerine koy, kapaliysa ornekle
                 return InstantiatePrimitive(ctx, t.GenericTemplate, t.TypeArguments.Select(a => Substitute(ctx, a, map)).ToList());
             if (t.Type == PrimitiveType.Array) return Primitive.ArrayOf(Substitute(ctx, t.ElementType, map), t.ArrayRank);
             if (t.Type == PrimitiveType.FixedArray) return Primitive.FixedArrayOf(Substitute(ctx, t.ElementType, map), t.FixedSize);
             if (t.Type == PrimitiveType.Pointer) return Primitive.PointerOf(Substitute(ctx, t.ElementType, map));
-            return t; // generic parametresi de degil, uygulama da degil -> oldugu gibi kalir
+            return t; // generic parametresi de degil, uygulama da degil -> oldugu gibi kalir (somut ornek dahil)
         }
 
         // Tip generic parametre iceriyor mu (T, List<T>, T[], T*): bu tiplerle SOMUT ornek uretilmez.
@@ -79,19 +80,18 @@ namespace DigitoyEngine.Language
             return false;
         }
 
+        // Somut ornek: (sablon, argumanlar) icin intern'li uygulama dugumu YERINDE ornege donusur (Context.Apply ayni nesneyi
+        // verir; onceden alinmis referanslar gecerli kalir). Acik argumanli uygulama dugum olarak kalir.
         public static Primitive InstantiatePrimitive(Context ctx, Primitive template, List<Primitive> typeArgs)
         {
             if (!template.IsGeneric) return template;
-            // Acik arguman (T, List<T>...): somut ornek degil uygulama ifadesi — klonlamada Substitute bunu
-            // gercek argumanlarla yeniden cozer. (Aksi halde "ListEnumerator<T>" adli sahte somut tip sizar.)
+            var instance = ctx.Apply(template, typeArgs);
+            if (instance.InstantiatedFrom != null) return instance; // zaten somut
             foreach (var a in typeArgs)
-                if (ContainsGenericParameter(a)) return Primitive.Apply(template, typeArgs.ToArray());
-            var name = MangleName(template.Name, typeArgs);
-            if (ctx.TryGetPrimitive(name, out var cached)) return cached;
+                if (ContainsGenericParameter(a)) return instance; // acik: sablon govdesinde yasar, Substitute gercek argumanlarla cozer
             instantiationDepth++;
             try
             {
-
                 var map = new Dictionary<Primitive, Primitive>();
                 for (int i = 0; i < template.GenericParameters.Count; i++)
                     map[template.GenericParameters[i]] = typeArgs[i];
@@ -99,26 +99,18 @@ namespace DigitoyEngine.Language
                 // arity suffix'i (Action`1) gosterime sizmasin; IC ICE tip adi KORUNUR (List`1.Enumerator -> List.Enumerator),
                 // yoksa List<int> ile List<int>.Enumerator ayni Display'i alir -> Type.GetType(ad) yanlis descriptor bulur.
                 var baseDisp = System.Text.RegularExpressions.Regex.Replace(template.Display, "`\\d+", "");
-                var instance = new Primitive
-                {
-                    Name = name,
-                    Assembly = template.Assembly,
-                    DisplayName = baseDisp + "<" + string.Join(", ", typeArgs.Select(Primitive.CsDisplay)) + ">",
-                    Type = template.Type,
-                    IsStruct = template.IsStruct,
-                    IsInterface = template.IsInterface,
-                    IsDelegate = template.IsDelegate,
-                    FixedSize = template.FixedSize,
-                    ArrayRank = template.ArrayRank,
-                    ElementType = Substitute(ctx, template.ElementType, map),
-                    InstantiatedFrom = template,
-                    CilAttributes = template.CilAttributes,
-                };
-                instance.TypeArguments.AddRange(typeArgs);
+                instance.GenericTemplate = null;
+                instance.InstantiatedFrom = template;
+                instance.Assembly = template.Assembly;
+                instance.DisplayName = baseDisp + "<" + string.Join(", ", typeArgs.Select(Primitive.CsDisplay)) + ">";
+                instance.FixedSize = template.FixedSize;
+                instance.ArrayRank = template.ArrayRank;
+                instance.ElementType = Substitute(ctx, template.ElementType, map);
+                instance.CilAttributes = template.CilAttributes;
                 // oz-tip: govdede sablonun KENDISI gorunurse (ldarg.0 `this` spill'i, `new List<T>()` icinde List`1) -> bu ornek
                 map[template] = instance;
                 ctx.RegisterPrimitive(instance); // once kaydet: self-referansli generic (Node<T>.next:Node<T>) icin dongu kirilir
-                                                 // alanlari HEMEN ekle: ic ice somutlastirma (parent/iface/method klonu) bu tipin alanlarini sorabilir
+                // alanlari HEMEN ekle: ic ice somutlastirma (parent/iface/method klonu) bu tipin alanlarini sorabilir
                 foreach (var field in template.Fields)
                     instance.AddField(new PrimitiveField { Name = field.Name, Type = field.Type, IsStatic = field.IsStatic, IsReadonly = field.IsReadonly, CilAttributes = field.CilAttributes });
                 foreach (var field in template.StaticFields) // C# semantigi: Box<Int> ve Box<Float> statics AYRI
@@ -126,10 +118,8 @@ namespace DigitoyEngine.Language
                 // FAZ 1: uye imza kabuklarini alan/parent/iface tip somutlamasindan ONCE kaydet.
                 // Alan tipi somutlamasi dongusel tipleri reentrant somutlar (List<->ListEnumerator);
                 // o sirada bu tipin uyeleri MemberOf ile aranabilir -> kabuk hazir olmali.
-                var memberTemplates = ctx.AllCodes.Where(m => m.Owner == template).ToList(); // snapshot: klon kaydi listeyi degistirir
-                if (memberTemplates.Count == 0 && System.Environment.GetEnvironmentVariable("INSTTRACE") == "1")
-                    System.Console.Error.WriteLine($"[insttrace] BOS SNAPSHOT: {name} (template nesne #{template.GetHashCode():x})\n{System.Environment.StackTrace}");
-                var memberShells = memberTemplates.Select(m => CloneCodeShell(ctx, m, map, m.Name, instance)).ToList();
+                var memberTemplates = ctx.MembersOf(template).ToList(); // snapshot: klon kaydi listeyi degistirmez ama guvenli
+                var memberShells = memberTemplates.Select(m => CloneCodeShell(ctx, m, map, null, instance)).ToList();
                 for (int fieldIndex = 0; fieldIndex < instance.Fields.Count; fieldIndex++)
                     instance.Fields[fieldIndex].Type = Substitute(ctx, template.Fields[fieldIndex].Type, map);
                 for (int fieldIndex = 0; fieldIndex < instance.StaticFields.Count; fieldIndex++)
@@ -163,7 +153,7 @@ namespace DigitoyEngine.Language
             var map = new Dictionary<Primitive, Primitive>();
             for (int i = 0; i < template.GenericParameters.Count; i++)
                 map[template.GenericParameters[i]] = typeArgs[i];
-            return CloneCode(ctx, template, map, MangleName(template.Name, typeArgs), template.Owner);
+            return CloneCode(ctx, template, map, typeArgs, template.Owner);
         }
 
         // Cagri hedefi somutlastirma - TypeArguments SOZLESMESI: liste = [sinif argumanlari] + [method argumanlari].
@@ -174,32 +164,45 @@ namespace DigitoyEngine.Language
             {
                 int classCount = target.Owner.GenericParameters.Count;
                 var inst = InstantiatePrimitive(ctx, target.Owner, typeArgs.GetRange(0, classCount));
-                var member = MemberOf(ctx, inst, target.Name);
+                var member = MemberOf(ctx, inst, target);
                 var rest = typeArgs.GetRange(classCount, typeArgs.Count - classCount);
                 return rest.Count > 0 ? InstantiateCode(ctx, member, rest) : member;
             }
             return InstantiateCode(ctx, target, typeArgs);
         }
 
-        // ortak kabuk: generic METHOD somutlastirma (yeni ad, ayni owner) ve generic CLASS uyesi (ayni ad, yeni owner) ayni
+        // ortak kabuk: generic METHOD somutlastirma (metot argumanlari, ayni owner) ve generic CLASS uyesi (yeni owner) ayni
         // mekanik. Govde: IL'den somut baglamla (CilFrontend.TranslateInstance), op klonu YOK.
-        static Code CloneCode(Context ctx, Code template, Dictionary<Primitive, Primitive> map, string newName, Primitive newOwner)
+        static Code CloneCode(Context ctx, Code template, Dictionary<Primitive, Primitive> map, List<Primitive> methodArgs, Primitive newOwner)
         {
-            var shell = CloneCodeShell(ctx, template, map, newName, newOwner);
+            var shell = CloneCodeShell(ctx, template, map, methodArgs, newOwner);
             if (shell.GenericParameters.Count == 0 && !shell.BodyCloned) EnqueueBody(ctx, shell); // somutlama sirasinda ertele (reentrancy)
             return shell;
         }
 
-        // Imza kabugu (Owner/Name/arg/return) olustur + kaydet. Locals/govde: IL cevirisi doldurur.
-        static Code CloneCodeShell(Context ctx, Code template, Dictionary<Primitive, Primitive> map, string newName, Primitive newOwner)
+        // Imza kabugu (Owner/arg/return) olustur + kaydet. Locals/govde: IL cevirisi doldurur.
+        // Kimlik: (newOwner, kok sablon, metot tip argumanlari) - Context yapisal anahtarla intern'ler.
+        static Code CloneCodeShell(Context ctx, Code template, Dictionary<Primitive, Primitive> map, List<Primitive> methodArgs, Primitive newOwner)
         {
-            var probe = new Code { Owner = newOwner, Name = newName };
-            if (ctx.TryGetCode(probe.EncodeName(), out var cached)) return cached;
+            // generic METHOD argumanlari: kok sablonun parametre sirasiyla (map'ten; ic ice kabukta onceki kabugun listesinden)
+            var root = RootTemplate(template);
+            var margs = new List<Primitive>();
+            for (int i = 0; i < root.GenericParameters.Count; i++)
+            {
+                var gp = root.GenericParameters[i];
+                if (map.TryGetValue(gp, out var m)) margs.Add(m);
+                else if (template.MethodTypeArguments != null && i < template.MethodTypeArguments.Count) margs.Add(template.MethodTypeArguments[i]);
+                else { margs = null; break; }
+            }
+            var remainingGenerics = template.GenericParameters.Where(gp => !map.ContainsKey(gp)).ToList();
+            var finalMargs = margs != null && margs.Count > 0 && remainingGenerics.Count == 0 ? margs : null;
+            if (ctx.TryGetInstance(newOwner, root, finalMargs, out var cached)) return cached;
 
             var code = new Code
             {
                 Owner = newOwner,
-                Name = newName,
+                SimpleName = template.SimpleName,
+                ByrefNamedMangle = template.ByrefNamedMangle,
                 Assembly = template.Assembly,
                 Template = template,
                 IlSource = template.IlSource,
@@ -214,27 +217,15 @@ namespace DigitoyEngine.Language
                 NativeHeader = template.NativeHeader,
                 CilAttributes = template.CilAttributes,
                 ExplicitInterface = Substitute(ctx, template.ExplicitInterface, map),
-                ReturnType = Substitute(ctx, template.ReturnType, map)
+                ReturnType = Substitute(ctx, template.ReturnType, map),
+                MethodTypeArguments = finalMargs
             };
             code.Attributes.AddRange(template.Attributes);
-            // generic METHOD argumanlari: kok sablonun parametre sirasiyla (map'ten; ic ice kabukta onceki kabugun listesinden)
-            var root = RootTemplate(template);
-            var margs = new List<Primitive>();
-            for (int i = 0; i < root.GenericParameters.Count; i++)
-            {
-                var gp = root.GenericParameters[i];
-                if (map.TryGetValue(gp, out var m)) margs.Add(m);
-                else if (template.MethodTypeArguments != null && i < template.MethodTypeArguments.Count) margs.Add(template.MethodTypeArguments[i]);
-                else { margs = null; break; }
-            }
-            foreach (var gp in template.GenericParameters)
-                if (!map.ContainsKey(gp))
-                    code.GenericParameters.Add(gp); // generic sinifin generic method'u: kendi parametreleri kabukta kalir (sablon)
-            if (margs != null && margs.Count > 0 && code.GenericParameters.Count == 0) code.MethodTypeArguments = margs;
+            code.GenericParameters.AddRange(remainingGenerics); // generic sinifin generic method'u: kendi parametreleri kabukta kalir (sablon)
             foreach (var arg in template.Arguments)
             {
                 var at = arg.Name == "this" && arg.Type == template.Owner ? newOwner : Substitute(ctx, arg.Type, map);
-                code.Arguments.Add(new Argument { Name = arg.Name, Type = at, IsRef = arg.IsRef, IsOut = arg.IsOut });
+                code.Arguments.Add(new Argument { Name = arg.Name, Type = at, IsRef = arg.IsRef, IsOut = arg.IsOut, IsOutParam = arg.IsOutParam });
             }
             ctx.RegisterCode(code); // self-recursive generic fonksiyonlar icin once kaydet
             return code;
@@ -243,44 +234,16 @@ namespace DigitoyEngine.Language
         // Kabuk zincirinin kokundeki sablon (IL govdesinin sahibi): Derived<int>.M<string> -> Derived<T>.M<U>
         public static Code RootTemplate(Code c) { while (c.Template != null) c = c.Template; return c; }
 
-        public static Code MemberOf(Context ctx, Primitive owner, string methodName)
+        // Somut ornegin, sablon uyesine karsilik gelen klonu (Box<int>.Get <- Box<T>.Get). Ornek kuruluysa kabuk kayitlidir.
+        public static Code MemberOf(Context ctx, Primitive owner, Code templateMember)
         {
-            var probe = new Code { Owner = owner, Name = methodName };
-            if (!ctx.TryGetCode(probe.EncodeName(), out var member))
-            {
-                // near-miss: owner'in kayitli uyeleri + template/instantiation durumu
-                var members = new List<string>();
-                foreach (var c in ctx.AllCodes)
-                    if (c.Owner == owner) { members.Add(c.Name); if (members.Count >= 12) break; }
-                // kimlik bolunmesi tespiti: ayni ISIMDE ama farkli NESNE owner'lar (problem: kanonik tip kimligi yok)
-                var splits = new HashSet<string>();
-                foreach (var c in ctx.AllCodes)
-                    if (c.Owner != owner && c.Owner != null && c.Owner.Name == owner.Name)
-                        splits.Add(c.Name);
-                var hint = owner.GenericTemplate != null
-                    ? $" (instantiation of {owner.GenericTemplate.Name})"
-                    : owner.GenericParameters.Count > 0 ? " (TEMPLATE - somutlanmamis owner ile cagrilmis!)" : "";
-                var splitNote = splits.Count > 0
-                    ? $"\n  KIMLIK BOLUNMESI: '{owner.Name}' adinda BASKA bir Primitive nesnesinin uyeleri var: {string.Join(", ", splits.Take(12))}"
-                    : "";
-                var state = $"\n  owner durumu: nesne #{owner.GetHashCode():x} Unresolved={owner.Unresolved} GenericTemplate={(owner.GenericTemplate?.Name ?? "yok")} TypeArgs=[{string.Join(",", owner.TypeArguments.Select(a => a.Name))}] GenericParams={owner.GenericParameters.Count}";
-                // isim-anahtarli kayit taramasi: ayni owner ADI altinda kayitli TUM code'lar (nesne kimliginden bagimsiz)
-                var byName = new List<string>();
-                foreach (var c in ctx.AllCodes)
-                    if (c.Owner != null && c.Owner.Name == owner.Name) { byName.Add($"{c.Name}(#{c.Owner.GetHashCode():x})"); if (byName.Count >= 12) break; }
-                state += $"\n  '{owner.Name}$*' isim-anahtarli kayitlar: {(byName.Count > 0 ? string.Join(", ", byName) : "yok")}";
-                throw new System.Exception($"somutlastirilmis uye bulunamadi: {owner.Name}${methodName}{hint}\n"
-                    + $"  owner'in kayitli uyeleri: {(members.Count > 0 ? string.Join(", ", members) : "(hic yok - tip somutlanmamis olabilir)")}{splitNote}{state}");
-            }
-            return member;
-        }
-
-        static PrimitiveField FieldOf(Primitive owner, string name, bool isStatic)
-        {
-            for (var t = owner; t != null && !t.Unresolved; t = t.Parent)
-                foreach (var f in isStatic ? t.StaticFields : t.Fields)
-                    if (f.Name == name) return f;
-            throw new System.Exception($"somutlastirilmis alan bulunamadi: {owner.Name}.{name} (mevcut: {string.Join(",", owner.Fields.Select(field => field.Name))})");
+            if (ctx.TryGetInstance(owner, templateMember, null, out var member)) return member;
+            var members = ctx.MembersOf(owner).Take(12).Select(c => c.DisplayName ?? c.Name);
+            var hint = owner.InstantiatedFrom != null ? $" (instantiation of {owner.InstantiatedFrom.Name})"
+                : owner.GenericParameters.Count > 0 ? " (TEMPLATE - somutlanmamis owner ile cagrilmis!)"
+                : owner.GenericTemplate != null ? " (ACIK uygulama dugumu - somutlanmamis)" : "";
+            throw new System.Exception($"somutlastirilmis uye bulunamadi: {owner.Name}.{templateMember.DisplayName ?? templateMember.Name}{hint}\n"
+                + $"  owner'in kayitli uyeleri: {(members.Any() ? string.Join(", ", members) : "(hic yok - tip somutlanmamis olabilir)")}");
         }
     }
 }

@@ -3,40 +3,11 @@ using System.Linq;
 
 namespace DigitoyEngine.Language
 {
-    // Decode edilen graf, isim ile isaret eden "Unresolved" placeholder nesneler icerir
-    // (bkz. Primitive.Decode / Code.Decode). Resolver bunlari Context'teki gercek nesnelere baglar.
-    // Pass 1: tam tanimli (Unresolved=false) primitive/code'lari Context'e kaydet.
-    // Pass 2: butun graf gezilip Unresolved referanslar Context'ten cozulur.
+    // Baglama pass'i: front-end'in kurdugu grafta kalan ACIK generic uygulamalarini (Box<int> dugumu) somut orneklere
+    // cevirir, TypeArguments tasiyan op'lari somut hedefe baglar, etiketleri cozer; sonra kalitim (Hierarchy) ve
+    // CallVirtual slotlari. Tum referanslar nesne kimligiyledir; isimle cozulen hicbir sey yoktur.
     public static class Resolver
     {
-        public static void Register(Context ctx, IEnumerable<Primitive> primitives, IEnumerable<Code> codes)
-        {
-            foreach (var p in primitives)
-                if (!p.Unresolved)
-                    ctx.RegisterPrimitive(p);
-            foreach (var c in codes)
-                if (!c.Unresolved)
-                    ctx.RegisterCode(c);
-        }
-
-        public static Primitive ResolvePrimitive(Context ctx, Primitive p)
-        {
-            if (p == null || !p.Unresolved)
-                return p;
-            if (!ctx.TryGetPrimitive(p.Name, out var resolved))
-                throw new System.Exception($"Cozulemeyen primitive: {p.Name}");
-            return resolved;
-        }
-
-        public static Code ResolveCode(Context ctx, Code c)
-        {
-            if (c == null || !c.Unresolved)
-                return c;
-            if (!ctx.TryGetCode(c.EncodeName(), out var resolved))
-                throw new System.Exception($"Cozulemeyen code: {c.EncodeName()}");
-            return resolved;
-        }
-
         public static void ResolveAll(Context ctx, IEnumerable<Code> codes)
         {
             foreach (var primitive in ctx.AllPrimitives.ToList())
@@ -47,103 +18,99 @@ namespace DigitoyEngine.Language
                     primitive.Interfaces[i] = Concretize(ctx, primitive.Interfaces[i]);
             }
             // SABIT NOKTA: monomorphization yeni ornek kodlari (IL'den cevrilmis govdeler) kaydeder; onlar da ayni
-            // cozumden (alan remap, Apply -> ornek, TypeArguments, label) gecmeli -> yeni kod kalmayana dek dongu.
+            // cozumden gecmeli. Hierarchy de generic sanal metot orneklemesi uretebilir -> hepsi sakinlesene dek dongu.
             var done = new HashSet<Code>();
             while (true)
             {
                 var batch = ctx.AllCodes.Where(c => !done.Contains(c)).ToList();
-                if (batch.Count == 0) break;
-                foreach (var code in batch) { done.Add(code); ResolveCodeBody(ctx, code); }
+                if (batch.Count > 0)
+                {
+                    foreach (var code in batch) { done.Add(code); ResolveCodeBody(ctx, code); }
+                    continue;
+                }
+                bool more = FinishHierarchy(ctx);
+                // Concretize/Hierarchy yeni kod kaydetmis olabilir (alan tipi somutlamasi, generic sanal ornekleme) -> tekrar tur
+                if (!more && ctx.AllCodes.All(done.Contains)) break;
             }
-            FinishHierarchy(ctx);
+            AssignVirtualSlots(ctx);
         }
 
         static void ResolveCodeBody(Context ctx, Code code)
         {
+            // template kodlar (generic method ya da generic sinif uyesi) SOMUTLASTIRILMAZ: tip referanslari T icerir,
+            // ornekleri IL'den somut baglamla cevrilir. Yalniz label.
+            bool isTemplate = code.GenericParameters.Count > 0 || (code.Owner != null && code.Owner.IsGeneric);
+            if (!isTemplate)
             {
-                code.Owner = ResolvePrimitive(ctx, code.Owner);
-                // template kodlar (generic method ya da generic sinif uyesi) SOMUTLASTIRILMAZ:
-                // tip referanslari T icerir, kopyalari CloneCode somutlastirir. Yalniz isim cozumu + label.
-                bool isTemplate = code.GenericParameters.Count > 0 || (code.Owner != null && code.Owner.IsGeneric);
-                if (code.ExplicitInterface != null)
-                    code.ExplicitInterface = isTemplate ? ResolvePrimitive(ctx, code.ExplicitInterface) : Concretize(ctx, code.ExplicitInterface);
-                code.ReturnType = isTemplate ? ResolvePrimitive(ctx, code.ReturnType) : Concretize(ctx, code.ReturnType);
-                foreach (var arg in code.Arguments)
-                    arg.Type = isTemplate ? ResolvePrimitive(ctx, arg.Type) : Concretize(ctx, arg.Type);
-                for (int i = 0; i < code.Locals.Count; i++)
-                    code.Locals[i] = isTemplate ? ResolvePrimitive(ctx, code.Locals[i]) : Concretize(ctx, code.Locals[i]);
-                try
+                if (code.ExplicitInterface != null) code.ExplicitInterface = Concretize(ctx, code.ExplicitInterface);
+                code.ReturnType = Concretize(ctx, code.ReturnType);
+                foreach (var arg in code.Arguments) arg.Type = Concretize(ctx, arg.Type);
+                for (int i = 0; i < code.Locals.Count; i++) code.Locals[i] = Concretize(ctx, code.Locals[i]);
+            }
+            try
+            {
+                foreach (var op in code.Operations)
                 {
-                    foreach (var op in code.Operations)
+                    if (isTemplate) continue; // op-duzeyi somutlastirma ornek cevirisinde
+
+                    // monomorphization: TypeArguments tasiyan op'lar somut hedefe baglanir.
+                    // Kural: liste = [sinif argumanlari] + [method argumanlari] (Owner generic ise once sinifinkiler).
+                    if (op.TypeArguments.Count > 0)
                     {
-                        if (op.Field != null)
-                        {
-                            var owner = ResolvePrimitive(ctx, op.Field.Owner);
-                            // field'in kendisi de owner uzerinde isimle bulunmali (Index/Type icin)
-                            op.Field = FindField(owner, op.Field.Name);
-                        }
+                        var resolvedArgs = new List<Primitive>();
+                        foreach (var arg in op.TypeArguments)
+                            resolvedArgs.Add(Concretize(ctx, arg));
                         if (op.Code != null)
-                            op.Code = ResolveCode(ctx, op.Code);
-
-                        if (isTemplate) continue; // op-duzeyi somutlastirma klon sirasinda
-
-                        // 3. pass (monomorphization): TypeArguments tasiyan op'lar somut hedefe baglanir.
-                        // Kural: liste = [sinif argumanlari] + [method argumanlari] (Owner generic ise once sinifinkiler).
-                        if (op.TypeArguments.Count > 0)
                         {
-                            var resolvedArgs = new List<Primitive>();
-                            foreach (var arg in op.TypeArguments)
-                                resolvedArgs.Add(Concretize(ctx, arg));
-                            if (op.Code != null)
-                            {
-                                op.Code = GenericInstantiator.ResolveCallTarget(ctx, op.Code, resolvedArgs);
-                                if (op.PrimitiveRef != null) op.PrimitiveRef = Concretize(ctx, op.PrimitiveRef); // DelegateNew: delegate tipi Apply -> ornek
-                            }
-                            else if (op.PrimitiveRef != null)
-                                op.PrimitiveRef = GenericInstantiator.InstantiatePrimitive(ctx, ResolvePrimitive(ctx, op.PrimitiveRef), resolvedArgs);
-                            if (op.Field != null && op.Field.Owner != null && op.Field.Owner.IsGeneric)
-                            {
-                                int classArgCount = op.Field.Owner.GenericParameters.Count;
-                                var inst = GenericInstantiator.InstantiatePrimitive(ctx, op.Field.Owner, resolvedArgs.GetRange(0, classArgCount));
-                                op.Field = FindField(inst, op.Field.Name);
-                            }
-                            // NOT: TypeArguments temizlenmez — frontend New+Call(ctor) op'lari AYNI listeyi paylasir; kod zaten bir kez islenir.
+                            op.Code = GenericInstantiator.ResolveCallTarget(ctx, op.Code, resolvedArgs);
+                            if (op.PrimitiveRef != null) op.PrimitiveRef = Concretize(ctx, op.PrimitiveRef); // DelegateNew: delegate tipi
                         }
                         else if (op.PrimitiveRef != null)
-                            op.PrimitiveRef = Concretize(ctx, op.PrimitiveRef); // Apply node (orn. is/as Box<int>) somutlanir
+                            op.PrimitiveRef = GenericInstantiator.InstantiatePrimitive(ctx, op.PrimitiveRef.Definition, resolvedArgs);
+                        if (op.Field != null && op.Field.Owner != null && op.Field.Owner.IsGeneric)
+                        {
+                            int classArgCount = op.Field.Owner.GenericParameters.Count;
+                            var inst = GenericInstantiator.InstantiatePrimitive(ctx, op.Field.Owner, resolvedArgs.GetRange(0, classArgCount));
+                            op.Field = FindField(inst, op.Field.Name);
+                        }
+                        // NOT: TypeArguments temizlenmez — frontend New+Call(ctor) op'lari AYNI listeyi paylasir; kod zaten bir kez islenir.
                     }
-                    Linker.LinkLabels(code); // 4. pass: goto hedefleri instruction index'ine cozulur
+                    else if (op.PrimitiveRef != null)
+                        op.PrimitiveRef = Concretize(ctx, op.PrimitiveRef); // acik uygulama dugumu (orn. is/as Box<int>) somutlanir
                 }
-                catch (System.Exception ex) when (!isTemplate)
-                {
-                    // Eksik generic somutlastirma vb.: tum pipeline'i dusurme, kodu stub'la (CTranspiler tipe uygun sifir doner).
-                    System.Console.Error.WriteLine($"[resolve-stub] {code.EncodeName()}: {ex.Message}");
-                    code.UntranslatableReason = $"resolve: {ex.Message}";
-                    code.Operations.Clear();
-                }
-
+                Linker.LinkLabels(code); // goto hedefleri instruction index'ine cozulur
+            }
+            catch (System.Exception ex) when (!isTemplate)
+            {
+                // Eksik generic somutlastirma vb.: tum pipeline'i dusurme, kodu stub'la (CTranspiler tipe uygun sifir doner).
+                System.Console.Error.WriteLine($"[resolve-stub] {code.EncodeName()}: {ex.Message}");
+                code.UntranslatableReason = $"resolve: {ex.Message}";
+                code.Operations.Clear();
             }
         }
 
-        static void FinishHierarchy(Context ctx)
+        // somut tiplerin alan/parent tiplerindeki acik uygulamalar somutlanir (orn. "class Holder { Box<int> b; }" - Box<int>
+        // hic New'lenmese bile tip var olmali), sonra kalitim. Donus: Hierarchy yeni kod ornekledi mi (dongu devam).
+        static bool FinishHierarchy(Context ctx)
         {
-            // 4.5. pass: somut tiplerin alan/parent tiplerindeki Apply node'lari somutlanir
-            // (orn. "class Holder { Box<int> b; }" - Box<int> hic New'lenmese bile tip var olmali).
             foreach (var p in ctx.AllPrimitives.ToList()) // Concretize yeni kayit ekler -> snapshot
             {
-                if (p.IsGeneric || p.GenericTemplate != null) continue; // template/Apply dokunulmaz
+                if (p.IsGeneric || p.GenericTemplate != null) continue;
                 p.Parent = Concretize(ctx, p.Parent);
                 foreach (var f in p.Fields) f.Type = Concretize(ctx, f.Type);
                 foreach (var f in p.StaticFields) f.Type = Concretize(ctx, f.Type);
             }
-
-            // 5. pass: kalitim (alan duzlestirme + vtable/itable), sonra CallVirtual slotlari.
-            // Slotlar TUM ctx uzerinden atanir: monomorphization'in urettigi klonlar da kapsansin.
-            Hierarchy.Build(ctx);
+            bool more = Hierarchy.Build(ctx);
             // runtime exception kind -> corlib sinifi eslemesi (DIGITOYENGINE_EX_* indeksleri, WellKnown tablosu)
             for (int k = 1; k < WellKnown.ExceptionKinds.Length; k++)
                 if (WellKnown.ExceptionKinds[k] != null && ctx.TryGetPrimitive(WellKnown.ExceptionKinds[k], out var kt))
                     ctx.ExceptionKindTypes[k] = kt;
+            return more;
+        }
+
+        // CallVirtual slotlari: bildiren metot kendi owner'inin vtable'inda nesne kimligiyle bulunur.
+        static void AssignVirtualSlots(Context ctx)
+        {
             foreach (var code in ctx.AllCodes)
             {
                 if (code.GenericParameters.Count > 0 || (code.Owner != null && code.Owner.IsGeneric))
@@ -153,34 +120,40 @@ namespace DigitoyEngine.Language
                     {
                         if (op.Code.Owner == null)
                             throw new System.Exception($"CallVirtual hedefi Owner'siz: {op.Code.Name}");
-                        int slot = Hierarchy.SlotOf(op.Code.Owner.VTable, op.Code.Name);
+                        int slot = op.Code.Owner.VTable.IndexOf(op.Code);
                         if (slot < 0)
-                            throw new System.Exception($"CallVirtual hedefi vtable'da yok (virtual isaretli mi?): {op.Code.EncodeName()}");
+                            throw new System.Exception($"CallVirtual hedefi vtable'da yok (virtual isaretli mi?): {op.Code.EncodeName()} (cagiran: {code.EncodeName()}, op TypeArgs=[{string.Join(",", op.TypeArguments.Select(a => a.Name))}], hedef owner generic={op.Code.Owner.IsGeneric} vtable={op.Code.Owner.VTable.Count})");
                         op.Slot = slot;
                     }
             }
         }
 
-        // Apply node'lari (Box<int>) gercek somutlastirmaya, Unresolved'lari kayitli nesneye cevirir.
-        // Diziler eleman uzerinden rekursif (Apply elemanli dizi tipi somut dizi tipine doner).
+        // Acik generic uygulama dugumunu (kapali argumanli) somut ornege cevirir; dizi elemani uzerinden rekursif.
+        // Intern sayesinde ayni dugum yerinde ornege donusur; kapali olmayan (T iceren) dugumler oldugu gibi kalir.
         public static Primitive Concretize(Context ctx, Primitive p)
         {
             if (p == null) return null;
             if (p.GenericTemplate != null)
             {
+                if (GenericInstantiator.ContainsGenericParameter(p)) return p;
                 var args = new List<Primitive>();
                 foreach (var a in p.TypeArguments)
                     args.Add(Concretize(ctx, a));
-                return GenericInstantiator.InstantiatePrimitive(ctx, ResolvePrimitive(ctx, p.GenericTemplate), args);
+                return GenericInstantiator.InstantiatePrimitive(ctx, p.GenericTemplate, args);
             }
-            if (p.Type == PrimitiveType.Array && p.ElementType != null && p.ElementType.GenericTemplate != null)
-                return Primitive.ArrayOf(Concretize(ctx, p.ElementType), p.ArrayRank);
-            return ResolvePrimitive(ctx, p);
+            if (p.ElementType != null && p.ElementType.GenericTemplate != null)
+            {
+                var elem = Concretize(ctx, p.ElementType);
+                if (p.Type == PrimitiveType.Array) return Primitive.ArrayOf(elem, p.ArrayRank);
+                if (p.Type == PrimitiveType.Pointer) return Primitive.PointerOf(elem);
+                if (p.Type == PrimitiveType.FixedArray) return Primitive.FixedArrayOf(elem, p.FixedSize);
+            }
+            return p;
         }
 
         static PrimitiveField FindField(Primitive owner, string name)
         {
-            for (var t = owner; t != null && !t.Unresolved; t = t.Parent) // kalitilan alanlar parent'ta
+            for (var t = owner; t != null; t = t.Parent) // kalitilan alanlar parent'ta
             {
                 foreach (var f in t.Fields)
                     if (f.Name == name)
@@ -190,17 +163,6 @@ namespace DigitoyEngine.Language
                         return f;
             }
             throw new System.Exception($"Cozulemeyen field: {owner.Name}.{name}");
-        }
-
-        // Decode edilmis bir Primitive'in ElementType/Parent/alan tiplerini Context'e gore cozer.
-        public static void ResolvePrimitiveTypes(Context ctx, Primitive p)
-        {
-            p.ElementType = ResolvePrimitive(ctx, p.ElementType);
-            p.Parent = ResolvePrimitive(ctx, p.Parent);
-            for (int i = 0; i < p.Interfaces.Count; i++)
-                p.Interfaces[i] = ResolvePrimitive(ctx, p.Interfaces[i]);
-            foreach (var field in p.Fields)
-                field.Type = ResolvePrimitive(ctx, field.Type);
         }
     }
 }

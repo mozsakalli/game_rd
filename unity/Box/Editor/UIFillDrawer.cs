@@ -31,17 +31,22 @@ namespace Digitoy.Box.Editor
             var valueRect = new Rect(row.x + TypeWidth + 4, row.y, row.width - TypeWidth - 4, line);
             EditorGUI.PropertyField(typeRect, typeProp, GUIContent.none);
 
-            if ((UIFillType)typeProp.enumValueIndex == UIFillType.Solid)
+            var t = (UIFillType)typeProp.enumValueIndex;
+            if (t == UIFillType.Solid)
             {
                 EditorGUI.PropertyField(valueRect, property.FindPropertyRelative("color"), GUIContent.none);
             }
             else
             {
+                // Radial: gradient (0 = merkez, 1 = kenar), yon yok.
                 EditorGUI.PropertyField(valueRect, property.FindPropertyRelative("gradient"), GUIContent.none);
-                var dirRect = new Rect(row.x, row.y + line + gap, row.width, line);
-                var horiz = property.FindPropertyRelative("horizontal");
-                int sel = EditorGUI.Popup(dirRect, horiz.boolValue ? 1 : 0, new[] { "Vertical (top → bottom)", "Horizontal (left → right)" });
-                horiz.boolValue = sel == 1;
+                if (t == UIFillType.Gradient)
+                {
+                    var dirRect = new Rect(row.x, row.y + line + gap, row.width, line);
+                    var horiz = property.FindPropertyRelative("horizontal");
+                    int sel = EditorGUI.Popup(dirRect, horiz.boolValue ? 1 : 0, new[] { "Vertical (bottom → top)", "Horizontal (left → right)" });
+                    horiz.boolValue = sel == 1;
+                }
             }
 
             EditorGUI.indentLevel = indent;

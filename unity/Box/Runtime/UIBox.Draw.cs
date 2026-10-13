@@ -16,9 +16,30 @@ namespace Digitoy.Box
         float CU(float pieceX, float px) => (_pbx + pieceX + px) / _texW;
         float CV(float pieceY, float py) => 1f - (_pby + pieceY + py) / _texH;
 
-        // Katman rengi: UIFill kutu bandina gore (c = dikeyde y, yatayda x; y-down, 0 = ust) x tint (Graphic.color).
-        Color FillAt(float c) => fill.Evaluate(c / (fill.IsHorizontal ? _rw : _rh)) * _tint;
-        Color BorderAt(float c) => borderFill.Evaluate(c / (borderFill.IsHorizontal ? _rw : _rh)) * _tint;
+        // Katman rengi: UIFill kutu bandina gore x tint. Yatay: t = x/w (0 = sol). Dikey: t = 1 - y/h (0 = ALT, 1 = ust; y-down).
+        Color FillAt(float c) => fill.Evaluate(fill.IsHorizontal ? c / _rw : 1f - c / _rh) * _tint;
+        Color BorderAt(float c) => borderFill.Evaluate(borderFill.IsHorizontal ? c / _rw : 1f - c / _rh) * _tint;
+
+        // Radyal overlay (engine EmitRadial): Shadow parcasinin lineer rampasi ham gecisle (USER.w>0, alpha = d)
+        // 4 aynali ceyrek quad. Elips closest-side: kenar ortalarina teget, orada 0 -> kirpma gerekmez.
+        void EmitRadial(float x0, float y0, float x1, float y1, Color col)
+        {
+            if (x1 <= x0 || y1 <= y0 || col.a <= 0f)
+                return;
+            float uNear = CU(UIPieces.ShadowX, 0f), uFar = CU(UIPieces.ShadowX, UIPieces.ShadowSize);
+            float vNear = CV(UIPieces.ShadowY, 0f), vFar = CV(UIPieces.ShadowY, UIPieces.ShadowSize);
+            float cx = (x0 + x1) * 0.5f, cy = (y0 + y1) * 0.5f;
+            var user = new Vector4(0f, 0f, 0f, 1f);
+            void Quarter(float qx0, float qy0, float qx1, float qy1, bool farLeft, bool farTop)
+                => EmitQuad(qx0, qy0, qx1, qy1,
+                    farLeft ? uFar : uNear, farTop ? vNear : vFar,
+                    farLeft ? uNear : uFar, farTop ? vFar : vNear,
+                    col, col, false, user);
+            Quarter(x0, y0, cx, cy, true, true);
+            Quarter(cx, y0, x1, cy, false, true);
+            Quarter(cx, cy, x1, y1, false, false);
+            Quarter(x0, cy, cx, y1, true, false);
+        }
 
         // Ic dolgu quad'i: gradient'in ara key'lerinde eksen boyunca bolunur (vertex renk = tam dogru).
         void EmitSolidSplit(float ax0, float ay0, float ax1, float ay1, float su0, float sv0, float su1, float sv1,
@@ -36,7 +57,9 @@ namespace Digitoy.Box
             float prev = a;
             for (int i = 0; i <= n; i++)
             {
-                float next = i < n ? Mathf.Clamp(keys[i] * size, a, b) : b;
+                // Dikeyde key t alttan olculur (t=0 alt) -> y = (1-t)*h; keys artan oldugundan ters sirada gez.
+                float k = i < n ? (gh ? keys[i] : 1f - keys[n - 1 - i]) : 1f;
+                float next = i < n ? Mathf.Clamp(k * size, a, b) : b;
                 if (next > prev)
                 {
                     if (gh) EmitQuad(prev, ay0, next, ay1, su0, sv0, su1, sv1, at(prev), at(next), true, Vector4.zero);

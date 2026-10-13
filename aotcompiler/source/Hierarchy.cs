@@ -3,53 +3,46 @@ using System.Linq;
 
 namespace DigitoyEngine.Language
 {
-    // Kalitim pass'i (Resolver icinden, isim cozumunden SONRA calisir):
+    // Kalitim pass'i (Resolver icinden, somutlastirma sabit noktasindan SONRA calisir):
     // 1) Alan duzlestirme: field.Index parent zinciri dahil global slot olur (parent alanlari once).
-    //    VM'de Instance.Fields ve C'de struct layout ayni sirayi kullanir -> Derived* prefix-uyumlu Base*.
-    // 2) VTable kurulumu: parent vtable kopyalanir, IsVirtual yeni slot acar, IsOverride ayni
-    //    isimli slotu ezer. Slot eslesmesi ISIMLE yapilir (overload'lu sanal method kapsam disi).
-    // Idempotent: ayni Context'e tekrar uygulanabilir (her seferinde bastan hesaplar).
+    //    C'de struct layout ayni sirayi kullanir -> Derived* prefix-uyumlu Base*.
+    // 2) VTable kurulumu (.NET MethodTableBuilder kurali): parent vtable kopyalanir, IsVirtual yeni slot acar, IsOverride
+    //    parent'ta AD + SUBSTITUTE EDILMIS PARAMETRE IMZASI eslesen ilk slotu ezer (Signature.Matches; isim-mangling YOK).
+    //    Generic sanal metot (Pair<U>): sablon slot ACMAZ; her (metot, tip argumanlari) orneklemesi ayri slottur ve tureyen
+    //    siniflarda ayni argumanlarla ornekleme bu pass'te uretilir (IL2CPP generic virtual method tablosu karsiligi).
+    // 3) ITable: iface slotu -> en tureyenden yukari ilk imza eslesen impl (acik impl oncelikli).
+    // Idempotent: ayni Context'e tekrar uygulanabilir. Yeni kod ornekledigini `Build` donus degeri bildirir
+    // (Resolver sabit nokta dongusunu yeniden kosar).
     public static class Hierarchy
     {
-        public static void Build(Context ctx)
+        public static bool Build(Context ctx)
         {
             // C# kurali: base'siz class'lar Object'e koklenir (DIGITOYENGINE_is zinciri object'e ulasir).
-            // Front-end kendi tiplerini declare'da kokler; bu satir elle kurulan IR'i da kapsar.
             foreach (var p in ctx.AllPrimitives)
                 if (p.Type == PrimitiveType.Model && !p.IsStruct && !p.IsInterface && !p.IsGenericParameter
                     && p.Parent == null && p != Primitive.Object)
                     p.Parent = Primitive.Object;
 
             var doneLayout = new HashSet<Primitive>();
-            foreach (var p in ctx.AllPrimitives)
+            foreach (var p in ctx.AllPrimitives.ToList())
                 if (p.Type == PrimitiveType.Model && !p.IsGeneric)
                     AssignLayout(p, doneLayout);
 
-            // Owner'i olan methodlari tipe grupla (kayit sirasi korunur -> deterministik vtable)
-            var methodsByOwner = new Dictionary<Primitive, List<Code>>();
-            foreach (var c in ctx.AllCodes)
-            {
-                if (c.Owner == null || c.Owner.Unresolved) continue;
-                if (!methodsByOwner.TryGetValue(c.Owner, out var list))
-                    methodsByOwner[c.Owner] = list = new List<Code>();
-                list.Add(c);
-            }
-
-            var doneVt = new HashSet<Primitive>();
+            var state = new BuildState { ctx = ctx };
             // on-kayitli runtime tipleri PrimitiveOrder'da yok (AllPrimitives gormez) -> acikca kur.
-            // Object cocuklarinin recursion'iyla da kurulurdu ama String'in cocugu olmayabilir.
-            BuildVTable(Primitive.Object, methodsByOwner, doneVt);
-            BuildVTable(Primitive.String, methodsByOwner, doneVt);
-            foreach (var p in ctx.AllPrimitives)
-                if (p.Type == PrimitiveType.Model && !p.IsStruct && !p.IsGeneric)
-                    BuildVTable(p, methodsByOwner, doneVt);
+            BuildVTable(Primitive.Object, state);
+            BuildVTable(Primitive.String, state);
+            foreach (var p in ctx.AllPrimitives.ToList()) // ornekleme yeni tip kaydedebilir -> snapshot
+                if (p.Type == PrimitiveType.Model && !p.IsStruct && !p.IsGeneric && p.GenericTemplate == null)
+                    BuildVTable(p, state);
 
-            // Interface tablolari: her class icin (zincirdeki tum) iface'lerin slot sirali impl listesi.
-            // Impl eslesmesi MANGLED isimle (tam imza), en tureyenden yukari ilk bulunan (override'lar kazanir).
-            foreach (var p in ctx.AllPrimitives)
-                if (p.Type == PrimitiveType.Model && !p.IsStruct && !p.IsInterface && !p.IsGeneric)
-                    BuildITables(p, methodsByOwner);
+            foreach (var p in ctx.AllPrimitives.ToList())
+                if (p.Type == PrimitiveType.Model && !p.IsStruct && !p.IsInterface && !p.IsGeneric && p.GenericTemplate == null)
+                    BuildITables(ctx, p);
+            return state.instantiated;
         }
+
+        class BuildState { public Context ctx; public HashSet<Primitive> done = new HashSet<Primitive>(); public bool instantiated; }
 
         // class'in implement ettigi iface'ler DUZLESTIRILMIS (parent zinciri dahil, tekrarsiz) - C itables ile ayni kural
         public static List<Primitive> AllInterfaces(Primitive p)
@@ -61,65 +54,53 @@ namespace DigitoyEngine.Language
                 result.Add(iface);
                 foreach (var inherited in iface.Interfaces) Add(inherited);
             }
-            for (var t = p; t != null && !t.Unresolved; t = t.Parent)
+            for (var t = p; t != null; t = t.Parent)
                 foreach (var i in t.Interfaces)
                     Add(i);
             return result;
         }
 
-        static void BuildITables(Primitive p, Dictionary<Primitive, List<Code>> methodsByOwner)
+        static void BuildITables(Context ctx, Primitive p)
         {
             p.ITables.Clear();
             foreach (var iface in AllInterfaces(p))
             {
                 var table = new List<Code>();
                 foreach (var im in iface.VTable)
-                    table.Add(FindImpl(p, iface, im, methodsByOwner)
-                        ?? throw new System.Exception($"{p.Name}, {iface.Name}.{im.Name} methodunu implement etmiyor"));
+                    table.Add(FindImpl(ctx, p, iface, im)
+                        ?? throw new System.Exception($"{p.Name}, {iface.Name}.{im.DisplayName ?? im.Name} methodunu implement etmiyor"));
                 p.ITables[iface] = table;
             }
         }
 
-        static Code FindImpl(Primitive cls, Primitive iface, Code interfaceMethod, Dictionary<Primitive, List<Code>> methodsByOwner)
+        // Interface slotu icin impl: once acik impl (bu iface icin), sonra ortuk (public, ayni imza); en tureyenden yukari.
+        // Impl parent'tan geliyorsa ve tureyen bunu override ettiyse vtable'daki guncel hedef alinir (sanal zincir korunur).
+        static Code FindImpl(Context ctx, Primitive cls, Primitive iface, Code interfaceMethod)
         {
-            for (var t = cls; t != null && !t.Unresolved; t = t.Parent)
-                if (methodsByOwner.TryGetValue(t, out var ms))
-                {
-                    foreach (var m in ms)
-                        if (m.ExplicitInterface == iface && SameInterfaceSignature(m, interfaceMethod))
-                            return m;
-                    foreach (var m in ms)
-                        if (m.ExplicitInterface == null && SameInterfaceSignature(m, interfaceMethod))
-                            return m;
-                }
+            for (var t = cls; t != null; t = t.Parent)
+            {
+                foreach (var m in ctx.MembersOf(t))
+                    if (m.ExplicitInterface == iface && Signature.Matches(m, interfaceMethod))
+                        return Devirtualize(cls, m);
+                foreach (var m in ctx.MembersOf(t))
+                    if (m.ExplicitInterface == null && !m.IsStatic && Signature.Matches(m, interfaceMethod))
+                        return Devirtualize(cls, m);
+            }
             return null;
         }
 
-        static string Simple(Code c) => (c.DisplayName ?? c.Name ?? "").Split('(')[0];
-        // Tip esitligi: Primitive kimligi VEYA ad (array/pointer/Apply node'lari intern edilmez;
-        // Name kimlige dahildir: "[Byte" == "[Byte").
-        static bool SameType(Primitive a, Primitive b) => a == b || (a != null && b != null && a.Name == b.Name);
-        static bool SameInterfaceSignature(Code implementation, Code contract)
+        // m sanal ve cls'in vtable'inda ezilmisse ezen hedef
+        static Code Devirtualize(Primitive cls, Code m)
         {
-            if (implementation.IsStatic || !SameType(implementation.ReturnType, contract.ReturnType) ||
-                implementation.Arguments.Count != contract.Arguments.Count)
-                return false;
-            var implementationName = implementation.DisplayName?.Split('(')[0];
-            var contractName = contract.DisplayName?.Split('(')[0];
-            if (implementationName != null && contractName != null && implementationName != contractName)
-                return false;
-            for (int i = 1; i < implementation.Arguments.Count; i++)
-                if (!SameType(implementation.Arguments[i].Type, contract.Arguments[i].Type) ||
-                    implementation.Arguments[i].IsRef != contract.Arguments[i].IsRef ||
-                    implementation.Arguments[i].IsOut != contract.Arguments[i].IsOut)
-                    return false;
-            return true;
+            if (!m.IsVirtual && !m.IsOverride) return m;
+            int slot = m.Owner.VTable.IndexOf(m);
+            return slot >= 0 && slot < cls.VTable.Count ? cls.VTable[slot] : m;
         }
 
         // parent alanlari 0..N-1, kendi alanlari N.. (rekursif, parent once)
         static int AssignLayout(Primitive p, HashSet<Primitive> done)
         {
-            int baseOffset = p.Parent != null && !p.Parent.Unresolved ? AssignLayout(p.Parent, done) : 0;
+            int baseOffset = p.Parent != null ? AssignLayout(p.Parent, done) : 0;
             if (!done.Add(p))
                 return baseOffset + p.Fields.Count;
             for (int i = 0; i < p.Fields.Count; i++)
@@ -127,52 +108,125 @@ namespace DigitoyEngine.Language
             return baseOffset + p.Fields.Count;
         }
 
-        static void BuildVTable(Primitive p, Dictionary<Primitive, List<Code>> methodsByOwner, HashSet<Primitive> done)
+        static void BuildVTable(Primitive p, BuildState st)
         {
-            if (!done.Add(p)) return;
+            if (!st.done.Add(p)) return;
             p.VTable.Clear();
-            if (p.Parent != null && !p.Parent.Unresolved)
+            if (p.Parent != null)
             {
-                BuildVTable(p.Parent, methodsByOwner, done);
+                BuildVTable(p.Parent, st);
                 p.VTable.AddRange(p.Parent.VTable);
             }
-            if (!methodsByOwner.TryGetValue(p, out var methods)) return;
-            foreach (var m in methods)
+            var members = st.ctx.MembersOf(p).ToList(); // ornekleme listeyi degistirir -> snapshot
+            // 1) parent'tan gelen GENERIC SANAL METOT orneklemeleri: tureyen ayni imzali sablonla ezmisse ayni argumanlarla
+            //    ornekle ve slota koy (tureyen sinifin kendi ornekleri henuz yoksa burada dogar).
+            for (int slot = 0; slot < p.VTable.Count; slot++)
             {
+                var inherited = p.VTable[slot];
+                if (inherited.MethodTypeArguments == null || inherited.Owner == p) continue;
+                var shell = inherited.Template; // generic metot kabugu (U acik)
+                foreach (var m in members)
+                    if (m.IsOverride && m.GenericParameters.Count > 0 && m.MethodTypeArguments == null && Signature.Matches(m, shell))
+                    {
+                        if (!st.ctx.TryGetInstance(p, m, inherited.MethodTypeArguments, out var inst))
+                        {
+                            inst = GenericInstantiator.InstantiateCode(st.ctx, m, inherited.MethodTypeArguments);
+                            st.instantiated = true;
+                        }
+                        p.VTable[slot] = inst;
+                        break;
+                    }
+            }
+            // 2) kendi uyeleri
+            foreach (var m in members)
+            {
+                if (m.IsStatic) continue;
+                if (m.GenericParameters.Count > 0) continue; // generic metot SABLONU slot acmaz; ornekleri acar (asagida)
+                if (m.MethodTypeArguments != null)
+                {
+                    // generic metot orneklemesi: zaten bir slota yerlesmis olabilir (adim 1 ya da parent kopyasi)
+                    if (p.VTable.Contains(m)) continue;
+                    var shell = m.Template;
+                    if (!(shell.IsVirtual || shell.IsOverride)) continue;
+                    if (shell.IsOverride)
+                    {
+                        int s = SlotOfGenericOverride(p.VTable, m);
+                        if (s >= 0) { p.VTable[s] = m; continue; }
+                        // parent zincirinde sablon var ama bu argumanlarla ornegi yok (tureyen tip uzerinden dogrudan cagrilmis):
+                        // slotu acan kok sablonu ayni argumanlarla ornekle; slot yerlesimi yeniden kurulumda (Build tekrar kosar)
+                        var opener = FindSlotOpener(st.ctx, p.Parent, shell)
+                            ?? throw new System.Exception($"override edilecek generic virtual yok: {p.Name}.{m.DisplayName ?? m.Name}");
+                        if (!st.ctx.TryGetInstance(opener.Owner, opener, m.MethodTypeArguments, out _))
+                        {
+                            GenericInstantiator.InstantiateCode(st.ctx, opener, m.MethodTypeArguments);
+                            st.instantiated = true;
+                        }
+                        continue;
+                    }
+                    p.VTable.Add(m);
+                    continue;
+                }
                 if (m.IsOverride)
                 {
-                    int slot = SlotOf(p.VTable, m.Name);
+                    int slot = SlotOf(p.VTable, m);
                     if (slot < 0)
                     {
                         var par = p.Parent;
                         string pinfo = par == null ? "parent=null" :
-                            $"parent={par.Name} unresolved={par.Unresolved} template={(par.GenericTemplate != null ? par.GenericTemplate.Name : "-")} vtable=[{string.Join(",", par.VTable.Select(v => v.Name))}] uyeler={(methodsByOwner.TryGetValue(par, out var pm) ? pm.Count : 0)}";
-                        throw new System.Exception($"override edilecek virtual yok: {p.Name}.{m.Name} ({pinfo})");
+                            $"parent={par.Name} vtable=[{string.Join(",", par.VTable.Select(v => v.DisplayName ?? v.Name))}]";
+                        throw new System.Exception($"override edilecek virtual yok: {p.Name}.{m.DisplayName ?? m.Name} ({pinfo})");
                     }
                     p.VTable[slot] = m;
                 }
                 else if (m.IsVirtual)
-                {
-                    if (SlotOf(p.VTable, m.Name) >= 0) throw new System.Exception($"virtual slot zaten var (override mi demek istedin?): {p.Name}.{m.Name}");
-                    p.VTable.Add(m);
-                }
+                    p.VTable.Add(m); // newslot: metadata kesin; Ov<int>.Foo(T)/Foo(int) gibi imzasi cakisan iki slot .NET'te de gecerlidir
             }
         }
 
-        // CallVirtual'in hedef slotu: bildiren methodun ismiyle vtable'da arama
-        public static int SlotOf(List<Code> vtable, string methodName)
+        // Override hedefi: vtable'da (parent sirasiyla) AD + IMZA eslesen ILK slot (.NET: ayni imzali birden fazla slot
+        // varsa -- Base<int>.Foo(T)/Foo(int) -- ilk slot; C# bunu CS0462 ile reddeder, IL duzeyinde ilk kazanir).
+        public static int SlotOf(List<Code> vtable, Code method)
         {
             for (int i = 0; i < vtable.Count; i++)
-                if (vtable[i].Name == methodName)
+                if (vtable[i].MethodTypeArguments == null && vtable[i].ExplicitInterface == null && Signature.Matches(vtable[i], method))
                     return i;
             return -1;
+        }
+
+        // generic metot orneklemesi (Pair<string>) icin slot: ayni argumanlarla ve kabuk imzasi eslesen slot
+        static int SlotOfGenericOverride(List<Code> vtable, Code inst)
+        {
+            for (int i = 0; i < vtable.Count; i++)
+            {
+                var v = vtable[i];
+                if (v.MethodTypeArguments == null || !SameArgs(v.MethodTypeArguments, inst.MethodTypeArguments)) continue;
+                if (Signature.Matches(v.Template, inst.Template)) return i;
+            }
+            return -1;
+        }
+
+        static bool SameArgs(List<Primitive> a, List<Primitive> b)
+        {
+            if (a.Count != b.Count) return false;
+            for (int i = 0; i < a.Count; i++) if (a[i] != b[i]) return false;
+            return true;
+        }
+
+        // parent zincirinde generic sanal metodun slotunu ACAN (IsVirtual) kok sablon kabugu
+        static Code FindSlotOpener(Context ctx, Primitive from, Code shell)
+        {
+            Code opener = null;
+            for (var t = from; t != null; t = t.Parent)
+                foreach (var m in ctx.MembersOf(t))
+                    if (m.IsVirtual && m.GenericParameters.Count > 0 && m.MethodTypeArguments == null && Signature.Matches(m, shell)) opener = m;
+            return opener;
         }
 
         // Instance icin toplam alan sayisi (parent zinciri dahil) ve duz alan listesi
         public static int TotalFieldCount(Primitive p)
         {
             int n = 0;
-            for (var t = p; t != null && !t.Unresolved; t = t.Parent)
+            for (var t = p; t != null; t = t.Parent)
                 n += t.Fields.Count;
             return n;
         }
@@ -180,7 +234,7 @@ namespace DigitoyEngine.Language
         public static IEnumerable<PrimitiveField> AllFields(Primitive p)
         {
             var chain = new List<Primitive>();
-            for (var t = p; t != null && !t.Unresolved; t = t.Parent)
+            for (var t = p; t != null; t = t.Parent)
                 chain.Add(t);
             for (int i = chain.Count - 1; i >= 0; i--)
                 foreach (var f in chain[i].Fields)

@@ -54,6 +54,8 @@ namespace DigitoyEngine.Language
         public bool IsStatic;
         public bool HasGet;
         public bool HasSet;
+        public Code Getter; // get_X / set_X Code'u (CilFrontend baglar; reflection erisimcisi isimle aranmaz)
+        public Code Setter;
         public ushort CilAttributes;
         public List<PrimitiveAttribute> Attributes = new List<PrimitiveAttribute>();
     }
@@ -140,10 +142,21 @@ namespace DigitoyEngine.Language
             arrayList.Add(a);
             return a;
         }
-        public static Primitive FixedArrayOf(Primitive elementType, int size) => new Primitive { Name = $"]{elementType.Name}:{size}", Type = PrimitiveType.FixedArray, ElementType = elementType, FixedSize = size };
+        // FixedArray/Pointer de dizi gibi KANONIK: (eleman[, boyut]) basina tek Primitive -> tip esitligi her yerde referansla.
+        static readonly Dictionary<(Primitive, int), Primitive> fixedIntern = new Dictionary<(Primitive, int), Primitive>();
+        static readonly Dictionary<Primitive, Primitive> pointerIntern = new Dictionary<Primitive, Primitive>();
+        public static Primitive FixedArrayOf(Primitive elementType, int size)
+        {
+            if (fixedIntern.TryGetValue((elementType, size), out var f)) return f;
+            return fixedIntern[(elementType, size)] = new Primitive { Name = $"]{elementType.Name}:{size}", Type = PrimitiveType.FixedArray, ElementType = elementType, FixedSize = size };
+        }
         // ham C pointer'i (*Float -> float*): GC'ye HIC girmez (mark/trace yok), atomic sayilir.
-        // Dis dunyayla (native API, buffer) konusmak icin; sahiplik/omur programciya ait.
-        public static Primitive PointerOf(Primitive elementType) => new Primitive { Name = $"*{elementType.Name}", Type = PrimitiveType.Pointer, ElementType = elementType };
+        // Dis dunyayla (native API, buffer) konusmak icin; sahiplik/omur programciya ait. IL byref (ref/out) de bu tiptir.
+        public static Primitive PointerOf(Primitive elementType)
+        {
+            if (pointerIntern.TryGetValue(elementType, out var p)) return p;
+            return pointerIntern[elementType] = new Primitive { Name = $"*{elementType.Name}", Type = PrimitiveType.Pointer, ElementType = elementType };
+        }
         public static Primitive Void = new Primitive { Name = "Void", Type = PrimitiveType.Void };
         // System.Object koku: base'siz her class'in ortuk parent'i (C# gibi). C karsiligi runtime'daki
         // VmObject/vmobject_type (header-only) - transpiler struct/Type/ctor URETMEZ, ona baglar.
@@ -188,26 +201,14 @@ namespace DigitoyEngine.Language
         public List<PrimitiveAttribute> Attributes = new List<PrimitiveAttribute>();
         public object[] StaticStorage; // VM runtime: GetStatic/SetStatic deposu (lazy, VM.EnsureStatics)
         public int FixedSize;
-        public bool Unresolved;
         public bool IsGenericParameter;
         public List<Code> VTable = new List<Code>(); // Hierarchy.Build doldurur (serialize edilmez, tureyen bilgi)
-        public Primitive GenericTemplate; // != null ise bu node "TypeArguments ile Template'e uygulama" ifadesidir (orn. Box<T>)
-        public Primitive InstantiatedFrom; // somutlastirilmis ornegin sablonu (reflection: GetGenericTypeDefinition); Apply node'unda null
+        public Primitive GenericTemplate; // != null ise bu node ACIK/henuz somutlanmamis "TypeArguments ile Template'e uygulama"dir (Context.Apply intern'ler)
+        public Primitive InstantiatedFrom; // somutlastirilmis ornegin sablonu (reflection: GetGenericTypeDefinition); uygulama dugumunde null
         public List<Primitive> TypeArguments = new List<Primitive>();
-
-        // Apply node adi MANGLED tutulur ("Box<Int>"): ayni uygulamalar isimle esitlenebilir,
-        // somutlastirma sonrasi gercek primitive ile ayni ada cozulur.
-        public static Primitive Apply(Primitive template, params Primitive[] typeArgs) =>
-            new Primitive
-            {
-                Name = GenericInstantiator.MangleName(template.Name, new List<Primitive>(typeArgs)),
-                Type = template.Type,
-                IsStruct = template.IsStruct,
-                IsInterface = template.IsInterface,
-                IsDelegate = template.IsDelegate,
-                GenericTemplate = template,
-                TypeArguments = new List<Primitive>(typeArgs)
-            };
+        // Generic tanim: uygulama dugumu ya da somut ornek icin sablon, aksi halde kendisi. "(x.GenericTemplate ?? x)" kalibinin tek dogru hali.
+        public Primitive Definition => GenericTemplate ?? InstantiatedFrom ?? this;
+        public bool IsGenericInstance => InstantiatedFrom != null;
 
         public void AddField(PrimitiveField field)
         {
@@ -215,68 +216,6 @@ namespace DigitoyEngine.Language
             var list = field.IsStatic ? StaticFields : Fields; // Index kendi listesi icinde
             field.Index = list.Count;
             list.Add(field);
-        }
-        public string Encode()
-        {
-            if (GenericTemplate != null)
-                throw new System.Exception($"Generic 'Apply' node ({Name}) encode edilemez, sadece template ya da somutlastirilmis primitive serialize edilebilir");
-            var w = new TextWriter();
-            w.Str(Name);
-            w.Line(IsStruct);
-            w.Line(Type);
-            w.Str(ElementType != null ? ElementType.Name : null);
-            w.Str(Parent != null ? Parent.Name : null);
-            w.Line(FixedSize);
-            w.Line(IsGenericParameter);
-            w.Line(Fields.Count + StaticFields.Count);
-            foreach (var field in System.Linq.Enumerable.Concat(Fields, StaticFields))
-            {
-                if (field.Type != null && field.Type.GenericTemplate != null)
-                    throw new System.Exception($"Alan '{field.Name}' generic Apply node tipinde ({field.Type.Name}), encode edilemez");
-                w.Str(field.Name);
-                w.Str(field.Type != null ? field.Type.Name : null);
-                w.Line(field.IsStatic);
-            }
-            w.Line(GenericParameters.Count);
-            foreach (var genericParameter in GenericParameters)
-                w.Str(genericParameter.Name);
-            w.Line(IsInterface);
-            w.Line(Interfaces.Count);
-            foreach (var iface in Interfaces)
-                w.Str(iface.Name);
-            return w.ToString();
-        }
-
-        public static Primitive Decode(string encoded)
-        {
-            var r = new TextReader(encoded);
-            var primitive = new Primitive();
-            primitive.Name = r.Str();
-            if (primitive.Name.StartsWith("[") && primitive.Name.IndexOf(':') > 1 && int.TryParse(primitive.Name.Substring(1, primitive.Name.IndexOf(':') - 1), out var rank)) primitive.ArrayRank = rank;
-            primitive.IsStruct = r.Bool();
-            primitive.Type = (PrimitiveType)System.Enum.Parse(typeof(PrimitiveType), r.Line());
-            var elementTypeName = r.Str();
-            primitive.ElementType = elementTypeName != null ? new Primitive { Name = elementTypeName, Unresolved = true } : null;
-            var parentName = r.Str();
-            primitive.Parent = parentName != null ? new Primitive { Name = parentName, Unresolved = true } : null;
-            primitive.FixedSize = r.Int();
-            primitive.IsGenericParameter = r.Bool();
-            var fieldsCount = r.Int();
-            for (int i = 0; i < fieldsCount; i++)
-            {
-                var fieldName = r.Str();
-                var fieldTypeName = r.Str();
-                var isStatic = r.Bool();
-                primitive.AddField(new PrimitiveField { Name = fieldName, Type = fieldTypeName != null ? new Primitive { Name = fieldTypeName, Unresolved = true } : null, IsStatic = isStatic });
-            }
-            var genericParametersCount = r.Int();
-            for (int i = 0; i < genericParametersCount; i++)
-                primitive.GenericParameters.Add(new Primitive { Name = r.Str(), IsGenericParameter = true });
-            primitive.IsInterface = r.Bool();
-            var interfaceCount = r.Int();
-            for (int i = 0; i < interfaceCount; i++)
-                primitive.Interfaces.Add(new Primitive { Name = r.Str(), Unresolved = true });
-            return primitive;
         }
     }
 

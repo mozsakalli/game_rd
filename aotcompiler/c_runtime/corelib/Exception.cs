@@ -37,4 +37,7 @@ namespace System
     public class NotImplementedException : Exception { public NotImplementedException() : base("The method or operation is not implemented.") { } }
     public class NotSupportedException : Exception { public NotSupportedException() : base("Specified method is not supported.") { } }
     public class IOException : Exception { public IOException() : base("I/O error occurred.") { } }
+    public class FormatException : Exception { public FormatException() : base("One of the identified items was in an invalid format.") { } public FormatException(string message) : base(message) { } }
+    public class ArgumentException : Exception { public ArgumentException() : base("Value does not fall within the expected range.") { } public ArgumentException(string message) : base(message) { } }
+    public class ArgumentNullException : ArgumentException { public ArgumentNullException() : base("Value cannot be null.") { } public ArgumentNullException(string paramName) : base("Value cannot be null. (Parameter '" + paramName + "')") { } }
 }

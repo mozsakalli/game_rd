@@ -46,7 +46,7 @@ namespace DigitoyEngine.Language.Trim
             if (c.Owner != null)
             {
                 var k = Reflection(c.Owner);
-                bool ctor = c.Name == "ctor" || c.Name.StartsWith("ctor_", StringComparison.Ordinal);
+                bool ctor = c.SimpleName == "ctor";
                 if (ctor ? (k & MemberKinds.Ctors) != 0 : (k & MemberKinds.Methods) != 0) return MethodRecordKind.Full;
             }
             return MethodRecordKind.Trace;
@@ -206,14 +206,14 @@ namespace DigitoyEngine.Language.Trim
         }
 
         // ---- kod erisilebilirligi (RTA-benzeri, konservatif) ----
-        // Kokler: host girisleri + tum cctor'lar (eager) + reflection kokü tiplerin ctor/metotlari (facet'e gore)
-        // + extern/native govdeler cagrildikca. Sanal: ayni Name'li alt tip override'lari (ReachableStubs ile ayni kural).
+        // Kokler: host girisleri + cctor'lar (full: hepsi eager; lean: yalniz dokunulan tipler) + reflection kokü tiplerin ctor/metotlari (facet'e gore)
+        // + extern/native govdeler cagrildikca. Sanal: slot tabanli (vtable/itable) + imza eslesen alt tip override'lari (konservatif).
         static void Reach(Context ctx, List<Code> all, TrimResult r)
         {
             var byName = new Dictionary<string, List<Code>>();
             foreach (var c in all)
             {
-                if (!byName.TryGetValue(c.Name, out var l)) byName[c.Name] = l = new List<Code>();
+                if (!byName.TryGetValue(c.SimpleName, out var l)) byName[c.SimpleName] = l = new List<Code>();
                 l.Add(c);
             }
             var queue = new Queue<Code>();
@@ -223,24 +223,36 @@ namespace DigitoyEngine.Language.Trim
                 r.LiveCodes.Add(target);
                 queue.Enqueue(target);
             }
-            foreach (var e in r.Roots.Entry) Visit(e, null);
+            // cctor koku: modul host'ta (full) HEPSI eager (modul kodu host'un her statigine dokunabilir). Kod trim'inde yalniz
+            // DOKUNULAN tipin cctor'u canli: uyesi cagrilan / statik alanina erisilen / new'lenen / reflection koku. Referanssiz
+            // plugin tipleri boylece hic dogmaz (cctor'lari da kosmaz). Sira yine EmitInit'in StaticDeps'i.
+            bool lazyCctor = r.Profile.TrimCode;
+            var cctorOf = new Dictionary<Primitive, Code>();
+            foreach (var c in all)
+                if (!c.IsExternal && c.SimpleName == "cctor" && c.Owner != null) cctorOf[c.Owner] = c;
+            void Touch(Primitive p, Code from)
+            {
+                if (lazyCctor && p != null && cctorOf.TryGetValue(p, out var cc)) Visit(cc, from);
+            }
+            foreach (var e in r.Roots.Entry) { Visit(e, null); Touch(e?.Owner, null); }
             foreach (var c in all)
             {
                 if (c.IsExternal) continue;
-                if (c.Name == "cctor") Visit(c, null);                           // eager cctor (EmitInit hepsini cagirir)
-                else if (c.Name == "finalize") Visit(c, null);                   // digitoyengine_fin_X zinciri (tip canliysa)
+                if (c.SimpleName == "cctor") { if (!lazyCctor) Visit(c, null); }      // eager cctor (EmitInit hepsini cagirir)
+                else if (c.SimpleName == "finalize") Visit(c, null);                   // digitoyengine_fin_X zinciri (tip canliysa)
             }
             foreach (var kt in ctx.ExceptionKindTypes) // runtime kind -> ctor (EmitInit DIGITOYENGINE_ex_kind_ctor)
-                if (kt != null && ctx.TryGetCode(kt.Name + "$ctor", out var kctor)) Visit(kctor, null);
+                if (kt != null && ctx.FindMember(kt, "ctor", 0) is Code kctor) Visit(kctor, null);
             foreach (var m in Primitive.Object.VTable) Visit(m, null); // vmobject/vmstring vtable'lari runtime'da doldurulur
             foreach (var m in Primitive.String.VTable) Visit(m, null);
             foreach (var kv in r.Facets)
             {
                 var k = kv.Value;
+                if ((k & (MemberKinds.Ctors | MemberKinds.Methods | MemberKinds.Props | MemberKinds.Fields)) != 0) Touch(kv.Key, null); // reflection statik alana da erisebilir
                 foreach (var c in all)
                 {
                     if (c.Owner != kv.Key) continue;
-                    bool ctor = c.Name == "ctor" || c.Name.StartsWith("ctor_", StringComparison.Ordinal);
+                    bool ctor = c.SimpleName == "ctor";
                     if (ctor ? (k & MemberKinds.Ctors) != 0 : (k & (MemberKinds.Methods | MemberKinds.Props)) != 0) Visit(c, null);
                 }
             }
@@ -259,7 +271,7 @@ namespace DigitoyEngine.Language.Trim
                 if (owner.IsInterface)
                 {
                     foreach (var kv in s.ITables)
-                        if (kv.Key.Name == owner.Name && slot < kv.Value.Count) Visit(kv.Value[slot], from);
+                        if (kv.Key == owner && slot < kv.Value.Count) Visit(kv.Value[slot], from);
                 }
                 else if (IsSubtype(s, owner) && slot < s.VTable.Count) Visit(s.VTable[slot], from);
             }
@@ -273,10 +285,10 @@ namespace DigitoyEngine.Language.Trim
                 var owner = target.Owner;
                 if (owner == null || !virtualTargets.Add(target)) return;
                 foreach (var s in instantiated) ResolveOn(s, target, from);
-                // ad tabanli kural (ReachableStubs ile ayni): yalniz ornekli sahiplerde
-                if (byName.TryGetValue(target.Name, out var cands))
+                // imza tabanli kural (konservatif birlesim): yalniz ornekli sahiplerde
+                if (byName.TryGetValue(target.SimpleName, out var cands))
                     foreach (var cand in cands)
-                        if (cand != target && instantiated.Contains(cand.Owner) && IsSubtype(cand.Owner, owner)) Visit(cand, from);
+                        if (cand != target && instantiated.Contains(cand.Owner) && IsSubtype(cand.Owner, owner) && Signature.Matches(cand, target)) Visit(cand, from);
             }
             foreach (var p in ctx.AllPrimitives)
                 if (p.Type == PrimitiveType.Model && (p.IsStruct || p.Name.StartsWith("System.", StringComparison.Ordinal)))
@@ -285,7 +297,7 @@ namespace DigitoyEngine.Language.Trim
             foreach (var kv in r.Facets) if ((kv.Value & MemberKinds.Ctors) != 0) Instantiate(kv.Key);
             Instantiate(Primitive.Object); Instantiate(Primitive.String);
             const string TaskName = "System.Threading.Tasks.Task";
-            ctx.TryGetCode(TaskName + "$get_CompletedTask", out r.CompletedTaskGetter);
+            r.CompletedTaskGetter = ctx.TryGetPrimitive(TaskName, out var taskType) ? ctx.FindMember(taskType, "get_CompletedTask", 0) : null;
             while (queue.Count > 0)
             {
                 var c = queue.Dequeue();
@@ -302,10 +314,16 @@ namespace DigitoyEngine.Language.Trim
                 foreach (var op in c.Operations)
                 {
                     if (op.PrimitiveRef != null) MarkType(op.PrimitiveRef, r);
-                    if (op.Field?.Owner != null) MarkType(op.Field.Owner, r);
+                    if (op.Field?.Owner != null)
+                    {
+                        MarkType(op.Field.Owner, r);
+                        if (op.Field.IsStatic) Touch(op.Field.Owner, c); // statik alan erisimi = tip dokunuldu
+                    }
                     if ((op.Type == OpType.New || op.Type == OpType.Box) && op.PrimitiveRef != null) Instantiate(op.PrimitiveRef);
+                    if (op.Type == OpType.New && op.PrimitiveRef != null) Touch(op.PrimitiveRef, c);
                     if (op.Code == null) continue;
                     Visit(op.Code, c);
+                    Touch(op.Code.Owner, c); // uye cagrisi = tip dokunuldu (.NET: static metot/ctor girisi cctor tetikler)
                     if (op.Type == OpType.New && op.Code.Owner != null) Instantiate(op.Code.Owner); // ctor cagrisi = ornekleme
                     if (op.Type == OpType.CallVirtual || (op.Type == OpType.DelegateNew && (op.Code.IsVirtual || op.Code.IsOverride)))
                         VisitVirtual(op.Code, c);
@@ -327,12 +345,12 @@ namespace DigitoyEngine.Language.Trim
         static bool IsSubtype(Primitive t, Primitive of)
         {
             if (t == null || of == null) return false;
-            var ofT = of.GenericTemplate ?? of;
+            var ofT = of.Definition;
             for (var p = t; p != null; p = p.Parent)
             {
-                if ((p.GenericTemplate ?? p) == ofT) return true;
+                if (p.Definition == ofT) return true;
                 foreach (var i in p.Interfaces)
-                    if ((i.GenericTemplate ?? i) == ofT) return true;
+                    if (i.Definition == ofT) return true;
             }
             return false;
         }
@@ -345,7 +363,7 @@ namespace DigitoyEngine.Language.Trim
             foreach (var n in r.Roots.Notes) sb.Append("- ").Append(n).Append('\n');
             sb.Append($"\n## kokler: {r.Roots.Entry.Count} giris, {r.Roots.ComponentNames.Count} pak component, {r.Roots.Reflection.Count} reflection tipi\n");
             foreach (var n in r.Roots.ComponentNames) sb.Append("  pak: ").Append(n).Append('\n');
-            var codes = ctx.AllCodes.Where(c => !c.Unresolved && c.GenericParameters.Count == 0).ToList();
+            var codes = ctx.AllCodes.Where(c => c.GenericParameters.Count == 0).ToList();
             int live = codes.Count(c => r.LiveCodes.Contains(c));
             sb.Append($"\n## kod: {live} canli / {codes.Count} somut ({codes.Count - live} erisilemez); {r.Instantiated.Count} ornekli tip\n");
             foreach (var c in codes.Where(c => !r.LiveCodes.Contains(c) && !c.IsExternal).OrderBy(c => c.Owner?.Name).ThenBy(c => c.Name))

@@ -24,8 +24,8 @@ namespace System
         public extern Span<T> Slice(int start, int length);
         public extern void CopyTo(Span<T> destination);
         public extern T[] ToArray();
-        public extern void Clear();
-        public extern void Fill(T value);
+        public void Clear() { Fill(default(T)); }
+        public void Fill(T value) { for (int i = 0; i < _len; i++) this[i] = value; } // saf C#: indexer intrinsic'i uzerinden
         public static extern implicit operator Span<T>(T[] array);
         public static extern implicit operator ReadOnlySpan<T>(Span<T> span);
         public Enumerator GetEnumerator() { return new Enumerator(this); }

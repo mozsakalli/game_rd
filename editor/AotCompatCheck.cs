@@ -21,7 +21,8 @@ public static class AotCompatCheck
     public static bool Available => File.Exists(CoreLibDll) && File.Exists(AotEngineDll);
 
     // Donus: hata sayisi (0 = uyumlu ya da denetim atlandi). Hatalar EditorLog'a yazilir.
-    public static int Check(IReadOnlyList<string> scriptFiles)
+    // plugins: Assets/**/*.dll referanslari (plugin'in kendisi IL'dir, burada denetlenemez; AOT stub kapisi yakalar).
+    public static int Check(IReadOnlyList<string> scriptFiles, IReadOnlyList<string> plugins = null)
     {
         if (!Available || scriptFiles.Count == 0)
             return 0;
@@ -32,6 +33,9 @@ public static class AotCompatCheck
                 MetadataReference.CreateFromFile(CoreLibDll),
                 MetadataReference.CreateFromFile(AotEngineDll),
             };
+            if (plugins != null)
+                foreach (var p in plugins)
+                    refs.Add(MetadataReference.CreateFromFile(p));
             var parse = new CSharpParseOptions(LanguageVersion.Latest, preprocessorSymbols: new[] { "DE_AOT" });
             var trees = new List<SyntaxTree>();
             foreach (var f in scriptFiles)

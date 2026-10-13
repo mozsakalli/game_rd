@@ -20,10 +20,12 @@ namespace DigitoyEditor;
 // maliyeti sifir, giris-bazli zlib boyutu geri alir.
 static class AssetPackBuilder
 {
-    // Paketlenmeyenler: meta (guid pak index'inde), kod (ayri derlenir), editor icerigi.
+    // Paketlenmeyenler: meta (guid pak index'inde), kod (ayri derlenir; .dll managed plugin AOT'ye IL olarak girer), editor icerigi.
     static bool Skip(string rel)
         => rel.EndsWith(".meta", StringComparison.OrdinalIgnoreCase)
         || rel.EndsWith(".cs", StringComparison.OrdinalIgnoreCase)
+        || rel.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
+        || rel.EndsWith(".pdb", StringComparison.OrdinalIgnoreCase)
         || rel.Contains("/Editor/", StringComparison.OrdinalIgnoreCase)
         || rel.StartsWith("Editor/", StringComparison.OrdinalIgnoreCase);
 

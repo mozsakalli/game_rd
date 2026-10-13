@@ -38,6 +38,9 @@ namespace Digitoy.Box
         [SerializeField] Color innerShadowColor = new Color(0, 0, 0, 0);
         [SerializeField] float innerShadowBlur = 8f;
 
+        [Header("Light")]
+        [SerializeField] UIBoxLight light = UIBoxLight.Default;
+
         // Runtime-only tint over every layer (fill/border/text/shadows); not serialized (engine/core UIBox.Tint).
         [NonSerialized] Color _tint = Color.white;
         public Color Tint
@@ -59,12 +62,14 @@ namespace Digitoy.Box
         public float ShadowGrow { get => shadowGrow; set { shadowGrow = value; SetVerticesDirty(); } }
         public Color InnerShadowColor { get => innerShadowColor; set { innerShadowColor = value; SetVerticesDirty(); } }
         public float InnerShadowBlur { get => innerShadowBlur; set { innerShadowBlur = value; SetVerticesDirty(); } }
+        public UIBoxLight Light { get => light; set { light = value; SetVerticesDirty(); } }
 
         bool HasFill => fill.Visible;
         bool HasBorder => borderFill.Visible && (border.x > 0 || border.y > 0 || border.z > 0 || border.w > 0);
         bool HasShadow => shadowColor.a > 0f;
         bool HasInnerShadow => innerShadowColor.a > 0f && innerShadowBlur > 0f;
-        bool HasStyle => HasFill || HasBorder || HasShadow || HasInnerShadow;
+        bool HasLight => light.enabled && light.color.a > 0f;
+        bool HasStyle => HasFill || HasBorder || HasShadow || HasInnerShadow || HasLight;
 
         // --- material / texture: the font sheet (or the fallback pieces texture) ---
 
@@ -138,11 +143,23 @@ namespace Digitoy.Box
                 irBL = Mathf.Max(radius.w - Mathf.Max(bl, bb), 0);
             }
             if (HasFill)
+            {
                 EmitLayer(ix0, iy0, ix1, iy1, irTL, irTR, irBR, irBL, 0, 0, 0, 0, isBorder: false);
+                if (fill.IsRadial)
+                    EmitRadial(ix0, iy0, ix1, iy1, fill.CenterColor * _tint);
+            }
             if (HasInnerShadow)
             {
                 float b = innerShadowBlur;
                 EmitLayer(ix0, iy0, ix1, iy1, irTL, irTR, irBR, irBL, b, b, b, b, isBorder: false, innerBlur: b);
+            }
+            if (HasLight)
+            {
+                float lw = Mathf.Min(_rw * light.width, _rw);
+                float lh = Mathf.Min(light.height, _rh);
+                float lcx = (x0 + x1) * 0.5f + light.offsetX;
+                float ltop = y0 + light.offsetY;
+                EmitRadial(lcx - lw * 0.5f, ltop, lcx + lw * 0.5f, ltop + lh, light.color * _tint);
             }
             if (HasText)
                 EmitText(x0, y0);

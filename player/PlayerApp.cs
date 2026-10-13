@@ -146,19 +146,29 @@ public static class PlayerApp
 #endif
     }
 
-    // Game.dll (varsa) Library/Build/bin'den yuklenir; katalog reflection'la kurulur
-    // (docs/registry-removal.md: editorle AYNI yol). Game.dll yoksa yalniz engine tipleri.
+    // Game.dll (varsa) Library/Build/bin'den + managed plugin'ler (Assets/**/*.dll, /Editor/ haric) yuklenir;
+    // katalog reflection'la kurulur (docs/registry-removal.md: editorle AYNI yol). Hicbiri yoksa yalniz engine tipleri.
     static TypeCatalog LoadCatalog(string root)
     {
         string buildDir = Path.Combine(root, "Library", "Build");
-        string gameDll = null;
-        foreach (var p in Directory.Exists(Path.Combine(buildDir, "bin"))
-            ? Directory.GetFiles(Path.Combine(buildDir, "bin"), "*.Game.dll") : Array.Empty<string>())
-            gameDll = p;
-        var cat = gameDll != null
-            ? TypeCatalog.FromAssemblies(typeof(GameObject).Assembly, Assembly.LoadFrom(gameDll))
-            : TypeCatalog.FromAssemblies(typeof(GameObject).Assembly);
-        Console.WriteLine("[player] katalog: reflection" + (gameDll != null ? " + " + Path.GetFileName(gameDll) : " (yalniz engine)"));
+        var asms = new System.Collections.Generic.List<Assembly> { typeof(GameObject).Assembly };
+        var names = new System.Collections.Generic.List<string>();
+        string assets = Path.Combine(root, "Assets");
+        if (Directory.Exists(assets))
+            foreach (var p in Directory.GetFiles(assets, "*.dll", SearchOption.AllDirectories))
+                if (!p.Replace('\\', '/').Contains("/Editor/"))
+                {
+                    asms.Add(Assembly.LoadFrom(p)); // LoadFrom: oyun dll'inin plugin referansi ayni baglamdan cozulur
+                    names.Add(Path.GetFileName(p));
+                }
+        if (Directory.Exists(Path.Combine(buildDir, "bin")))
+            foreach (var p in Directory.GetFiles(Path.Combine(buildDir, "bin"), "*.Game.dll"))
+            {
+                asms.Add(Assembly.LoadFrom(p));
+                names.Add(Path.GetFileName(p));
+            }
+        var cat = TypeCatalog.FromAssemblies(asms.ToArray());
+        Console.WriteLine("[player] katalog: reflection" + (names.Count > 0 ? " + " + string.Join(", ", names) : " (yalniz engine)"));
         return cat;
     }
 

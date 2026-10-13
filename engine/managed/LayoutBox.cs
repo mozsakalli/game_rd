@@ -124,6 +124,12 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
     [SerializeField] Color innerShadowColor = Color.Transparent;
     [SerializeField] float innerShadowBlur = 8f;  // bandin derinligi (dunya px)
 
+    // --- isik/gloss (alpha > 0 ise ust-ortaya asili yumusak radyal parlama; EmitRadial, +4 quad) ---
+    [SerializeField] Color lightColor = Color.Transparent;
+    [SerializeField] float lightWidth = 0.9f;        // kutu genisligi orani
+    [SerializeField] float lightHeight = 24f;        // dunya px
+    [SerializeField] Vec2 lightOffset = new(0, 2);   // x: merkezden kayma, y: ust kenardan asagi
+
     // --- cozulmus durum ---
     float _rw, _rh;
     float _placedX, _placedY;   // layout'un son yazdigi lokal pozisyon
@@ -195,6 +201,11 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
 
     public Color InnerShadowColor { get => innerShadowColor; set => innerShadowColor = value; }
     public float InnerShadowBlur { get => innerShadowBlur; set => innerShadowBlur = value; }
+
+    public Color LightColor { get => lightColor; set => lightColor = value; }
+    public float LightWidth { get => lightWidth; set => lightWidth = value; }
+    public float LightHeight { get => lightHeight; set => lightHeight = value; }
+    public Vec2 LightOffset { get => lightOffset; set => lightOffset = value; }
 
     // --- driven transform (Unity paritesi) ---
     // fitScreen veya parent kutu varsa pozisyonu layout yazar → disaridan kilitli.
@@ -851,9 +862,10 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
 
     bool HasShadow => shadowColor.a > 0;
     bool HasInnerShadow => innerShadowColor.a > 0 && innerShadowBlur > 0;
+    bool HasLight => lightColor.a > 0 && lightWidth > 0 && lightHeight > 0;
 
     bool HasStyle
-        => sprite != null || fill.Visible || HasBorder || HasShadow || HasInnerShadow;
+        => sprite != null || fill.Visible || HasBorder || HasShadow || HasInnerShadow || HasLight;
 
     // Kutu SDF parcalari icerigin yasadigi SAYFADAN orneklenir: metin varsa fontun
     // sayfasi, ikon varsa sprite'in sayfasi (atlas sayfalari UiPieces tasir), yoksa
@@ -919,6 +931,8 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
         if (sprite != null)
         {
             EncodeTextured(queue, in wm, x0, y0, x1, y1, layer);
+            if (HasLight)
+                EmitLight(queue, wm, x0, y0, x1, layer);
             if (HasText)
                 EncodeText(queue, in wm, x0, y0, layer); // submit sirasi: kutunun ustunde
             return;
@@ -947,16 +961,28 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
         {
             EmitLayer(queue, wm, ix0, iy0, ix1, iy1, irTL, irTR, irBR, irBL, 0, 0, 0, 0, isBorder: false, layer);
             if (fill.type == GradientType.Radial)
-                EmitRadial(queue, wm, ix0, iy0, ix1, iy1, layer);
+                EmitRadial(queue, wm, ix0, iy0, ix1, iy1, fill.color, layer);
         }
         if (HasInnerShadow)
         {
             float b = innerShadowBlur;
             EmitLayer(queue, wm, ix0, iy0, ix1, iy1, irTL, irTR, irBR, irBL, b, b, b, b, isBorder: false, layer, innerBlur: b);
         }
+        if (HasLight)
+            EmitLight(queue, wm, x0, y0, x1, layer);
 
         if (HasText)
             EncodeText(queue, in wm, x0, y0, layer); // submit sirasi: kutunun ustunde
+    }
+
+    // Gloss: ust kenara asili, yatayda ortali radyal parlama (core UIBoxLight muadili; sprite yok, +4 quad).
+    void EmitLight(RenderQueue q, Mat4 wm, float x0, float y0, float x1, int layer)
+    {
+        float w = MathF.Min(_rw * lightWidth, _rw);
+        float h = MathF.Min(lightHeight, _rh);
+        float cx = (x0 + x1) * 0.5f + lightOffset.x;
+        float top = y0 + lightOffset.y;
+        EmitRadial(q, wm, cx - w * 0.5f, top, cx + w * 0.5f, top + h, lightColor, layer);
     }
 
     const float AaOut = 2f;  // sekil disina tasan AA payi (dunya birimi)
@@ -967,9 +993,9 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
     // Elips closest-side: kenar ortalarina teget, sinirinda 0 -> yuvarlak
     // koseler elips disinda, kirpma gerekmez. 4 aynali ceyrek quad, ayni
     // materyal -> kutunun draw'ina merge olur.
-    void EmitRadial(RenderQueue q, Mat4 wm, float x0, float y0, float x1, float y1, int layer)
+    void EmitRadial(RenderQueue q, Mat4 wm, float x0, float y0, float x1, float y1, Color col, int layer)
     {
-        if (x1 <= x0 || y1 <= y0 || fill.color.a == 0)
+        if (x1 <= x0 || y1 <= y0 || col.a == 0)
             return;
         var at = PiecesAtlas(out var mat);
         float texW = at.Tex.Width, texH = at.Tex.Height;
@@ -977,7 +1003,6 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
         float uNear = pbx / texW, uFar = (pbx + UiPieces.ShadowSize) / texW;
         float vNear = pby / texH, vFar = (pby + UiPieces.ShadowSize) / texH;
         float cx = (x0 + x1) * 0.5f, cy = (y0 + y1) * 0.5f;
-        var col = fill.color;
         var user = new Vec4(0f, 0f, 0f, 1f);
 
         void Quarter(float qx0, float qy0, float qx1, float qy1, bool farLeft, bool farTop)

@@ -551,6 +551,7 @@ public static class RpcHost
         }
         catch (Exception ex)
         {
+            Console.WriteLine("[rpc] beklenmeyen hata: " + ex); // stack trace yalniz konsola; istemciye kisa mesaj
             return Error(hasId, id, ex.GetType().Name + ": " + ex.Message);
         }
     }

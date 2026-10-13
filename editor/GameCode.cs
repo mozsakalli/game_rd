@@ -21,6 +21,32 @@ public sealed class GameCode
 
     public Assembly GameAssembly { get; private set; }
 
+    // Managed plugin'ler (Assets/**/*.dll, /Editor/ haric): oyun assembly'siyle AYNI ALC'de, ondan once yuklenir.
+    public Assembly[] PluginAssemblies { get; private set; } = Array.Empty<Assembly>();
+
+    // Katalog/tarama icin assembly kumesi: plugin'ler + oyun (null'lar yok).
+    public Assembly[] CodeAssemblies
+    {
+        get
+        {
+            var list = new List<Assembly>(PluginAssemblies);
+            if (GameAssembly != null) list.Add(GameAssembly);
+            return list.ToArray();
+        }
+    }
+
+    // Unity Plugins modeli: Assets altindaki her .dll runtime plugin'idir (yolu /Editor/ icerenler haric). Sirali, deterministik.
+    public static List<string> PluginDlls(Project project)
+    {
+        var list = new List<string>();
+        if (!Directory.Exists(project.AssetsPath)) return list;
+        foreach (var f in Directory.GetFiles(project.AssetsPath, "*.dll", SearchOption.AllDirectories))
+            if (!f.Replace('\\', '/').Contains("/Editor/"))
+                list.Add(f);
+        list.Sort(StringComparer.Ordinal);
+        return list;
+    }
+
     // Son basarili derlemenin dll yolu (RegistryCompiler referans olarak okur).
     public string GameDllPath { get; private set; }
 
@@ -34,6 +60,7 @@ public sealed class GameCode
         public string Output = "";
         public string Dll;              // null = script yok
         public List<string> Scripts = new();
+        public List<string> Plugins = new(); // Assets/**/*.dll (referans + ALC)
         public string AsmName;
     }
 
@@ -44,6 +71,7 @@ public sealed class GameCode
     {
         var job = new CompileJob();
         job.Scripts.AddRange(RoslynCompiler.SourcesUnder(project.AssetsPath, "/Editor/")); // editor-yalniz kod oyun assembly'sine girmez
+        job.Plugins.AddRange(PluginDlls(project));
         if (job.Scripts.Count == 0)
         {
             job.Ok = true;
@@ -63,6 +91,7 @@ public sealed class GameCode
             References = { typeof(DigitoyEngine.GameObject).Assembly.Location },
             Defines = new[] { "DEBUG", "TRACE", "DE_GAME" },
         };
+        build.References.AddRange(job.Plugins);
         // Basarisizsa diskteki eski (calisan) dll'e dokunulmaz (CompileToFile once bellege derler).
         var r = RoslynCompiler.CompileToFile(build, dll, useCache: false);
         job.Output = r.Errors;
@@ -109,6 +138,7 @@ public sealed class GameCode
         sb.AppendLine($"      <HintPath>{engineDll}</HintPath>");
         sb.AppendLine("      <Private>false</Private>");
         sb.AppendLine("    </Reference>");
+        sb.AppendLine("    <Reference Include=\"Assets/**/*.dll\" Exclude=\"Assets/**/Editor/**/*.dll\" Private=\"false\" />");
         sb.AppendLine("  </ItemGroup>");
         sb.AppendLine("  <Import Project=\"Sdk.targets\" Sdk=\"Microsoft.NET.Sdk\" />");
         sb.AppendLine("</Project>");
@@ -128,14 +158,38 @@ public sealed class GameCode
         if (!job.Ok)
             return false;
         Unload();
-        if (job.Dll == null)
-            return true; // script yok
+        if (job.Dll == null && job.Plugins.Count == 0)
+            return true; // script de plugin de yok
         _alc = new AssemblyLoadContext("game", isCollectible: true);
-        // Stream'den yukle: dosya kilitlenmez, sonraki derleme uzerine yazabilir.
-        using (var fs = File.OpenRead(job.Dll))
-            GameAssembly = _alc.LoadFromStream(fs);
+        // Plugin'ler once (oyun dll'i onlara referans verir); hepsi stream'den: dosya kilitlenmez, uzerine yazilabilir.
+        var plugins = new List<Assembly>();
+        foreach (var p in job.Plugins)
+        {
+            try
+            {
+                using var ps = File.OpenRead(p);
+                plugins.Add(_alc.LoadFromStream(ps));
+            }
+            catch (Exception e)
+            {
+                Console.WriteLine($"[gamecode] plugin yuklenemedi: {Path.GetFileName(p)}: {e.Message}");
+            }
+        }
+        PluginAssemblies = plugins.ToArray();
+        // Oyun dll'inin plugin referansi basit adla cozulur (ALC kendi yukledigini her zaman bulmaz).
+        _alc.Resolving += (_, name) =>
+        {
+            foreach (var a in plugins)
+                if (string.Equals(a.GetName().Name, name.Name, StringComparison.Ordinal)) return a;
+            return null;
+        };
+        if (job.Dll != null)
+        {
+            using (var fs = File.OpenRead(job.Dll))
+                GameAssembly = _alc.LoadFromStream(fs);
+        }
         GameDllPath = job.Dll;
-        Console.WriteLine($"[gamecode] yuklendi: {job.AsmName} ({job.Scripts.Count} script)");
+        Console.WriteLine($"[gamecode] yuklendi: {job.AsmName ?? "(script yok)"} ({job.Scripts.Count} script, {plugins.Count} plugin)");
         UpdateTypemap(project, assets, job.Scripts);
         return true;
     }
@@ -235,6 +289,7 @@ public sealed class GameCode
         _alc?.Unload();
         _alc = null;
         GameAssembly = null;
+        PluginAssemblies = Array.Empty<Assembly>();
         GameDllPath = null;
     }
 }

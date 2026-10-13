@@ -89,7 +89,7 @@ namespace DigitoyEngine.Language
 
         // iface metot bildirimi: govdesiz ama slot kimligi + sekil icin kayit alir
         static bool IsIfaceDecl(Code c) =>
-            c.Owner != null && c.Owner.IsInterface && IsEmittableModel(c.Owner) && c.GenericParameters.Count == 0 && !c.Unresolved;
+            c.Owner != null && c.Owner.IsInterface && IsEmittableModel(c.Owner) && c.GenericParameters.Count == 0;
         // P/Invoke marshal sarmalayicisi olan REFERANSSIZ extern'ler kayit almaz: sarmalayici static'tir, adresi alinirsa
         // native sembolu guclu ister (link kirilir). Diger extern'ler zayif prototiple kayitlanir (fn 0 olabilir).
         static bool HasMethodRecord(Code c) =>
@@ -166,7 +166,7 @@ namespace DigitoyEngine.Language
         }
 
         static int MethodSlot(Code c) => c.Owner == null ? -1 : c.Owner.VTable.IndexOf(c);
-        static bool IsCtorCode(Code c) => c.Name == "ctor" || c.Name.StartsWith("ctor_", StringComparison.Ordinal);
+        static bool IsCtorCode(Code c) => c.SimpleName == "ctor";
         // host -> modul sanal trampoline'i alan kayitlar: slot acan sanallar + iface bildirimleri (this'li)
         static bool HasVirtualTramp(Code c) => TrimPlan.NeedsVTramp(c) && c.IsVirtual && !c.IsStatic && c.Arguments.Count > 0 && (IsEmittableCode(c) || IsIfaceDecl(c));
         static bool HasDelegateTramp(Primitive p) => TrimPlan.NeedsDTramp(p) && p.IsDelegate && IsEmittableModel(p) && p.DelegateReturn != null;
@@ -263,7 +263,7 @@ namespace DigitoyEngine.Language
                     else
                     {
                         var prop = a.Type.Properties.FirstOrDefault(x => x.Name == name);
-                        var setter = prop == null ? null : ReflectionAccessor(a.Type, "set_" + name + "_" + prop.Type.Name.Replace('.', '_'));
+                        var setter = prop?.Setter;
                         if (setter == null) continue;
                         sb.Append($"    {CSym(setter)}(o, {AttrArgExpr(value, prop.Type)});\n");
                     }
@@ -290,7 +290,7 @@ namespace DigitoyEngine.Language
             foreach (var c in methodList)
             {
                 if (!HasVirtualTramp(c)) continue;
-                var an = CArgNames(c, new HashSet<string>());
+                var an = CArgNames(c, new HashSet<string> { "a", "r" }); // trampolin yerelleri (DeSlot a[], r) ile cakismasin
                 var pars = string.Join(", ", c.Arguments.Select((a, i) => $"{ParamCType(a)} {an[i]}"));
                 preOfCode(c).Append($"static {CType(c.ReturnType)} {VTrampSym(c)}({pars}) {{{TrampolineBody(c, an, $"vmint_enter_virtual((GCHeader*){an[0]}, {Fnv64(c.EncodeName())}ull, a, &r);")} }}\n");
             }

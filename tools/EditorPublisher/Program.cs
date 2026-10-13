@@ -108,7 +108,7 @@ static class Program
     {
         string src = Path.Combine(RepoRoot, "aotcompiler", "platforms");
         string dst = Path.Combine(Pkg, "sdk", "platforms");
-        var files = Directory.GetFiles(src, "*", SearchOption.AllDirectories);
+        var files = Directory.GetFiles(src, "*", SearchOption.AllDirectories).Where(f => !IsPlatformJunk(src, f)).ToArray();
         string h = HashFiles(files);
         if (UpToDate(dst, h)) { Skipped.Add("sdk/platforms"); return; }
         Fresh(dst);
@@ -120,6 +120,16 @@ static class Program
         }
         WriteManifest(dst, h, null, null);
         Done.Add($"sdk/platforms ({files.Length} dosya)");
+    }
+
+    // Sablon klasorleri IDE'de acilinca biriken artiklar (sablon .gitignore'u ile ayni): pakete ve hash'e girmez.
+    static bool IsPlatformJunk(string root, string file)
+    {
+        string rel = Path.GetRelativePath(root, file).Replace('\\', '/');
+        foreach (var seg in rel.Split('/'))
+            if (seg is ".gradle" or "build" or ".idea" or ".cxx" or "generated" or "xcuserdata" or "DerivedData") return true;
+        string name = Path.GetFileName(file);
+        return name is "local.properties" or "keystore.properties" or ".DS_Store" || name.EndsWith(".iml", StringComparison.Ordinal);
     }
 
     static void Templates()
@@ -288,6 +298,9 @@ static class Program
             Run(ClangExe, $"-O1 -w -shared -DSOKOL_GLCORE -D_GLFW_WIN32 -D_GLFW_BUILD_DLL -DDE_BUILD_DLL -DSOKOL_IMPL -I\"{native}\" " +
                 string.Join(" ", srcs.Select(s => $"\"{s}\"")) + " " + string.Join(" ", cxx.Select(o => $"\"{o}\"")) +
                 " -lopengl32 -lgdi32 -luser32 -lkernel32 -lshell32 -lole32 -loleaut32 -lmfplat -lmfuuid -luuid -lwinhttp " +
+                // llvm-mingw'de C surucusu C++ runtime'i baglamaz (MSVC clang'daki pragma lib yok): msdfgen icin STATIK libc++
+                // (-lc++ import lib'i secer, libc++abi ile "was replaced" catismasi verir; .a adlariyla ver).
+                "-l:libc++.a -l:libc++abi.a -l:libunwind.a " +
                 $"-o \"{dst}\"");
         }
         finally { try { Directory.Delete(tmp, true); } catch { } }
@@ -457,7 +470,8 @@ static class Program
     {
         var psi = new ProcessStartInfo(exe, args) { RedirectStandardOutput = true, RedirectStandardError = true, UseShellExecute = false, WorkingDirectory = cwd ?? RepoRoot };
         using var p = Process.Start(psi);
-        string o = p.StandardOutput.ReadToEnd(), e = p.StandardError.ReadToEnd();
+        var eTask = Task.Run(() => p.StandardError.ReadToEnd()); // stderr pipe dolunca (uzun linker hatasi) deadlock olmasin
+        string o = p.StandardOutput.ReadToEnd(), e = eTask.Result;
         p.WaitForExit();
         if (p.ExitCode != 0)
             throw new Exception($"{Path.GetFileName(exe)} {args.Substring(0, Math.Min(140, args.Length))}... (exit {p.ExitCode})\n{o}\n{e}");

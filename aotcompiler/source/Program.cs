@@ -135,17 +135,32 @@ public static class Program
         return dll;
     }
 
+    // Managed plugin'ler: Assets/**/*.dll (yolu /Editor/ icerenler haric) — editor GameCode.PluginDlls ile AYNI kural.
+    // Gercek .NET'e karsi derlenmis olabilir: CilFrontend tip referanslarini adla cozer (System.* -> corelib);
+    // corelib'de olmayan API stub kapisinda build hatasi verir.
+    static List<string> PluginDlls(string projectRoot)
+    {
+        var list = new List<string>();
+        string assets = Path.Combine(projectRoot, "Assets");
+        if (!Directory.Exists(assets)) return list;
+        foreach (var f in Directory.GetFiles(assets, "*.dll", SearchOption.AllDirectories))
+            if (!f.Replace('\\', '/').Contains("/Editor/"))
+                list.Add(f);
+        list.Sort(StringComparer.Ordinal);
+        return list;
+    }
+
     // Oyun: Assets/**/*.cs (Assets/**/Editor/ haric) -> <Ad>.Game.dll (DE_AOT, NoStdLib). Katalog runtime reflection (Registry yok).
-    static string GameAotDll(string projectRoot, string projName, string outDir, string target)
+    static string GameAotDll(string projectRoot, string projName, string outDir, string target, List<string> plugins)
     {
         // Registry.g.cs yok (docs/registry-removal.md): katalog runtime reflection'dan kurulur. Yalniz oyun scriptleri.
         // Kaynak kapsami editorle (GameCode) AYNI olmali: Assets altindaki tum .cs — yoksa editorde var olan tip player'da atlanir.
         var sources = DigitoyEngine.Build.RoslynCompiler.SourcesUnder(Path.Combine(projectRoot, "Assets"), "/Editor/");
         if (sources.Count == 0)
-            return null; // script yok: engine tek basina
+            return null; // script yok: engine (+ plugin'ler) tek basina
         var defines = new List<string> { "DE_AOT", "DE_GAME" }; defines.AddRange(TargetDefines(target));
         string dll = Path.Combine(outDir, projName + ".Game.dll");
-        var r = DigitoyEngine.Build.RoslynCompiler.CompileToFile(new DigitoyEngine.Build.RoslynBuild
+        var build = new DigitoyEngine.Build.RoslynBuild
         {
             AssemblyName = projName + ".Game",
             SourceFiles = sources,
@@ -153,7 +168,9 @@ public static class Program
             Defines = defines.ToArray(),
             NoStdLib = true,
             Optimize = true,
-        }, dll, useCache: false);
+        };
+        build.References.AddRange(plugins);
+        var r = DigitoyEngine.Build.RoslynCompiler.CompileToFile(build, dll, useCache: false);
         if (!r.Ok) throw new Exception("oyun kodu AOT derlemesi basarisiz:\n" + r.Errors);
         return dll;
     }
@@ -202,11 +219,13 @@ public static class Program
         // 1) managed IL: corelib + engine (prebuilt ya da taze) + oyun (Roslyn, her seferinde)
         Directory.CreateDirectory(workDir);
         var engineDll = EngineAotDll(target);
-        var playerDll = GameAotDll(projectRoot, projName, workDir, target);
+        var plugins = PluginDlls(projectRoot);
+        var playerDll = GameAotDll(projectRoot, projName, workDir, target, plugins);
         Console.WriteLine($"managed: {engineDll}\n         {playerDll ?? "(script yok)"}" + (Installed ? "  (kurulu mod: prebuilt sdk)" : ""));
+        foreach (var p in plugins) Console.WriteLine($"         plugin: {p}");
         Lap("Roslyn (engine AOT + oyun)");
 
-        // 2) CIL -> IR: corelib + engine + player (player engine tiplerini ctx'ten cozer)
+        // 2) CIL -> IR: corelib + engine + plugin'ler + player (sonrakiler oncekilerin tiplerini ctx'ten cozer)
         var ctx = new Context();
         var allCodes = new List<Code>();
         allCodes.AddRange(LoadCoreLib(ctx));
@@ -214,6 +233,12 @@ public static class Program
         var diag = new List<string>();
         allCodes.AddRange(CilFrontend.Compile(ctx, engineDll, out _));
         diag.AddRange(CilFrontend.LastDiagnostics.Select(d => "[engine] " + d));
+        foreach (var p in plugins)
+        {
+            string tag = "[plugin:" + Path.GetFileNameWithoutExtension(p) + "] ";
+            allCodes.AddRange(CilFrontend.Compile(ctx, p, out _));
+            diag.AddRange(CilFrontend.LastDiagnostics.Select(d => tag + d));
+        }
         if (playerDll != null)
         {
             allCodes.AddRange(CilFrontend.Compile(ctx, playerDll, out _));
@@ -224,8 +249,8 @@ public static class Program
         // GameHost.Init/Event/Frame/Pause/Resume/Shutdown'i surer (GC safepoint = de_app_frame icinde).
         Code HostCode(string name)
         {
-            var hits = ctx.AllCodes.Where(c => c.Owner?.Name == "DigitoyEngine.GameHost" && !c.IsExternal
-                && (c.Name == name || c.Name.StartsWith(name + "_", StringComparison.Ordinal))).ToList();
+            var hits = ctx.TryGetPrimitive("DigitoyEngine.GameHost", out var host)
+                ? ctx.MembersOf(host).Where(c => !c.IsExternal && c.SimpleName == name).ToList() : new List<Code>();
             if (hits.Count != 1) throw new Exception($"DigitoyEngine.GameHost.{name}: {hits.Count} aday (1 bekleniyor)");
             return hits[0];
         }
@@ -245,14 +270,6 @@ public static class Program
         // runtime'da NotImplementedException demek -> build HATASI (exe cikmaz; liste basilir).
         // Erisilemeyen stub'lar (editor/import yolu, kullanilmayan API) diag.txt'de kalir.
         var hostEntries = new[] { initCode, eventCode, frameCode, pauseCode, resumeCode, shutdownCode };
-        var reachableStubs = ReachableStubs(ctx, hostEntries);
-        if (reachableStubs.Count > 0)
-        {
-            Console.WriteLine($"[HATA] runtime'dan erisilebilen {reachableStubs.Count} AOT stub (calisirken patlar):");
-            foreach (var (code, via) in reachableStubs)
-                Console.WriteLine($"  {code.Owner?.Name}.{code.DisplayName}\n      neden: {code.UntranslatableReason}\n      yol:   {via}");
-            throw new Exception("AOT stub kapisi: eksik corelib/frontend destegi (yukaridaki liste); corelib'e ekleyin ya da motor kodunu yuzeye uydurun");
-        }
 
         // 3) C transpile + de_app.h kopruleri: main/dongu/crash dizini artik platform host'unda
         //    (c_runtime/host_desktop.c + de_app.c). Unhandled exception yolu runtime'da (DIGITOYENGINE_dispatch).
@@ -286,6 +303,18 @@ public static class Program
             Console.WriteLine("trim raporu -> " + rp);
         }
         Lap("trim analizi");
+        // STUB KAPISI: runtime'in GERCEKTEN cagiracagi koklerden (host girisleri + EmitInit'in eager cctor/finalizer/exception-kind
+        // ctor'lari; trim planina gore canli olanlar) cagri grafiyla ERISILEBILEN stub = NotImplementedException demek -> build
+        // HATASI (exe cikmaz; liste basilir). Erisilemeyen stub'lar (editor/import yolu, kullanilmayan API) diag.txt'de kalir.
+        var gateRoots = hostEntries.Concat(CTranspiler.InitRoots(ctx)).ToList();
+        var reachableStubs = ReachableStubs(ctx, gateRoots);
+        if (reachableStubs.Count > 0)
+        {
+            Console.WriteLine($"[HATA] runtime'dan erisilebilen {reachableStubs.Count} AOT stub (calisirken patlar):");
+            foreach (var (code, via) in reachableStubs)
+                Console.WriteLine($"  {code.Owner?.Name}.{code.DisplayName}\n      neden: {code.UntranslatableReason}\n      yol:   {via}");
+            throw new Exception("AOT stub kapisi: eksik corelib/frontend destegi (yukaridaki liste); corelib'e ekleyin ya da motor kodunu yuzeye uydurun");
+        }
         // Tip basina .c/.h (degismeyen dosya yazilmaz; derleme listesi her build ACIK verilir, dizin taramasi yok)
         var files = CTranspiler.TranspileFiles(ctx, bridges);
         Lap("C transpile");
@@ -1169,18 +1198,18 @@ public static class Program
         var byName = new Dictionary<string, List<Code>>();
         foreach (var c in all)
         {
-            if (!byName.TryGetValue(c.Name, out var l)) byName[c.Name] = l = new List<Code>();
+            if (!byName.TryGetValue(c.SimpleName, out var l)) byName[c.SimpleName] = l = new List<Code>();
             l.Add(c);
         }
         static bool IsSubtype(Primitive t, Primitive of)
         {
             if (t == null || of == null) return false;
-            var ofT = of.GenericTemplate ?? of;
+            var ofT = of.Definition;
             for (var p = t; p != null; p = p.Parent)
             {
-                if ((p.GenericTemplate ?? p) == ofT) return true;
+                if (p.Definition == ofT) return true;
                 foreach (var i in p.Interfaces)
-                    if ((i.GenericTemplate ?? i) == ofT) return true;
+                    if (i.Definition == ofT) return true;
             }
             return false;
         }
@@ -1199,9 +1228,9 @@ public static class Program
             {
                 if (op.Code == null) continue;
                 Visit(op.Code, c);
-                if (op.Type == OpType.CallVirtual && byName.TryGetValue(op.Code.Name, out var cands))
+                if (op.Type == OpType.CallVirtual && byName.TryGetValue(op.Code.SimpleName, out var cands))
                     foreach (var cand in cands)
-                        if (cand != op.Code && IsSubtype(cand.Owner, op.Code.Owner)) Visit(cand, c);
+                        if (cand != op.Code && IsSubtype(cand.Owner, op.Code.Owner) && Signature.Matches(cand, op.Code)) Visit(cand, c);
             }
         }
         var result = new List<(Code, string)>();
@@ -1210,6 +1239,7 @@ public static class Program
             if (kv.Key.UntranslatableReason == null) continue;
             var path = new List<string>();
             for (var p = kv.Value; p != null && path.Count < 6; p = parent[p]) path.Add($"{p.Owner?.Name}.{p.DisplayName}");
+            if (kv.Value == null) path.Add(kv.Key.SimpleName == "cctor" ? "<cctor: EmitInit eager>" : kv.Key.SimpleName == "finalize" ? "<finalizer>" : "<kok>");
             result.Add((kv.Key, string.Join(" <- ", path)));
         }
         result.Sort((a, b) => string.CompareOrdinal(a.Item1.Owner?.Name + a.Item1.Name, b.Item1.Owner?.Name + b.Item1.Name));

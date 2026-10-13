@@ -168,6 +168,11 @@ public static class LayoutTests
         q.Begin();
         b.Encode(q);
         Check(q.Count > 0 && q.Count < withBorder, "border'siz daha az quad");
+        int plain = q.Count;
+        b.LightColor = new Color(255, 255, 255, 200); // gloss = EmitRadial, tam 4 quad
+        q.Begin();
+        b.Encode(q);
+        Check(q.Count == plain + 4, "light +4 quad");
         GameObject.Destroy(b.gameObject);
         s.Update(0f);
     }
