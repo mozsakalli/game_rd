@@ -461,13 +461,87 @@ public unsafe class App
     }
 
     // Sahne acmanin tek bogazi: Play durur, doc yuklenir, son-sahne kaydi guncellenir.
+    // Prefab stage'deyken once stage kapanir (dirty ise Save/Discard/Cancel sorulur, acilis ertelenir).
     internal static void OpenScene(string path)
     {
+        if (InPrefabStage && !TryExitPrefabStage(() => OpenScene(path)))
+            return;
         PlayMode.Stop();
         _editScene.Load(path, _catalog, _assets);
         Selection.DocId = 0;
         Settings.lastScene = System.IO.Path.GetRelativePath(_project.Root, path).Replace('\\', '/');
         SaveSettings();
+    }
+
+    // --- PREFAB STAGE (Unity modeli): .prefab dosyasi gecici EditorScene olarak acilir, asil sahne
+    // BELLEKTE stash edilir (dirty/undo korunur). Cikista prefab cache duser + sahne yeniden expand
+    // olur → instance'lar yeni prefab'i alir, override'lar korunur. lastScene degismez. ---
+    static EditorScene _stashedScene;
+    internal static bool InPrefabStage => _stashedScene != null;
+    internal static string PrefabStagePath => InPrefabStage ? _editScene.Path : null;
+
+    internal static void OpenPrefab(string path)
+    {
+        if (PlayMode.State != PlayState.Editing)
+        {
+            EditorLog.Warning("[prefab] stop Play before editing a prefab");
+            return;
+        }
+        if (InPrefabStage)
+        {
+            if (string.Equals(System.IO.Path.GetFullPath(_editScene.Path), System.IO.Path.GetFullPath(path),
+                    StringComparison.OrdinalIgnoreCase))
+                return;
+            if (!TryExitPrefabStage(() => OpenPrefab(path)))
+                return;
+        }
+        _stashedScene = _editScene;
+        _editScene = new EditorScene { SingleRoot = true };
+        _editScene.Load(path, _catalog, _assets);
+        Selection.Clear();
+        foreach (var g in _editScene.Doc.Objects)
+            if (g.Parent == 0) { Selection.DocId = g.Id; break; }
+        EditorLog.Info("[prefab] editing: " + System.IO.Path.GetFileName(path));
+    }
+
+    // Dirty degilse hemen cikar (true). Dirty ise popup acar, 'then' secimden sonra kosar (false).
+    internal static bool TryExitPrefabStage(Action then = null)
+    {
+        if (!InPrefabStage)
+            return true;
+        if (!_editScene.Dirty)
+        {
+            ExitPrefabStageNow();
+            return true;
+        }
+        SaveChangesPopup.Show(System.IO.Path.GetFileName(_editScene.Path),
+            onSave: () => { _editScene.Save(); ExitPrefabStageNow(); then?.Invoke(); },
+            onDiscard: () => { ExitPrefabStageNow(); then?.Invoke(); });
+        return false;
+    }
+
+    static void ExitPrefabStageNow()
+    {
+        if (!InPrefabStage)
+            return;
+        string rel = System.IO.Path.GetRelativePath(_assets.Root, _editScene.Path).Replace('\\', '/');
+        _editScene.UnloadLive();
+        _editScene = _stashedScene;
+        _stashedScene = null;
+        ReexpandAllPrefabs(rel); // collapse (eski prefab) → cache dus → taze expand; aktif sahne geri gelir
+        Selection.Clear();
+        EditorLog.Info("[prefab] stage closed: " + rel);
+    }
+
+    // Prefab degisti: acik sahne VE (stage'deyse) stash'li sahne once ESKI prefab'a gore
+    // deltaya sikisir, cache sonra duser, ikisi de taze prefab'la acilir.
+    internal static void ReexpandAllPrefabs(string changedRel)
+    {
+        string a = _editScene.Collapse();
+        string b = _stashedScene?.Collapse();
+        _assets.InvalidatePrefab(changedRel);
+        _editScene.ReexpandFrom(a);
+        _stashedScene?.ReexpandFrom(b);
     }
 
     internal static EditorSettings Settings = new();
@@ -517,9 +591,11 @@ public unsafe class App
         RenderDebug.Unfreeze(); // frozen capture eski tiplerin kaynaklarini tutmasin
 #endif
         _editScene.UnloadLive();
+        _stashedScene?.UnloadLive(); // stage arkasindaki sahne de eski tipleri tutmasin
         _assets.ScanMetas(createMissing: true); // yeni eklenen dosyalar guid alsin
         _gameCode.LoadCompiled(_project, _assets, job);
         RebuildCatalog();
+        _stashedScene?.Instantiate(_catalog, _assets); // once stash: aktif sahne sonda edit'in olsun
         _editScene.Instantiate(_catalog, _assets); // bellekteki doc'tan (kaydedilmemis duzenlemeler korunur)
         // AOT uyumluluk: scriptler corelib'e karsi ikinci kez derlenir (bilgi amacli; editor play'ini etkilemez).
         AotCompatCheck.Check(job.Scripts, job.Plugins);
@@ -611,7 +687,7 @@ public unsafe class App
     static AssetDatabase _assets;
     static GameCode _gameCode;
     static double _lastUpdateT;
-    static readonly EditorScene _editScene = new EditorScene();
+    static EditorScene _editScene = new EditorScene(); // prefab stage'de gecici olarak degisir
     static readonly RpcContext _rpcCtx = new RpcContext();
 
     internal static EditorScene EditScene => _editScene;

@@ -1154,6 +1154,33 @@ static class RpcCommands
         return null;
     }
 
+    [RpcCommand("prefab.open", "Prefab'i duzenleme icin acar (prefab stage; acik sahne bellekte bekler). Yol Assets'e goreli")]
+    static DocNode PrefabOpen(RpcContext ctx, string path)
+    {
+        string full = GuardAssetPath(path);
+        if (!File.Exists(full))
+            throw new RpcError($"prefab yok: {path}");
+        App.OpenPrefab(full);
+        if (!App.InPrefabStage)
+            throw new RpcError("prefab stage acilamadi (Play acik veya dirty stage bekliyor; Console'a bak)");
+        _diffBaseline.Clear();
+        return null;
+    }
+
+    [RpcCommand("prefab.close", "Prefab stage'i kapatir, sahneye doner; save=true degisiklikleri prefab dosyasina yazar, false atar")]
+    static DocNode PrefabClose(RpcContext ctx, bool save = true)
+    {
+        if (!App.InPrefabStage)
+            throw new RpcError("prefab stage acik degil");
+        if (save)
+            App.EditScene.Save();
+        else
+            App.EditScene.DiscardChanges();
+        App.TryExitPrefabStage();
+        _diffBaseline.Clear();
+        return null;
+    }
+
     [RpcCommand("play.start", "Play moduna gecer")]
     static DocNode PlayStart()
     {

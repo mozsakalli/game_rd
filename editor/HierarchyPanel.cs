@@ -35,13 +35,30 @@ public sealed class HierarchyPanel : EditorWindow
         var doc = es.Doc;
         var vis = GuiClip.VisibleRect;
 
+        // Prefab stage seridi: geri don (dirty ise Save/Discard/Cancel) + duzenlenen prefab adi.
+        float top = 0f;
+        if (App.InPrefabStage)
+        {
+            const float barH = 22f;
+            if (Event.Current.Type == EventType.Repaint)
+            {
+                GuiRenderer.DrawRect(new Rect(0, 0, vis.width, barH), new Color(38, 46, 66, 255), 0);
+                GuiRenderer.DrawTextIn(new Rect(66, 0, vis.width - 70, barH),
+                    "Prefab: " + System.IO.Path.GetFileName(App.PrefabStagePath) + (es.Dirty ? "*" : ""),
+                    Gui.FontSize - 2f, new Color(150, 180, 235, 255), false, 2);
+            }
+            if (Gui.Button(new Rect(2, 2, 60, 18), "< Back"))
+                App.TryExitPrefabStage();
+            top = barH;
+        }
+
         // Arac cubugu: kok GO / secilinin cocugu / secileni sil (hepsi undo'lu).
-        if (Gui.Button(new Rect(2, 2, 52, 20), "+ GO"))
+        if (Gui.Button(new Rect(2, top + 2, 52, 20), "+ GO"))
             Selection.DocId = es.AddGameObject(0).Id;
         var sel = es.FindGo(Selection.DocId);
-        if (Gui.Button(new Rect(58, 2, 60, 20), "+ Child") && sel != null)
+        if (Gui.Button(new Rect(58, top + 2, 60, 20), "+ Child") && sel != null)
             Selection.DocId = es.AddGameObject(sel.Id).Id;
-        if (Gui.Button(new Rect(122, 2, 44, 20), "Del"))
+        if (Gui.Button(new Rect(122, top + 2, 44, 20), "Del"))
         {
             // Coklu sil: kopya uzerinden (RemoveGameObject dogrudan doc'u degistirir).
             _dragIdsTmp.Clear();
@@ -54,7 +71,7 @@ public sealed class HierarchyPanel : EditorWindow
             }
             Selection.Clear();
         }
-        const float toolbarH = 26f;
+        float toolbarH = 26f + top;
 
         int rows = 0;
         foreach (var g in doc.Objects)

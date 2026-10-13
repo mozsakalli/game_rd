@@ -1,5 +1,43 @@
 # DigitoyEngine R&D (game_rd)
 
+## PROGRESS ROUNDRECT (perimetre halkası) — TAMAMLANDI (2026-10-13, screenshot doğrulandı)
+- `ProgressShape.RoundRect`: yuvarlak köşeli kutunun ÇEVRESİ boyunca dolan halka (sıra sayacı rozeti). Alanlar yeni değil:
+  `CornerRadius` (Bar+RoundRect), `Thickness/StartAngle/Clockwise` (Radial+RoundRect). Koordinat = perimetre YAY-UZUNLUĞU
+  turu (0 = tepe ortası, saat yönü; StartAngle/360 = tur ofseti) → köşe/kenar hızı eşit. Thickness 0 = dolu kutu (yarım
+  dolum = en yakın kenara göre dikey/yatay bölünme). Ghost/edge/segment/border/fx aynen çalışır (USER sözleşmesi Radial ile aynı).
+- `RoundRectFragment`: `pr_box` SDF (dış) + `dOut + t` (iç, eş kalınlık → iç köşe r−t) + `pr_perim(p,hs,r)`: 8 parça
+  (4 kenar + 4 çeyrek yay) simetriyle: q=|p|−(a,b); köşe bölgesi (q.x>0&&q.y>0): aynı-işaret çeyreklerde ATAN2(q.x,q.y),
+  zıt'ta ATAN2(q.y,q.x), taban = a + (zıt ? qc+2b : 0) + (p.x<0 ? H : 0); kenar: q.y>q.x yatay. AA: fa = px/perimetre (analitik).
+- **USER.z PAKETLEME:** `±(1 + (köşe_q + kalınlıkOranı·0.999)/1000)`, köşe oranı 3 hane kuantize (0..999). Shader
+  `f = fract(|z|)·1000 + 0.0005; cq = floor(f); t = (f−cq−0.0005)/0.999`. TUZAK: float gürültüsü t≈6e-5 → "hayalet ince halka"
+  (Thickness 0 görünmez oluyordu) → `t < 0.002 ⇒ 0` ölü bölge. highp float varsayımı (mevcut FWIDTH shader'ları gibi).
+- `[ShowIf]` artık ÇOKLU DEĞER alır (`params object[]`, herhangi biri eşleşir): `FieldSchema.ShowIfScalars string[]`.
+- Testler: ProgressTests 14 PASS (roundrect shader + katman sayısı/padding kapanması).
+
+## PREFAB STAGE (prefab edit modu) — TAMAMLANDI (2026-10-13, RPC ile uçtan uca doğrulandı)
+- MODEL (Unity Prefab Stage): `.prefab` zaten tek köklü SceneDoc → geçici `EditorScene{SingleRoot=true}` olarak açılır; asıl
+  sahne `App._stashedScene`'de BELLEKTE bekler (dirty/undo/LiveScene korunur; ExternallyDriven → UpdateAll atlar, render yok).
+  `EditorApp._editScene` artık mutable. `lastScene` değişmez. Pencere başlığı/Ctrl+S/undo/Inspector/Scene View bedava çalışır.
+- API (EditorApp): `OpenPrefab(abs)` (Play açıksa reddeder), `TryExitPrefabStage(then)` (dirty → `SaveChangesPopup`
+  Save/Discard/Cancel; odak kaybı/Esc = Cancel; callback popup kapanırken koşar), `ExitPrefabStageNow`, `InPrefabStage`,
+  `PrefabStagePath`, `ReexpandAllPrefabs(rel)`. `OpenScene` stage'deyken önce çıkış ister (ertelenmiş açılış). `ReloadScene`
+  dokunulmadı (stage'de prefab'ı yeniden yükler = AssetWatcher .prefab-kendisi yolu). Kod reload stash'li sahneyi de yıkar/kurar.
+- EditorScene.SingleRoot: `AddGameObject(0)` kök altına düşer; kök silinemez; köke reparent/move reddedilir (Warning).
+  `Collapse()`/`ReexpandFrom(yaml)`/`DiscardChanges()` eklendi; `ReexpandPrefabs = ReexpandFrom(Collapse())`.
+- **SIRA KURALI (gizli bug düzeltildi):** prefab değişince önce ESKİ cache ile `Collapse` (diff eski prefab'a göre), SONRA
+  `InvalidatePrefab`, SONRA expand. Eski AssetWatcher yolu invalidate→Reexpand sırasıyla çalışıyordu → değişen alanlar
+  instance'larda SAHTE OVERRIDE oluyordu (yayılım kırılırdı). Artık `App.ReexpandAllPrefabs(rel)` tek boğaz (stash dahil).
+  Bu yüzden Save stage'de cache düşürmez; çıkışta düşer.
+- Giriş noktaları: Project paneli `.prefab` çift tık; Inspector prefab başlığında "Open"; Hierarchy üstünde stage şeridi
+  (`< Back` + `Prefab: ad[*]`, toolbar 22px aşağı kayar). RPC: `prefab.open(path)`, `prefab.close(save=true)`.
+  Play stage'de reddedilir (`PlayMode.Play` guard; ileride izole prefab play düşünülebilir).
+- DOĞRULAMA: Main.scene → orb.prefab stage → Height 110→150 + child ekle → close(save) → orb(1)/(2) Height 150 + child
+  (yeni localId yeni sceneId aldı); ters yön 150→110 + child sil → instance'lar 110'a döndü (override DEĞİL); kök silme reddedildi.
+- KARAR (modül tartışması, aynı gün): modül = oyun projesinde `Assets/Modules/<ad>/` KLASÖRÜ (bundled = klasör, provided =
+  projenin geri kalanı; `Modules/` host pak'ta strip'ten korunur). Paket yöneticisi / çok köklü AssetDatabase / tek proje-çok
+  oyun REDDEDİLDİ; oyunlar arası paylaşım = klasörü `.meta`'larıyla kopyala. Modül giriş noktası ileride prefab olabilir.
+  Editör reload hızı: tek assembly kalır (sınır analizi ileride), ayrı derleme yalnız publish'te.
+
 ## GAME VIEW ÜST BARI: boyut combo + yön + Fit/1:1, kalıcı (2026-10-13, görsel + RPC doğrulandı)
 - SAHA: RPC `view.device` cihaz profilini EditorSettings'e kalıcı yazıyordu, editörde geri alacak UI yoktu → Game View "sabit
   boyda kalıyor, fit'ten çıkıyor" hissi. Unity Game View barı paritesi eklendi.

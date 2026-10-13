@@ -1,0 +1,17 @@
+[gamecode] yuklendi: Yuzbir Extra.Game (7 script, 1 plugin)
+[lifecycle] 23 PASS, 0 FAIL
+[movieclip] 65 PASS, 0 FAIL
+[particle] 19 PASS, 0 FAIL
+[serialization] 38 PASS, 0 FAIL
+[inspector] 47 PASS, 0 FAIL
+[layout] 40 PASS, 0 FAIL
+[pointer] 24 PASS, 0 FAIL
+[rendergroup] 12 PASS, 0 FAIL
+[fx] 9 PASS, 0 FAIL
+[prefs] 15 PASS, 0 FAIL
+[async] 28 PASS, 0 FAIL
+[net] 18 PASS, 0 FAIL
+[progress] 14 PASS, 0 FAIL
+[catalogtest] 13 PASS 0 FAIL
+[objtest] 34 PASS, 0 FAIL
+[info] [rpc] dinleniyor: localhost:5157  (http://localhost:5157/ -> C:\Work\digitoygames\game_rd\Projects\Sandbox\Build\wasm)

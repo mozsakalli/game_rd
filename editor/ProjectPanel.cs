@@ -161,6 +161,10 @@ public sealed class ProjectPanel : EditorWindow
                 {
                     App.OpenScene(System.IO.Path.Combine(assets.Root, rel));
                 }
+                else if (ev.ClickCount == 2 && rel.EndsWith(".prefab", StringComparison.OrdinalIgnoreCase))
+                {
+                    App.OpenPrefab(System.IO.Path.Combine(assets.Root, rel));
+                }
                 else
                 {
                     _pressRow = i;

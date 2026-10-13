@@ -33,6 +33,11 @@ static class PlayMode
         }
         if (State == PlayState.Playing)
             return;
+        if (App.InPrefabStage)
+        {
+            EditorLog.Warning("[prefab] close the prefab stage (Back) before Play");
+            return;
+        }
         SpawnPlayScene();
         State = PlayState.Playing;
         EditorWindow.GetWindow<GameViewPanel>(); // Game tab'i one

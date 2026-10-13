@@ -15,6 +15,17 @@ public sealed class EditorScene
     public SceneDoc Doc { get; private set; } = new();
     public string Path { get; private set; }
 
+    // Prefab stage: doc tek koklu kalmali (kok silinemez, koke yeni GO/reparent kok altina duser).
+    public bool SingleRoot { get; init; }
+
+    SceneDoc.GoDoc RootGo()
+    {
+        foreach (var g in Doc.Objects)
+            if (g.Parent == 0)
+                return g;
+        return null;
+    }
+
     // Canli projeksiyonun sahnesi: HIC simule olmaz (ExternallyDriven), editor
     // her frame lifecycle-only Update ile surer. Play'in oyun sahnesinden ayridir.
     public Scene LiveScene { get; private set; }
@@ -36,14 +47,23 @@ public sealed class EditorScene
     public bool Dirty => History.Version != _savedVersion;
     int _savedVersion;
 
+    // Kaydedilmemis duzenlemeler "atildi" sayilir (stage kapanisi gibi, doc zaten yikilacak).
+    public void DiscardChanges() => _savedVersion = History.Version;
+
     // Prefab dosyasi DISKTE degisti: doc deltaya sikistirilip taze prefab'la yeniden
     // acilir. prefabIds kalici oldugundan id/secim/undo bozulmaz; kaydedilmemis
     // override'lar delta olarak yasamaya devam eder.
-    public void ReexpandPrefabs()
+    // SIRA ONEMLI: Collapse ESKI prefab cache'iyle yapilmali (yoksa eski degerler yeni
+    // prefab'a gore 'override' sanilir); cache ancak Collapse'tan sonra dusurulur.
+    public void ReexpandPrefabs() => ReexpandFrom(Collapse());
+
+    public string Collapse() => _catalog == null ? null : Doc.ToYaml(_catalog, _assets);
+
+    public void ReexpandFrom(string collapsedYaml)
     {
-        if (_catalog == null)
+        if (_catalog == null || collapsedYaml == null)
             return;
-        Doc = SceneDoc.Parse(Doc.ToYaml(_catalog, _assets));
+        Doc = SceneDoc.Parse(collapsedYaml);
         Doc.ExpandPrefabs(_catalog, _assets);
         Instantiate(_catalog, _assets);
     }
@@ -88,6 +108,8 @@ public sealed class EditorScene
         AssetWatcher.NoteSelfWrite(Path);
         File.WriteAllText(Path, Doc.ToYaml(_catalog, _assets)); // prefab'lar deltaya sikisir
         _savedVersion = History.Version;
+        // Stage'de prefab cache'i BURADA dusurulmez: stash'li sahne eski prefab'la acik;
+        // cache cikista collapse'tan sonra duser (App.ExitPrefabStageNow).
     }
 
     public GameObject Live(int docId) => _live.GetValueOrDefault(docId);
@@ -304,6 +326,8 @@ public sealed class EditorScene
     // Paralel RPC cagrilarinda varis sirasi belirsiz oldugundan siranin acikca verilebilmesi gerekir.
     public SceneDoc.GoDoc AddGameObject(int parentId, int insertBeforeId = 0)
     {
+        if (SingleRoot && parentId == 0 && RootGo() is { } root)
+            parentId = root.Id;
         var g = new SceneDoc.GoDoc { Id = NextId(), Parent = parentId, Name = UniqueName("GameObject") };
         int index = Doc.Objects.Count;
         if (insertBeforeId != 0)
@@ -625,6 +649,11 @@ public sealed class EditorScene
 
     public void RemoveGameObject(SceneDoc.GoDoc g)
     {
+        if (SingleRoot && g.Parent == 0)
+        {
+            EditorLog.Warning("[prefab] prefab root cannot be deleted");
+            return;
+        }
         // Prefab COCUGU: alt-agac silinir + koke 'removed' isareti (expand bir daha uretmez).
         if (g.IsPrefabChild)
         {
@@ -681,6 +710,11 @@ public sealed class EditorScene
     {
         if (g.Parent == newParentId || g.Id == newParentId || IsDescendantOf(newParentId, g.Id))
             return; // dongu olusturamaz
+        if (SingleRoot && newParentId == 0)
+        {
+            EditorLog.Warning("[prefab] prefab has a single root; keep objects under it");
+            return;
+        }
         // Prefab cocugu tasinamaz: parent/sira override modeli yok, Save'de sessizce kaybolurdu.
         if (g.IsPrefabChild)
         {
@@ -715,6 +749,11 @@ public sealed class EditorScene
     {
         if (g.Id == newParentId || g.Id == insertBeforeId || IsDescendantOf(newParentId, g.Id))
             return;
+        if (SingleRoot && newParentId == 0 && g.Parent != 0)
+        {
+            EditorLog.Warning("[prefab] prefab has a single root; keep objects under it");
+            return;
+        }
         // Prefab cocugu tasinamaz/siralanamaz: parent+sira diff'e girmiyor, kaydolmaz.
         if (g.IsPrefabChild)
         {

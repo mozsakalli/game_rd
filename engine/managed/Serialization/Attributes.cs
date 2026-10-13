@@ -73,17 +73,18 @@ public sealed class DevOnlyAttribute : Attribute
 // Inspector'da kosullu gorunurluk: AYNI duzeydeki kardes serilesen alanin degerine
 // bagli. value verilirse esitlik (kanonik skaler kiyasi: enum adi, bool, sayi...);
 // value=null ise "truthy" testi (bool true / asset-ref dolu / sayi != 0 / string dolu).
-// Ornek: [ShowIf(nameof(type), GradientType.Linear)] veya [ShowIf(nameof(font))].
+// Ornek: [ShowIf(nameof(type), GradientType.Linear)] veya [ShowIf(nameof(font))];
+// birden cok deger = herhangi biri: [ShowIf(nameof(Shape), ProgressShape.Bar, ProgressShape.RoundRect)].
 [AttributeUsage(AttributeTargets.Field)]
 public sealed class ShowIfAttribute : Attribute
 {
     public readonly string Field;
-    public readonly object Value;
+    public readonly object[] Values; // bos = truthy testi
 
-    public ShowIfAttribute(string field, object value = null)
+    public ShowIfAttribute(string field, params object[] values)
     {
         Field = field;
-        Value = value;
+        Values = values ?? Array.Empty<object>();
     }
 }
 

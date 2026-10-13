@@ -18,6 +18,8 @@ static class ProgressTests
         Check(bar != null, "bar shader derlenir (" + e1 + ")");
         var rad = Shader.TryCreateEffect(ProgressRenderer.RadialFragment, false, out string e2);
         Check(rad != null, "radial shader derlenir (" + e2 + ")");
+        var rr = Shader.TryCreateEffect(ProgressRenderer.RoundRectFragment, false, out string e3);
+        Check(rr != null, "roundrect shader derlenir (" + e3 + ")");
 
         var prev = Scene.Active;
         var s = Scene.Create("progress-test");
@@ -63,6 +65,15 @@ static class ProgressTests
             p.Padding = 0;
             q.Begin(); p.Encode(q);
             Check(q.Count == 3, "radial: border + track + fill");
+
+            // RoundRect: perimetre halkasi; kalinlik padding'den kapaninca katman duser.
+            p.Shape = ProgressShape.RoundRect; p.Width = 160; p.Height = 60; p.CornerRadius = 10; p.Thickness = 5;
+            q.Begin(); p.Encode(q);
+            Check(q.Count == 3, "roundrect: border + track + fill");
+            p.Padding = 4;
+            q.Begin(); p.Encode(q);
+            Check(q.Count == 2, "roundrect: fill halkasi kapandi");
+            p.Padding = 0; p.Shape = ProgressShape.Radial; p.Width = p.Height = 100;
 
             // .fx zinciri: USER'li core compose olur, batch materyali degisir.
             var fx = new PixelEffect();

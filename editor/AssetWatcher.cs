@@ -148,8 +148,21 @@ public static class AssetWatcher
                 atlasDirty = true; // uye oldugu gruplar stamp'ten yeniden paketlenir
                 break;
             case ".prefab":
-                assets.InvalidatePrefab(rel);
-                App.EditScene.ReexpandPrefabs();
+                if (App.PrefabStagePath != null
+                    && string.Equals(System.IO.Path.GetFullPath(App.PrefabStagePath), full, StringComparison.OrdinalIgnoreCase))
+                {
+                    // Stage'de duzenlenen prefab'in kendisi: sahne kurali (bellek kazanir / taze yukle).
+                    // Cache burada dusurulmez; stash'li sahne icin cikista collapse sonrasi duser.
+                    if (App.EditScene.Dirty)
+                        EditorLog.Warning($"prefab changed on disk but has unsaved edits, keeping in-memory: {rel} (save to overwrite)");
+                    else
+                    {
+                        App.ReloadScene();
+                        EditorLog.Info($"prefab reloaded from disk: {rel}");
+                    }
+                    break;
+                }
+                App.ReexpandAllPrefabs(rel); // collapse (eski) → cache dus → expand (yeni)
                 EditorLog.Info($"prefab reloaded: {rel}");
                 if (PlayMode.State != PlayState.Editing && PlayMode.HotReload == HotReloadMode.Instant)
                     PlayMode.DoHotReload();

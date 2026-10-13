@@ -396,8 +396,14 @@ public sealed partial class InspectorPanel : EditorWindow
             if (slash >= 0) ppath = ppath[(slash + 1)..];
             int dot = ppath.IndexOf('.');
             if (dot > 0) ppath = ppath[..dot];
-            GuiRenderer.DrawTextIn(new Rect(8, y, w - 130, 20), "Prefab: " + ppath, SmallFont,
+            GuiRenderer.DrawTextIn(new Rect(8, y, w - 180, 20), "Prefab: " + ppath, SmallFont,
                 new Color(150, 180, 235, 255), false, 2);
+        }
+        if (Gui.Button(new Rect(w - 170, y + 1, 46, 18), "Open"))
+        {
+            string rel = App.Assets?.ResolvePath(instRoot.PrefabGuid);
+            if (!string.IsNullOrEmpty(rel))
+                App.OpenPrefab(System.IO.Path.Combine(App.Assets.Root, rel));
         }
         if (Gui.Button(new Rect(w - 120, y + 1, 118, 18),
                 _showOverrides ? $"Overrides ({n}) -" : $"Overrides ({n}) +"))

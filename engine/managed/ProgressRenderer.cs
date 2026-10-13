@@ -2,7 +2,8 @@ using System;
 
 namespace DigitoyEngine;
 
-public enum ProgressShape : byte { Bar, Radial }
+// RoundRect: yuvarlak koseli kutunun CEVRESI boyunca dolan halka (sira sayaci rozeti).
+public enum ProgressShape : byte { Bar, Radial, RoundRect }
 
 // Bar dolum yonu. CenterOut: ortadan iki yana buyur.
 public enum ProgressDirection : byte
@@ -25,6 +26,9 @@ public enum ProgressDirection : byte
 //   USER.z = +-(1 + oran): Bar: oran = kose yaricapi / (kisa kenar/2), isaret =
 //            eksen (+ yatay, - dikey). Radial: oran = halka kalinligi / kisa yari
 //            eksen (0 veya >=1 = tam dilim), isaret = yon (+ saat yonu, - tersi).
+//            RoundRect: oran = (kose_q + kalinlik*0.999)/1000 — kose yaricapi orani 3 hane
+//            kuantize (0..999) + kalinlik orani ayni slota paketli; isaret = yon. Ilerleme
+//            koordinati PERIMETRE yay-uzunlugu turu (0 = tepe ortasi, saat yonu).
 //   USER.w = +-(segment adedi + bosluk orani); 0 = segment yok. Isaret -: segment
 //            sifiri aralik baslangicidir (radial), +: koordinat sifiri (bar).
 // Quad en-boy orani FWIDTH turevlerinden cikarilir (CPU parametresi yok; parent
@@ -38,13 +42,13 @@ public sealed unsafe class ProgressRenderer : Renderer
 
     [ShowIf(nameof(Shape), ProgressShape.Bar)] public ProgressDirection Direction;
     // Dunya birimi; 0 = keskin, kisa kenarin yarisi = kapsul.
-    [ShowIf(nameof(Shape), ProgressShape.Bar)] public float CornerRadius = 12f;
+    [ShowIf(nameof(Shape), ProgressShape.Bar, ProgressShape.RoundRect)] public float CornerRadius = 12f;
 
-    // Dunya birimi halka kalinligi; 0 = tam dilim (pie).
-    [ShowIf(nameof(Shape), ProgressShape.Radial)] public float Thickness = 12f;
-    // Derece, 0 = tepe (saat 12), saat yonunde artar.
-    [ShowIf(nameof(Shape), ProgressShape.Radial)] public float StartAngle;
-    [ShowIf(nameof(Shape), ProgressShape.Radial)] public bool Clockwise = true;
+    // Dunya birimi halka kalinligi; 0 = tam dilim (pie) / dolu kutu.
+    [ShowIf(nameof(Shape), ProgressShape.Radial, ProgressShape.RoundRect)] public float Thickness = 12f;
+    // Derece, 0 = tepe (saat 12), saat yonunde artar. RoundRect'te perimetre turu (360 = tam cevre).
+    [ShowIf(nameof(Shape), ProgressShape.Radial, ProgressShape.RoundRect)] public float StartAngle;
+    [ShowIf(nameof(Shape), ProgressShape.Radial, ProgressShape.RoundRect)] public bool Clockwise = true;
 
     // Dolgu ve zemin (Gradient Linear: tum bar boyunca; Radial tipi duz renge duser).
     public Gradient Fill = new(new Color(80, 200, 120, 255));
@@ -173,11 +177,73 @@ public sealed unsafe class ProgressRenderer : Renderer
         "  }\n" +
         "  return VEC4(color.rgb, color.a * m);\n}";
 
-    static Shader _barShader, _radialShader;
-    static Material _barMat, _radialMat;
+    static Shader _barShader, _radialShader, _roundRectShader;
+    static Material _barMat, _radialMat, _roundRectMat;
 
     public static Shader BarShader => _barShader ??= Shader.CreateEffect(BarFragment);
     public static Shader RadialShader => _radialShader ??= Shader.CreateEffect(RadialFragment);
+    public static Shader RoundRectShader => _roundRectShader ??= Shader.CreateEffect(RoundRectFragment);
+
+    // Yuvarlak koseli kutu: dis SDF pr_box, ic kenar sabit ofset (es kalinlik, ic kose r-t).
+    // pr_perim: noktanin en yakin sinir noktasinin yay-uzunluk kesri (4 kenar + 4 ceyrek yay,
+    // tepe ortasi = 0, saat yonu). Dallanmalar turevsiz; FWIDTH'ler onden alinir.
+    public const string RoundRectFragment = _common +
+        "FLOAT pr_box(VEC2 p, VEC2 b, FLOAT r) {\n" +
+        "  VEC2 q = abs(p) - b + VEC2(r, r);\n" +
+        "  return length(max(q, VEC2(0.0, 0.0))) + min(max(q.x, q.y), 0.0) - r;\n}\n" +
+        "FLOAT pr_perim(VEC2 p, VEC2 hs, FLOAT r) {\n" +
+        "  FLOAT a = hs.x - r;\n" +
+        "  FLOAT b = hs.y - r;\n" +
+        "  FLOAT qc = 1.5707963 * r;\n" +
+        "  FLOAT H = 2.0 * a + 2.0 * b + 2.0 * qc;\n" +
+        "  VEC2 q = abs(p) - VEC2(a, b);\n" +
+        "  FLOAT s;\n" +
+        "  if (q.x > 0.0 && q.y > 0.0) {\n" +
+        "    bool same = p.x * p.y >= 0.0;\n" +
+        "    FLOAT th = same ? ATAN2(q.x, q.y) : ATAN2(q.y, q.x);\n" +
+        "    s = a + (same ? 0.0 : qc + 2.0 * b) + (p.x < 0.0 ? H : 0.0) + r * th;\n" +
+        "  } else if (q.y > q.x) {\n" +
+        "    s = p.y > 0.0 ? p.x : H - p.x;\n" +
+        "  } else {\n" +
+        "    s = p.x > 0.0 ? a + qc + b - p.y : H + a + qc + b + p.y;\n" +
+        "  }\n" +
+        "  return s / (2.0 * H);\n}\n" +
+        "VEC4 fs_main(VEC2 uv, VEC4 color) {\n" +
+        "  FLOAT aspect = FWIDTH(uv.y) / max(FWIDTH(uv.x), 1e-6);\n" +
+        "  FLOAT px = FWIDTH(uv.y);\n" +
+        "  VEC2 hs = VEC2(aspect * 0.5, 0.5);\n" +
+        "  VEC2 p = (uv - VEC2(0.5, 0.5)) * VEC2(aspect, 1.0);\n" +
+        "  FLOAT mn = min(hs.x, hs.y);\n" +
+        "  FLOAT f = fract(abs(USER.z)) * 1000.0 + 0.0005;\n" +
+        "  FLOAT cq = floor(f);\n" +
+        "  FLOAT r = cq / 999.0 * mn;\n" +
+        "  FLOAT t = clamp((f - cq - 0.0005) / 0.999, 0.0, 1.0);\n" +
+        "  if (t < 0.002) t = 0.0;\n" + // float gurultusu kalinlik dogurmasin (hayalet ince halka)
+        "  FLOAT dOut = pr_box(p, hs, r);\n" +
+        "  FLOAT aa = FWIDTH(dOut);\n" +
+        "  FLOAT dIn = dOut + t * mn;\n" +
+        "  bool ring = t > 0.0 && t < 1.0;\n" +
+        "  FLOAT m = 1.0 - smoothstep(-aa, aa, dOut);\n" +
+        "  if (ring) m *= smoothstep(-aa, aa, dIn);\n" +
+        "  FLOAT turns = pr_perim(p, hs, r);\n" +
+        "  if (USER.z < 0.0) turns = -turns;\n" +
+        "  FLOAT ar = fract(turns - USER.x);\n" +
+        "  FLOAT per = 4.0 * (hs.x - r) + 4.0 * (hs.y - r) + 6.2831853 * r;\n" +
+        "  FLOAT fa = px / per;\n" +
+        "  if (USER.y >= 2.0) {\n" +
+        "    FLOAT b = (USER.y - 2.0) * mn;\n" +
+        "    FLOAT mi = 1.0 - smoothstep(-aa, aa, dOut + b);\n" +
+        "    if (ring) mi *= smoothstep(-aa, aa, dIn - b);\n" +
+        "    m *= 1.0 - mi;\n" +
+        "  } else {\n" +
+        "    if (USER.y < 1.0) {\n" +
+        "      FLOAT c = (USER.y + 1.0) * 0.5;\n" +
+        "      FLOAT as = ar > c ? ar - 1.0 : ar;\n" +
+        "      m *= pr_range(as, 0.0, USER.y, fa);\n" +
+        "    }\n" +
+        "    m *= pr_segments(ar, fa, USER.w);\n" +
+        "  }\n" +
+        "  return VEC4(color.rgb, color.a * m);\n}";
 
     static Material BarMaterial => _barMat ??= new Material
     {
@@ -193,6 +259,13 @@ public sealed unsafe class ProgressRenderer : Renderer
         SortMode = SortMode.Transparent,
     };
 
+    static Material RoundRectMaterial => _roundRectMat ??= new Material
+    {
+        MainTexture = SpriteRenderer.White,
+        Shader = RoundRectShader,
+        SortMode = SortMode.Transparent,
+    };
+
     // --- encode ---
 
     RenderQueue _q;
@@ -203,9 +276,14 @@ public sealed unsafe class ProgressRenderer : Renderer
     {
         if (Width <= 0f || Height <= 0f)
             return;
-        bool radial = Shape == ProgressShape.Radial;
         _q = queue;
-        _mat = (radial ? RadialMaterial : BarMaterial).ForBlend(BlendMode).ForEffects(Effects);
+        var baseMat = Shape switch
+        {
+            ProgressShape.Radial => RadialMaterial,
+            ProgressShape.RoundRect => RoundRectMaterial,
+            _ => BarMaterial,
+        };
+        _mat = baseMat.ForBlend(BlendMode).ForEffects(Effects);
         _world = transform._getWorldMatrix();
 
         float v = Math.Clamp(Value, 0f, 1f);
@@ -257,14 +335,23 @@ public sealed unsafe class ProgressRenderer : Renderer
         // USER.y >= 2 shader'da ring modu; oran kisa yari kenara gore.
         float ringLen = 2f + Math.Clamp(ringWidth / minHalf, 0f, 1f);
 
-        if (Shape == ProgressShape.Radial)
+        if (Shape != ProgressShape.Bar)
         {
             float th = Thickness > 0f ? Thickness - inset * 2f : 0f;
             if (Thickness > 0f && th <= 0f)
                 return; // halka bu katmanda kapandi
             float frac = th <= 0f || th >= minHalf ? 0f : th / minHalf;
-            float z = (1f + frac) * (Clockwise ? 1f : -1f);
-            float start = StartAngle / 360f * (Clockwise ? 1f : -1f);
+            float sign = Clockwise ? 1f : -1f;
+            float z;
+            if (Shape == ProgressShape.RoundRect)
+            {
+                // Kose orani 3 hane kuantize + kalinlik orani ayni slota (shader cozer).
+                float rq = MathF.Floor(Math.Clamp(MathF.Max(0f, CornerRadius - inset) / minHalf, 0f, 1f) * 999f);
+                z = (1f + (rq + frac * 0.999f) / 1000f) * sign;
+            }
+            else
+                z = (1f + frac) * sign;
+            float start = StartAngle / 360f * sign;
             switch (kind)
             {
                 case LayerKind.Ring: Emit(w, h, start, ringLen, z, 0f, c0, c1, c2, c3); break;

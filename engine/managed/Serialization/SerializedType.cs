@@ -28,10 +28,10 @@ public static class SerializedType
         public FieldSchema[] Nested;   // Kind.Object ya da Object-elemanli liste alt semasi
 
         // [ShowIf] kosulu (Build'de cozulur): ShowIf = ayni duzeydeki kardes alan,
-        // ShowIfScalar = beklenen kanonik deger (null = truthy testi). Inspector
+        // ShowIfScalars = beklenen kanonik degerler (herhangi biri; null = truthy testi). Inspector
         // gizlerken OLCUM ve CIZIM ayni kosulu kullanmali.
         public FieldSchema ShowIf;
-        public string ShowIfScalar;
+        public string[] ShowIfScalars;
         public bool Hidden;            // [HideInInspector]: serilesir, inspector cizmez (editor)
 
         // CEKIRDEK boxed erisimciler + kuruculuar: serializer/clone IC YOLLARI yalniz
@@ -96,7 +96,14 @@ public static class SerializedType
             if (sibling == null || sibling == f)
                 continue; // cozumsuz kosul = hep gorunur (sessiz dusme, crash yok)
             f.ShowIf = sibling;
-            f.ShowIfScalar = attr.Value != null ? Format(attr.Value, sibling.Kind) : null;
+            if (attr.Values.Length > 0)
+            {
+                f.ShowIfScalars = new string[attr.Values.Length];
+                for (int i = 0; i < attr.Values.Length; i++)
+                    f.ShowIfScalars[i] = Format(attr.Values[i], sibling.Kind);
+            }
+            else
+                f.ShowIfScalars = null;
         }
     }
 
@@ -108,7 +115,7 @@ public static class SerializedType
         if (f.ShowIf == null || owner == null)
             return true;
         object v = f.ShowIf.Get(owner);
-        if (f.ShowIfScalar == null && f.ShowIf.Kind is Kind.Asset or Kind.GoRef or Kind.CompRef)
+        if (f.ShowIfScalars == null && f.ShowIf.Kind is Kind.Asset or Kind.GoRef or Kind.CompRef)
             return v != null;
         return ShowIfMatch(f, Format(v, f.ShowIf.Kind));
     }
@@ -120,8 +127,13 @@ public static class SerializedType
             return false;
         if (f.ShowIf == null)
             return true;
-        if (f.ShowIfScalar != null)
-            return actualScalar == f.ShowIfScalar;
+        if (f.ShowIfScalars != null)
+        {
+            foreach (var s in f.ShowIfScalars)
+                if (actualScalar == s)
+                    return true;
+            return false;
+        }
         return f.ShowIf.Kind switch
         {
             Kind.Bool => actualScalar == "true",
