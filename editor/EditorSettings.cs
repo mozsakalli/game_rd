@@ -19,4 +19,7 @@ public class EditorSettings
     public string deviceName = "";
     public int deviceW, deviceH;
     public float devicePixelRatio;
+    // Game View bar tercihleri: yon zorlamasi (Auto = PlayerSettings) + 1:1 gosterim.
+    public ScreenOrientation gameViewOrientation = ScreenOrientation.Auto;
+    public bool gameViewOneToOne;
 }

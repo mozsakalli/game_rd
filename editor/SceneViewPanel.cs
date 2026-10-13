@@ -7,16 +7,20 @@ namespace DigitoyEditor;
 
 // Scene View: DURAGAN doc projeksiyonunu editor kamerasiyla gosterir (hic simule
 // olmaz). Pan (drag) + imlec merkezli zoom + tikla-sec + tasima gizmosu.
+// "Persp" modu: sahne kamerasinin projeksiyonuyla salt onizleme (Unity Align View
+// karsiligi) — pan/zoom/gizmo/secim kapali, editor projeksiyon TIPINI bilmez.
 [MenuItem("Window/Scene", 2)]
 public sealed unsafe class SceneViewPanel : EditorWindow
 {
     static readonly int _panHash = "SceneView.Pan".GetHashCode();
     static readonly int _selectHash = "SceneView.Select".GetHashCode();
+    static readonly Color EditorBg = new Color(34, 36, 44, 255);
 
     Vec2 _center = new Vec2(400f, 300f); // dunya uzayinda bakilan nokta
     float _zoom = 1f;                    // world -> panel px carpani
+    bool _persp;                         // sahne kamerasi onizleme modu
 
-    internal readonly Camera EditorCam = new Camera { Order = 1, BackgroundColor = new Color(34, 36, 44, 255) };
+    internal readonly Camera EditorCam = new Camera { Order = 1, BackgroundColor = EditorBg };
     Texture _rt;
     Texture _retired; // eski RT frame sonuna kadar yasar (frame ortasi destroy yasak)
     int _rtW, _rtH;
@@ -51,11 +55,33 @@ public sealed unsafe class SceneViewPanel : EditorWindow
     }
 
     // Editor kamerasinin ortho'su: merkez + zoom -> dunya penceresi (y asagi).
+    // Persp modunda sahne kamerasi tarifi aynen basilir (arka plan dahil).
     internal void ApplyEditorCam()
     {
+        var main = _persp ? App.EditScene?.LiveScene?.MainCamera : null;
+        if (main != null)
+        {
+            main.ApplyTo(EditorCam, _viewW, _viewH);
+            return;
+        }
+        EditorCam.BackgroundColor = EditorBg;
+        EditorCam.ClearColor = true;
+        EditorCam.ClearDepth = true;
         float halfW = _viewW * 0.5f / _zoom, halfH = _viewH * 0.5f / _zoom;
         EditorCam.SetOrtho(_center.x - halfW, _center.x + halfW,
                            _center.y - halfH, _center.y + halfH);
+    }
+
+    // Oyun kamerasinin z=0 gorus rect'i (projeksiyon tipi bilinmez); kamera yoksa
+    // piksel-ortho varsayimi (0,0,ViewW,ViewH).
+    static Rect GameWorldRect()
+    {
+        float gw = GameOutput.ViewW, gh = GameOutput.ViewH;
+        var main = App.EditScene?.LiveScene?.MainCamera;
+        if (main == null)
+            return new Rect(0, 0, gw, gh);
+        main.GetWorldRect(gw, gh, out float x, out float y, out float w, out float h);
+        return new Rect(x, y, w, h);
     }
 
     // Araclarin (EditorTool) kullandigi kamera uzayi API'si.
@@ -143,9 +169,11 @@ public sealed unsafe class SceneViewPanel : EditorWindow
             _zoom = 1f;
         if (Gui.Button(new Rect(44, 4, 36, 20), "Fit"))
             FitGameFrame();
+        if (Gui.Button(new Rect(84, 4, 52, 20), _persp ? "Persp*" : "Persp"))
+            _persp = !_persp;
 
         // Arac butonlari registry'den (builtin + [EditorTool] tasiyan her sinif).
-        float tx = 92f;
+        float tx = 144f;
         var tools = EditorTools.All;
         for (int i = 0; i < tools.Count; i++)
         {
@@ -186,6 +214,10 @@ public sealed unsafe class SceneViewPanel : EditorWindow
                 Resize(w, h); // eski RT BeginFrame'de olur; hedef encode oncesi baglanir
             GuiRenderer.DrawTexture(new Rect(0, 0, vis.width, vis.height), _rt);
         }
+
+        // Persp onizleme: panel uzayi <-> dunya eslemesi ortho degil; etkilesim yok.
+        if (_persp)
+            return;
 
         DoGizmoAndSelect(vis, ev); // pan'den ONCE: tiklama onceligi
 
@@ -253,16 +285,17 @@ public sealed unsafe class SceneViewPanel : EditorWindow
 
     void FitGameFrame()
     {
-        float gw = GameOutput.ViewW, gh = GameOutput.ViewH;
-        _center = new Vec2(gw * 0.5f, gh * 0.5f);
-        _zoom = MathF.Min(_viewW / MathF.Max(1f, gw), _viewH / MathF.Max(1f, gh)) * 0.9f;
+        var r = GameWorldRect();
+        _center = new Vec2(r.x + r.width * 0.5f, r.y + r.height * 0.5f);
+        _zoom = MathF.Min(_viewW / MathF.Max(1f, r.width), _viewH / MathF.Max(1f, r.height)) * 0.9f;
     }
 
-    // Oyun ekrani konturu: (0,0)-(gameW,gameH) dunya dikdortgeni panel uzayinda.
+    // Oyun ekrani konturu: kameranin z=0 gorus rect'i panel uzayinda.
     void DrawGameFrame()
     {
-        Vec2 a = WorldToPanel(default);
-        Vec2 b = WorldToPanel(new Vec2(GameOutput.ViewW, GameOutput.ViewH));
+        var r = GameWorldRect();
+        Vec2 a = WorldToPanel(new Vec2(r.x, r.y));
+        Vec2 b = WorldToPanel(new Vec2(r.x + r.width, r.y + r.height));
         var c = new Color(120, 160, 255, 170);
         // layer 2: RT dokusu layer 1'de — kontur ustune cizilmeli.
         GuiRenderer.DrawRect(new Rect(a.x, a.y, b.x - a.x, 1), c, 2);

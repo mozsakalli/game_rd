@@ -101,6 +101,7 @@ public static class RenderGroupTests
         else { _fail++; Console.WriteLine($"[rendergroup] FAIL: {name}"); }
     }
 
+    [AddComponentMenu("")]
     sealed class Handler : Component
     {
         public int Downs;

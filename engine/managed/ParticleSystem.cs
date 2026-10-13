@@ -398,6 +398,7 @@ public struct FrameModule
 // DrawMesh (ayni materyal/doku = RenderQueue merge ile TEK draw call).
 [Previewable]
 [ExecuteInEditMode]
+[AddComponentMenu("Effects/Particle System")]
 public sealed unsafe class ParticleSystem : Renderer, IEditorPreview
 {
     // --- Ana ---

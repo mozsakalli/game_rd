@@ -255,6 +255,7 @@ public unsafe class App
     }
 
     // Stres: hot path dogrulamasi — binlerce bagimsiz hareketli sprite.
+    [AddComponentMenu("")]
     sealed class StressOrb : Component
     {
         public int Seed;
@@ -424,6 +425,7 @@ public unsafe class App
     }
 
     // Demo: yorunge + renk animasyonu (GameObject katmani yasam dongusu egzersizi).
+    [AddComponentMenu("")]
     sealed class Spinner : Component
     {
         public int Index;

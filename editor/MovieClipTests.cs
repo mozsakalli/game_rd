@@ -54,6 +54,7 @@ public static class MovieClipTests
 
     public enum Mode { A, B, C }
 
+    [AddComponentMenu("")]
     public sealed class AnimTarget : Component, IClipEventHandler
     {
         public float Width = 1f;

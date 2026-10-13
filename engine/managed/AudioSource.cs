@@ -7,6 +7,7 @@ namespace DigitoyEngine;
 // AssetDatabase null doner, kaynak sessiz kalir (uyari log'u AssetDatabase'ten).
 // Edit sahnesinde yasam dongusu kesilir ([ExecuteInEditMode] yok) -> editorde ses yok;
 // onizleme Inspector'in isidir.
+[AddComponentMenu("Audio/Audio Source")]
 public sealed class AudioSource : Component
 {
     public AudioClip Clip;

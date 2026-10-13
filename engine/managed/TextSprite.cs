@@ -11,6 +11,7 @@ public enum TextAlign { Left, Center, Right }
 // paritesi). Size = bir satirin dunya birimi yuksekligi. Yerlesim yalniz
 // metin/font/boyut/hiza degisince kurulur; stil (renk/kontur/golge) her frame
 // instance verisinden okunur (rebuild yok).
+[AddComponentMenu("Rendering/Text Sprite")]
 public sealed unsafe class TextSprite : Renderer
 {
     public Font Font;

@@ -10,8 +10,8 @@ objects:
       - type: CameraComponent
         projection: Perspective
         fov: 30
-      - type: CameraScaler
-        camera: '2:CameraComponent:0'
+      - type: FitPerspectiveProjection
+        fov: 30
         referenceResolution: 1440 960
   - id: 1
     parent: 0

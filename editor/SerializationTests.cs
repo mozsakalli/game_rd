@@ -24,6 +24,7 @@ public static class SerializationTests
         public List<SpriteRenderer> MoreTargets = new();
     }
 
+    [AddComponentMenu("")]
     public sealed class SerTestComp : Component
     {
         public float PlainFloat = 1f;
@@ -201,6 +202,7 @@ public static class SerializationTests
         public List<SpriteRenderer> MoreTargets = new();
     }
 
+    [AddComponentMenu("")]
     public sealed class SerTestCompV2 : Component
     {
         public int Added = 77;

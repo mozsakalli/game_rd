@@ -36,7 +36,7 @@ public static class LifecycleTests
         Console.WriteLine($"[lifecycle] {_pass} PASS, {_fail} FAIL");
     }
 
-    [ExecuteInEditMode]
+    [ExecuteInEditMode, AddComponentMenu("")]
     sealed class EditRecorder : Component
     {
         readonly StringBuilder _log = new();
@@ -83,6 +83,7 @@ public static class LifecycleTests
     }
 
     // Cagri sirasini harflerle kaydeder: A=Awake E=OnEnable S=Start U=Update D=OnDisable X=OnDestroy
+    [AddComponentMenu("")]
     sealed class Recorder : Component
     {
         readonly StringBuilder _log = new();
@@ -95,6 +96,7 @@ public static class LifecycleTests
         protected internal override void OnDestroy() => _log.Append('X');
     }
 
+    [AddComponentMenu("")]
     sealed class AwakeAdder : Component
     {
         public Recorder Added;
@@ -113,6 +115,7 @@ public static class LifecycleTests
         Check(a.Added.Log == "AESUUDX", "destroy frame sonunda: son Update sonra OnDisable+OnDestroy");
     }
 
+    [AddComponentMenu("")]
     sealed class SelfDestroyer : Component
     {
         protected internal override void Update() => GameObject.Destroy(gameObject);
@@ -152,6 +155,7 @@ public static class LifecycleTests
         s.Update(0f);
     }
 
+    [AddComponentMenu("")]
     sealed class SelfDisabler : Component
     {
         public bool Updated;
@@ -184,6 +188,7 @@ public static class LifecycleTests
         Check(r.Log.EndsWith("DX"), "parent destroy alt agaci da yok eder");
     }
 
+    [AddComponentMenu("")]
     sealed class SpawnerOnce : Component
     {
         public GameObject Template;

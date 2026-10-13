@@ -49,6 +49,18 @@ public sealed class ExecuteInEditModeAttribute : Attribute
 {
 }
 
+// Unity AddComponentMenu: editor "Add Component" menusundeki yol ("Rendering/Sprite
+// Renderer"). Isaretsiz component "Scripts" grubuna duser (oyun kodu); bos yol ("")
+// menuden gizler (test/yardimci component). Grup/sira tamamen attribute'tan — editor
+// tip-ozel bir sey bilmez.
+[AttributeUsage(AttributeTargets.Class, Inherited = false)]
+public sealed class AddComponentMenuAttribute : Attribute
+{
+    public readonly string Path;
+
+    public AddComponentMenuAttribute(string path) => Path = path;
+}
+
 // AOT trim (docs/engine-notes.md TRIM): isaretli metot lean profilde GOVDESIZ derlenir (void -> hicbir sey, Task ->
 // CompletedTask, diger -> default) ve cagirdigi hicbir sey erisilebilir sayilmaz. Dev/test kancalari icin
 // (sahne dokumu, autoload modul, net probe): release ikilisine girmez, full profilde oldugu gibi kalir.

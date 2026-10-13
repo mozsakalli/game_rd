@@ -188,30 +188,15 @@ public sealed partial class InspectorPanel : EditorWindow
             compIndex++;
         }
 
-        // Add Component: acilir tip listesi (katalogtan — editor tipleri isimle bilir).
+        // Add Component: native popup (filtre + [AddComponentMenu] gruplari).
         y += 6;
         float addW = Math.Min(w - 24, 220f);
-        if (Gui.Button(new Rect(12 + (w - 24 - addW) * 0.5f, y, addW, 22),
-                _addingComp ? "(close)" : "Add Component"))
-            _addingComp = !_addingComp;
+        if (Gui.Button(new Rect(12 + (w - 24 - addW) * 0.5f, y, addW, 22), "Add Component"))
+            AddComponentPopup.Show(g.Id);
         y += RowH + 4;
-        if (_addingComp)
-        {
-            foreach (var entry in App.Catalog.Entries)
-            {
-                if (Gui.Button(new Rect(24, y, w - 36, 19), Nicify(entry.Name)))
-                {
-                    es.AddComponent(g, entry.Name);
-                    _addingComp = false;
-                    break;
-                }
-                y += RowH - 2;
-            }
-        }
         Gui.EndScrollView();
     }
 
-    bool _addingComp;
     bool _showOverrides;
     // Katlanmis component'ler: key = (goId << 32) | compIndex. Default: acik.
     readonly HashSet<long> _collapsed = new();
@@ -787,9 +772,6 @@ public sealed partial class InspectorPanel : EditorWindow
             componentIndex++;
         }
         h += 6 + RowH + 4; // Add Component butonu
-        if (_addingComp && App.Catalog != null)
-            foreach (var _ in App.Catalog.Entries)
-                h += RowH - 2;
         return h + 8;
     }
 }

@@ -47,6 +47,7 @@ public static class ObjectBinaryTests
         public SortMode Mode = SortMode.Ui;
     }
 
+    [AddComponentMenu("")]
     public sealed class ObjTestHolder : Component
     {
         public ObjTestLevel Level;

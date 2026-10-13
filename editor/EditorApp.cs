@@ -164,6 +164,8 @@ public unsafe class App
         PlayMode.HotReload = Settings.hotReload;
         Gui.FontSize = Math.Clamp(Settings.uiFontSize, 10f, 24f);
         GameOutput.SetDevice(Settings.deviceW, Settings.deviceH, Settings.devicePixelRatio, Settings.deviceName);
+        GameOutput.Orientation = Settings.gameViewOrientation;
+        GameOutput.OneToOne = Settings.gameViewOneToOne;
         if (Settings.sceneCamZoom > 0)
             _sceneView.SetView(new Vec2(Settings.sceneCamX, Settings.sceneCamY), Settings.sceneCamZoom);
         if (Settings.lastScene.Length > 0)
@@ -265,6 +267,7 @@ public unsafe class App
             // Detached panel pencereleri: kendi GUI turlari + redock kontrolu.
             GuiDock.UpdateWindows();
             ColorPickerWindow.UpdateWindow();
+            EditorPopup.UpdateActive();
 
             // Surukle-birak: sol tus birakildiysa kayitli hedefe uygula/temizle.
             DragDrop.EndFrame(GLFW.GetMouseButton(window, 0) == GLFWConst.RELEASE);
@@ -300,6 +303,7 @@ public unsafe class App
             Camera.EncodeAll(cameras, cb, fbw, fbh);
             GuiDock.EncodeWindows(cb);
             ColorPickerWindow.Encode(cb);
+            EditorPopup.EncodeActive(cb);
 #if DE_EDITOR
             // Replay pass'leri canli frame'den ONCE kosar; GUI ayni frame'de RT'yi okur.
             RenderDebug.ReplayIfFrozen();
@@ -317,6 +321,7 @@ public unsafe class App
             // MakeContextCurrent implicit flush yapar (WGL); blit guncel iceriden okur.
             GuiDock.PresentWindows();
             ColorPickerWindow.Present();
+            EditorPopup.PresentActive();
         }
 
         RpcHost.Stop();
@@ -476,6 +481,8 @@ public unsafe class App
         Settings.deviceH = GameOutput.ForcedH;
         Settings.devicePixelRatio = GameOutput.Forced ? GameOutput.PixelRatio : 0f;
         Settings.deviceName = GameOutput.ForcedName;
+        Settings.gameViewOrientation = GameOutput.Orientation;
+        Settings.gameViewOneToOne = GameOutput.OneToOne;
         if (_sceneView != null)
         {
             Settings.sceneCamX = _sceneView.Center.x;

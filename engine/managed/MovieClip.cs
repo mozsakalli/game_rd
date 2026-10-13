@@ -92,6 +92,7 @@ public static class ClipHash
 
 [Previewable]
 [ExecuteInEditMode]
+[AddComponentMenu("Animation/Movie Clip")]
 public sealed class MovieClip : Component
 {
     public static readonly int CompleteEvent = ClipHash.Of("@complete");
@@ -475,8 +476,13 @@ public sealed class MovieClip : Component
             var track = Tracks[i];
             var T = new TrackRt
             {
-                Target = track.Target, Prop = p, Mask = (byte)(track.Mask & AnimValue.MaskAll), Authoring = i,
-                KeyStart = ki, KeyCount = track.Keys.Count, Cursor = ki,
+                Target = track.Target,
+                Prop = p,
+                Mask = (byte)(track.Mask & AnimValue.MaskAll),
+                Authoring = i,
+                KeyStart = ki,
+                KeyCount = track.Keys.Count,
+                Cursor = ki,
             };
             // Frame sirali kopya (insertion sort: editor zaten sirali tutar).
             int start = ki;

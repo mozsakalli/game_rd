@@ -1,5 +1,52 @@
 # DigitoyEngine R&D (game_rd)
 
+## GAME VIEW ÜST BARI: boyut combo + yön + Fit/1:1, kalıcı (2026-10-13, görsel + RPC doğrulandı)
+- SAHA: RPC `view.device` cihaz profilini EditorSettings'e kalıcı yazıyordu, editörde geri alacak UI yoktu → Game View "sabit
+  boyda kalıyor, fit'ten çıkıyor" hissi. Unity Game View barı paritesi eklendi.
+- GameViewPanel (BarH=24): `Gui.ComboBox` [Free Aspect | GameOutput.Devices adları] (RPC view.set özel boyut → -1 "(none)");
+  yön butonu Auto/Portrait/Landscape döngü (Free Aspect'te soluk ama ÇİZİLİR — kontrol sayısı sabit); Fit/1:1 butonu (1:1 =
+  mantıksal birebir, `GuiClip.Push(vis)` ile kırpılır — Push orijini taşır, dst vis-lokal verilir); sağda `WxH @Nx` etiketi.
+  İçerik/pointer alanı `vis = full - bar`.
+- GameOutput: `Orientation` (ScreenOrientation; Auto = PlayerSettings.orientation, o da Auto = preset doğal yönü) + `OneToOne`
+  + `ApplyDevice(in Device) → landscape` (swap mantığı RPC'den buraya taşındı; combo + RPC aynı boğaz). RPC `view.device
+  orientation=` artık TERCİH olarak kalır (eski tek-seferlik davranış değişti). EditorSettings: gameViewOrientation/gameViewOneToOne
+  (cihaz alanları zaten vardı); EditorApp yükleme/SaveSettings.
+- Doğrulandı: combo Free Aspect → view.get mode=panel; yön Portrait → 390x844; UserSettings/EditorSettings.asset alanlar yazıldı.
+
+## ADD COMPONENT POPUP: [AddComponentMenu] + EditorPopup tabanı (2026-10-13, testler yeşil, görsel OK)
+- Engine `[AddComponentMenu("Rendering/Sprite Renderer")]` (Attributes.cs, Unity paritesi, Inherited=false): yol = grup/etiket;
+  isaretsiz → **"Scripts"** grubu (oyun kodu), `("")` = menüden gizli. Builtin'ler etiketlendi (Rendering/Layout/Camera/Audio/
+  Animation/Effects); test/demo component'leri (LifecycleTests Recorder..., AnimTarget, Handler, SerTestComp, StressOrb, Spinner) gizli.
+  Editör tip-özel hiçbir şey bilmez — grup/sıra attribute'tan.
+- editor/EditorPopup.cs (abstract, instance): imleç yanında dekorasyonsuz floating native pencere (ColorPicker/GuiPopup deseni),
+  workarea clamp, focus kaybı/Esc/ShouldClose = Close, tek aktif popup. EditorApp kancaları: `UpdateActive` (ColorPicker.UpdateWindow
+  yanı), `EncodeActive`, `PresentActive`. Alt sınıf `OnGui(ev)` + `OnClosing` (kendi Hot/KeyboardControl'ünü bırakır — global state).
+- editor/AddComponentPopup.cs (260×380): tepede filtre TextField (açılışta odak; Enter/Up/Down TextField'da tüketilmediği için
+  popup gezinmesi burada), filtre boşsa grup başlıkları + alfabetik öğeler ("Scripts" sonda), doluysa düz eşleşen liste (etiket + tip
+  adı substring). Tık/Enter → `EditorScene.AddComponent` (undo bedava) + kapan. Katalog listesi her açılışta kurulur (ALC reload güvenli).
+- Inspector inline tip listesi + `_addingComp` SİLİNDİ; buton `AddComponentPopup.Show(g.Id)`.
+- KALAN: ColorPickerWindow/GuiPopup'ı EditorPopup tabanına taşımak (ayrı iş); Project paneli Create menüsü için aynı popup.
+
+## KAMERA PROJEKSİYONU = KARDEŞ COMPONENT (genişletilebilir) + SceneView Persp (2026-10-13, testler yeşil, yuzbirextra görsel OK)
+- SAHA: yuzbirextra `CameraScaler` (oyun kodu, Update'te perspektif kamerayı referans çözünürlük mesafesine koyuyordu) → editör
+  Update koşturmadığından edit/oyun arasında uçurum; SceneView çerçevesi `(0,0,ViewW,ViewH)` sabitti (PixelPerfect varsayımı).
+- KARAR: `CameraProjection` enum + orthoSize/fov/near/far **CameraComponent'ten SİLİNDİ**. Projeksiyon = kamera GO'suna takılan
+  `abstract CameraProjection : Component` ([ExecuteInEditMode]; engine/managed/CameraProjection.cs). Sözleşme: `GetWorldRect(camPos,
+  viewW,viewH)` (z=0 kesiti) + `Apply(Camera,camPos,viewW,viewH)` + virtual `ScreenPointToRay`. Builtin: `PixelPerfectProjection`,
+  `OrthographicProjection{orthoSize}`, `PerspectiveProjection{fov,nearClip,farClip; protected virtual Distance(camPos,aspect)}`,
+  `FitPerspectiveProjection : Perspective {referenceResolution}` (cover: transform z YOK SAYILIR). Oyun kodu türeterek yeni tip ekler
+  (component zaten polimorfik; [SerializeReference] gerekmedi). Projeksiyon yoksa CameraComponent PixelPerfect fallback.
+- KAYIT (frame'de GetComponent YOK): `CameraProjection.OnEnable/OnDisable → CameraComponent.Attach/Detach`; CameraComponent.OnEnable
+  bir kez GetComponent (sıra bağımsız). İkinci projeksiyon → Console uyarı, ilki kalır. `CameraComponent.Projection` okunur.
+- Editör: SceneView çerçeve + Fit → `MainCamera.GetWorldRect` (kamera yoksa eski (0,0,View)). Toolbar **Persp** toggle: EditorCam'a
+  `MainCamera.ApplyTo(panelW,panelH)` basılır (arka plan dahil) — salt önizleme, pan/zoom/gizmo/seçim/çerçeve kapalı (OnGui erken
+  çıkar; mod değişimi yalnız buton tıkında = IMGUI id kuralı korunur). Editör projeksiyon TİPİNİ bilmez.
+- Migrasyon: yuzbirextra LoginScene RPC edit.batch ile (CameraScaler remove + FitPerspectiveProjection fov 30 / 1440 960; undo'lu,
+  KAYDEDİLMEDİ). CameraScaler.cs silindi. Eski `projection:/fov:` doc prop'ları sessiz düşer (prop.set şema dışı alanı silemez —
+  Save'de temizlenir mi bak). **Sandbox Login.scene** hâlâ eski `projection: Perspective` taşıyor → `PerspectiveProjection` eklenmeli
+  (PixelPerfect'e düşer). PointerTests persp dilimi component'li (24 PASS).
+- KALAN: projeksiyon-özel editör çizimi (frustum gizmo) için genel [DrawGizmo] dilimi; Persp modunda etkileşim yok (bilinçli).
+
 ## AOT KİMLİK = YAPISAL; isim yalnız emisyon (CoreCLR/IL2CPP modeli; 2026-10-13, selftest 80/82 (2 eski), yuzbirextra+Common.dll exe OK)
 - Belirti: `class EncodedSerializer : Serializer<Encoded> { override ShouldEncode(Encoded) }` → "override edilecek virtual yok":
   vtable slotu MANGLED İSİMLE eşleniyordu; generic örnek klonları şablon adını (`ShouldEncode_T`) taşırken türeyen somut sınıf

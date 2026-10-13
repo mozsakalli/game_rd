@@ -24,7 +24,7 @@ public sealed class HierarchyPanel : EditorWindow
     bool _pressCtrl;
     Vec2 _pressPos;
 
-    const float RowH = 20f;
+    static float RowH => Gui.FontSize + 6f; // Inspector RowH ile ayni oran
     const float DragThreshold = 5f;
 
     public HierarchyPanel() => Title = "Hierarchy";
@@ -329,7 +329,7 @@ public sealed class HierarchyPanel : EditorWindow
                 ? new Color(220, 224, 234, 255)
                 : new Color(120, 123, 133, 255); // inaktif: soluk
             GuiRenderer.DrawTextIn(new Rect(indent + 14, y, width - indent - 14, RowH - 1),
-                g.Name, 12f, textCol, false, 2);
+                g.Name, Gui.FontSize, textCol, false, 2);
         }
 
         y += RowH;

@@ -68,6 +68,7 @@ public abstract class Renderer : Component
 // Unity SpriteRenderer karsiligi (quad + sprite). Boyut dunya biriminde
 // (Width/Height); transform scale ile carpilir. Material null ise paylasilan
 // varsayilan materyal kullanilir (texture DrawMesh aninda yakalanir, guvenli).
+[AddComponentMenu("Rendering/Sprite Renderer")]
 public sealed unsafe class SpriteRenderer : Renderer
 {
     public Sprite Sprite;

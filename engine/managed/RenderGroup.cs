@@ -7,6 +7,7 @@ namespace DigitoyEngine;
 // _effectiveAlpha okur, RenderQueue.DrawMesh tek dalla uygular — renderer tipleri
 // bu component'i bilmez. Alpha<=0: encode edilmez, pointer icin gorunmez.
 // Fade-in/out = kok GO'ya tek Tween/MovieClip track'i ("Alpha").
+[AddComponentMenu("Rendering/Render Group")]
 public sealed class RenderGroup : Component
 {
     public float Alpha = 1f;

@@ -557,7 +557,7 @@ static class RpcCommands
         switch (kind)
         {
             case SerializedType.Kind.List:
-                if (n.Scalar == "" ) return; // bos liste kanonik "" olabilir
+                if (n.Scalar == "") return; // bos liste kanonik "" olabilir
                 if (!n.IsSeq)
                     throw new RpcError($"'{path}': liste bekleniyor (JSON dizisi), gelen: {Describe(n)}");
                 for (int i = 0; i < n.Items.Count; i++)
@@ -1248,22 +1248,14 @@ static class RpcCommands
         return ViewGet();
     }
 
-    [RpcCommand("view.device", "Cihaz preset'i uygular (name: view.devices listesinden). Yon PlayerSettings.orientation'dan (Auto = preset'in dogal yonu); landscape/portrait ile zorlanabilir")]
+    [RpcCommand("view.device", "Cihaz preset'i uygular (name: view.devices listesinden). Yon Game View yon tercihinden (Auto = PlayerSettings.orientation, o da Auto ise preset'in dogal yonu); landscape/portrait verilirse tercih olarak kalir")]
     static DocNode ViewDevice(string name, string orientation = "")
     {
         var dv = GameOutput.FindDevice(name) ?? throw new RpcError($"bilinmeyen cihaz: {name} (view.devices)");
-        var o = orientation.Length > 0
-            ? (Enum.TryParse<ScreenOrientation>(orientation, true, out var oe) ? oe : throw new RpcError("orientation landscape|portrait|auto olmali"))
-            : App.Project?.Player.orientation ?? ScreenOrientation.Auto;
-        bool portraitPreset = dv.H >= dv.W;
-        bool landscape = o switch
-        {
-            ScreenOrientation.Landscape => true,
-            ScreenOrientation.Portrait => false,
-            _ => !portraitPreset,
-        };
-        bool swap = landscape == portraitPreset; // preset yonu istenen yonle uyusmuyorsa cevir
-        GameOutput.SetDevice(swap ? dv.H : dv.W, swap ? dv.W : dv.H, dv.PixelRatio, dv.Name);
+        if (orientation.Length > 0)
+            GameOutput.Orientation = Enum.TryParse<ScreenOrientation>(orientation, true, out var oe)
+                ? oe : throw new RpcError("orientation landscape|portrait|auto olmali");
+        bool landscape = GameOutput.ApplyDevice(dv);
         App.SaveSettings();
         var r = ViewGet();
         r.Add("orientation", DocNode.Scal(landscape ? "landscape" : "portrait"));

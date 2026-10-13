@@ -47,6 +47,30 @@ static unsafe class GameOutput
         return null;
     }
 
+    // Game View tercihleri (EditorSettings'e kalici): cihaz yon zorlamasi (Auto =
+    // PlayerSettings.orientation) ve panelde 1:1 gosterim (false = sigdir).
+    public static ScreenOrientation Orientation = ScreenOrientation.Auto;
+    public static bool OneToOne;
+
+    // Preset'i yon tercihine gore uygular (RPC view.device + Game View combo ayni
+    // bogaz). Donus: landscape mi.
+    public static bool ApplyDevice(in Device dv)
+    {
+        var o = Orientation == ScreenOrientation.Auto
+            ? App.Project?.Player.orientation ?? ScreenOrientation.Auto
+            : Orientation;
+        bool portraitPreset = dv.H >= dv.W;
+        bool landscape = o switch
+        {
+            ScreenOrientation.Landscape => true,
+            ScreenOrientation.Portrait => false,
+            _ => !portraitPreset,
+        };
+        bool swap = landscape == portraitPreset; // preset yonu istenen yonle uyusmuyorsa cevir
+        SetDevice(swap ? dv.H : dv.W, swap ? dv.W : dv.H, dv.PixelRatio, dv.Name);
+        return landscape;
+    }
+
     static Texture _rt;
     static Texture _retired; // frame ortasi destroy yasak: sonraki frame basinda olur
     static int _rtW, _rtH;

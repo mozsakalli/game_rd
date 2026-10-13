@@ -46,6 +46,7 @@ public static class PointerTests
     }
 
     // D=down U=up C=click S=dragStart G=drag; son event bilgileri alanlarda.
+    [AddComponentMenu("")]
     sealed class Handler : Component
     {
         public readonly StringBuilder Log = new();
@@ -237,9 +238,10 @@ public static class PointerTests
     {
         // fov 60, z=-519.615: z=0 kesiti tam 800x600 (piksel-ortho ile ayni rect) —
         // ayni ekran noktasi perspektif isinle de ayni objeyi vurmali.
-        cam.projection = CameraProjection.Perspective;
-        cam.fov = 60;
+        var persp = cam.gameObject.AddComponent<PerspectiveProjection>();
+        persp.fov = 60;
         cam.transform.localPosition = new Vec3(400, 300, -519.6152f);
+        Check(cam.Projection == persp, "persp: projeksiyon component'i kameraya kayit oldu");
         var go = Sprite("persp", 600, 450);
         var h = go.AddComponent<Handler>();
         s.Pointer.Down(600, 450);
@@ -249,8 +251,9 @@ public static class PointerTests
         Check(MathF.Abs(h.LastWorldTotal.x - 30f) < 0.1f && MathF.Abs(h.LastWorldTotal.y) < 0.1f,
             "persp: worldTotal z=0 duzleminde (30,0)");
         GameObject.Destroy(go);
+        GameObject.Destroy(persp);
         s.Update(0f);
-        cam.projection = CameraProjection.PixelPerfect;
+        Check(cam.Projection == null, "persp: projeksiyon silinince kayit dustu");
         cam.transform.localPosition = default;
     }
 }

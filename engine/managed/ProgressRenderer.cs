@@ -29,6 +29,7 @@ public enum ProgressDirection : byte
 //            sifiri aralik baslangicidir (radial), +: koordinat sifiri (bar).
 // Quad en-boy orani FWIDTH turevlerinden cikarilir (CPU parametresi yok; parent
 // non-uniform scale'i de dogru goturur).
+[AddComponentMenu("Rendering/Progress Renderer")]
 public sealed unsafe class ProgressRenderer : Renderer
 {
     public ProgressShape Shape;
@@ -180,12 +181,16 @@ public sealed unsafe class ProgressRenderer : Renderer
 
     static Material BarMaterial => _barMat ??= new Material
     {
-        MainTexture = SpriteRenderer.White, Shader = BarShader, SortMode = SortMode.Transparent,
+        MainTexture = SpriteRenderer.White,
+        Shader = BarShader,
+        SortMode = SortMode.Transparent,
     };
 
     static Material RadialMaterial => _radialMat ??= new Material
     {
-        MainTexture = SpriteRenderer.White, Shader = RadialShader, SortMode = SortMode.Transparent,
+        MainTexture = SpriteRenderer.White,
+        Shader = RadialShader,
+        SortMode = SortMode.Transparent,
     };
 
     // --- encode ---

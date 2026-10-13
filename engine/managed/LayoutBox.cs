@@ -67,6 +67,7 @@ public static class TransformDriver
 // ayni materyali paylasan bitisik quad'lar RenderQueue'da kendiliginden tek
 // instanced draw'a merge olur (sprite yoluyla ayni mekanizma).
 [ExecuteInEditMode]
+[AddComponentMenu("Layout/Layout Box")]
 public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
 {
     // --- serilesen veri (backing alanlar; degisim property'lerden kirletir) ---
