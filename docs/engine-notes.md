@@ -1,5 +1,20 @@
 # DigitoyEngine R&D (game_rd)
 
+## UNITY MCP PORTU — unity/Mcp (2026-10-14, yuzbirextra.unity'de doğrulandı)
+- `com.digitoygames.mcp` UPM paketi (yalnız Editor/): editör RPC'sinin Unity 6 portu; motor koduna/`tools/mcp-bridge`'e
+  dokunulmadı. Ayrı köprü `Bridge~/` (.NET 9, env `UNITY_MCP_PORT`, default 5158, domain reload için 20×500ms reconnect).
+  Sözleşme aynı: `{id,cmd,args}` → `{id,ok,result|error}`, `rpc.describe`/`rpc.guide` şeması birebir (köprü bunlardan üretir).
+- GO id = `instanceID`; prop yazımı `SerializedProperty` (alan adı temiz alias `m_Color`→`Color`; `A[0].B` → `Array.data`);
+  referans biçimleri: asset yolu/`#sub`/guid, `goId`, `goId:Type:ord`, `A/B` yolu. Undo: batch/apply = `IncrementCurrentGroup`
+  + `CollapseUndoOperations`, hata → `RevertAllDownToGroup` (atomik doğrulandı).
+- TUZAK: `EditorApplication.Step()` update içinden frame üretmiyor → adımlama "çöz → N frame akıt → yeniden duraklat"
+  (`Time.captureDeltaTime=1/fps` deterministik; ±1 frame overshoot, `simulated` döner).
+- TUZAK: Unity arka plandayken (play+paused) editör döngüsü uyur, `EditorApplication.update` durur → okuyucu thread her
+  istekte ve Pump deferred iş varken ana pencereye `PostMessage(WM_NULL)` atar (Windows); arka planda çalışması doğrulandı.
+- Play'e giriş domain reload yaparsa komut `{state:"starting"}` döner, ajan tekrar çağırır; Enter Play Mode Options
+  "Reload Domain kapalı" ile tek seferde biter. Screenshot play'de end-of-frame `ReadPixels` (overlay UI dahil), edit'te kamera render.
+- MovieClip/Tween/DocNode/pak gibi motor-özel şeyler bilinçli olarak yok.
+
 ## PROGRESS ROUNDRECT (perimetre halkası) — TAMAMLANDI (2026-10-13, screenshot doğrulandı)
 - `ProgressShape.RoundRect`: yuvarlak köşeli kutunun ÇEVRESİ boyunca dolan halka (sıra sayacı rozeti). Alanlar yeni değil:
   `CornerRadius` (Bar+RoundRect), `Thickness/StartAngle/Clockwise` (Radial+RoundRect). Koordinat = perimetre YAY-UZUNLUĞU

@@ -1,0 +1,22 @@
+{
+    "name": "com.digitoygames.mcp",
+    "displayName": "Digitoy MCP (AI editor RPC)",
+    "version": "0.1.0",
+    "unity": "6000.0",
+    "description": "Line-based JSON RPC server inside the Unity Editor (TCP localhost:5158) + stdio MCP bridge (Bridge~). Lets an AI agent inspect/build scenes, set properties with undo, step play mode deterministically, simulate taps/drags and take Game View screenshots. Port of the DigitoyEngine editor RPC.",
+    "author": {
+        "name": "Digitoy Games",
+        "url": "https://digitoygames.com"
+    },
+    "keywords": [
+        "digitoy",
+        "mcp",
+        "rpc",
+        "ai",
+        "automation"
+    ],
+    "license": "UNLICENSED",
+    "dependencies": {
+        "com.unity.ugui": "2.0.0"
+    }
+}
