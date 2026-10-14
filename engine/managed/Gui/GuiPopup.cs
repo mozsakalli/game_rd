@@ -29,6 +29,24 @@ public static class GuiPopup
 
     public static bool IsOpen(int ownerId) => _win != null && _ownerId == ownerId;
     public static bool Active => _win != null;
+    public static IntPtr Handle => _win?.Handle ?? IntPtr.Zero;
+
+    // Otomasyon: ana pencere MANTIKSAL noktasi popup penceresinin icine dusuyorsa popup pencere-koordinatini verir.
+    public static bool TryMapFromHost(IntPtr hostWindow, Vec2 hostLogical, out Vec2 popupWindowPx)
+    {
+        popupWindowPx = default;
+        if (_win == null)
+            return false;
+        float k = NativeWindow.ScreenScale(hostWindow);
+        GLFW.GetWindowPos(hostWindow, out int hx, out int hy);
+        GLFW.GetWindowPos(_win.Handle, out int px, out int py);
+        GLFW.GetWindowSize(_win.Handle, out int pw, out int ph);
+        float sx = hx + hostLogical.x * k, sy = hy + hostLogical.y * k;
+        if (sx < px || sy < py || sx >= px + pw || sy >= py + ph)
+            return false;
+        popupWindowPx = new Vec2(sx - px, sy - py);
+        return true;
+    }
 
     // buttonLogical: sahip pencerenin MANTIKSAL (GuiClip.Unclip) uzayinda buton rect'i.
     public static void OpenList(int ownerId, string[] items, int selected, IntPtr hostWindow, in Rect buttonLogical)

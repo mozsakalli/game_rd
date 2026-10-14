@@ -322,6 +322,7 @@ objects:
         lightOffset: 7.9333315 -1.4333313
         lightHeight: 26.986668
         reverse: false
+        text@loc: login_scene.facebook
       - type: Button
         buttonId: facebook
   - id: 5
@@ -333,7 +334,7 @@ objects:
     components:
       - type: LayoutBox
         font: dd3069bf887d44eb80d125c87f3eda93
-        text: MİSAFİR GİRİŞİ
+        text: GUEST LOGIN
         padding: 50 15 50 15
         fill:
           type: Linear
@@ -350,6 +351,7 @@ objects:
         shadowColor: '#000000ff'
         textSize: 70
         BlocksRaycast: true
+        text@loc: login_scene.guest
       - type: Button
         buttonId: guest
   - id: 6
@@ -374,7 +376,7 @@ objects:
     components:
       - type: LayoutBox
         font: dd3069bf887d44eb80d125c87f3eda93
-        text: APPLE İLE GİRİŞ YAP
+        text: APPLE LOGIN
         padding: 50 15 50 15
         radius: 20 20 20 20
         fill:
@@ -390,6 +392,7 @@ objects:
         shadowColor: '#000000ff'
         textSize: 70
         BlocksRaycast: true
+        text@loc: login_scene.apple
       - type: Button
         buttonId: apple
       - type: PlatformFilter
@@ -452,6 +455,7 @@ objects:
         textSize: 38
         textShadowColor: '#000000ff'
         textWeight: 0.5
+        text@loc: login_scene.txt1
   - id: 15
     parent: 10
     name: TERMS
@@ -477,6 +481,7 @@ objects:
           direction: Vertical
           color: '#ff00006f'
           color2: '#000000ff'
+        text@loc: login_scene.terms
       - type: PolicyLink
         linkId: terms
       - type: Button
@@ -494,6 +499,7 @@ objects:
         textSize: 38
         textShadowColor: '#000000ff'
         textWeight: 0.5
+        text@loc: login_scene.txt2
   - id: 17
     parent: 10
     name: PRIVACY
@@ -513,6 +519,7 @@ objects:
           direction: Vertical
           color: '#ffffffff'
           color2: '#00000000'
+        text@loc: login_scene.privacy
       - type: PolicyLink
         linkId: privacy
       - type: Button
@@ -530,3 +537,4 @@ objects:
         font: d486343bc94940e3bed6cd5ef1f70231
         textShadowColor: '#000000ff'
         textWeight: 0.5
+        text@loc: login_scene.txt3

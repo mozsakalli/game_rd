@@ -674,10 +674,49 @@ SOKOL_API int de_sokol_read_image(unsigned int img, int w, int h, void *rgba)
     sg_reset_state_cache(); // sokol'un GL state cache'i bayat (fbo/pack state)
     return 1;
 }
+
+// Varsayilan framebuffer (pencere) okuma: editor UI screenshot'i (RPC ui.screenshot). sg_commit SONRASI,
+// SwapBuffers ONCESI cagrilir (arka tampon = bu frame'in tamamlanmis goruntusu). GL satir 0 = ALT.
+SOKOL_API int de_sokol_read_framebuffer(int w, int h, void *rgba)
+{
+    static de_pfn_bindfb_t bindfb;
+    static de_pfn_readpix_t readpix;
+    static de_pfn_pixstore_t pixstore;
+    static de_pfn_getint_t getint;
+    if (!bindfb)
+    {
+        bindfb = (de_pfn_bindfb_t)glfwGetProcAddress("glBindFramebuffer");
+        readpix = (de_pfn_readpix_t)glfwGetProcAddress("glReadPixels");
+        pixstore = (de_pfn_pixstore_t)glfwGetProcAddress("glPixelStorei");
+        getint = (de_pfn_getint_t)glfwGetProcAddress("glGetIntegerv");
+        if (!bindfb || !readpix || !pixstore || !getint)
+        {
+            bindfb = 0;
+            return 0;
+        }
+    }
+    if (!rgba || w <= 0 || h <= 0)
+        return 0;
+    int prevFb = 0;
+    getint(0x8CA6 /*GL_FRAMEBUFFER_BINDING*/, &prevFb);
+    bindfb(0x8D40 /*GL_FRAMEBUFFER*/, 0);
+    pixstore(0x0D05 /*GL_PACK_ALIGNMENT*/, 1);
+    readpix(0, 0, w, h, 0x1908 /*GL_RGBA*/, 0x1401 /*GL_UNSIGNED_BYTE*/, rgba);
+    bindfb(0x8D40, (unsigned int)prevFb);
+    sg_reset_state_cache();
+    return 1;
+}
 #else
 SOKOL_API int de_sokol_read_image(unsigned int img, int w, int h, void *rgba)
 {
     (void)img;
+    (void)w;
+    (void)h;
+    (void)rgba;
+    return 0;
+}
+SOKOL_API int de_sokol_read_framebuffer(int w, int h, void *rgba)
+{
     (void)w;
     (void)h;
     (void)rgba;
@@ -1285,6 +1324,18 @@ SOKOL_API int de_asset_load(const char *path)
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
+
+// Cihaz dili (ISO 639-1, kucuk harf, "tr"/"en"): Localize acilis dili. Basari 1.
+SOKOL_API int de_sys_language(char *out, int cap)
+{
+    WCHAR name[85]; // LOCALE_NAME_MAX_LENGTH
+    if (!out || cap < 3 || GetUserDefaultLocaleName(name, 85) < 3)
+        return 0;
+    out[0] = (char)((name[0] >= 'A' && name[0] <= 'Z') ? name[0] + 32 : name[0]);
+    out[1] = (char)((name[1] >= 'A' && name[1] <= 'Z') ? name[1] + 32 : name[1]);
+    out[2] = 0;
+    return 1;
+}
 // ---------------------------------------------------------------------------
 // Native menu bar (Win32): editor ana penceresine gercek Windows menusu takar.
 // GLFW wndproc'u subclass'lanir; WM_COMMAND ring buffer'a yazilir, managed
@@ -1602,6 +1653,29 @@ SOKOL_API int de_dialog_pick_folder(void *glfwWindow, const char *title, char *o
 // context menusunde ise (_de_menu_in_context) secim dogrudan dondurulur.
 // ---------------------------------------------------------------------------
 #import <Cocoa/Cocoa.h>
+
+// Cihaz dili (ISO 639-1): kullanicinin tercih ettigi ilk dil ("tr-TR" -> "tr").
+SOKOL_API int de_sys_language(char *out, int cap)
+{
+    if (!out || cap < 3)
+        return 0;
+    CFArrayRef langs = CFLocaleCopyPreferredLanguages();
+    if (!langs || CFArrayGetCount(langs) == 0)
+    {
+        if (langs) CFRelease(langs);
+        return 0;
+    }
+    char buf[32] = {0};
+    CFStringRef s = (CFStringRef)CFArrayGetValueAtIndex(langs, 0);
+    int ok = CFStringGetCString(s, buf, sizeof buf, kCFStringEncodingUTF8) && buf[0] && buf[1];
+    CFRelease(langs);
+    if (!ok)
+        return 0;
+    out[0] = (char)tolower(buf[0]);
+    out[1] = (char)tolower(buf[1]);
+    out[2] = 0;
+    return 1;
+}
 
 static int de__menu_ring[64];
 static volatile int de__menu_rd, de__menu_wr;

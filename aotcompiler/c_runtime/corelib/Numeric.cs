@@ -51,5 +51,36 @@ namespace System
         public const double NaN = 0.0 / 0.0;
         public extern override string ToString();
         public extern static bool TryParse(string s, out double result);
+        public static bool IsNaN(double d) { return d != d; }
+        public static bool IsInfinity(double d) { return d == PositiveInfinity || d == NegativeInfinity; }
+    }
+    // Char statikleri (well-known binding: Primitive.Char). Kultursuz: ASCII + Latin-1/Latin Ext-A harfler
+    // (motor fontlarinin charset'i; Turkce i/I ozel: 'ı'->'I', 'i'->'İ' YAPILMAZ, .NET invariant ile ayni).
+    public struct Char
+    {
+        public static bool IsDigit(char c) { return c >= '0' && c <= '9'; }
+        public static bool IsWhiteSpace(char c) { return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\f' || c == '\v' || c == '\u00A0'; }
+        public static bool IsUpper(char c) { return (c >= 'A' && c <= 'Z') || (c >= '\u00C0' && c <= '\u00DE' && c != '\u00D7') || (c >= '\u0100' && c <= '\u017F' && (c & 1) == 0 && c != '\u0130' && c != '\u0131'); }
+        public static bool IsLower(char c) { return (c >= 'a' && c <= 'z') || (c >= '\u00DF' && c <= '\u00FF' && c != '\u00F7') || (c >= '\u0100' && c <= '\u017F' && (c & 1) == 1); }
+        public static bool IsLetter(char c) { return IsUpper(c) || IsLower(c); }
+        public static bool IsLetterOrDigit(char c) { return IsLetter(c) || IsDigit(c); }
+        public static char ToUpperInvariant(char c)
+        {
+            if (c >= 'a' && c <= 'z') return (char)(c - 32);
+            if (c >= '\u00E0' && c <= '\u00FE' && c != '\u00F7') return (char)(c - 32);
+            if (c >= '\u0100' && c <= '\u017F' && (c & 1) == 1 && c != '\u0131') return (char)(c - 1);
+            if (c == '\u0131') return 'I';
+            return c;
+        }
+        public static char ToLowerInvariant(char c)
+        {
+            if (c >= 'A' && c <= 'Z') return (char)(c + 32);
+            if (c >= '\u00C0' && c <= '\u00DE' && c != '\u00D7') return (char)(c + 32);
+            if (c >= '\u0100' && c <= '\u017F' && (c & 1) == 0 && c != '\u0130') return (char)(c + 1);
+            if (c == '\u0130') return 'i';
+            return c;
+        }
+        public static char ToUpper(char c) { return ToUpperInvariant(c); }
+        public static char ToLower(char c) { return ToLowerInvariant(c); }
     }
 }

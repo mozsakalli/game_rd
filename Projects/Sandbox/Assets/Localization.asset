@@ -1,0 +1,22 @@
+type: LocalizationTable
+fields:
+  Languages:
+    - en
+    - tr
+    - de
+  Entries:
+    - Key: login.play_button
+      Values:
+        - Play Now
+        - Oyna
+        - ''
+    - Key: login.hello_world
+      Values:
+        - Hello World
+        - Merhaba Dünya
+        - Hallo Welt
+    - Key: login.deneme
+      Values:
+        - Trying
+        - Deneme
+        - Triengenb

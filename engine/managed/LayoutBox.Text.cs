@@ -32,6 +32,9 @@ public sealed unsafe partial class LayoutBox
     // Yerlesimi etkileyenler kirletir; stil alanlari duz assignment (cache yok).
     public Font Font { get => font; set { if (!ReferenceEquals(font, value)) { font = value; MarkDirty(); } } }
     public string Text { get => text; set { value ??= ""; if (text != value) { text = value; MarkDirty(); } } }
+    // Parametreli ceviri: bagli sablon ("{0} coins") args ile yazilir, dil degisince ayni args'la yeniden.
+    // Kod key bilmez. Bagli degilse mevcut Text sablon sayilir (tek seferlik). Bkz. Localize.
+    public void Format(params object[] args) => Localize.Format(this, nameof(text), args);
     public float TextSize { get => textSize; set { if (textSize != value) { textSize = value; MarkDirty(); } } }
     public TextAlign TextAlign { get => textAlign; set { if (textAlign != value) { textAlign = value; MarkDirty(); } } }
     public LayoutAlign TextAlignV { get => textAlignV; set { if (textAlignV != value) { textAlignV = value; MarkDirty(); } } }

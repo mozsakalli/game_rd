@@ -949,84 +949,21 @@ namespace DigitoyEngine.Language
             (TypeShape.IsStructModel(type)) ? (reflectedValueStructs.ContainsKey(CName(type.Name)) ? "&" + TypeSym(type) : "0") :
             "&" + TypeSym(type);
 
-        // Struct alanlari: kutu kopyasi (descriptor varsa); FieldInfo.GetValue .NET'te de kutular. Struct ifadesi rvalue
-        // olabilir (property getter cagrisi) -> geciciye alinir.
-        static string ReflectGetValue(Primitive type, string expr) =>
-            type.Type == PrimitiveType.FixedArray || type.Type == PrimitiveType.Pointer ? "digitoyengine_reflect_unsupported()" :
-            TypeShape.IsStructModel(type) ? (reflectedValueStructs.ContainsKey(CName(type.Name)) ? $"({{ {CType(type)} __rv = {expr}; (GCHeader*)digitoyengine_box_struct(&{TypeSym(type)}, &__rv, sizeof({CType(type)})); }})" : "digitoyengine_reflect_unsupported()") :
-            type.IsEnum ? $"(GCHeader*)digitoyengine_ebox_{CName(type.Name)}({expr})" :
-            BoxHelperFor(type) != null ? $"(GCHeader*){BoxHelperFor(type)}({expr})" :
-            $"(GCHeader*)({expr})";
-
-        static string ReflectSetValue(Primitive type, string value) =>
-            BoxHelperFor(type) != null || type.IsEnum
-                ? $"*({ScalarCType(type)}*)digitoyengine_unbox({value}, &{TypeSym(type)})"
-                : TypeShape.IsStructModel(type) ? $"*({CType(type)}*)digitoyengine_unbox({value}, &{TypeSym(type)})"
-                : type.Type == PrimitiveType.Array ? $"({CType(type)}){value}"
-                : $"({CType(type)})digitoyengine_reflect_ref({value}, &{TypeSym(type)})";
-
-        static string ReflectSetStatement(string access, Primitive type, string value) =>
-            type.Type == PrimitiveType.FixedArray || type.Type == PrimitiveType.Pointer || (TypeShape.IsStructModel(type) && !reflectedValueStructs.ContainsKey(CName(type.Name)))
-                ? "digitoyengine_reflect_unsupported();"
-                : $"{access} = {ReflectSetValue(type, value)};";
-
-
-        // target: GCHeader* (class nesnesi ya da struct kutusu). self: C imzasinin bekledigi struct pointer'i.
-        static string ReflectSelf(Primitive model) =>
-            model.IsStruct ? $"((struct {CName(model.Name)}*)((char*)target + sizeof(GCHeader)))" : $"((struct {CName(model.Name)}*)target)";
-
-        static string PropertyCall(Primitive model, Code accessor, string value = null)
-        {
-            var args = value == null ? "" : ", " + value;
-            if (accessor.IsStatic)
-                return $"{CName(accessor.EncodeName())}({(value ?? "")})";
-            if (accessor.IsVirtual && !model.IsStruct)
-            {
-                int slot = model.VTable.IndexOf(accessor);
-                var signature = value == null
-                    ? $"{CType(accessor.ReturnType)}(*)(struct {CName(model.Name)}*)"
-                    : $"void(*)(struct {CName(model.Name)}*, {CType(accessor.Arguments[1].Type)})";
-                return $"(({signature})target->type->vtable[{slot}])({ReflectSelf(model)}{args})";
-            }
-            return $"{CName(accessor.EncodeName())}({ReflectSelf(model)}{args})";
-        }
-
         static string EmitReflectionMembers(Primitive model)
         {
             var cn = CName(model.Name);
             var sb = new StringBuilder();
             var entries = new List<string>();
-            int index = 0;
+            // Alan: erisim runtime'da tag/offset/addr ile (digitoyengine_member_get/set); uretilmis get/set fonksiyonu YOK.
             foreach (var field in ReflectionFields(model))
             {
-                var suffix = $"{cn}_{index++}";
-                var access = field.IsStatic ? StaticSym(field) : $"{ReflectSelf(model)}->{CName(field.Name)}";
-                sb.Append($"static GCHeader* digitoyengine_refget_{suffix}(GCHeader* target) {{ return {ReflectGetValue(field.Type, access)}; }}\n");
-                string set = "0";
-                if (!field.IsReadonly || !field.IsStatic) // .NET: readonly instance alanina SetValue serbest; static readonly yazilamaz
-                {
-                    sb.Append($"static void digitoyengine_refset_{suffix}(GCHeader* target, GCHeader* value) {{ {ReflectSetStatement(access, field.Type, "value")} }}\n");
-                    set = $"digitoyengine_refset_{suffix}";
-                }
                 sb.Append(EmitAttrTable($"{cn}_fattrs_{CName(field.Name)}", MemberAttrs(model, field.Attributes)));
-                entries.Add($"{{ &{strPool[ReflectionFieldName(field)]}, &{cn}_type, {ReflectionTypeSym(field.Type)}, digitoyengine_refget_{suffix}, {set}, 0, DIGITOYENGINE_MEMBER_FIELD, {Convert.ToInt32(field.IsStatic)}, {Convert.ToInt32(field.IsReadonly)}{MemberMetaTail(model, field)} }}");
+                entries.Add($"{{ &{strPool[ReflectionFieldName(field)]}, &{cn}_type, {ReflectionTypeSym(field.Type)}, 0, 0, 0, DIGITOYENGINE_MEMBER_FIELD, {Convert.ToInt32(field.IsStatic)}, {Convert.ToInt32(field.IsReadonly)}{MemberMetaTail(model, field)} }}");
             }
+            // Property: get_/set_ MethodInfo kaydi (tam kayit; Invoke sekil thunk'uyla). Kaydi olmayan erisimci = okunamaz/yazilamaz.
             foreach (var property in ReflectionProperties(model))
             {
-                var suffix = $"{cn}_{index++}";
-                var getter = property.Getter;
-                var setter = property.Setter;
-                string get = "0", set = "0";
-                if (getter != null)
-                {
-                    sb.Append($"static GCHeader* digitoyengine_refget_{suffix}(GCHeader* target) {{ return {ReflectGetValue(property.Type, PropertyCall(model, getter))}; }}\n");
-                    get = $"digitoyengine_refget_{suffix}";
-                }
-                if (setter != null)
-                {
-                    sb.Append($"static void digitoyengine_refset_{suffix}(GCHeader* target, GCHeader* value) {{ {PropertyCall(model, setter, ReflectSetValue(property.Type, "value"))}; }}\n");
-                    set = $"digitoyengine_refset_{suffix}";
-                }
+                string get = AccessorRef(property.Getter), set = AccessorRef(property.Setter);
                 var pattrs = $"{cn}_pattrs_{CName(property.Name)}";
                 var propAttrs = MemberAttrs(model, property.Attributes);
                 sb.Append(EmitAttrTable(pattrs, propAttrs));
@@ -1035,6 +972,9 @@ namespace DigitoyEngine.Language
             sb.Append($"static DigitoyEngineMember {cn}_members[] = {{\n    {string.Join(",\n    ", entries)}\n}};\n\n");
             return sb.ToString();
         }
+
+        static string AccessorRef(Code accessor) =>
+            accessor != null && methodIndex.ContainsKey(accessor) && !traceOnly.Contains(accessor) ? MethodRef(accessor) : "0";
 
         // struct basina gc_alloc tabanli constructor: fixed-array alanlar struct icine gomulu oldugu icin
         // ayrica allocate edilmesine gerek yok (New op'unun karsiligi).

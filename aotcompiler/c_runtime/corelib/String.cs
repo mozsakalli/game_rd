@@ -1,4 +1,4 @@
-// corelib: System.String (degismez UTF-16). Bu bildirim YENI tip yaratmaz - uyeler runtime
+﻿// corelib: System.String (degismez UTF-16). Bu bildirim YENI tip yaratmaz - uyeler runtime
 // tipine (Primitive.String / C: VmString+vmstring_type; VM: .NET string degeri) baglanir.
 // YUZEY C# UYUMLU tutulur: C# API'sinde olmayan uye EKLENMEZ (kacak yok).
 // extern = govde c_runtime/corelib.c'de (C, mangled adla) + source/Intrinsics.cs'te (VM).
@@ -102,6 +102,28 @@ namespace System
             for (int i = 0; i < values.Length; i++) { if (i > 0) r = Concat(r, separator, ""); r = Concat(r, values[i], ""); }
             return r;
         }
+        public static string Join(string separator, string[] values, int startIndex, int count)
+        {
+            if (values == null) throw new NullReferenceException();
+            if (startIndex < 0 || count < 0 || startIndex + count > values.Length) throw new IndexOutOfRangeException();
+            string r = "";
+            for (int i = 0; i < count; i++) { if (i > 0) r = Concat(r, separator, ""); r = Concat(r, values[startIndex + i], ""); }
+            return r;
+        }
+        public string PadLeft(int totalWidth) { return PadLeft(totalWidth, ' '); }
+        public string PadLeft(int totalWidth, char paddingChar)
+        {
+            string r = this;
+            for (int i = Length; i < totalWidth; i++) r = "" + paddingChar + r;
+            return r;
+        }
+        public string PadRight(int totalWidth) { return PadRight(totalWidth, ' '); }
+        public string PadRight(int totalWidth, char paddingChar)
+        {
+            string r = this;
+            for (int i = Length; i < totalWidth; i++) r = r + paddingChar;
+            return r;
+        }
         public extern bool Equals(string other);
         // Ordinal karsilastirma (UTF-16 kod birimi sirasi; .NET CompareOrdinal ile ayni isaret).
         public static int CompareOrdinal(string a, string b)
@@ -134,6 +156,13 @@ namespace System
         public int IndexOf(char value, int startIndex)
         {
             for (int i = startIndex; i < Length; i++) if (this[i] == value) return i;
+            return -1;
+        }
+        public int IndexOf(char value, int startIndex, int count)
+        {
+            int end = startIndex + count;
+            if (end > Length) end = Length;
+            for (int i = startIndex; i < end; i++) if (this[i] == value) return i;
             return -1;
         }
         public int LastIndexOf(char value)

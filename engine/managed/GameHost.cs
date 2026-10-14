@@ -229,6 +229,8 @@ public static class GameHost
         Scene.Active.Assets = assets;
         assets.Catalog = catalog;
         _assets = assets;
+        Localize.InitLanguage(); // PlayerPrefs > cihaz dili > kaynak dil; baglar yuklemede bu dille yazilir
+        Console.WriteLine("[host] dil: " + (Localize.Language ?? "(kaynak)"));
         var op = SceneLoader.LoadAsync(startScene, assets, catalog);
         int lastDone = -1;
         while (!op.IsDone)
@@ -267,7 +269,7 @@ public static class GameHost
         var sceneBytes = _source.ReadBytes(startScene);
         if (sceneBytes == null)
             throw new Exception("startScene bulunamadi: " + startScene);
-        var doc = SceneDoc.Parse(System.Text.Encoding.UTF8.GetString(sceneBytes));
+        var doc = SceneDoc.Parse(System.Text.Encoding.UTF8.GetString(sceneBytes), startScene);
         doc.ExpandPrefabs(catalog, assets);
         doc.Spawn(null, catalog, assets);
     }

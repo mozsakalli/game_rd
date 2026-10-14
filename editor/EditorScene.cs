@@ -38,10 +38,23 @@ public sealed class EditorScene
     {
         Path = path;
         Doc = File.Exists(path) ? SceneDoc.Load(path) : new SceneDoc();
+        Doc.LocTable = Localize.TableKeyFor(AssetKeyOf(path, assets));
         Doc.ExpandPrefabs(catalog, assets); // delta kayitlari tam agaca acilir
         Instantiate(catalog, assets);
         _savedVersion = History.Version;
     }
+
+    // Mutlak sahne/prefab yolu -> Assets'e goreli anahtar (kapsam tablosu bundan turer); Assets disindaysa null.
+    static string AssetKeyOf(string path, AssetDatabase assets)
+    {
+        if (string.IsNullOrEmpty(path) || string.IsNullOrEmpty(assets?.Root))
+            return null;
+        string rel = System.IO.Path.GetRelativePath(assets.Root, path).Replace('\\', '/');
+        return rel.StartsWith("..") || System.IO.Path.IsPathRooted(rel) ? null : rel;
+    }
+
+    // Sahnenin kapsam tablosu anahtari (Assets'e goreli; null = kapsam yok).
+    public string LocTableKey => Doc?.LocTable;
 
     // Kaydedilmemis duzenleme var mi (disk cakisma politikasi: bellek kazanir).
     public bool Dirty => History.Version != _savedVersion;
@@ -63,7 +76,9 @@ public sealed class EditorScene
     {
         if (_catalog == null || collapsedYaml == null)
             return;
+        string locTable = Doc?.LocTable;
         Doc = SceneDoc.Parse(collapsedYaml);
+        Doc.LocTable = locTable;
         Doc.ExpandPrefabs(_catalog, _assets);
         Instantiate(_catalog, _assets);
     }
@@ -105,9 +120,11 @@ public sealed class EditorScene
     {
         if (Path == null)
             return;
+        FlushPendingLoc();
         AssetWatcher.NoteSelfWrite(Path);
         File.WriteAllText(Path, Doc.ToYaml(_catalog, _assets)); // prefab'lar deltaya sikisir
         _savedVersion = History.Version;
+        LocTableStore.Flush(); // sahneyle birlikte ceviri tablosu da diske
         // Stage'de prefab cache'i BURADA dusurulmez: stash'li sahne eski prefab'la acik;
         // cache cikista collapse'tan sonra duser (App.ExitPrefabStageNow).
     }
@@ -162,6 +179,18 @@ public sealed class EditorScene
         DocNode oldValue, DocNode newValue)
     {
         int ci = g.Components.IndexOf(cd);
+        // Bagli (cevrilen) alan: metin doc'a DEGIL tablonun calisilan-dil hucresine gider (RPC prop.set dahil tek yol).
+        if (f.Kind == SerializedType.Kind.String && LocKeyOf(cd, f.Name) is { Length: > 0 } locKey && Doc.LocTable != null)
+        {
+            string lang = LocTableStore.EffectiveLanguage(Doc.LocTable);
+            string old = LocTableStore.GetValue(Doc.LocTable, locKey, lang) ?? "";
+            string next = newValue?.Scalar ?? "";
+            if (old == next)
+                return;
+            History.Push(new LocEditOp { GoId = g.Id, CompIndex = ci, Prop = f.Name, Scope = Doc.LocTable, Key = locKey, Lang = lang, OldValue = old, NewValue = next });
+            LocTableStore.SetValue(Doc.LocTable, locKey, lang, next);
+            return;
+        }
         LiveEdited?.Invoke(g.Id, ci, f.Name, false);
         History.Push(new PropOp
         {
@@ -173,6 +202,8 @@ public sealed class EditorScene
         });
         WriteProp(g, cd, f, newValue);
         LiveEdited?.Invoke(g.Id, ci, f.Name, true);
+        if (f.Kind == SerializedType.Kind.String)
+            AutoBindLoc(g, cd, f, oldValue?.Scalar, newValue?.Scalar);
     }
 
     public void SetTransform(SceneDoc.GoDoc g, Vec3 pos, Vec3 rot, Vec3 scale)
@@ -996,6 +1027,218 @@ public sealed class EditorScene
             if (kv.Key == f.Name || (f.FormerName != null && kv.Key == f.FormerName))
                 return kv.Value;
         return null;
+    }
+
+    // --- Ceviri baglari ("<alan>@loc" prop'u; docs/engine-notes.md LOCALIZATION) ---
+
+    // null = prop yok (varsayilan davranis), "" = bilerek kapali, aksi halde key.
+    public static string LocKeyOf(SceneDoc.CompDoc cd, string field)
+    {
+        string prop = field + Localize.PropSuffix;
+        foreach (var kv in cd.Props)
+            if (kv.Key == prop)
+                return kv.Value?.Scalar ?? "";
+        return null;
+    }
+
+    // Kayitli mutasyon (undo'lu): bagi kur/kapat/degistir. createdKey: bu islemle acilan tablo satiri (undo siler).
+    // Metin prop'u: baglaninca doc'tan DUSER (tek gercek tablo), kapaninca calisilan-dil hucresi prop'a GERI yazilir
+    // (metin kaybolmaz). Her iki metin op'ta tasinir (undo/redo simetrik).
+    public void SetLocKey(SceneDoc.GoDoc g, SceneDoc.CompDoc cd, string field, string key,
+        string createdKey = null, List<string> createdValues = null)
+    {
+        int ci = g.Components.IndexOf(cd);
+        string oldKey = LocKeyOf(cd, field);
+        string oldText = PropScalar(cd, field);
+        string newText = null;
+        if (string.IsNullOrEmpty(key))
+            newText = (!string.IsNullOrEmpty(oldKey) ? LocTableStore.GetValue(Doc.LocTable, oldKey, LocTableStore.EffectiveLanguage(Doc.LocTable)) : null) ?? oldText;
+        var op = new LocKeyOp
+        {
+            GoId = g.Id, CompIndex = ci, Field = field,
+            OldKey = oldKey, NewKey = key, OldText = oldText, NewText = newText,
+            Scope = Doc.LocTable, CreatedKey = createdKey, CreatedValues = createdValues,
+        };
+        History.Push(op);
+        ApplyLocKeyOp(g.Id, ci, field, key, newText);
+    }
+
+    static string PropScalar(SceneDoc.CompDoc cd, string field)
+    {
+        foreach (var kv in cd.Props)
+            if (kv.Key == field)
+                return kv.Value?.Scalar;
+        return null;
+    }
+
+    // text: bagsiz durumda alanin doc metni (null = prop yok); bagli durumda yoksayilir (prop dusurulur).
+    internal void ApplyLocKeyOp(int goId, int compIndex, string field, string key, string text)
+    {
+        var g = FindGo(goId);
+        if (g == null || compIndex < 0 || compIndex >= g.Components.Count)
+            return;
+        var cd = g.Components[compIndex];
+        string prop = field + Localize.PropSuffix;
+        for (int i = cd.Props.Count - 1; i >= 0; i--)
+            if (cd.Props[i].Key == prop || cd.Props[i].Key == field)
+                cd.Props.RemoveAt(i);
+        if (key != null)
+            cd.Props.Add(new(prop, DocNode.Scal(key)));
+        if (string.IsNullOrEmpty(key) && text != null)
+            cd.Props.Add(new(field, DocNode.Scal(text)));
+        RebindLive(g, cd, field, key);
+    }
+
+    // Canli component'in bagini doc'a gore tazeler: key -> Bind (gecerli dil yazilir), yok/bos -> Unbind + doc metni.
+    void RebindLive(SceneDoc.GoDoc g, SceneDoc.CompDoc cd, string field, string key)
+    {
+        var c = FindLiveComponent(g, cd);
+        var entry = _catalog?.Find(cd.Type);
+        var f = entry != null ? SerializedType.Find(entry.Schema, field) : null;
+        if (c == null || f == null)
+            return;
+        if (!string.IsNullOrEmpty(key))
+            Localize.Bind(c, f, Localize.Table(Doc.LocTable, _assets), key, validate: true);
+        else
+        {
+            Localize.UnbindField(c, field);
+            ApplyField(g, cd, f, FindProp(cd, f) ?? DocNode.Scal(""));
+        }
+    }
+
+    // Acik doc'taki tum "@loc" prop'larinda key'i degistirir (rename); canli baglar tazelenir.
+    public void RenameLocKey(string oldKey, string newKey)
+    {
+        if (string.IsNullOrEmpty(oldKey) || string.IsNullOrEmpty(newKey) || oldKey == newKey)
+            return;
+        foreach (var g in Doc.Objects)
+            foreach (var cd in g.Components)
+                for (int i = 0; i < cd.Props.Count; i++)
+                {
+                    var kv = cd.Props[i];
+                    var field = Localize.LocPropField(kv.Key);
+                    if (field == null || kv.Value?.Scalar != oldKey)
+                        continue;
+                    cd.Props[i] = new(kv.Key, DocNode.Scal(newKey));
+                    RebindLive(g, cd, field, newKey);
+                }
+    }
+
+    // Yeni bag: ayni metin tabloda varsa o key'e; yoksa baglamdan key (sahne.go[.alan]) + satir (calisilan dil = metin).
+    // Undo: tek adim (satir + bag). Grup icinde cagrilirsa (RPC batch) dis gruba katilir.
+    public void BindLocNew(SceneDoc.GoDoc g, SceneDoc.CompDoc cd, SerializedType.FieldSchema f, string text)
+    {
+        string scope = Doc.LocTable;
+        if (scope == null)
+            return;
+        string lang = LocTableStore.EffectiveLanguage(scope);
+        var table = LocTableStore.Get(scope, create: true);
+        if (table == null)
+            return;
+        string existing = LocTableStore.FindByText(table, lang, text);
+        if (existing != null)
+        {
+            SetLocKey(g, cd, f.Name, existing);
+            return;
+        }
+        bool suffix = false;
+        foreach (var kv in cd.Props)
+            if (Localize.LocPropField(kv.Key) is { } other && other != f.Name && !string.IsNullOrEmpty(kv.Value?.Scalar))
+                suffix = true;
+        string sceneName = Path != null ? System.IO.Path.GetFileNameWithoutExtension(Path) : "";
+        string key = LocTableStore.NewKey(table, sceneName, g.Name, f.Name, suffix, text);
+        var values = new List<string>();
+        for (int i = 0; i < table.Languages.Count; i++)
+            values.Add(string.Equals(table.Languages[i], lang, StringComparison.OrdinalIgnoreCase) ? text : "");
+        bool own = !History.InGroup;
+        if (own) History.BeginGroup();
+        LocTableStore.AddRow(scope, key, values);
+        SetLocKey(g, cd, f.Name, key, createdKey: key, createdValues: values);
+        if (own) History.EndGroup();
+    }
+
+    // Baska satira gec (oneri secimi); eski satir acik doc'ta kullanilmiyorsa ve en fazla tek dilde doluysa
+    // (az once otomatik acilmis) tablodan dusurulur.
+    public void RebindLocExisting(SceneDoc.GoDoc g, SceneDoc.CompDoc cd, SerializedType.FieldSchema f,
+        string oldKey, string newKey)
+    {
+        string scope = Doc.LocTable;
+        bool own = !History.InGroup;
+        if (own) History.BeginGroup();
+        SetLocKey(g, cd, f.Name, newKey);
+        var e = LocTableStore.Get(scope)?.Entry(oldKey);
+        if (e != null && CountLocUsages(oldKey) == 0)
+        {
+            int filled = 0;
+            foreach (var v in e.Values) if (!string.IsNullOrEmpty(v)) filled++;
+            if (filled <= 1)
+            {
+                History.Push(new LocRowOp { Scope = scope, Key = oldKey, Values = new List<string>(e.Values), Removed = true });
+                LocTableStore.RemoveRow(scope, oldKey);
+            }
+        }
+        if (own) History.EndGroup();
+    }
+
+    // Varsayilan-cevrilen alan (LayoutBox.text, TextSprite.Text): bos -> dolu ilk gecisinde otomatik bag.
+    // Prop "" (bilerek kapali) ya da zaten bagli ise dokunmaz. SetProp'tan cagrilir (inspector + RPC ayni yol).
+    // Inspector harf harf yazar: key metinden turetilebildigi icin bag BEKLETILIR (TickLoc: klavye odagi
+    // birakilinca ya da 1 sn hareketsizlik) — ilk harften "login.p" gibi key dogmasin.
+    void AutoBindLoc(SceneDoc.GoDoc g, SceneDoc.CompDoc cd, SerializedType.FieldSchema f, string oldText, string newText)
+    {
+        if (f.Kind != SerializedType.Kind.String || Doc.LocTable == null)
+            return;
+        if (string.IsNullOrEmpty(newText))
+            return;
+        if (LocKeyOf(cd, f.Name) != null || !LocTableStore.IsDefaultLocField(cd.Type, f.Name))
+            return;
+        int ci = g.Components.IndexOf(cd);
+        if (_pendingLoc.GoId != 0 && (_pendingLoc.GoId != g.Id || _pendingLoc.Ci != ci || _pendingLoc.Field != f.Name))
+            FlushPendingLoc();
+        if (!string.IsNullOrEmpty(oldText) && _pendingLoc.GoId == 0)
+            return; // dolu bir metni duzenliyor (bag bekleyen yok): eski literal, kullanici 🌐 ile acar
+        _pendingLoc = (g.Id, ci, f.Name);
+        _pendingAt = DigitoyEngine.GLFW.GetTime();
+    }
+
+    (int GoId, int Ci, string Field) _pendingLoc;
+    double _pendingAt;
+
+    public void TickLoc(double now, bool idle)
+    {
+        if (_pendingLoc.GoId != 0 && (idle || now - _pendingAt > 1.0))
+            FlushPendingLoc();
+    }
+
+    public void FlushPendingLoc()
+    {
+        var p = _pendingLoc;
+        _pendingLoc = default;
+        if (p.GoId == 0)
+            return;
+        var g = FindGo(p.GoId);
+        if (g == null || p.Ci < 0 || p.Ci >= g.Components.Count)
+            return;
+        var cd = g.Components[p.Ci];
+        var entry = _catalog?.Find(cd.Type);
+        var f = entry != null ? SerializedType.Find(entry.Schema, p.Field) : null;
+        if (f == null || LocKeyOf(cd, p.Field) != null)
+            return;
+        string text = FindProp(cd, f)?.Scalar;
+        if (!string.IsNullOrEmpty(text))
+            BindLocNew(g, cd, f, text);
+    }
+
+    // Acik doc'ta key'i kullanan (go, comp, field) sayisi.
+    public int CountLocUsages(string key)
+    {
+        int n = 0;
+        foreach (var g in Doc.Objects)
+            foreach (var cd in g.Components)
+                foreach (var kv in cd.Props)
+                    if (Localize.LocPropField(kv.Key) != null && kv.Value?.Scalar == key)
+                        n++;
+        return n;
     }
 
     // --- Undo/redo uygulayicilari (docId adresli — reload'a dayanikli) ---

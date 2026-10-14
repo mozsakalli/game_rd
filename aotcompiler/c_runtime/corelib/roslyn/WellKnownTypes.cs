@@ -6,7 +6,7 @@ namespace System
 {
     public struct Void { }
     public struct Boolean { public extern override string ToString(); } // "True"/"False" (corelib.c Bool_ToString)
-    public struct Char { }
+    // Char: Numeric.cs (statik yuzey: IsDigit/ToUpperInvariant...)
     public struct Byte { }
     public struct SByte { }
     public struct UInt16 { }

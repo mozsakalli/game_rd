@@ -239,8 +239,29 @@ static class AssetPackBuilder
         EditorLog.Info($"[pak] {roots.Count} kok sahne -> {live.Count}/{candidates} asset canli ({candidates - live.Count} strip), " +
             $"{items.Count} giris ({imgCount} gorsel, {bakedCount} baked sahne/prefab, {skipped} yutulmus) -> {outPath} " +
             $"({pakSize / 1024.0:0.0} KB, acik {rawTotal / 1024.0:0.0} KB, %{100.0 * pakSize / Math.Max(1, rawTotal):0.0})");
+        LocWarnings(live);
 
         return Verify(outPath, items, texKey);
+    }
+
+    // Ceviri denetimi (uyari, build'i durdurmaz): pak'a giren her tablo icin eksik ceviri sayisi + glyph kapsami.
+    static void LocWarnings(HashSet<string> live)
+    {
+        foreach (var scope in live)
+        {
+            if (!scope.EndsWith(Localize.TableFile, StringComparison.OrdinalIgnoreCase))
+                continue;
+            var t = LocTableStore.Get(scope);
+            if (t == null) continue;
+            for (int i = 1; i < t.Languages.Count; i++)
+            {
+                int n = LocAudit.Missing(scope, t.Languages[i]).Count;
+                if (n > 0)
+                    EditorLog.Warning($"[loc] {scope}: '{t.Languages[i]}' dilinde {n} eksik ceviri (loc.missing)");
+            }
+            foreach (var gap in LocAudit.GlyphCheck(scope))
+                EditorLog.Warning($"[loc] {scope}: {gap.Font} fontunda {gap.Codepoints.Count} karakter yok: {LocAudit.CodepointsText(gap.Codepoints, 20)} (keys: {gap.Keys.Count})");
+        }
     }
 
     static bool IsSceneLike(string key)
@@ -275,8 +296,11 @@ static class AssetPackBuilder
     {
         try
         {
-            var doc = SceneDoc.Parse(File.ReadAllText(file));
+            var doc = SceneDoc.Parse(File.ReadAllText(file), key);
             doc.ExpandPrefabs(catalog, assets); // delta kayitlari -> tam agac (ic ice dahil)
+            // Kapsam ceviri tablosu varsa sahnenin bagimliligi (pak'a girer, Spawn'dan once hazir olur).
+            if (doc.LocTable != null && assets.Exists(doc.LocTable) && !assetRefs.Contains(doc.LocTable))
+                assetRefs.Add(doc.LocTable);
             return SceneBinary.Bake(doc, catalog, m => EditorLog.Warning($"{m} ({key})"), assetRefs);
         }
         catch (Exception e)

@@ -188,6 +188,8 @@ public static class Yaml
 
     public static DocNode Parse(string text)
     {
+        if (text.Length > 0 && text[0] == '\uFEFF')
+            text = text.Substring(1); // UTF-8 BOM (dis editorler ekler) ilk anahtari bozmasin
         var lines = Tokenize(text);
         int i = 0;
         return ParseMap(lines, ref i, 0);

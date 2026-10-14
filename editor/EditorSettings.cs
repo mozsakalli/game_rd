@@ -22,4 +22,6 @@ public class EditorSettings
     // Game View bar tercihleri: yon zorlamasi (Auto = PlayerSettings) + 1:1 gosterim.
     public ScreenOrientation gameViewOrientation = ScreenOrientation.Auto;
     public bool gameViewOneToOne;
+    // Toolbar "Working language" (Localize.Language; edit projeksiyonu + Play). Bos = tablonun kaynak dili.
+    public string workingLanguage = "";
 }

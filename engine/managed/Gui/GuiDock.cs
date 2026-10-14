@@ -1,5 +1,6 @@
 #if DE_EDITOR
 using System;
+using System.Collections.Generic;
 
 namespace DigitoyEngine.Editor;
 
@@ -45,6 +46,41 @@ public static class GuiDock
         uint h = (uint)(id + 1) * 0x9E3779B9u;
         p.TabColor = new Color((byte)(90 + (h & 63)), (byte)(90 + ((h >> 8) & 63)), (byte)(110 + ((h >> 16) & 63)), 255);
         return id;
+    }
+
+    // Otomasyon/teshis: ANA penceredeki dock'lu panellerin son yerlesimi (tab rect'i + icerik rect'i,
+    // mantiksal px). Detached/utility pencerelerdekiler listeye girmez (ayri native pencere).
+    public readonly struct PanelInfo
+    {
+        public readonly string Title;
+        public readonly Rect Tab, Content;
+        public readonly bool Active;
+        public PanelInfo(string title, Rect tab, Rect content, bool active) { Title = title; Tab = tab; Content = content; Active = active; }
+    }
+
+    public static void ListPanels(List<PanelInfo> result)
+    {
+        result.Clear();
+        if (_root < 0)
+            return;
+        var detachedLeaves = new HashSet<int>();
+        for (int i = 0; i < MaxWins; i++)
+            if (_wins[i].Used)
+                detachedLeaves.Add(_wins[i].Root);
+        for (int ni = 0; ni < _nodeCount; ni++)
+        {
+            ref Node n = ref _nodes[ni];
+            if (!n.Used || n.Type != TypeLeaf || detachedLeaves.Contains(ni) || IsUtilityLeaf(ni))
+                continue;
+            var r = n.Rect;
+            for (int i = 0; i < n.TabCount; i++)
+            {
+                int panelId = _tabs[ni * MaxTabsPerLeaf + i];
+                var tab = new Rect(r.x + i * (TabW + 2), r.y, TabW, TabH);
+                var content = new Rect(r.x, r.y + TabH, r.width, r.height - TabH);
+                result.Add(new PanelInfo(_panels[panelId].Title, tab, content, i == n.Active));
+            }
+        }
     }
 
     // --- Dock agaci (struct havuzu; tab listeleri ayri duz dizide) ---

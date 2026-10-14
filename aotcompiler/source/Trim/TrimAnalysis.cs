@@ -39,7 +39,8 @@ namespace DigitoyEngine.Language.Trim
         }
         public bool Has(Primitive p, MemberKinds k) => (Reflection(p) & k) != 0;
 
-        // MethodInfo kaydi: modul host'ta her kod tam kayit; aksi halde yalniz reflection koklerinin ctor/metotlari tam.
+        // MethodInfo kaydi: modul host'ta her kod tam kayit; aksi halde yalniz reflection koklerinin ctor/metotlari tam
+        // (+ Props facet'li tipin get_/set_ erisimcileri: PropertyInfo.GetValue/SetValue = Invoke, thunk ister).
         public MethodRecordKind MethodRecord(Code c)
         {
             if (Profile.ModuleHost) return MethodRecordKind.Full;
@@ -48,9 +49,11 @@ namespace DigitoyEngine.Language.Trim
                 var k = Reflection(c.Owner);
                 bool ctor = c.SimpleName == "ctor";
                 if (ctor ? (k & MemberKinds.Ctors) != 0 : (k & MemberKinds.Methods) != 0) return MethodRecordKind.Full;
+                if ((k & MemberKinds.Props) != 0 && Accessors.Contains(c)) return MethodRecordKind.Full;
             }
             return MethodRecordKind.Trace;
         }
+        internal readonly HashSet<Code> Accessors = new HashSet<Code>(); // Props facet'li tiplerin get_/set_ Code'lari
         public bool NeedsThunk(Code c) => MethodRecord(c) == MethodRecordKind.Full;
         public bool NeedsVTramp(Code c) => Profile.ModuleHost;
         public bool NeedsDTramp(Primitive p) => Profile.ModuleHost;
@@ -69,6 +72,13 @@ namespace DigitoyEngine.Language.Trim
             CollectAutoRoots(ctx, roots);
             ResolveComponentRoots(ctx, roots, r);
             PropagateFacets(ctx, r);
+            foreach (var kv in r.Facets)
+                if ((kv.Value & MemberKinds.Props) != 0)
+                    foreach (var pr in kv.Key.Properties)
+                    {
+                        if (pr.Getter != null) r.Accessors.Add(pr.Getter);
+                        if (pr.Setter != null) r.Accessors.Add(pr.Setter);
+                    }
             Reach(ctx, all, r);
             return r;
         }

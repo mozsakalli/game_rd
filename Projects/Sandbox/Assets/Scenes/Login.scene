@@ -792,3 +792,24 @@ objects:
     components:
       - type: SettingsProbe
         settings: 5e4ef6c24aca4fa4ba2af9107ae9795a
+  - id: 29
+    parent: 0
+    name: PlayButton
+    pos: 362.53534 40.220474 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        text: Play Now
+        text@loc: login.play_button
+  - id: 30
+    parent: 0
+    name: Title
+    pos: 456.00095 89.64122 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: TextSprite
+        Text: Trying
+        Font: fd5600eb13f947c7af4439bb29c33b96
+        Text@loc: login.deneme

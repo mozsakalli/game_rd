@@ -31,8 +31,6 @@ typedef void (*TraceFn)(GCHeader *);
 typedef void (*TraceInlineFn)(void *payload); // struct descriptor'u: inline (kutusuz) yerlesimdeki ref'leri shade eder
 typedef void (*FrameTrace)(void *);
 typedef void (*FinalizeFn)(GCHeader *);
-typedef GCHeader *(*ReflectGetFn)(GCHeader *target);
-typedef void (*ReflectSetFn)(GCHeader *target, GCHeader *value);
 typedef int (*EnumParseFn)(struct VmString *value, int *result);
 enum
 {
@@ -44,8 +42,9 @@ struct DigitoyEngineMember
     const struct VmString *name;
     const Type *declaringType;
     const Type *valueType;
-    ReflectGetFn get;
-    ReflectSetFn set;  /* 0 = readonly/write-only unsupported */
+    /* property: get_/set_ metot kayitlari (Invoke = sekil thunk'u); alan: 0 (erisim tag/offset/addr ile, uretilmis fonksiyon YOK) */
+    const struct MethodInfo *getter;
+    const struct MethodInfo *setter;
     GCHeader *wrapper; /* lazy, rooted FieldInfo/PropertyInfo cache */
     unsigned char kind;
     unsigned char isStatic;

@@ -14,7 +14,7 @@ fields:
   targetFrameRate: 0
   orientation: Landscape
   moduleHostDll: ''
-  moduleHost: false
+  moduleHost: true
   android:
     packageName: ''
     versionCode: 1
@@ -24,3 +24,9 @@ fields:
     keyAlias: ''
     iconForeground: ''
     iconBackground: '#1E1E1E'
+  ios:
+    bundleId: ''
+    buildNumber: 1
+    minIos: 15.0
+    teamId: ''
+    icon: ''

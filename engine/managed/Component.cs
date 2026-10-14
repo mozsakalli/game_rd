@@ -42,6 +42,7 @@ public abstract class Component
     internal bool _enabled = true;
     internal bool _awakeCalled, _started, _startQueued, _enableCalled, _destroyed;
     internal int _updateSlot = -1, _lateUpdateSlot = -1;
+    internal Localize.Binding _loc; // cevrilen string alanlari (bagli liste; cogu component'te null)
 
     public GameObject gameObject => _gameObject;
     public Transform transform => _gameObject.transform;

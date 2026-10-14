@@ -19,6 +19,9 @@ public sealed unsafe class TextSprite : Renderer
     public float Size = 32f;
     public TextAlign Align = TextAlign.Center;
 
+    // Parametreli ceviri (LayoutBox.Format paritesi): bagli sablon args ile yazilir; kod key bilmez.
+    public void Format(params object[] args) => Localize.Format(this, nameof(Text), args);
+
     // SDF kalinlik: kenar esigi (USER.y) kaydirilir -> stroke her yone esit
     // kalinlasir/incelir (gercek bold hissi; quad/advance/yerlesim degismez,
     // rebuild yok). Birim SDF px (boyutla orantili): 0 = normal, + kalin, - ince;

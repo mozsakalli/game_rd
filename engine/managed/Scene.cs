@@ -555,6 +555,8 @@ public sealed class Scene
         if (c._awakeCalled && Runs(c, LifecycleFlags.OnDestroy))
             c.OnDestroy();
         c.CancelDestroyToken();
+        if (c._loc != null)
+            Localize.Unbind(c);
         c._gameObject?.RemoveComponent(c);
     }
 
@@ -579,6 +581,8 @@ public sealed class Scene
                 c.OnDestroy();
             c._destroyed = true;
             c.CancelDestroyToken();
+            if (c._loc != null)
+                Localize.Unbind(c);
         }
         go.MarkDestroyed();
     }

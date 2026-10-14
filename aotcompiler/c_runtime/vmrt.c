@@ -793,7 +793,8 @@ static void digitoyengine_member_target(DigitoyEngineMember *member, GCHeader *t
 }
 static void digitoyengine_slot_from_object(DeSlot *s, unsigned char tag, const Type *pt, GCHeader *o);
 static GCHeader *digitoyengine_object_from_slot(const DeSlot *s, unsigned char tag, const Type *rt);
-// get/set fonksiyonsuz uye (modul tipleri, vmint): tek meta'daki tag/offset/size/addr ile genel erisim
+static GCHeader *digitoyengine_invoke_items(const MethodInfo *m, GCHeader *target, GCHeader **items, int nargs);
+// Alan erisimi = tek meta'daki tag/offset/size/addr ile bellek islemi (uretilmis get/set fonksiyonu yok; AOT ve modul tipleri ayni yol)
 static void *digitoyengine_member_addr(DigitoyEngineMember *member, GCHeader *target)
 {
     if (member->isStatic)
@@ -817,6 +818,8 @@ static GCHeader *digitoyengine_member_get_generic(DigitoyEngineMember *member, G
             DIGITOYENGINE_throw_io("reflection: struct alanin descriptor'u yok");
         return (GCHeader *)digitoyengine_box_struct(member->valueType, p, member->size);
     case 'p':
+        if (member->size != sizeof(void *))
+            DIGITOYENGINE_throw_io("reflection does not support fixed-array values"); // fixed dizi: inline blok, pointer degil
         s.p = *(void **)p;
         break;
     case 'i':
@@ -881,6 +884,8 @@ static void digitoyengine_member_set_generic(DigitoyEngineMember *member, GCHead
             gc_write_barrier(target, value); // kutu grilenir -> icindeki ref'ler taranir (kopya ayni nesnelere isaret eder)
         return;
     case 'p':
+        if (member->size != sizeof(void *))
+            DIGITOYENGINE_throw_io("reflection does not support fixed-array values");
         *(void **)p = s.p;
         return;
     case 'i':
@@ -926,27 +931,27 @@ static void digitoyengine_member_set_generic(DigitoyEngineMember *member, GCHead
 GCHeader *digitoyengine_member_get(DigitoyEngineMember *member, GCHeader *target)
 {
     digitoyengine_member_target(member, target);
-    if (!member->get)
+    if (member->kind == DIGITOYENGINE_MEMBER_PROPERTY)
     {
-        if (member->kind == DIGITOYENGINE_MEMBER_FIELD && member->declaringType && member->declaringType->module)
-            return digitoyengine_member_get_generic(member, target);
-        DIGITOYENGINE_throw_io("reflection member is not readable");
+        if (!member->getter)
+            DIGITOYENGINE_throw_io("reflection member is not readable");
+        return digitoyengine_invoke_items(member->getter, target, 0, 0);
     }
-    return member->get(target);
+    return digitoyengine_member_get_generic(member, target);
 }
 void digitoyengine_member_set(DigitoyEngineMember *member, GCHeader *target, GCHeader *value)
 {
     digitoyengine_member_target(member, target);
-    if (!member->set)
+    if (member->kind == DIGITOYENGINE_MEMBER_PROPERTY)
     {
-        if (member->kind == DIGITOYENGINE_MEMBER_FIELD && member->declaringType && member->declaringType->module)
-        {
-            digitoyengine_member_set_generic(member, target, value);
-            return;
-        }
-        DIGITOYENGINE_throw_io("reflection member is not writable");
+        if (!member->setter)
+            DIGITOYENGINE_throw_io("reflection member is not writable");
+        digitoyengine_invoke_items(member->setter, target, &value, 1);
+        return;
     }
-    member->set(target, value);
+    if (member->isStatic && member->isInitOnly) // .NET: readonly instance alanina SetValue serbest; static readonly yazilamaz
+        DIGITOYENGINE_throw_io("reflection member is not writable");
+    digitoyengine_member_set_generic(member, target, value);
 }
 GCHeader *digitoyengine_reflect_ref(GCHeader *value, const Type *target)
 {
@@ -1109,10 +1114,13 @@ static GCHeader *digitoyengine_object_from_slot(const DeSlot *s, unsigned char t
 }
 GCHeader *digitoyengine_method_invoke(const MethodInfo *m, GCHeader *target, struct VmArray *args)
 {
+    return digitoyengine_invoke_items(m, target, args ? (GCHeader **)args->data : 0, args ? args->len : 0);
+}
+static GCHeader *digitoyengine_invoke_items(const MethodInfo *m, GCHeader *target, GCHeader **items, int nargs)
+{
     if (!m->fn && !(m->flags & DIGITOYENGINE_METHOD_ABSTRACT))
         DIGITOYENGINE_throw_io("MethodInfo.Invoke: metodun govdesi yok (uygulanmamis extern)");
     int isStatic = (m->flags & DIGITOYENGINE_METHOD_STATIC) != 0;
-    int nargs = args ? args->len : 0;
     if (nargs != m->nparams)
         DIGITOYENGINE_throw_io("MethodInfo.Invoke: arguman sayisi uyusmuyor");
     if (!isStatic)
@@ -1131,7 +1139,6 @@ GCHeader *digitoyengine_method_invoke(const MethodInfo *m, GCHeader *target, str
         a[0].p = (m->declaringType && (m->declaringType->flags & DIGITOYENGINE_TYPE_STRUCT)) ? (void *)((char *)target + sizeof(GCHeader)) : (void *)target;
         base = 1;
     }
-    GCHeader **items = args ? (GCHeader **)args->data : 0;
     for (int i = 0; i < nargs; i++)
         digitoyengine_slot_from_object(&a[base + i], m->param_tags ? m->param_tags[i] : 'o', m->param_types ? m->param_types[i] : 0, items[i]);
     // Sanal metot: .NET gibi alicinin runtime tipinden dispatch (vtable / iface tablosu); aksi halde dogrudan fn.

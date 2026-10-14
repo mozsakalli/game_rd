@@ -56,6 +56,16 @@ static class RpcCommands
             "Animasyon siniri: doc'ta yazilabilen koreografi (intro, giris/cikis, idle loop) = MovieClip; Tween yalniz runtime'da hesaplanan tepkisel hareket ve authored degeri Start'ta ezemez",
             "Motor API'si icin engine.api(type, filter) (public tipler, uyeler, protected override kancalari) — proje disina cikma",
             "Play'de doc degisirse oyun sahnesi bayatlar; sim.run/input.* otomatik yeniden baslatir ('restarted'), screenshot 'stale' doner"));
+        r.Add("localization", Lines(
+            "TUM oyun metinleri cevrilir. LayoutBox.text / TextSprite.Text'e prop.set ile metin yazinca otomatik baglanir: doc'ta 'text@loc: key' (key baglamdan: sahne.go_adi), kapsam tablosu Assets/Localization.asset (modul: Modules/<ad>/Localization.asset) kendiliginden olusur",
+            "Baglanmamasi gereken metin (nick, skor): loc.unbind(go, comp, field) -> prop '' (bilerek kapali). Diger string alanlar icin loc.bind(go, comp, field, key?)",
+            "Parametreli metin sablonu tabloda ('{0} coins'); kod key bilmeden comp.Format(args) cagirir. Play'de args gelmeden sablon gorunmez",
+            "Ceviri dongusu: loc.languages -> loc.addLanguage(code) (yalniz katalog) -> loc.missing(lang) -> cevir -> loc.set(entries) (tek undo). Dil degistir: loc.setLanguage(lang) (edit + Play aninda). Denetim: loc.unused, loc.usages(key), loc.glyphCheck",
+            "Tabloyu asset.write ile YAZMA: loc.set/loc.rename/loc.remove kullan (undo'lu, canli)"));
+        r.Add("editorUi", Lines(
+            "Editor GUI otomasyonu: ui.panels (panel/tab rect'leri, pencere boyutu) -> ui.screenshot (tum pencere, piksel == koordinat) -> ui.click/ui.drag/ui.scroll/ui.type/ui.key. Jest frame'e yayilir; sonraki komut jest bitince kosar (ui.wait gerekmez, animasyon icin istege bagli)",
+            "Combo: ui.click ile ac, acilan listedeki ogeye ui.click (popup ayri pencere ama koordinat ana pencere uzayinda; satir 20px). Metin: alana ui.click, sonra ui.type; '\\n' Enter. Ctrl+Z: ui.key('z','ctrl')",
+            "Fare/klavye simulasyonu icin dis araclar (SendInput vb.) kullanma; insan girdisi gorulurse otomasyon kuyrugu atilir"));
         return r;
     }
 

@@ -38,6 +38,7 @@ static class PlayMode
             EditorLog.Warning("[prefab] close the prefab stage (Back) before Play");
             return;
         }
+        LocTableStore.Flush(); // oyun sahnesi tabloyu dosyadan/pak'tan degil canli instance'tan okur; yine de tutarli dursun
         SpawnPlayScene();
         State = PlayState.Playing;
         EditorWindow.GetWindow<GameViewPanel>(); // Game tab'i one

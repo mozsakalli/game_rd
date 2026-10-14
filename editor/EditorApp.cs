@@ -151,6 +151,7 @@ public unsafe class App
         ProgressTests.Run(_catalog);
         CatalogTests.Run(_catalog);
         ObjectBinaryTests.Run(_catalog);
+        LocalizationTests.Run(_catalog);
 #endif
         // Kullanici ayarlari (standart: [Serializable] + ObjectSerializer).
         // Otomatik sahne ACILMAZ: yalniz kullanicinin son actigi sahne (varsa) geri gelir.
@@ -166,6 +167,7 @@ public unsafe class App
         GameOutput.SetDevice(Settings.deviceW, Settings.deviceH, Settings.devicePixelRatio, Settings.deviceName);
         GameOutput.Orientation = Settings.gameViewOrientation;
         GameOutput.OneToOne = Settings.gameViewOneToOne;
+        LocTableStore.ApplyWorkingLanguage();
         if (Settings.sceneCamZoom > 0)
             _sceneView.SetView(new Vec2(Settings.sceneCamX, Settings.sceneCamY), Settings.sceneCamZoom);
         if (Settings.lastScene.Length > 0)
@@ -184,9 +186,13 @@ public unsafe class App
             GLFW.PollEvents();
             EditorMenu.Poll(); // biriken menu komutlarini calistir
             AssetWatcher.Tick(GLFW.GetTime()); // dosya degisiklikleri + biten derlemeler
+            LocTableStore.Tick(GLFW.GetTime()); // bekleyen ceviri tablosu yazimlari (bosta)
+            _editScene.TickLoc(GLFW.GetTime(), GuiUtility.KeyboardControl == 0); // bekleyen otomatik bag
             // RPC komutlari yalniz insan jesti yokken kosar (drag ortasinda yapisal
-            // mutasyon = IMGUI id-kaymasi sinifi bug'lar; kural notlarda).
-            if (GuiUtility.HotControl == 0 && GuiUtility.KeyboardControl == 0)
+            // mutasyon = IMGUI id-kaymasi sinifi bug'lar; kural notlarda). Otomasyon (ui.*)
+            // sentetik jest surerken de bekler; klavye odagi sentetik girdiden kaldiysa engel degil.
+            bool idle = GuiUtility.HotControl == 0 && GuiUtility.KeyboardControl == 0;
+            if ((idle || UiAutomation.Engaged) && !UiAutomation.Busy)
             {
                 _rpcCtx.Scene = _editScene;
                 _rpcCtx.Catalog = _catalog;
@@ -262,6 +268,7 @@ public unsafe class App
             }
 
             GuiRenderer.Queue = mainCam.Queue;
+            UiAutomation.Tick(window, mouseScale); // sentetik girdi adimi (varsa) bu frame'in kuyruguna
             guiHost.Frame(window, new Rect(0, 0, lw, lh), drawUi, mouseScale);
 
             // Detached panel pencereleri: kendi GUI turlari + redock kontrolu.
@@ -310,6 +317,7 @@ public unsafe class App
 #endif
             cb.Submit();
             Sokol.Commit();
+            UiAutomation.CaptureIfRequested(fbw, fbh, lw, lh); // ui.screenshot: tamamlanmis arka tampon
 #if DE_EDITOR
             RenderDebug.AfterSubmit(cb);
 #endif
@@ -325,6 +333,7 @@ public unsafe class App
         }
 
         RpcHost.Stop();
+        LocTableStore.Flush();
         GuiDock.SaveLayout(_layoutPath); // kullanici yerlesimi kalici
         SaveSettings();
         Audio.Shutdown();
@@ -336,6 +345,9 @@ public unsafe class App
     // Editor GUI: her event pass'inde bastan kosulur (kontrol sirasi sabit).
     static int _screenW = 800, _screenH = 600;
     const float ToolbarH = 26f;
+    internal static int ScreenW => _screenW;
+    internal static int ScreenH => _screenH;
+    internal static float ToolbarHeight => ToolbarH;
     // ComboBox ogeleri — indeks = (int)HotReloadMode.
     static readonly string[] _hrNames = { "HR: Off", "HR: On Save", "HR: Instant" };
     static SceneViewPanel _sceneView;
@@ -390,6 +402,8 @@ public unsafe class App
             PlayMode.HotReload = newHr;
             SaveSettings();
         }
+        // Working language: edit projeksiyonu + Play bu dili gorur; inspector bu dilin hucresini duzenler.
+        DrawLanguageCombo(new Rect(_screenW - 96, 3, 90, 20));
         // Arka plan is durumu (derleme, player build vs.): non-modal, toolbar'da yasar.
         if (e.Type == EventType.Repaint)
         {
@@ -405,6 +419,25 @@ public unsafe class App
         if (e.Type == EventType.Repaint)
             DragDrop.DrawGhost(e.MousePosition); // surukleme hayaleti en ustte
         DrawPerfHud();
+    }
+
+    // Toolbar dil combosu: host tablosunun dilleri (tablo yoksa yalniz "en"); secim EditorSettings'e kalici.
+    static string[] _langNames = System.Array.Empty<string>();
+
+    static void DrawLanguageCombo(in Rect rect)
+    {
+        var langs = LocTableStore.Languages(LocTableStore.HostScope);
+        if (_langNames.Length != langs.Count)
+            _langNames = new string[langs.Count];
+        for (int i = 0; i < langs.Count; i++)
+            _langNames[i] = langs[i];
+        string cur = LocTableStore.WorkingLanguage;
+        int idx = 0;
+        for (int i = 0; i < _langNames.Length; i++)
+            if (string.Equals(_langNames[i], cur, System.StringComparison.OrdinalIgnoreCase)) { idx = i; break; }
+        int next = Gui.ComboBox(rect, idx, _langNames);
+        if (next != idx && next >= 0 && next < _langNames.Length)
+            LocTableStore.WorkingLanguage = _langNames[next];
     }
 
     // Zero-alloc perf HUD (sag ust): frame ms (EMA), alloc/frame, canli GO sayisi.

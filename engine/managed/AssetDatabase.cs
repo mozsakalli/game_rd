@@ -932,7 +932,7 @@ public sealed class AssetDatabase
         if (SceneBinary.IsBaked(bytes))
             return new Prefab { Key = key, Baked = bytes, Assets = this };
 #if DE_EDITOR
-        return new Prefab { Key = key, Doc = SceneDoc.Parse(System.Text.Encoding.UTF8.GetString(bytes)), Assets = this };
+        return new Prefab { Key = key, Doc = SceneDoc.Parse(System.Text.Encoding.UTF8.GetString(bytes), key), Assets = this };
 #else
         LogWarning?.Invoke("[prefab] baked degil (YAML release'te desteklenmez): " + key);
         return null;

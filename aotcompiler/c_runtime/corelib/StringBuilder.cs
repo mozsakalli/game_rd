@@ -27,6 +27,13 @@ namespace System.Text
             return this;
         }
 
+        public StringBuilder Append(string item, int startIndex, int count)
+        {
+            if (item == null) { if (startIndex == 0 && count == 0) return this; throw new NullReferenceException(); }
+            value += item.Substring(startIndex, count);
+            return this;
+        }
+
         public StringBuilder Append(int item)
         {
             value += item;

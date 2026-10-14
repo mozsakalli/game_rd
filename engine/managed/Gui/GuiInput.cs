@@ -86,6 +86,21 @@ public static unsafe class GuiInput
             _slots[s].Count = 0;
     }
 
+    // Otomasyon (RPC ui.*): GLFW callback'iyle AYNI kuyruga sentetik olay. Mouse pencere-koordinati
+    // (callback'lerle ayni birim). Fare olaylari slotun son konumunu da gunceller (down/up ayni yerden).
+    public static void Inject(IntPtr window, in Queued q)
+    {
+        int s = SlotOf(window);
+        if (s < 0)
+            return;
+        if (q.Type is EventType.MouseDown or EventType.MouseUp or EventType.MouseMove or EventType.MouseDrag)
+            _slots[s].Mouse = q.Mouse;
+        Enqueue(s, q, coalesce: false);
+    }
+
+    // Gercek (insan) girdisi goruldu mu: otomasyon bunu izleyip kendini birakir.
+    public static bool HumanInputSeen;
+
     static int SlotOf(IntPtr window)
     {
         for (int i = 0; i < MaxWindows; i++)
@@ -126,6 +141,7 @@ public static unsafe class GuiInput
         int s = SlotOf(win);
         if (s < 0)
             return;
+        HumanInputSeen = true;
         Vec2 mouse = _slots[s].Mouse;
         bool down = action == GLFWConst.PRESS;
         int clicks = 1;
@@ -196,6 +212,7 @@ public static unsafe class GuiInput
             return;
         if (action == GLFWConst.REPEAT)
             action = GLFWConst.PRESS; // basili tutma tekrar uretsin (backspace vb.)
+        HumanInputSeen = true;
         Enqueue(s, new Queued
         {
             Type = action == GLFWConst.PRESS ? EventType.KeyDown : EventType.KeyUp,

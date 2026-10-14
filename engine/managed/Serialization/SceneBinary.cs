@@ -28,14 +28,16 @@ namespace DigitoyEngine;
 //   obj: i32 id, i32 parent, i32 nameStr, u8 active, i32 layer, f32 pos[3] rot[3] scale[3]
 //        u16 nComp, comp[]
 //   comp: u16 type, u8 enabled, i32 byteLen (atlama icin), u16 nField, { u16 idx, value }[]
+//         u16 nLoc, { u16 fieldIdx, i32 keyStr }[]     (v3: ceviri baglari "<alan>@loc")
 //   value (Kind'e gore): Float f32 | Int i32 | Bool u8 | String i32 str | Enum i32 |
 //        Vec2 2f | Vec3 3f | Vec4 4f | Color 4u8 | Asset i32 str (-1 null) |
 //        GoRef i32 id (0 null) | CompRef i32 id, u16 sira | List i32 n (-1 null) + eleman[] |
 //        Object u8 var + u16 nField + { u16 idx, value }[]
+//   v3: nObj'den ONCE i32 locTableStr (-1 = kapsam yok): sahnenin ceviri tablosu asset anahtari.
 public static unsafe class SceneBinary
 {
     public const int Magic = 0x4E435344; // "DSCN"
-    public const int Version = 2;
+    public const int Version = 3;
 
     public static bool IsBaked(byte[] data)
         => data != null && data.Length >= 8 && ReadI32(data, 0) == Magic;
@@ -136,6 +138,8 @@ public static unsafe class SceneBinary
             tables[i] = table;
         }
 
+        int locStr = r.I32();
+        var locTable = Localize.Table(locStr >= 0 ? strs[locStr] : null, assets);
         int nObj = r.I32();
         var byId = new Dictionary<int, GameObject>();
         var compsById = new Dictionary<int, Component[]>();
@@ -178,6 +182,14 @@ public static unsafe class SceneBinary
                 c._enabled = enabled;
                 comps[ci] = c;
                 ReadFields(r, c, tables[ti], assets, deferred);
+                int nLoc = r.U16();
+                for (int li = 0; li < nLoc; li++)
+                {
+                    var pf = tables[ti][r.U16()];
+                    int ks = r.I32();
+                    if (pf.Target != null && ks >= 0)
+                        Localize.Bind(c, pf.Target, locTable, strs[ks]);
+                }
                 r.Pos = end;
             }
             if (!active)
@@ -543,6 +555,7 @@ public static unsafe class SceneBinary
 
         // Govde once ayri tampona: string/tip tablolari govde yazilirken dolar.
         var body = new Writer();
+        body.I32(doc.LocTable == null ? -1 : Str(doc.LocTable));
         body.I32(doc.Objects.Count);
         foreach (var g in doc.Objects)
         {
@@ -563,6 +576,7 @@ public static unsafe class SceneBinary
                 int lenPos = body.Reserve4();
                 int start = body.Length;
                 WriteFields(body, cd.Props, e.Schema, doc, baked, Str, AssetStr, warn, cd.Type);
+                WriteLocBindings(body, cd.Props, e.Schema, Str, warn, cd.Type);
                 body.Patch4(lenPos, body.Length - start);
             }
         }
@@ -620,6 +634,10 @@ public static unsafe class SceneBinary
         int n = 0;
         foreach (var kv in props)
         {
+            if (Localize.LocPropField(kv.Key) != null)
+                continue; // ceviri bagi: WriteLocBindings (sahne) yazar; asset nesnesinde anlamsiz, sessiz atla
+            if (HasLocBinding(props, kv.Key))
+                continue; // bagli alanin metni tabloda; baked'e yazilmaz
             var f = SerializedType.Find(schema, kv.Key);
             if (f == null)
             {
@@ -633,6 +651,39 @@ public static unsafe class SceneBinary
             }
             w.U16((ushort)Array.IndexOf(schema, f));
             WriteValue(w, kv.Value, f, f.Kind, doc, baked, str, assetStr, warn, ctx + "." + f.Name);
+            n++;
+        }
+        w.Patch2(countPos, n);
+    }
+
+    static bool HasLocBinding(List<KeyValuePair<string, DocNode>> props, string field)
+    {
+        string prop = field + Localize.PropSuffix;
+        foreach (var kv in props)
+            if (kv.Key == prop)
+                return !string.IsNullOrEmpty(kv.Value?.Scalar);
+        return false;
+    }
+
+    // "<alan>@loc: key" prop'lari -> { u16 fieldIdx, i32 keyStr }[]; alan semada yoksa/string degilse uyari + atla.
+    static void WriteLocBindings(Writer w, List<KeyValuePair<string, DocNode>> props, SerializedType.FieldSchema[] schema,
+        Func<string, int> str, Action<string> warn, string ctx)
+    {
+        int countPos = w.Reserve2();
+        int n = 0;
+        foreach (var kv in props)
+        {
+            var fieldName = Localize.LocPropField(kv.Key);
+            if (fieldName == null || string.IsNullOrEmpty(kv.Value?.Scalar))
+                continue; // bos key = "bilerek cevrilmiyor" isareti (editor), binary'ye girmez
+            var f = SerializedType.Find(schema, fieldName);
+            if (f == null || f.Kind != SerializedType.Kind.String)
+            {
+                warn?.Invoke($"[bake] ceviri bagi gecersiz, atlandi: {ctx}.{kv.Key}");
+                continue;
+            }
+            w.U16((ushort)Array.IndexOf(schema, f));
+            w.I32(str(kv.Value.Scalar));
             n++;
         }
         w.Patch2(countPos, n);

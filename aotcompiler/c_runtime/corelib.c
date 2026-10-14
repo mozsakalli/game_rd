@@ -1793,8 +1793,8 @@ int System_Reflection_PropertyInfo_get_Attributes(DigitoyEngineMemberObj *a0) { 
 int System_Reflection_MethodBase_get_Attributes(DigitoyEngineMethodObj *a0) { return method_of(a0)->cilattrs; }
 int System_Type_get_Attributes(DigitoyEngineTypeObj *a0) { return (int)type_of(a0)->cilattrs; }
 int System_Reflection_PropertyInfo_get_IsStatic(DigitoyEngineMemberObj *a0) { return member_of(a0)->isStatic; }
-int System_Reflection_PropertyInfo_get_CanRead(DigitoyEngineMemberObj *a0) { return member_of(a0)->get != 0; }
-int System_Reflection_PropertyInfo_get_CanWrite(DigitoyEngineMemberObj *a0) { return member_of(a0)->set != 0; }
+int System_Reflection_PropertyInfo_get_CanRead(DigitoyEngineMemberObj *a0) { return member_of(a0)->getter != 0; }
+int System_Reflection_PropertyInfo_get_CanWrite(DigitoyEngineMemberObj *a0) { return member_of(a0)->setter != 0; }
 VmObject *System_Reflection_PropertyInfo_GetValue_System_Object(DigitoyEngineMemberObj *a0, VmObject *a1) { return (VmObject *)digitoyengine_member_get(member_of(a0), (GCHeader *)a1); }
 void System_Reflection_PropertyInfo_SetValue_System_Object_System_Object(DigitoyEngineMemberObj *a0, VmObject *a1, VmObject *a2) { digitoyengine_member_set(member_of(a0), (GCHeader *)a1, (GCHeader *)a2); }
 DigitoyEngineTypeObj *System_Object_GetType(VmObject *a0)

@@ -1,0 +1,47 @@
+type: LocalizationTable
+fields:
+  Languages:
+    - en
+    - tr
+    - de
+  Entries:
+    - Key: login_scene.facebook
+      Values:
+        - CONNECT
+        - BAĞLAN
+        - VERBINDEN
+    - Key: login_scene.guest
+      Values:
+        - GUEST LOGIN
+        - MİSAFİR GİRİŞİ
+        - GASTLOGIN
+    - Key: login_scene.apple
+      Values:
+        - APPLE LOGIN
+        - APPLE İLE GİRİŞ YAP
+        - MIT APPLE ANMELDEN
+    - Key: login_scene.txt1
+      Values:
+        - By logging in, you accept our
+        - Giriş tuşlarına basarak
+        - Mit der Anmeldung akzeptierst du unsere
+    - Key: login_scene.terms
+      Values:
+        - Terms of Service
+        - Hizmet Koşullarımızı
+        - Nutzungsbedingungen
+    - Key: login_scene.txt2
+      Values:
+        - and
+        - ve
+        - und
+    - Key: login_scene.privacy
+      Values:
+        - Privacy Policy
+        - Gizlilik Politikamızı
+        - Datenschutzrichtlinie
+    - Key: login_scene.txt3
+      Values:
+        - .
+        - kabul etmiş olursunuz.
+        - .

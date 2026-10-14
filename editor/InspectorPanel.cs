@@ -543,6 +543,11 @@ public sealed partial class InspectorPanel : EditorWindow
         if (overridden && Event.Current.Type == EventType.Repaint)
             GuiRenderer.DrawRect(new Rect(4, y + 1, 3, 16), new Color(95, 155, 245, 255), 1);
 
+        if (IsLocCandidate(f))
+        {
+            DrawLocField(es, g, cd, f, node, ref y, w);
+            return;
+        }
         DrawDocRootField(es, g, cd, f, node, ref y, w);
     }
 
@@ -767,8 +772,10 @@ public sealed partial class InspectorPanel : EditorWindow
                 {
                     if (!DocVisible(field, cd))
                         continue;
-                    h += MeasureDocField(field, FindProp(cd, field),
-                        "c:" + g.Id + ":" + componentIndex + ":" + field.Name);
+                    string fpath = "c:" + g.Id + ":" + componentIndex + ":" + field.Name;
+                    h += MeasureDocField(field, FindProp(cd, field), fpath);
+                    if (IsLocCandidate(field))
+                        h += RowH * LocExtraRows(App.EditScene, cd, field, fpath);
                     if (NativeSizeTargets(entry.Schema, field, out _, out _))
                         h += RowH;
                 }

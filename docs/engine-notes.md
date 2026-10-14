@@ -14,6 +14,144 @@
 - Play'e giriş domain reload yaparsa komut `{state:"starting"}` döner, ajan tekrar çağırır; Enter Play Mode Options
   "Reload Domain kapalı" ile tek seferde biter. Screenshot play'de end-of-frame `ReadPixels` (overlay UI dahil), edit'te kamera render.
 - MovieClip/Tween/DocNode/pak gibi motor-özel şeyler bilinçli olarak yok.
+## REFLECTION: alan erişimi üretilmiş fonksiyonsuz (offset+tag), property = MethodInfo (2026-10-14, selftest 81/83 = eski 2 bilinen)
+- ÖLÇÜM (yuzbir full): her field/property için `digitoyengine_refget_*/refset_*` çifti üretiliyordu → **9 959 fonksiyon**, 1 334 tipte,
+  ~3.7 MB C (en çok LayoutBox 348, SG 316, GLFWConst 256, HandSorter/<>c lambda cache 211). %85'i `offset+tag` ile aynı bellek işi;
+  `DigitoyEngineMember` zaten `tag/offset/size/addr/valueType` taşıyordu (modül "tek meta"). hxcpp incelemesi (`StorageInfo{type,offset}`)
+  aynı modeli doğruladı; hxcpp'nin `__Field` string-switch + metot başına closure'ı bizden ağır — feyz alınan tek şey "fonksiyon üretme".
+- KARAR: `DigitoyEngineMember.get/set` fn ptr'ları KALDIRILDI → `getter/setter` (`const MethodInfo*`, yalnız property). Alan: runtime
+  `digitoyengine_member_get/set` → `*_generic` (tag switch; eskiden yalnız modül tipleri içindi, şimdi tek yol). Property:
+  `digitoyengine_invoke_items(getter/setter, target, &value, n)` = `MethodInfo.Invoke` çekirdeği (sanal getter vtable/itable'dan,
+  struct self payload). `CTranspiler.EmitReflectionMembers` yalnız tablo yazar (`AccessorRef` → `MethodRef`; kaydı yoksa 0).
+  `ReflectGetValue/ReflectSetValue/PropertyCall/ReflectSelf` SİLİNDİ. Kazanç yan etkisi: ref alan yazımında `gc_write_barrier` artık
+  tek yerde ve doğru (eski refset barrier çağırmıyordu).
+- TRIM: Props facet'li tipin get_/set_ Code'ları `TrimResult.Accessors` → `MethodRecord` Full (thunk) — aksi halde lean'de
+  PropertyInfo.GetValue "imza sekli host'ta yok" derdi. Kurallar korundu: static readonly SetValue yasak (`isStatic && isInitOnly`),
+  fixed dizi (tag `p`, size≠8) unsupported, descriptor'suz struct alanı unsupported.
+- SONUÇ: Sandbox lean release 3 362 816 → 3 278 336 B (−84 KB; lean'de az üye var, full'de etki çok daha büyük). Lean+full boot OK
+  (AOT_DEBUG=1), gen'de `refget_` 0. yuzbir full build Common.dll stub kapısında (ayrı iş) durduğundan orada ölçülmedi.
+
+## LOCALIZATION: bağlı alanın metni SERİLEŞMEZ — tek gerçek tablo (2026-10-14, 50 PASS, RPC e2e + pak/player OK)
+- KARAR (kullanıcı): `text@loc` dolu olan alanın `text` prop'u doc'a/baked'e YAZILMAZ; yüklemede tablo yazar. Önceki "son dil
+  önbelleği" ikinci gerçek kaynaktı (LocEditOp iki yeri yazıyordu). Şimdi: `SceneDoc.CaptureGo` bağlı alanı atlar, `CompToNode`
+  eski doc'tan kalan metni düşürür (`IsLocBoundField`), `SceneBinary.WriteFields` aynı (`HasLocBinding`). `Localize.Binding.Authored`
+  SİLİNDİ: satır yoksa alan `[MISSING:key]` (görünür hata, sessiz eski metin yok).
+- Editör: `EditorScene.SetProp` bağlı string alanda doc'a yazmaz → tablonun çalışılan-dil hücresine (`LocEditOp` yalnız hücre; RPC
+  `prop.set` ile inspector aynı yol). `SetLocKey/ApplyLocKeyOp(.., text)`: bağlanınca `text` prop'u doc'tan düşer, kapatınca
+  (`""`) çalışılan-dil hücresi prop'a geri yazılır (metin kaybolmaz); `LocKeyOp.OldText/NewText` undo/redo simetrik. Doğrulandı
+  RPC ile: bind → props `{Text@loc}` yalnız; prop.set → tablo; unbind → `{Text@loc:"", Text:"Probe Edited"}`; undo → geri.
+- Açık karar (önceki mesaj): key'in inspector'da görünürlüğü (a/b/c) kullanıcıdan bekleniyor.
+
+## LOCALIZATION F3: RPC loc.*/ui.*, formatter portu, placeholder önizleme, açılış dili (2026-10-14, 48 PASS, RPC uçtan uca)
+- RPC `loc.*` (`editor/RpcLoc.cs`): `languages/setLanguage/addLanguage/removeLanguage` (katalog dışı red), `list(filter,missing)`,
+  `set(entries)` toplu tek undo (`[{key,lang,value}]` ya da `[{key,values:{..}}]`, olmayan key satır açar), `remove/rename`,
+  `key/bind/unbind(go,comp,field)`, `usages/unused(+dangling)/missing/glyphCheck`. Denetimler `editor/LocAudit.cs`: dosya düzeyi
+  tarama (`@loc:` satırları + C# `Localize.Get|Format("key")` sabitleri; kapsam = `TableKeyFor(rel)` eşleşen dosyalar), glyph = tablo
+  codepoint'leri ⊆ projedeki her .ttf/.otf Font.Glyphs (kontrol/`{}` hariç). Pak build `LocWarnings`: eksik çeviri sayısı + glyph
+  boşlukları uyarı (durdurmaz). `rpc.guide` "localization" + "editorUi" bölümleri.
+- EDİTÖR GUI RPC `ui.*` (`editor/UiAutomation.cs`, `RpcUi.cs`; kullanıcı: fare simülasyonu yok): sentetik girdi `GuiInput.Inject`
+  ile GLFW callback'iyle AYNI kuyruğa; adımlar frame'e yayılır (down/up ayrı pass). `Busy` iken RPC pompası bekler → `ui.click`
+  sonrası komut jest bitince koşar; `Engaged` (son girdi sentetik) klavye odağı varken de pompayı açık tutar (insan tuş/tık görülünce
+  kuyruk atılır, `GuiInput.HumanInputSeen`). Koordinat = ana pencere mantıksal px == `ui.screenshot` pikseli. Açık `GuiPopup`
+  (combo listesi) içine düşen tık popup penceresine yönlenir (`GuiPopup.TryMapFromHost`, ekran px). `ui.panels` =
+  `GuiDock.ListPanels` (tab + içerik rect'i; detached/utility hariç). `ui.screenshot`: `de_sokol_read_framebuffer` (fb 0, sg_commit
+  sonrası/swap öncesi `UiAutomation.CaptureIfRequested`), `RpcHost.Defer` ile yanıt. `ui.type` TextInput, `ui.key(name,mods)`.
+  TUZAK: popup ayrı OS penceresi → `ui.screenshot`'ta görünmez; satır yüksekliği `GuiPopup.ItemH`=20.
+- FORMATTER (`engine/managed/Localization/LocFormat.cs`, Unity LocalizationFormatter portu; Regex/CultureInfo/`ToString("D2")`
+  YOK → AOT corelib): `{n:cap}`, `{n:number[:N2|F0|0.##|short[:eşik]]}` dil ayıracı tablosu (en `1,234.5`; tr/de/es/it/pt/nl/id/vi
+  `1.234,5`; fr/ru/pl `1 234,5`), kısaltma tr `B/M/Mr` diğer `K/M/B`; `{n:time:remaining[:long][:uN][:eşik][:birim]}`, `ago`,
+  `date:<desen>`, `localtime:<desen>` (`LocFormat.UtcOffsetSeconds`, varsayılan 0 — host set eder), `datelabel[:relative][:saat|
+  tarih]`. Desen jetonları yyyy yy MMMM MMM MM M dddd ddd dd d HH H hh h mm m ss s tt 'literal'; ay/gün adları en/tr/de/fr/es
+  gömülü. `FormatDefaults` (format.*, 5 dil) tablo satırıyla ezilir. `Localize.FormatString(template,args,lang,table)`;
+  `LocFormat.NowProvider`. Takvim corelib `DateTime` (Year/Month/Day) üzerinden; haftanın günü unix günden.
+- `Localize.Get(key)/Format(key,args)` TABLOSUZ: `Table()` ile yüklenen tablolar sırayla (host önce, modüller) — `Loc.g.cs` codegen
+  DÜŞÜRÜLDÜ (Registry.g.cs yok; key güvenliği `loc.unused/usages`). Yoksa `[MISSING:key]` (görünür).
+- INSPECTOR: bağlı metinde `{n}` varsa altında `{0}`,`{1}`… arg kutuları + `preview` satırı (çalışılan dil, `LocFormat`); ölçüm
+  `PlaceholderCount` ile aynı. Doğrulandı: `{0:number} coins left, {1:time:remaining:u2}` + 12500/5400 → "12,500 coins left, 1H 30M".
+- AÇILIŞ DİLİ: `Localize.InitLanguage()` (GameHost.BootWith): PlayerPrefs `Localize.Lang` > `DeviceLanguage()` (shim
+  `de_sys_language`: Win `GetUserDefaultLocaleName`, mac `CFLocaleCopyPreferredLanguages`; yalnız DE_DESKTOP, mobil kabuk sonra)
+  > kaynak dil. Oyun içi seçim `Localize.SetUserLanguage(lang)` prefs'e yazar; editör Working language prefs'e DOKUNMAZ.
+- AOT DERSİ (publish kırıldı, düzeltildi): corelib yüzeyi dar — `IFormattable`, `decimal`, `AsSpan` parse, `new string(char[])`,
+  `Array.IndexOf<T>` YOK; kodda kaldırıldı. KÜÇÜK EKLER corelib'e girdi (kullanıcı kararı): `Char` statikleri (IsDigit/IsLetter/
+  IsUpper/IsLower/IsWhiteSpace/ToUpperInvariant/ToLowerInvariant — Latin-1/Ext-A, Numeric.cs; WellKnownTypes'taki boş struct
+  kaldırıldı), `Double.IsNaN/IsInfinity`, `string.IndexOf(char,start,count)`, `PadLeft/PadRight`, `Join(sep,arr,start,count)`,
+  `StringBuilder.Append(string,start,count)`. Doğrulama: `aotcompiler sdk-il` 5 hedef + RPC `player.build windows` link OK +
+  Sandbox.exe açıldı (`[host] dil: en`). Sayı yuvarlama yarım-yukarı (`(long)(x*scale+0.5)`), Math.Round banker's değil.
+- SONRAKİ: mobil kabuk dil + TZ (`UtcOffsetSeconds`), modül prefab'ının host sahnesinde kullanımı (kapsam = sahne sınırı),
+  `loc.usages` kod taramasında dinamik key'ler görünmez (string sabit kuralı).
+
+## LOCALIZATION F2: editör — "loc" toggle, otomatik bağ, Working language, tablo penceresi (2026-10-14, 38 PASS, RPC+görsel doğrulandı)
+- `editor/LocTableStore.cs`: editörün tablo kapısı. Kapsam `App.EditScene.LocTableKey` (prefab stage dahil); `Get(scope, create)`
+  tabloyu **ilk bağda kendisi yaratır** (`Assets/Localization.asset` | `Assets/Modules/<ad>/Localization.asset`, diller host
+  tablosundan ya da `["en"]`; `ScanMetas` guid). Yazımlar AssetDatabase'in CANLI instance'ına → dirty → `Tick` (1 sn boşta, hot
+  control yokken) / `Flush` (sahne Save, Play, çıkış, pencere Save). Her `Touch` → `Localize.RefreshAll` (projeksiyon + Play anında).
+- DİL KATALOĞU SABİT (`LanguageCatalog`, ISO 639-1, 18 dil): serbest kod girişi YOK — pencerede işaretli kutular (tik = sütun ekle,
+  kaldır = sütun + hücreler silinir; kaynak dil kilitli). `AddLanguage` katalog dışını reddeder (RPC/kod yolu da).
+- KEY ÜRETİMİ `NewKey`: `slug(sahne).slug(go)[.alan]`; GO adı jenerikse (`GameObject/Text/Label/LayoutBox/TextSprite/Box/Button/
+  Title`, "(n)" eki atılır) metnin ilk 4 kelimesi; çakışma `_2`; `Slug` translitere (ç/ğ/ı/ö/ş/ü, de/fr/es), camelCase→`_`. Aynı
+  metin (çalışılan dilde) zaten varsa `FindByText` → mevcut key'e bağlanır. `Suggest`: çalışılan dilde değer/key substring, yoksa
+  diğer diller (etiket `tr: ...`), en fazla 5.
+- OTOMATİK BAĞ `EditorScene.SetProp` boğazında (inspector + RPC `prop.set` aynı yol): `LocTableStore.IsDefaultLocField`
+  (`LayoutBox.text`, `TextSprite.Text`) + prop yok + metin dolu → `AutoBindLoc` BEKLETİR (`TickLoc`: klavye odağı yok ya da 1 sn)
+  → `BindLocNew`. Neden bekletme: inspector harf harf yazar, ilk harften `login.p` gibi key doğmasın. Dolu literal düzenlenirken
+  bağ açılmaz (kullanıcı toggle'la açar). Üç durum: prop yok = varsayılan, `""` = bilerek kapalı (nick), key = bağlı
+  (`LocKeyOf`). WriteLocBindings boş key'i binary'ye yazmaz.
+- UNDO (`editor/LocUndoOps.cs`): `LocKeyOp` (prop + bu işlemle açılan satır; undo satırı siler), `LocEditOp` (doc önbellek metni +
+  tablo hücresi TEK adım, yazarken coalesce), `LocCellOp`, `LocRenameOp` (tablo + açık doc `RenameLocKey`; başka sahne/prefab
+  dosyaları `RenameInOtherScenes` metin düzeyi, undo'suz, loglanır), `LocRowOp`. `BindLocNew/RebindLocExisting` grup içinde
+  çağrılırsa (RPC batch) dış gruba katılır (`History.InGroup`).
+- INSPECTOR (`InspectorPanel.Loc.cs`): kök düzeydeki her string alanın sağında `loc` düğmesi (alt şerit mavi = bağlı). Bağlıyken
+  metin kutusu TABLONUN çalışılan-dil hücresini gösterir/yazar (doc prop'u önbellek olarak birlikte), bu dilde boşsa sol kırmızı
+  şerit; altında `key` satırı (ayrı tampon, `Rename` ile uygulanır) + yazarken öneri düğmeleri (seçim → `RebindLocExisting`: eski
+  satır kullanılmıyor ve ≤1 dilde doluysa düşer). DİĞER DİL HÜCRELERİ INSPECTOR'DA YOK (kullanıcı: kafa karıştırıyor) — pencerede.
+  Ölçüm `LocExtraRows` (1 + öneri sayısı) cizimle aynı durumdan. Toggle/Rename/öneri tıklaması frame'i keser (mevcut desen).
+- TOOLBAR sağ üst `Working language` combosu (host tablosunun dilleri) → `Localize.Language` (edit projeksiyonu + Play) +
+  `EditorSettings.workingLanguage`. Boş = kaynak dil. `LocTableStore.EffectiveLanguage(scope)` inspector'ın yazdığı hücre.
+- `Window/Localization` (`LocalizationWindow.cs`): kapsam combosu (Host/modüller), filtre (key + tüm hücreler), dil kutuları, yeni
+  key satırı, satırlar: key | uses (açık doc) | dil hücreleri (boş = MISSING) | x. Hücre yazımı `LocCellOp`.
+- `Yaml.Parse` UTF-8 BOM'u atar (dış editörle yazılan .asset "bilinmeyen tip" veriyordu).
+- Doğrulama: RPC `comp.add LayoutBox` + `prop.set text "Play Now"` → doc `text@loc: login.play_button`, `Assets/Localization.asset`
+  oluştu (en=Play Now); TextSprite "Title"/"Hello World" → `login.hello_world`; dış düzenlemeyle `tr` eklenince in-place reload;
+  kullanıcı combo/inspector/pencere/undo akışını elden doğruladı. Sandbox Login sahnesi KAYDEDİLMEDİ; `Assets/Localization.asset`
+  diskte (2 satır, en+tr).
+- SIRADA F3: RPC `loc.*` (set lang, missing, set key/lang/value toplu — AI çeviri, usages/unused proje taraması, glyphCheck) +
+  editör GUI RPC'si (combo/düğme tetikleme, panel screenshot — kullanıcı isteği: fare simülasyonu yok), formatter portu
+  (`number:short`, `time`, `cap`, `FormatDefaults`), `Loc.g.cs` codegen, inspector placeholder arg önizleme, cihaz dili.
+
+## LOCALIZATION F1: `<alan>@loc` bağı + LocalizationTable + Localize runtime (2026-10-13, [localization] 30 PASS, pak+player OK)
+- KARAR (uzun tartışma, kullanıcı): oyunlarda TÜM metinler çevrilir; multilanguage "zahmet" olmaktan çıkmalı. REDDEDİLENLER:
+  `LocString` alan tipi (component kodu değişir), `[Localize]` attribute (nick kutusu gibi instance istisnası yok), değer öneki
+  `"@key"` (pratik değil), sahne-yerel tablo (her sahneye "Play Now" tekrar), CSV/export (kendi serializer + tablo penceresi + AI
+  çeviri), elle `.loc.asset` seçimi (konvansiyon). Modüller host ile tablo PAYLAŞMAZ.
+- MODEL: component alanı DÜZ `string` kalır, kod hiçbir şey bilmez (`box.Text = nick` serbest). Localize kararı INSTANCE'a ait ve
+  doc'ta alanın yanında prop olarak durur: `text: Play Now` + `text@loc: menu.play`. Alanın doc'taki metni son çalışılan dilin
+  ÖNBELLEĞİ; gerçek tabloda. Prop-yanı yaklaşım prefab expand/override diff/collapse/klonla BEDAVA uyumlu (hepsi prop adıyla
+  çalışır; `SerializedType.Find` null → schema yolları sessiz atlar, YAML `@` sorunsuz).
+- TABLO: `[Asset] LocalizationTable {Languages[] ("en" ilk = KAYNAK/FALLBACK), Entries[{Key, Values[]}]}` (engine/managed/
+  Localization/). Kapsam başına TEK dosya, konvansiyon: host `Assets/Localization.asset`, modül `Assets/Modules/<ad>/
+  Localization.asset` — `Localize.TableKeyFor(sahneAnahtarı)`. `SceneDoc.LocTable` yalnız bellekte (konumdan türer; YAML'a yazılmaz);
+  `SceneDoc.Parse(text, assetKey)` doldurur (EditorScene.Load/ReexpandFrom, AssetPackBuilder.BakeScene, AssetDatabase.MakePrefab,
+  SceneLoader, GameHost loose). Tembel indeks (Entries referansı/sayısı değişince yeniden — ReloadObject/pencere uyumlu).
+- RUNTIME: `Localize.Bind(comp, field, table, key)` spawn'da alanlar yazıldıktan SONRA (authored = alan metni); `Binding` component
+  başına bağlı liste (`Component._loc`) + global liste (swap-remove; `Scene.DestroyComponentNow/DestroyGameObjectNow` → `Unbind`,
+  ALC reload'da tip tutulmaz). `Localize.Language` set → `Version++` + tüm bağlar yeniden yazılır (`FieldSchema.Set` + `OnValidate`;
+  aynı metinse dokunmaz). `GameObject.Instantiate` → `CopyBindings` (args dahil). Frame maliyeti SIFIR.
+- PARAMETRE: şablon tabloda (`{0} coins`); kod key bilmeden `box.Format(args)` / `textSprite.Format(args)` → bağ `Args` saklar, dil
+  değişince yeniden formatlar. Play'de args gelmeden şablon GİZLİ (""), `Scene.EditMode` projeksiyonunda görünür. Bağsız `Format` =
+  mevcut metin şablon (tek seferlik). `Localize.FormatString`: `{n}`/`{n:fmt}`/`{{ }}`, Regex/CultureInfo YOK (AOT); eksik arg yer
+  tutucu kalır. Zengin biçimler (number:short, time, cap — Unity LocalizationFormatter portu) F3.
+- BINARY: SceneBinary **v3**: nObj'den önce `i32 locTableStr`, comp gövdesinde alanlardan sonra `u16 nLoc {u16 fieldIdx, i32 keyStr}`;
+  `WriteFields` `@loc` prop'larını sessiz atlar (DOBJ'de anlamsız). TrimRoots yalnız başlık okur → etkilenmez. Pak: BakeScene tablo
+  dosyası VARSA sahnenin bağımlılığı (kök gerekmez; Spawn'dan önce hazır). Tablo yoksa bağlar tablosuz kurulur → authored metin kalır.
+- Testler editor/LocalizationTests.cs: tablo API + YAML round-trip, FormatString, @loc YAML spawn, dil değişimi, fallback,
+  Format(args), Capture `@loc` geri yazımı, Instantiate, edit-mode şablon, baked round-trip, unload sonrası bağ sayısı.
+- SIRADA F2 (editör): Inspector her string alanı yanında 🌐 toggle (LayoutBox.text/TextSprite.Text varsayılan AÇIK), açıkken yazılan
+  metin → tablo satırı (key bağlamdan: `sahne.go_adı[.alan]`, translitere, çakışma `_2`; jenerik GO adı → metin slug'ı), canlı öneri
+  listesi (çalışılan dilde, sonra diğer diller; mevcut key seç → aynı satır), key ✎ rename (bağları günceller), diğer dil kutuları,
+  placeholder arg önizleme; toolbar Working language combo (edit modunda canlı, Play'de geçerli); tablo dosyasını editör ilk bağda
+  kendi oluşturur; LocalizationTable penceresi (kapsam combosu). F3: RPC `loc.*` (AI çeviri), formatter portu, `Loc.g.cs`,
+  glyph/missing doğrulama, cihaz dili.
+- TUZAK: modül prefab'ı host sahnesine konursa bağ HOST tablosunda aranır (kapsam = sahne) → key yoksa authored kalır; bilinçli sınır.
 
 ## PROGRESS ROUNDRECT (perimetre halkası) — TAMAMLANDI (2026-10-13, screenshot doğrulandı)
 - `ProgressShape.RoundRect`: yuvarlak köşeli kutunun ÇEVRESİ boyunca dolan halka (sıra sayacı rozeti). Alanlar yeni değil:

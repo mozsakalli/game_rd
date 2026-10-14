@@ -15,6 +15,10 @@ public sealed partial class SceneDoc
     public string Name = "Main";
     public readonly List<GoDoc> Objects = new();
 
+    // Kapsam ceviri tablosunun asset anahtari (Localize.TableKeyFor(sahne anahtari)); yalniz BELLEKTE,
+    // dosyanin konumundan turer (YAML'a yazilmaz). null = kapsam yok (test/gecici doc) -> baglar tablosuz kurulur.
+    public string LocTable;
+
     public sealed class GoDoc
     {
         public int Id;
@@ -105,10 +109,17 @@ public sealed partial class SceneDoc
                 continue;
             var cd = new CompDoc { Type = entry.Name, Enabled = c._enabled };
             foreach (var f in entry.Schema)
+            {
+                if (Localize.FindBinding(c, f.Name) != null)
+                    continue; // bagli alan: metin TABLODA (tek gercek); doc'a yalniz "<alan>@loc" yazilir
                 cd.Props.Add(new(f.Name, SerializedType.WriteField(c, f,
                     target => GoRefValue(target, ids),
                     target => CompRefValue(target, ids),
                     assets)));
+            }
+            // Canli ceviri baglari: "<alan>@loc: key" (prefab yaratma/capture bagi kaybetmez).
+            for (var b = c._loc; b != null; b = b.Next)
+                cd.Props.Add(new(b.Field.Name + Localize.PropSuffix, DocNode.Scal(b.Key)));
             g.Components.Add(cd);
         }
 
@@ -161,6 +172,7 @@ public sealed partial class SceneDoc
         GameObject first = null;
         var byId = liveMap ?? new Dictionary<int, GameObject>();
         byId.Clear();
+        var locTable = Localize.Table(LocTable, assets);
         // Referanslar TUM nesneler dogduktan sonra cozulur (ileri referans serbest).
         // Liste/ic-ice nesne icindeki referanslar da ayni kuyruga girer (closure set).
         var deferred = new List<(SerializedType.Kind kind, string val, Action<object> set)>();
@@ -199,6 +211,13 @@ public sealed partial class SceneDoc
                     var f = SerializedType.Find(entry.Schema, kv.Key);
                     if (f != null)
                         SerializedType.ReadField(c, f, kv.Value, assets, Sink);
+                }
+                // Ceviri baglari alanlar yazildiktan SONRA (authored metin alandan okunur, dil ustune yazilir).
+                foreach (var kv in cd.Props)
+                {
+                    var fieldName = Localize.LocPropField(kv.Key);
+                    if (fieldName != null)
+                        Localize.Bind(c, SerializedType.Find(entry.Schema, fieldName), locTable, kv.Value?.Scalar);
                 }
             }
             if (!g.Active)
@@ -240,6 +259,14 @@ public sealed partial class SceneDoc
     public void Save(string path) => File.WriteAllText(path, ToYaml());
 
     public static SceneDoc Load(string path) => Parse(File.ReadAllText(path));
+
+    // assetKey: Assets'e goreli sahne/prefab anahtari -> kapsam tablosu (LocTable) turetilir.
+    public static SceneDoc Parse(string text, string assetKey)
+    {
+        var doc = Parse(text);
+        doc.LocTable = Localize.TableKeyFor(assetKey);
+        return doc;
+    }
 
     public string ToYaml() => ToYaml(null, null);
 
@@ -292,8 +319,22 @@ public sealed partial class SceneDoc
         if (!cd.Enabled)
             cm.Add("enabled", DocNode.Scal("false"));
         foreach (var kv in cd.Props)
+        {
+            if (IsLocBoundField(cd, kv.Key))
+                continue; // eski doc'tan kalan onbellek metni: bagli alanin degeri tabloda, yazilmaz
             cm.Add(kv.Key, kv.Value);
+        }
         return cm;
+    }
+
+    // Alanin "<alan>@loc" prop'u DOLU mu (bagli): metin prop'u serilesmez (YAML + baked).
+    internal static bool IsLocBoundField(CompDoc cd, string field)
+    {
+        string prop = field + Localize.PropSuffix;
+        foreach (var kv in cd.Props)
+            if (kv.Key == prop)
+                return !string.IsNullOrEmpty(kv.Value?.Scalar);
+        return false;
     }
 
     public static SceneDoc Parse(string text)

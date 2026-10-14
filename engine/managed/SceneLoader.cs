@@ -87,7 +87,7 @@ public static class SceneLoader
 #if DE_EDITOR
             if (!baked)
             {
-                var doc = SceneDoc.Parse(System.Text.Encoding.UTF8.GetString(bytes));
+                var doc = SceneDoc.Parse(System.Text.Encoding.UTF8.GetString(bytes), key);
                 doc.ExpandPrefabs(catalog, assets);
                 op.Root = doc.Spawn(parent, catalog, assets);
             }

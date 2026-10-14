@@ -240,6 +240,8 @@ public sealed class GameObject
             var copy = go.AddComponentRaw(entry);
             entry.CopyTo(c, copy);
             copy._enabled = c._enabled;
+            if (c._loc != null)
+                Localize.CopyBindings(c, copy);
             compMap[c] = copy;
         }
 
