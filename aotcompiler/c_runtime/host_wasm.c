@@ -1,9 +1,11 @@
 // host_wasm.c — Tarayici (wasm32/emscripten) platform host'u (docs/platform-hosts.md).
 // Pencere = <canvas id="canvas"> (platforms/wasm/index.html), GL = WebGL2 (sokol SOKOL_GLES3), dongu =
 // emscripten_set_main_loop -> de_app_frame (requestAnimationFrame). Girdi: html5 callback'leri -> de_app_event
-// kuyrugu (tek thread; kuyruk yine de sozlesme geregi). Pak: --preload-file ile MEMFS'e /data/Build/game.pak.
+// kuyrugu (tek thread; kuyruk yine de sozlesme geregi). Pak: dosya sistemi YOK (-sFILESYSTEM=0); game.pak fetch ile heap'e
+// alinir ve de_fs_mount_memory("/data/Build/game.pak") ile baglanir; GameHost yine "<root>/Build/game.pak" acar.
 // Koordinat: canvas CSS px = MANTIKSAL px (fbw = css * devicePixelRatio, scale = dpr) -> olaylar oldugu gibi gecer.
 #include "de_app.h"
+#include "de_fs.h"
 #include <emscripten/emscripten.h>
 #include <emscripten/html5.h>
 #include <stdio.h>
@@ -111,6 +113,27 @@ static EM_BOOL on_resize(int type, const EmscriptenUiEvent* e, void* ud)
 
 EM_JS(void, de_js_set_title, (const char* s), { document.title = UTF8ToString(s); });
 
+// game.pak -> heap: fetch + arrayBuffer -> _malloc + HEAPU8.set -> C geri cagri. Hata: len = -1. (Ileride: Module.pakBase64 -> tek HTML.)
+// clang-format off
+EM_JS(void, de_js_fetch_pak, (const char* url), {
+    var u = UTF8ToString(url);
+    fetch(u).then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.arrayBuffer(); })
+        .then(function(ab) { var n = ab.byteLength; var p = _malloc(n); HEAPU8.set(new Uint8Array(ab), p); _de_wasm_pak_ready(p, n); })
+        .catch(function(e) { console.error('[host] game.pak yuklenemedi: ' + e); _de_wasm_pak_ready(0, -1); });
+});
+// clang-format on
+
+static const char* PAK_PATH = "/data/Build/game.pak"; // GameHost: dataRoot "/data" + "/Build/game.pak"
+
+EMSCRIPTEN_KEEPALIVE void de_wasm_pak_ready(void* data, int len)
+{
+    if (!data || len < 0) { fprintf(stderr, "[host] game.pak indirilemedi\n"); return; }
+    de_fs_mount_memory(PAK_PATH, data, len); // bellek host'a ait, omur boyu
+    de_app_init("/data", "/tmp", g_fbw, g_fbh, g_scale);
+    g_running = 1;
+    g_last = 0;
+}
+
 void de_host_set_title(const char* utf8) { de_js_set_title(utf8); }
 void de_host_log(int level, const char* utf8) { emscripten_log(level >= 2 ? EM_LOG_ERROR : EM_LOG_CONSOLE, "%s", utf8); }
 
@@ -163,9 +186,8 @@ int main(void)
     emscripten_set_resize_callback(EMSCRIPTEN_EVENT_TARGET_WINDOW, 0, EM_TRUE, on_resize);
 
     measure();
-    // --preload-file <pak>@/data/Build/game.pak -> dataRoot "/data"; yazilabilir /tmp (MEMFS, kalici degil).
-    de_app_init("/data", "/tmp", g_fbw, g_fbh, g_scale);
-    g_running = 1;
+    // Pak asenkron gelir; dongu simdi kurulur, g_running=0 iken frame bos doner. Init de_wasm_pak_ready'de.
     emscripten_set_main_loop(frame, 0, 0); // 0 fps = requestAnimationFrame; simulate_infinite_loop=0 -> main doner, runtime yasar
+    de_js_fetch_pak("game.pak"); // index.html ile ayni dizin
     return 0;
 }

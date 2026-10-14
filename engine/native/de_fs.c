@@ -81,7 +81,39 @@ typedef struct
     FILE *f;
     long long base; // dosya icindeki baslangic (APK icine gomulu asset: fd+offset); normal dosyada 0
     long long size;
+    const unsigned char *mem; // web: bellek dosyasi (de_fs_mount_memory); f bu durumda sentinel (acik isareti), okunmaz
 } de_handle_t;
+
+#if defined(__EMSCRIPTEN__)
+// ---- web: dosya sistemi yok; host pak'i heap'e alip baglar. Tek kayit yeter (game.pak); kucuk sabit tablo.
+#define DE_MEM_FILES 4
+static struct { char path[DE_PATH_MAX]; const unsigned char *data; long long len; } de_mem_files[DE_MEM_FILES];
+static FILE *const DE_MEM_SENTINEL = (FILE *)1; // de_handle_t.f: "acik" bayragi (stdio handle'i degil)
+
+DE_FS_API void de_fs_mount_memory(const char *path, const void *data, long long len)
+{
+    for (int i = 0; i < DE_MEM_FILES; i++)
+        if (!de_mem_files[i].data || strcmp(de_mem_files[i].path, path) == 0)
+        {
+            strncpy(de_mem_files[i].path, path, DE_PATH_MAX - 1);
+            de_mem_files[i].path[DE_PATH_MAX - 1] = 0;
+            de_mem_files[i].data = (const unsigned char *)data;
+            de_mem_files[i].len = len;
+            return;
+        }
+}
+DE_FS_API int de_fs_mem_range(const char *path, const void **data, long long *len)
+{
+    for (int i = 0; i < DE_MEM_FILES; i++)
+        if (de_mem_files[i].data && strcmp(de_mem_files[i].path, path) == 0)
+        {
+            *data = de_mem_files[i].data;
+            *len = de_mem_files[i].len;
+            return 1;
+        }
+    return 0;
+}
+#endif
 
 // Kuyrukta bekleyen is (malloc'lu, worker bitirince free). Sonuc de_async'e gider.
 typedef struct de_job_s
@@ -142,15 +174,21 @@ static unsigned char *de_read_blob(de_job_t *job, long long *outLen)
     FILE *f;
     int own = 0;
     long long base = 0;
+    const unsigned char *mem = NULL;
     if (job->handle >= 0)
     {
         f = de_handles[job->handle].f;
         base = de_handles[job->handle].base;
+        mem = de_handles[job->handle].mem;
     }
     else
     {
+#if defined(__EMSCRIPTEN__)
+        return NULL; // web: yol-tabanli okuma yok (dosya sistemi yok); yalniz bagli bellek dosyalari
+#else
         f = fopen(job->path, "rb");
         own = 1;
+#endif
     }
     if (!f)
         return NULL;
@@ -169,7 +207,18 @@ static unsigned char *de_read_blob(de_job_t *job, long long *outLen)
     }
     unsigned char *buf = (unsigned char *)malloc((size_t)(length > 0 ? length : 1));
     unsigned char *result = NULL;
-    if (buf && de_fseek64(f, base + job->offset) == 0 && fread(buf, 1, (size_t)length, f) == (size_t)length)
+    int got = 0;
+    if (buf)
+    {
+        if (mem) // bellek dosyasi: sinir denetimli kopya
+        {
+            long long sz = de_handles[job->handle].size;
+            if (job->offset >= 0 && length >= 0 && job->offset + length <= sz) { memcpy(buf, mem + job->offset, (size_t)length); got = 1; }
+        }
+        else
+            got = de_fseek64(f, base + job->offset) == 0 && fread(buf, 1, (size_t)length, f) == (size_t)length;
+    }
+    if (got)
     {
         if (job->rawLength != length)
         {
@@ -192,7 +241,7 @@ static unsigned char *de_read_blob(de_job_t *job, long long *outLen)
     }
     else
         free(buf);
-    if (own)
+    if (own && !mem)
         fclose(f);
     return result;
 }
@@ -264,7 +313,7 @@ static void de_ensure(void)
     de_mutex_init(&de_lock);
     de_sem_init(1 << 20);
 #if defined(__EMSCRIPTEN__)
-    // Tarayici: pthread yok (tek thread); job'lar submit aninda senkron kosar (pak zaten MEMFS'te, bellek kopyasi).
+    // Tarayici: pthread yok (tek thread); job'lar submit aninda senkron kosar (pak heap'te bellek dosyasi, memcpy).
 #elif defined(_WIN32)
     CreateThread(NULL, 0, de_worker, NULL, 0, NULL);
 #else
@@ -294,7 +343,7 @@ static int de_submit(int kind, int handle, const char *path, long long off, long
     }
     int id = j->id;
 #if defined(__EMSCRIPTEN__)
-    de_run_job(j); // tarayici: tek thread, senkron (pak MEMFS'te)
+    de_run_job(j); // tarayici: tek thread, senkron (pak heap'te: memcpy)
 #else
     de_mutex_lock(&de_lock);
     if (de_q_tail)
@@ -324,13 +373,18 @@ DE_FS_API int de_fs_open(const char *path)
     int job = de_async_new_job();
     FILE *f = NULL;
     long long base = 0, size = 0;
+    const unsigned char *mem = NULL;
     if (h >= 0)
     {
-#if defined(__ANDROID__)
+#if defined(__EMSCRIPTEN__)
+        const void *md; long long ml;
+        if (de_fs_mem_range(path, &md, &ml)) { mem = (const unsigned char *)md; size = ml; f = DE_MEM_SENTINEL; }
+#elif defined(__ANDROID__)
         if (strncmp(path, "asset:", 6) == 0)
             f = de_open_asset(path + 6, &base, &size);
         else
 #endif
+#if !defined(__EMSCRIPTEN__)
         {
             f = fopen(path, "rb");
             if (f)
@@ -339,12 +393,14 @@ DE_FS_API int de_fs_open(const char *path)
                 size = de_ftell64(f);
             }
         }
+#endif
     }
     if (f)
     {
         de_handles[h].base = base;
         de_handles[h].size = size;
         de_handles[h].f = f;
+        de_handles[h].mem = mem;
         de_async_complete(job, 1, NULL, 0, h, 0);
     }
     else
@@ -361,8 +417,10 @@ DE_FS_API void de_fs_close(int handle)
 {
     if (handle < 0 || handle >= DE_MAX_HANDLES || !de_handles[handle].f)
         return;
-    fclose(de_handles[handle].f);
+    if (!de_handles[handle].mem)
+        fclose(de_handles[handle].f);
     de_handles[handle].f = NULL;
+    de_handles[handle].mem = NULL;
     de_handles[handle].base = 0;
     de_handles[handle].size = 0;
 }

@@ -117,6 +117,10 @@ namespace DigitoyEngine.Language
                 BuildVTable(p.Parent, st);
                 p.VTable.AddRange(p.Parent.VTable);
             }
+            // CANON (K5): paylasimli generic class'in sozluk slotu — parent slotlarindan hemen sonra, canon ve tum exact'lerde ayni indeks;
+            // tureyen siniflar kopyayla miras alir (Foo : List<string> uzerinden gelen this dogru sozlugu bulur).
+            if (!p.IsStruct && !p.IsInterface && p.Canonical != null && (p.IsCanonForm || p.IsSharedExact))
+                p.VTable.Add(st.ctx.DictSentinel(p.Canonical));
             var members = st.ctx.MembersOf(p).ToList(); // ornekleme listeyi degistirir -> snapshot
             // 1) parent'tan gelen GENERIC SANAL METOT orneklemeleri: tureyen ayni imzali sablonla ezmisse ayni argumanlarla
             //    ornekle ve slota koy (tureyen sinifin kendi ornekleri henuz yoksa burada dogar).

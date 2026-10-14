@@ -65,7 +65,13 @@ namespace DigitoyEngine.Cil
             IReadOnlyList<Primitive> typeParams = owner == null ? null : owner.InstantiatedFrom != null ? owner.TypeArguments : owner.GenericParameters;
             if (owner != null && owner.InstantiatedFrom != null && owner.TypeArguments.Any(GenericInstantiator.ContainsGenericParameter))
                 throw new Exception("generic ornek acik tip argumani tasiyor: " + owner.Name);
-            var gc = new GenCtx { TypeParams = typeParams, MethodParams = shell.MethodTypeArguments };
+            if (shell.IsSharedExact) throw new Exception("paylasimli exact kabugun govdesi cevrilmez: " + shell.EncodeName());
+            // CANON: canon govde marker'li baglamla cevrilir -> op.TypeArguments/PrimitiveRef acik bicimi tasir (sozluk anahtari);
+            // kimlik Apply/Instantiate'te tek __Canon'a iner (Canon.cs).
+            if (owner != null && owner.IsCanonForm) typeParams = Canon.Markerize(ctx, owner.TypeArguments, false);
+            IReadOnlyList<Primitive> methodParams = shell.MethodTypeArguments;
+            if (methodParams != null && Canon.ContainsCanon(methodParams)) methodParams = Canon.Markerize(ctx, methodParams, true);
+            var gc = new GenCtx { TypeParams = typeParams, MethodParams = methodParams };
             if (root.GenericParameters.Count > 0 && (shell.MethodTypeArguments == null || shell.MethodTypeArguments.Count != root.GenericParameters.Count))
                 throw new Exception($"generic metot ornegi arguman sayisi uyusmuyor: {shell.EncodeName()} ({shell.MethodTypeArguments?.Count ?? 0}/{root.GenericParameters.Count})");
             shell.Locals.Clear(); shell.LocalNames.Clear(); shell.Operations.Clear();

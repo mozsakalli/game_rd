@@ -145,6 +145,7 @@ static void Sleep_ms_1(void) { struct timespec ts = { 0, 1000000 }; nanosleep(&t
 
 // Muzik backend basliklari (platform native player).
 #if defined(__EMSCRIPTEN__)
+#include "de_fs.h"
 #include <emscripten/emscripten.h>
 #include <stdio.h>
 #elif defined(__ANDROID__)
@@ -1336,22 +1337,16 @@ DE_API int de_music_open(const char *pathOrUrl, long long offset, long long leng
     de_js_music_init();
     if (de_is_url(pathOrUrl))
         return de_js_music_open(pathOrUrl, NULL, 0);
-    FILE *f = fopen(pathOrUrl, "rb");
-    if (!f)
+    // Dosya sistemi yok (-sFILESYSTEM=0): pak host tarafindan heap'e alinip de_fs_mount_memory ile baglidir;
+    // muzik = pak icindeki [offset, offset+length) araligi -> Blob (JS kopyalar, bizde ek tampon yok).
+    const void *mem; long long size;
+    if (!de_fs_mem_range(pathOrUrl, &mem, &size))
         return -1;
-    fseek(f, 0, SEEK_END);
-    long long size = ftell(f);
     if (length <= 0 || offset + length > size)
         length = size - offset;
-    if (offset < 0 || length <= 0 || length > 0x7FFFFFFF) { fclose(f); return -1; }
-    unsigned char *buf = (unsigned char *)malloc((size_t)length);
-    if (!buf) { fclose(f); return -1; }
-    fseek(f, (long)offset, SEEK_SET);
-    size_t got = fread(buf, 1, (size_t)length, f);
-    fclose(f);
-    int h = got == (size_t)length ? de_js_music_open(NULL, buf, (int)length) : -1;
-    free(buf); // Blob kopyaladi
-    return h;
+    if (offset < 0 || length <= 0 || length > 0x7FFFFFFF)
+        return -1;
+    return de_js_music_open(NULL, (const unsigned char *)mem + offset, (int)length);
 }
 DE_API void de_music_close(int h) { if (h >= 0) de_js_music_close(h); }
 DE_API void de_music_play(int h) { if (h >= 0) de_js_music_play(h); }

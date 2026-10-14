@@ -28,7 +28,7 @@ namespace DigitoyEngine.Language
         static CUnit sharedUnit, metaUnit;
         const string SharedKey = "gen_shared", MetaKey = "gen_meta";
 
-        static bool HasUnit(Primitive p) => p != null && (IsEmittableModel(p) || (p.IsEnum && typeIndex.ContainsKey(p)));
+        static bool HasUnit(Primitive p) => p != null && (HasLayout(p) || (p.IsEnum && typeIndex.ContainsKey(p)));
         static CUnit UnitOf(Primitive p)
         {
             if (!HasUnit(p)) return sharedUnit;
@@ -43,6 +43,7 @@ namespace DigitoyEngine.Language
         {
             EmitCtx = ctx;
             units.Clear();
+            neededStubs.Clear();
             sharedUnit = new CUnit { Key = SharedKey };
             metaUnit = new CUnit { Key = MetaKey };
             CollectStrings(ctx);
@@ -57,22 +58,56 @@ namespace DigitoyEngine.Language
             // yerlesimler (+ header deger bagimliliklari: degerle gomulen struct alanlari)
             foreach (var p in ctx.AllPrimitives)
             {
-                if (!IsEmittableModel(p) || p.IsDelegate) continue;
+                if (!HasLayout(p) || p.IsDelegate || !TrimPlan.IsTypeLive(p)) continue;
                 var u = UnitOf(p);
+                if (p.IsSharedExact) { u.ValueDeps.Add(StructTag(p)); continue; } // CANON: yerlesim canon biriminde; exact header onu include eder
                 u.H.Append(EmitStruct(p));
                 foreach (var f in Hierarchy.AllFields(p))
                     if (f.Type.Type == PrimitiveType.Model && f.Type.IsStruct && HasUnit(f.Type) && f.Type != p)
-                        u.ValueDeps.Add(CName(f.Type.Name));
+                        u.ValueDeps.Add(StructTag(f.Type));
+                if (p.IsCanonForm)
+                {
+                    // canon: dis baglantili trace fn (exact descriptor'lar kullanir) + statik alan blogu TIPI (exact basina instance)
+                    var tr = EmitCanonTrace(p);
+                    if (tr.Length > 0)
+                    {
+                        u.H.Append(p.IsStruct ? $"void trace_inline_{StructTag(p)}(void* e);\n" : $"void trace_{StructTag(p)}(GCHeader* o);\n");
+                        u.C.Append(tr);
+                    }
+                    if (p.StaticFields.Count > 0)
+                    {
+                        u.H.Append($"struct {StaticsStructTag(p)} {{\n");
+                        foreach (var f in p.StaticFields) u.H.Append("    " + FieldDecl(f) + "\n");
+                        u.H.Append("};\n");
+                    }
+                }
             }
-            // statik alanlar: tanim sahibinin .c'sinde, extern header'da (C sifir-init)
+            // statik alanlar: tanim sahibinin .c'sinde, extern header'da (C sifir-init). CANON: exact ornek tek blok (Type.statics)
             foreach (var p in ctx.AllPrimitives)
                 if (IsEmittableModel(p))
+                {
+                    if (p.IsSharedExact)
+                    {
+                        if (p.StaticFields.Count == 0 || p.IsInterface || p.IsDelegate) continue;
+                        var u = UnitOf(p);
+                        u.H.Append($"extern struct {StaticsStructTag(p.Canonical)} {StaticsSym(p)};\n");
+                        u.Pre.Append($"struct {StaticsStructTag(p.Canonical)} {StaticsSym(p)};\n");
+                        continue;
+                    }
                     foreach (var f in p.StaticFields)
                     {
                         var u = UnitOf(p);
                         u.H.Append($"extern {CType(f.Type)} {StaticSym(f)};\n");
                         u.Pre.Append($"{CType(f.Type)} {StaticSym(f)};\n");
                     }
+                }
+            // CANON sozlukleri: exact tip basina `X_dict[]`, exact generic metot ornegi basina `mdict_<sym>[]` (header'da extern)
+            foreach (var p in ctx.AllPrimitives)
+                if (IsEmittableModel(p) && p.IsSharedExact && !p.IsInterface && !p.IsDelegate)
+                    UnitOf(p).H.Append($"extern const void *const {TypeDictSym(p)}[];\n");
+            foreach (var c in ctx.SharedExactCodeOrder)
+                if (c.Shared.HasMethodDict && c.Owner != null && (IsEmittableModel(c.Owner) || c.Owner.IsCanonForm) && IsEmittableCode(c.Shared))
+                    UnitOfCode(c).H.Append($"extern const void *const {MethodDictSym(c)}[];\n");
             // prototipler (vtable/itable fonksiyon adresi icerir -> descriptor'lardan once)
             foreach (var c in ctx.AllCodes)
                 if (IsEmittableCode(c))
@@ -166,6 +201,14 @@ namespace DigitoyEngine.Language
             foreach (var p in ctx.AllPrimitives)
                 if (HasReflectionMembers(p))
                     UnitOf(p).C.Append(EmitReflectionMembers(p));
+            // CANON sozluk icerikleri (descriptor'lar + stub prototipleri hazir): hedef adresleri
+            foreach (var p in ctx.AllPrimitives)
+                if (IsEmittableModel(p) && p.IsSharedExact && !p.IsInterface && !p.IsDelegate)
+                    UnitOf(p).C.Append(EmitDict(ctx, p, TypeDictSym(p)));
+            foreach (var c in ctx.SharedExactCodeOrder)
+                if (c.Shared.HasMethodDict && c.Owner != null && (IsEmittableModel(c.Owner) || c.Owner.IsCanonForm) && IsEmittableCode(c.Shared))
+                    UnitOfCode(c).C.Append(EmitDict(ctx, c, MethodDictSym(c)));
+            foreach (var c in ctx.Stubs) RequestStub(c);
             foreach (var p in ctx.AllPrimitives) // tip attribute tablolarinin tanimi (fonksiyonlardan sonra: ctor cagrilari)
                 if ((IsEmittableModel(p) || p.IsEnum) && typeIndex.ContainsKey(p))
                     UnitOf(p).C.Append(EmitAttrTable($"{CName(p.Name)}_tattrs", TypeAttrs(p)));

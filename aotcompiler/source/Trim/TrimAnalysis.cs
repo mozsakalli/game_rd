@@ -21,6 +21,7 @@ namespace DigitoyEngine.Language.Trim
         internal readonly Dictionary<Primitive, MemberKinds> Facets = new Dictionary<Primitive, MemberKinds>();
         internal readonly Dictionary<Code, Code> CodeParent = new Dictionary<Code, Code>();      // rapor: ilk erisim yolu
         internal readonly Dictionary<Primitive, string> FacetWhy = new Dictionary<Primitive, string>(); // rapor: kok nedeni
+        internal readonly Dictionary<Primitive, string> TypeWhy = new Dictionary<Primitive, string>();   // rapor: tip canlilik nedeni (ilk isaretleyen)
 
         public TrimResult(TrimProfile profile, TrimRoots roots) { Profile = profile; Roots = roots; }
 
@@ -102,20 +103,30 @@ namespace DigitoyEngine.Language.Trim
             {
                 foreach (var a in c.Attributes) AttrRoot(roots, a);
                 if (HasAttr(c.Attributes, "Preserve") && c.Owner != null) roots.AddReflection(c.Owner, MemberKinds.Methods | MemberKinds.Ctors);
-                Primitive lastTypeOf = null;
+                List<Primitive> lastTypeOf = null;
                 foreach (var op in c.Operations)
                 {
                     if (op.Type == OpType.TypeOf && op.PrimitiveRef != null && op.PrimitiveRef.Type == PrimitiveType.Model)
                     {
-                        roots.AddReflection(op.PrimitiveRef, MemberKinds.Name);
-                        lastTypeOf = op.PrimitiveRef;
+                        // CANON: typeof(T) canon govdede -> her exact orneklemenin sozluk hedefi (GetSystem<LayoutSystem> gibi) kok olur
+                        lastTypeOf = op.DictSlot >= 0 ? ExactTargets(ctx, c, op.DictSlot).ToList() : new List<Primitive> { op.PrimitiveRef };
+                        foreach (var tp in lastTypeOf) roots.AddReflection(tp, MemberKinds.Name);
                     }
                     // typeof(X) ... Activator.CreateInstance(Type): `new T()` klonu da bu sekle duser -> X'in ctor kaydi gerekir
                     if (op.Type == OpType.Call && op.Code?.Owner?.Name == "System.Activator" && lastTypeOf != null
                         && op.Code.Name.StartsWith("CreateInstance", StringComparison.Ordinal))
-                        roots.AddReflection(lastTypeOf, MemberKinds.Name | MemberKinds.Ctors);
+                        foreach (var tp in lastTypeOf) roots.AddReflection(tp, MemberKinds.Name | MemberKinds.Ctors);
                 }
             }
+        }
+        // Canon kodun bir sozluk slotunun tum exact orneklemelerdeki hedef tipleri (canon'un ORNEKLEDIGI exact'ler)
+        static IEnumerable<Primitive> ExactTargets(Context ctx, Code canonCode, int slot)
+        {
+            var owner = Context.DictOwnerOf(canonCode);
+            IEnumerable<object> exacts = owner is Primitive p ? ctx.ExactsOf(p) : ctx.ExactCodesOf((Code)owner);
+            foreach (var e in exacts)
+                if (ctx.TryGetDictInstance(e, out var d) && slot < d.Targets.Count && d.Targets[slot] is Primitive tp && !Canon.ContainsCanon(tp))
+                    yield return tp;
         }
         static void AttrRoot(TrimRoots roots, PrimitiveAttribute a)
         {
@@ -232,6 +243,7 @@ namespace DigitoyEngine.Language.Trim
                 if (target == null || !r.CodeParent.TryAdd(target, from)) return;
                 r.LiveCodes.Add(target);
                 queue.Enqueue(target);
+                if (target.IsSharedExact) Visit(target.Shared, target); // CANON: exact kabuk canli -> kodu tasiyan canon govde canli
             }
             // cctor koku: modul host'ta (full) HEPSI eager (modul kodu host'un her statigine dokunabilir). Kod trim'inde yalniz
             // DOKUNULAN tipin cctor'u canli: uyesi cagrilan / statik alanina erisilen / new'lenen / reflection koku. Referanssiz
@@ -280,8 +292,8 @@ namespace DigitoyEngine.Language.Trim
                 if (slot < 0) return;
                 if (owner.IsInterface)
                 {
-                    foreach (var kv in s.ITables)
-                        if (kv.Key == owner && slot < kv.Value.Count) Visit(kv.Value[slot], from);
+                    foreach (var kv in s.ITables) // CANON: canon govdedeki IEnumerable<__Canon> hedefi exact IEnumerable<string> itable'ina duser
+                        if ((kv.Key == owner || (kv.Key.Canonical != null && kv.Key.Canonical == owner.Canonical)) && slot < kv.Value.Count) Visit(kv.Value[slot], from);
                 }
                 else if (IsSubtype(s, owner) && slot < s.VTable.Count) Visit(s.VTable[slot], from);
             }
@@ -300,18 +312,54 @@ namespace DigitoyEngine.Language.Trim
                     foreach (var cand in cands)
                         if (cand != target && instantiated.Contains(cand.Owner) && IsSubtype(cand.Owner, owner) && Signature.Matches(cand, target)) Visit(cand, from);
             }
+            // System.*: C runtime'in gc_alloc ile yarattigi tipler (string/dizi/kutu/reflection wrapper) — yalniz GENERIC OLMAYAN
+            // tanimlar. Generic orneklemeleri (List<X>, Dictionary<K,V>) yalniz kodda New/Activator ile dogar; hepsini ornekli saymak
+            // canon govdedeki sanal cagriyi (ICollection<__Canon>.Add) her exact'e dusurup olu plugin orneklemelerini canli tutuyordu.
+            // Struct'lar: `default` ile dogar ama yalniz CANLI tipler (canli kodun yerel/alan/imza tipleri) — sabit nokta asagida.
+            // Olu plugin'in struct enumerator'larini ornekli saymak canon sanal cagrilarini (IEnumerable<__Canon>) onlara dusuruyordu.
             foreach (var p in ctx.AllPrimitives)
-                if (p.Type == PrimitiveType.Model && (p.IsStruct || p.Name.StartsWith("System.", StringComparison.Ordinal)))
+                if (p.Type == PrimitiveType.Model && !p.IsStruct && p.Name.StartsWith("System.", StringComparison.Ordinal) && p.InstantiatedFrom == null)
                     Instantiate(p);
             foreach (var kt in ctx.ExceptionKindTypes) Instantiate(kt);
             foreach (var kv in r.Facets) if ((kv.Value & MemberKinds.Ctors) != 0) Instantiate(kv.Key);
             Instantiate(Primitive.Object); Instantiate(Primitive.String);
+            // CANON: canon govdedeki op'un sozluk hedefi, o canon sahibin TUM exact orneklemelerinde (New -> ornekli tip, FnPtr -> stub kodu)
+            // Yalniz CANLI exact'lerin hedefi (olu Dictionary<string,M.X> exact'inin ValueCollection'i dogmamali); exact sonradan
+            // canlanabilir -> (op, exact) ciftleri sabit noktada yeniden denenir (DrainDictOps).
+            var dictOps = new List<(Code code, int slot, bool fn)>();
+            var dictDone = new HashSet<(Code, int, object)>();
+            bool DrainDictOps()
+            {
+                bool any = false;
+                foreach (var (code, slot, fn) in dictOps)
+                {
+                    var owner = Context.DictOwnerOf(code);
+                    IEnumerable<object> exacts = owner is Primitive op ? ctx.ExactsOf(op) : ctx.ExactCodesOf((Code)owner);
+                    foreach (var e in exacts)
+                    {
+                        bool live = e is Primitive ep ? r.LiveTypes.Contains(ep) : r.LiveCodes.Contains((Code)e);
+                        if (!live || !dictDone.Add((code, slot, e))) continue;
+                        if (!ctx.TryGetDictInstance(e, out var d) || slot >= d.Targets.Count) continue;
+                        var tgt = d.Targets[slot];
+                        if (tgt is Primitive tp) { Instantiate(tp); MarkType(tp, r); }
+                        else if (tgt is Code tc) Visit(tc, code);
+                        any = true;
+                    }
+                }
+                return any;
+            }
             const string TaskName = "System.Threading.Tasks.Task";
             r.CompletedTaskGetter = ctx.TryGetPrimitive(TaskName, out var taskType) ? ctx.FindMember(taskType, "get_CompletedTask", 0) : null;
-            while (queue.Count > 0)
+            while (queue.Count > 0 || InstantiateLiveStructs() || DrainDictOps())
             {
+                if (queue.Count == 0) continue; // ornekleme/sozluk adimi yeni kod eklemedi -> kosulu yeniden degerlendir
                 var c = queue.Dequeue();
+                markWhy = "kod " + c.Owner?.Name + "." + (c.DisplayName ?? c.Name) + " [" + Path(r, c) + "]";
                 if (c.Owner != null) MarkType(c.Owner, r);
+                // imza/yerel tipleri: MethodTrace param_types/returnType descriptor'lari + C tip bildirimleri (descriptor trim)
+                MarkType(c.ReturnType, r);
+                foreach (var a in c.Arguments) MarkType(a.Type, r);
+                foreach (var l in c.Locals) MarkType(l, r);
                 if (r.Profile.TrimCode && HasAttr(c.Attributes, "DevOnly"))
                 {
                     // govde gezilmez: cagirdiklari erisilemez; Task donusu icin CompletedTask canli kalir
@@ -330,6 +378,8 @@ namespace DigitoyEngine.Language.Trim
                         if (op.Field.IsStatic) Touch(op.Field.Owner, c); // statik alan erisimi = tip dokunuldu
                     }
                     if ((op.Type == OpType.New || op.Type == OpType.Box) && op.PrimitiveRef != null) Instantiate(op.PrimitiveRef);
+                    if ((op.Type == OpType.New || op.Type == OpType.Box) && op.DictSlot >= 0) dictOps.Add((c, op.DictSlot, false));
+                    if (op.Type == OpType.DelegateNew && op.DictSlotFn >= 0) dictOps.Add((c, op.DictSlotFn, true));
                     if (op.Type == OpType.New && op.PrimitiveRef != null) Touch(op.PrimitiveRef, c);
                     if (op.Code == null) continue;
                     Visit(op.Code, c);
@@ -339,30 +389,83 @@ namespace DigitoyEngine.Language.Trim
                         VisitVirtual(op.Code, c);
                 }
             }
+            bool InstantiateLiveStructs()
+            {
+                bool any = false;
+                foreach (var p in r.LiveTypes.ToList())
+                    if (p.Type == PrimitiveType.Model && p.IsStruct && !instantiated.Contains(p)) { Instantiate(p); any = true; }
+                return any;
+            }
             r.Instantiated.UnionWith(instantiated);
             // Facet'li tipler de canli (descriptor + GC trace)
             foreach (var p in r.Facets.Keys) MarkType(p, r);
+            // Runtime'in dogrudan adresledigi tipler (EmitInit): exception kind'lar, NotImplementedException (AOT stub firlatmasi),
+            // reflection wrapper descriptor'lari, System.Array (dizi base'i)
+            foreach (var kt in ctx.ExceptionKindTypes) MarkType(kt, r);
+            foreach (var n in new[] { "System.NotImplementedException", "System.Exception", "System.Type", "System.Reflection.FieldInfo", "System.Reflection.PropertyInfo",
+                                      "System.Reflection.MethodInfo", "System.Reflection.ConstructorInfo", "System.Array" })
+                if (ctx.TryGetPrimitive(n, out var rt)) MarkType(rt, r);
+            // CANON: canli exact ornegin sozluk hedefleri (typeof/new/cast descriptor'lari, stub sahipleri) canli; sabit nokta (hedef exact yeni sozluk acabilir)
+            bool grew = true;
+            while (grew)
+            {
+                grew = false;
+                foreach (var d in ctx.AllDictInstances)
+                {
+                    bool live = d.Exact is Primitive ep ? r.LiveTypes.Contains(ep) : r.LiveCodes.Contains((Code)d.Exact);
+                    if (!live) continue;
+                    foreach (var tgt in d.Targets)
+                    {
+                        if (tgt is Primitive tp) { if (!r.LiveTypes.Contains(tp)) { MarkType(tp, r); grew = true; } }
+                        else if (tgt is Code tc && tc.Owner != null && !r.LiveTypes.Contains(tc.Owner)) { MarkType(tc.Owner, r); grew = true; }
+                    }
+                }
+            }
         }
+        [ThreadStatic] static string markWhy; // rapor: tip canlilik nedeni (ilk isaretleyen)
         static void MarkType(Primitive p, TrimResult r)
         {
             for (; p != null && r.LiveTypes.Add(p); p = p.Parent)
             {
+                r.TypeWhy.TryAdd(p, markWhy ?? "?");
+                var savedWhy = markWhy; markWhy = p.Name;
                 if (p.ElementType != null) MarkType(p.ElementType, r);
                 foreach (var i in p.Interfaces) MarkType(i, r);
                 foreach (var a in p.TypeArguments) MarkType(a, r);
+                if (p.Canonical != null) MarkType(p.Canonical, r); // exact canli -> yerlesim/trace sahibi canon da
+                if (p.InstantiatedFrom != null) MarkType(p.InstantiatedFrom, r); // generic_def descriptor'u
+                foreach (var f in p.Fields) MarkType(f.Type, r); // yerlesim: alan tipleri (struct degerle gomulu; ref alan descriptor'u reflection/trace)
+                foreach (var f in p.StaticFields) MarkType(f.Type, r);
+                markWhy = savedWhy;
             }
         }
+        // rapor: kodun ilk erisim yolu (kok -> ... -> kod), en fazla 6 adim
+        static string Path(TrimResult r, Code c)
+        {
+            var parts = new List<string>();
+            for (var p = c; p != null && parts.Count < 6; p = r.CodeParent.TryGetValue(p, out var q) ? q : null)
+                parts.Add($"{p.Owner?.Name}.{p.DisplayName ?? p.Name}");
+            return string.Join(" <- ", parts);
+        }
+        // Alt tip testi (RTA hedef cozumu): monomorph SONRASI tipler exact'tir -> referans esitligi; paylasimli exact'ler canon
+        // uzerinden (List<string> ~ List<__Canon>). Tanim esitligi YALNIZ hedef acik sablonsa. (Eski Definition karsilastirmasi
+        // Dictionary<Char,Char> ~ Dictionary<int,X> sayip her orneklemeyi canli tutuyordu: Common.dll +900 KB.)
         static bool IsSubtype(Primitive t, Primitive of)
         {
             if (t == null || of == null) return false;
-            var ofT = of.Definition;
             for (var p = t; p != null; p = p.Parent)
             {
-                if (p.Definition == ofT) return true;
+                if (SameType(p, of)) return true;
                 foreach (var i in p.Interfaces)
-                    if (i.Definition == ofT) return true;
+                    if (SameType(i, of)) return true;
             }
             return false;
+        }
+        static bool SameType(Primitive a, Primitive b)
+        {
+            if (a == b) return true;
+            if (a.Canonical != null && a.Canonical == b.Canonical) return true;
+            return b.IsGeneric && a.Definition == b; // hedef sablon (acik): her ornegi kapsar
         }
 
         // ---- rapor (--trim-report) ----
@@ -376,8 +479,30 @@ namespace DigitoyEngine.Language.Trim
             var codes = ctx.AllCodes.Where(c => c.GenericParameters.Count == 0).ToList();
             int live = codes.Count(c => r.LiveCodes.Contains(c));
             sb.Append($"\n## kod: {live} canli / {codes.Count} somut ({codes.Count - live} erisilemez); {r.Instantiated.Count} ornekli tip\n");
+            sb.Append("\n## canli kod, sahip basina (en cok 60):\n");
+            foreach (var g in codes.Where(c => r.LiveCodes.Contains(c)).GroupBy(c => c.Owner?.Name ?? "?").OrderByDescending(g => g.Count()).Take(60))
+            {
+                var first = g.First();
+                sb.Append($"  {g.Count(),5}  {g.Key}  <- {Path(r, first)}\n");
+            }
             foreach (var c in codes.Where(c => !r.LiveCodes.Contains(c) && !c.IsExternal).OrderBy(c => c.Owner?.Name).ThenBy(c => c.Name))
                 sb.Append($"  dead: {c.Owner?.Name}.{c.DisplayName ?? c.Name}\n");
+            // kodu olmayan canli tipler (yalniz descriptor): neden zinciri
+            var codeOwners = new HashSet<Primitive>(codes.Where(c => r.LiveCodes.Contains(c) && c.Owner != null).Select(c => c.Owner));
+            var onlyDesc = r.LiveTypes.Where(p => p.Type == PrimitiveType.Model && !codeOwners.Contains(p) && !p.IsGeneric && p.GenericTemplate == null).ToList();
+            sb.Append($"\n## kodsuz canli tip (yalniz descriptor): {onlyDesc.Count}\n");
+            foreach (var p in onlyDesc.OrderBy(p => p.Name).Take(400))
+            {
+                var chain = new List<string> { p.Name };
+                var cur = p;
+                for (int guard = 0; cur != null && guard < 6; guard++)
+                {
+                    if (!r.TypeWhy.TryGetValue(cur, out var w) || w == cur.Name) break;
+                    chain.Add(w);
+                    cur = ctx.TryGetPrimitive(w, out var cp) ? cp : null; // "kod X.Y" -> bulunamaz, zincir biter
+                }
+                sb.Append($"  {string.Join(" <- ", chain)}\n");
+            }
             sb.Append($"\n## reflection facet: {r.Facets.Count} tip\n");
             foreach (var kv in r.Facets.OrderBy(kv => kv.Key.Name))
                 sb.Append($"  {kv.Key.Name}: {kv.Value}  <- {(r.FacetWhy.TryGetValue(kv.Key, out var w) ? w : "?")}\n");

@@ -89,6 +89,18 @@ namespace DigitoyEngine.Language
             if (instance.InstantiatedFrom != null) return instance; // zaten somut
             foreach (var a in typeArgs)
                 if (ContainsGenericParameter(a)) return instance; // acik: sablon govdesinde yasar, Substitute gercek argumanlarla cozer
+            // CANON: marker'li uygulama (canon govdedeki List<__Canon#0>) kimlik olarak canon ornegine gider; dugum acik kalir
+            // (op.TypeArguments'ta slot anahtari olarak yasar). Exact ref-tip argumanli ornek: once canon ornegi kurulur,
+            // exact kabuklar ona baglanir (govdesiz).
+            Primitive canon = null;
+            if (Canon.Enabled)
+            {
+                var cargs = Canon.Canonicalize(ctx, typeArgs, out bool changed);
+                // marker'li ya da yari-canon (Func<__Canon,string>) uygulama: kimlik TAM canon ornegi; dugum acik kalir
+                if (typeArgs.Any(Canon.ContainsCanon) && (changed || typeArgs.Any(Canon.ContainsMarker))) return InstantiatePrimitive(ctx, template, cargs);
+                if (changed) canon = InstantiatePrimitive(ctx, template, cargs);
+                else if (cargs.Any(Canon.ContainsCanon)) instance.IsCanonForm = true;
+            }
             instantiationDepth++;
             try
             {
@@ -120,6 +132,17 @@ namespace DigitoyEngine.Language
                 // o sirada bu tipin uyeleri MemberOf ile aranabilir -> kabuk hazir olmali.
                 var memberTemplates = ctx.MembersOf(template).ToList(); // snapshot: klon kaydi listeyi degistirmez ama guvenli
                 var memberShells = memberTemplates.Select(m => CloneCodeShell(ctx, m, map, null, instance)).ToList();
+                if (canon != null)
+                {
+                    instance.Canonical = canon;
+                    ctx.RegisterSharedExact(instance, canon);
+                    for (int i = 0; i < memberShells.Count; i++)
+                    {
+                        memberShells[i].Canonical = MemberOf(ctx, canon, memberTemplates[i]);
+                        memberShells[i].BodyCloned = true; // govde yok: kod canon'da
+                    }
+                }
+                else if (instance.IsCanonForm) instance.Canonical = instance;
                 for (int fieldIndex = 0; fieldIndex < instance.Fields.Count; fieldIndex++)
                     instance.Fields[fieldIndex].Type = Substitute(ctx, template.Fields[fieldIndex].Type, map);
                 for (int fieldIndex = 0; fieldIndex < instance.StaticFields.Count; fieldIndex++)
@@ -150,6 +173,29 @@ namespace DigitoyEngine.Language
         public static Code InstantiateCode(Context ctx, Code template, List<Primitive> typeArgs)
         {
             if (template.GenericParameters.Count == 0) return template;
+            // CANON: marker'li argumanlar -> canon metot ornegi (kimlik). Ref-tip argumanlar ya da paylasimli exact sahip
+            // -> once canon ornegi (canon sahibin sablonu + canon argumanlar), exact kabuk govdesiz ona baglanir.
+            if (Canon.Enabled)
+            {
+                var cargs = Canon.Canonicalize(ctx, typeArgs, out bool changed);
+                if (typeArgs.Any(Canon.ContainsCanon) && (changed || typeArgs.Any(Canon.ContainsMarker))) return InstantiateCode(ctx, template, cargs);
+                bool ownerShared = template.Owner != null && template.Owner.IsSharedExact;
+                if (changed || ownerShared)
+                {
+                    var canonTemplate = ownerShared ? MemberOf(ctx, template.Owner.Canonical, template) : template;
+                    var canonCode = InstantiateCode(ctx, canonTemplate, cargs);
+                    var emap = new Dictionary<Primitive, Primitive>();
+                    for (int i = 0; i < template.GenericParameters.Count; i++) emap[template.GenericParameters[i]] = typeArgs[i];
+                    var shell = CloneCodeShell(ctx, template, emap, typeArgs, template.Owner);
+                    if (shell.Canonical == null)
+                    {
+                        shell.Canonical = canonCode;
+                        shell.BodyCloned = true;
+                        ctx.RegisterSharedExactCode(shell, canonCode);
+                    }
+                    return shell;
+                }
+            }
             var map = new Dictionary<Primitive, Primitive>();
             for (int i = 0; i < template.GenericParameters.Count; i++)
                 map[template.GenericParameters[i]] = typeArgs[i];

@@ -107,7 +107,14 @@ struct Type
     // ---- dizi = birinci sinif tip: T[] descriptor'u hem KIMLIK hem TAHSIS tipidir (gc.type == typeof(T[])). Trace tek
     // jenerik fonksiyon (digitoyengine_trace_array): eleman ref -> hepsini shade; struct -> elem_type->trace_inline; atomik -> yok.
     TraceInlineFn trace_inline; // struct descriptor'u: ref tasiyan struct'ta dolu (dizi/inline eleman tarama); yoksa 0
+    // ---- CANON GENERICS (docs/engine-notes.md): paylasimli exact ornek (List<string>) ----
+    void *statics;                // bu exact orneklemenin statik alan blogu (struct X_statics*); canon kod sozlukten gelen Type uzerinden okur
+    const void *const *dict;      // derleme zamani sabit sozluk: slot -> Type* / dict / stub fn (ayni isaretci vtable'daki dict slotunda da durur)
 };
+// Canon govdenin sozluk erisimi: __dict = (class instance metodu) this->gc.type->vtable[K] ya da gizli parametre.
+#define DIGITOYENGINE_DICT_TYPE(d, i) ((const Type *)(d)[i])
+#define DIGITOYENGINE_DICT_DICT(d, i) ((const void *const *)(d)[i])
+#define DIGITOYENGINE_DICT_FN(d, i) ((const void *)(d)[i])
 enum
 {
     DIGITOYENGINE_TYPE_STRUCT = 1,
@@ -597,6 +604,15 @@ VmArray *vmarray_new_e(int len, const Type *elem); // elemsize/tahsis tipi elem'
 unsigned short digitoyengine_elem_size(const Type *elem);                  // deger tipi: payload boyutu; referans: pointer
 int digitoyengine_is_reftype(const Type *t);                               // class/string/dizi/iface/delegate
 int digitoyengine_is_array(const GCHeader *o, const Type *elem, int rank); // `o is T[]` (ref elemanlarda kovaryans); o null -> 0
+// CANON: hedef tipi derleme zamaninda bilinmeyen is/as/cast (sozlukten gelen exact Type*): iface/dizi/class ayrimini bayraklardan yapar.
+static inline int DIGITOYENGINE_is_any(const GCHeader *o, const Type *target)
+{
+    if (!o) return 0;
+    if (target->flags & DIGITOYENGINE_TYPE_INTERFACE) return DIGITOYENGINE_implements(o->type, target);
+    if (target->flags & DIGITOYENGINE_TYPE_ARRAY) return digitoyengine_is_array(o, target->elem_type, target->rank);
+    if (target->alias) return o->type == target || o->type == target->alias; // enum kutusu <-> underlying
+    return DIGITOYENGINE_is(o->type, target);
+}
 const Type *digitoyengine_array_type(const Type *elem, int rank);          // T[] kimlik descriptor'u (uretilen typeof(T[]) ya da sentez; ayni (elem,rank) = ayni Type*)
 GCHeader *digitoyengine_array_get(VmArray *a, int index);                  // kutulu eleman (Array.GetValue)
 void digitoyengine_array_set(VmArray *a, int index, GCHeader *value);      // kutudan elemana (Array.SetValue), ref'te barrier

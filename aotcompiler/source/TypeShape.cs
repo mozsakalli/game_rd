@@ -22,6 +22,7 @@ namespace DigitoyEngine.Language
         public static Shape Of(Primitive t)
         {
             if (t == null || t.Type == PrimitiveType.Void) return Shape.Void;
+            if (t.IsCanon) return Shape.Class; // __Canon ve marker'lar: GC pointer (ref-tip temsilcisi)
             if (t.IsGenericParameter) return Shape.GenericParam;
             switch (t.Type)
             {

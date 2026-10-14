@@ -130,6 +130,56 @@ namespace DigitoyEngine.Language
         public IEnumerable<Primitive> AllPrimitives => primitiveOrder;
         public IEnumerable<Code> AllCodes => codeOrder;
 
+        // ---- CANON: paylasim kayitlari + sozlukler (Canon.cs) ----
+        readonly Dictionary<Primitive, List<Primitive>> sharedExacts = new Dictionary<Primitive, List<Primitive>>();
+        readonly Dictionary<Code, List<Code>> sharedExactCodes = new Dictionary<Code, List<Code>>();
+        readonly Dictionary<object, DictLayout> layouts = new Dictionary<object, DictLayout>();
+        readonly Dictionary<object, DictInstance> dictInstances = new Dictionary<object, DictInstance>();
+        readonly Dictionary<Primitive, Code> dictSentinels = new Dictionary<Primitive, Code>();
+        public readonly List<Primitive> SharedExactOrder = new List<Primitive>();
+        public readonly List<Code> SharedExactCodeOrder = new List<Code>();
+        public readonly HashSet<Code> Stubs = new HashSet<Code>(); // fonksiyon isaretcisi istenen ctx'li exact metotlar (instantiating stub)
+        static readonly List<Primitive> noPrims = new List<Primitive>();
+        static readonly List<Code> noCodes = new List<Code>();
+
+        public void RegisterSharedExact(Primitive exact, Primitive canon)
+        {
+            if (!sharedExacts.TryGetValue(canon, out var l)) sharedExacts[canon] = l = new List<Primitive>();
+            l.Add(exact); SharedExactOrder.Add(exact);
+        }
+        public void RegisterSharedExactCode(Code exact, Code canon)
+        {
+            if (!sharedExactCodes.TryGetValue(canon, out var l)) sharedExactCodes[canon] = l = new List<Code>();
+            l.Add(exact); SharedExactCodeOrder.Add(exact);
+        }
+        public IReadOnlyList<Primitive> ExactsOf(Primitive canon) => sharedExacts.TryGetValue(canon, out var l) ? l : noPrims;
+        public IReadOnlyList<Code> ExactCodesOf(Code canon) => sharedExactCodes.TryGetValue(canon, out var l) ? l : noCodes;
+
+        // Sozluk sahibi: canon generic metot ornegi (metot argumanlarinda __Canon) kendi sozlugunu tasir, aksi halde canon tip.
+        public static object DictOwnerOf(Code canonCode) => canonCode.HasMethodDict ? canonCode : (object)canonCode.Owner;
+        public DictLayout LayoutOf(object owner)
+        {
+            if (!layouts.TryGetValue(owner, out var l)) layouts[owner] = l = new DictLayout { Owner = owner };
+            return l;
+        }
+        public bool TryGetLayout(object owner, out DictLayout l) => layouts.TryGetValue(owner, out l);
+        public DictInstance DictInstanceOf(object exact)
+        {
+            if (!dictInstances.TryGetValue(exact, out var d)) dictInstances[exact] = d = new DictInstance { Exact = exact };
+            return d;
+        }
+        public bool TryGetDictInstance(object exact, out DictInstance d) => dictInstances.TryGetValue(exact, out d);
+        public IEnumerable<DictInstance> AllDictInstances => dictInstances.Values;
+
+        // vtable'daki sozluk slotu isaretcisi (Hierarchy; K5): canon tip basina tek sentinel Code, exact'ler ayni nesneyi tasir.
+        public Code DictSentinel(Primitive canon)
+        {
+            if (!dictSentinels.TryGetValue(canon, out var s))
+                dictSentinels[canon] = s = new Code { Owner = canon, SimpleName = "__dict", IsStatic = true, BodyCloned = true };
+            return s;
+        }
+        public static bool IsDictSentinel(Code c) => c != null && c.SimpleName == "__dict" && c.IsStatic && c.Owner != null && c.Owner.IsCanonForm;
+
         readonly struct ApplyKey : System.IEquatable<ApplyKey>
         {
             readonly Primitive template;

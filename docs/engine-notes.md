@@ -1,5 +1,38 @@
 # DigitoyEngine R&D (game_rd)
 
+## WASM: FILESYSTEM=0, pak fetch -> heap (2026-10-14, Sandbox tarayicida dogrulandi; game.js 116 -> 65 KB)
+- KARAR: `--preload-file`/MEMFS/`game.data` KALDIRILDI. `-sFILESYSTEM=0` (+`-sEXPORTED_FUNCTIONS=_main,_malloc`); `game.pak` Build/wasm'a
+  AYNEN kopyalanir. `host_wasm.c`: main loop once kurulur (g_running=0 -> bos frame), `de_js_fetch_pak("game.pak")` (EM_JS fetch ->
+  arrayBuffer -> _malloc + HEAPU8.set) -> `de_wasm_pak_ready(ptr,len)` (KEEPALIVE) -> `de_fs_mount_memory("/data/Build/game.pak")`
+  + `de_app_init("/data",...)`. GameHost yolu degismedi.
+- `de_fs.c` web backend: `de_fs_mount_memory/de_fs_mem_range`; handle `mem` tasir (f = sentinel), read = sinir denetimli memcpy,
+  yol-tabanli okuma (handle<0) web'de yok. `audio_shim.c` wasm `de_music_open`: fopen yerine `de_fs_mem_range` -> Blob (ek tampon yok).
+- Pak heap'te TEK kopya (MEMFS modelinde JS tarafinda + okuma kopyasi vardi). `printf/stderr` FILESYSTEM=0 ile calisir (minimal fd_write);
+  `sokol_shim` crash_native.log fopen NULL doner (guard var). Prefs zaten localStorage.
+- SIRADA (kullanici: sonraki konu): tek HTML (`-sSINGLE_FILE` + pak base64 `Module.pakBase64` -> `de_wasm_pak_ready`; EM_JS'te 3 satir);
+  `--closure 1` (-20..30 KB js), MINIMAL_RUNTIME.
+
+## CANON GENERICS + TRIM SIZINTILARI (2026-10-14, selftest 82/84; Sandbox/yuzbirextra lean+full boot OK)
+- CANON (.NET __Canon modeli, yalniz REF-TIP argumanlar; `aotcompiler/source/Canon.cs`): exact `List<string>` kabuk (descriptor/vtable/
+  itable/statics/dict) + govdesiz Code; kod `List<__Canon>`'da. Kimlik: `Canonicalize` (ref -> __Canon, generic struct ozyinelemeli);
+  canon govde IL'den MARKER'li baglamla cevrilir (`__Canon#0`, `#1.0` yol isaretcili; `Apply/Instantiate` marker'i __Canon'a indirger)
+  -> `op.TypeArguments/OpenRef` acik bicim = sozluk slot anahtari (`Demarker` exact'e cozer). Pozisyonel/unify REDDEDILDI
+  (`Dict<KVP<string,int>,KVP<Foo,int>>`). Sozluk: derleme zamani sabit `X_dict[]` (TypeHandle/TypeDict/MethodDict/FnPtr), talep
+  Resolver sabit noktasinda (`ProcessDictionaries`), derinlik korkulugu 10. Erisim: class instance metodu `this->gc.type->vtable[K]`
+  (Hierarchy dict sentinel slotu; tureyen miras alir), static/struct/canon generic metot gizli ilk param `__dict`. Fn-pointer
+  gereken her yer (MethodInfo.fn, delegate, struct vtable/itable, GVM slotu) `de_inst_*` instantiating stub -> thunk/vmint/Invoke
+  DEGISMEDI. C struct canon'un (`StructTag`), exact alan erisiminde acik cast; `Type.statics/.dict` (append-only); exact cctor
+  `canon_cctor(exact_dict)`; `DIGITOYENGINE_is_any` (runtime hedefli is/as/cast); canon kod yalniz trace kaydi. Kapi `AOT_CANON=0`.
+- OLCUM Windows release: Sandbox lean 3 278 -> 2 448 KB, full 5 754 -> 4 674; yuzbirextra lean (Common.dll ile) 3 535 -> 2 321 KB.
+- TRIM SIZINTILARI (Common.dll "sadece durmasi" +500 KB wasm): (1) `IsSubtype` TANIM esitligi -> exact (canon esdegerligi dahil;
+  `Dictionary<Char,Char>` ~ `Dictionary<int,X>` sayiyordu); (2) descriptor trim: `IsEmittableModel` -> `IsTypeLive`, `MarkType`
+  imza/yerel/alan/canon/generic_def/sozluk + runtime kok tipleri (exception kind, NotImplementedException, reflection wrapper,
+  System.Array); (3) "tum System.* ornekli" -> yalniz generic olmayan tanimlar; (4) "tum struct'lar ornekli" -> yalniz CANLI
+  struct'lar (sabit nokta); (5) sozluk kenari op-bazli, yalniz canli exact (`DrainDictOps`). `--trim-report`: "canli kod sahibe gore
+  + kok yolu", "kodsuz canli tip neden zinciri".
+- CIdent: kaynak ad `u_` oneki (rezerve liste YOK; emscripten `#define unix 1` tuzagi). KALAN: Test64 matrisi, `--no-canon` CLI,
+  ModuleWriter gomulu-generic kontrolu, perf A/B, 895 kodsuz canli tip (AssetDatabase.LoadTexture zinciri).
+
 ## REGEX FAZ 1: corelib'de minimal .NET-uyumlu motor (2026-10-14, selftest 82/84 = eski 2 bilinen; Demo85 21/21 .NET paritesi)
 - KARAR (kullanıcı): POSIX/PCRE/compile-time yok; kendimiz, **çok minimal**, tek dosya `aotcompiler/c_runtime/corelib/Regex.cs`
   (eski 2-pattern'lik Prefix/Suffix stub'u SİLİNDİ; engine'de çağıran yoktu). Kapsam = Common + core.upm **runtime** kullanımı:

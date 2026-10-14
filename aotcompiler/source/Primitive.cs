@@ -165,6 +165,20 @@ namespace DigitoyEngine.Language
         // Yuzeyi corelib/String.cs tanimlar; transpiler struct/Type/ctor URETMEZ.
         public static Primitive String = new Primitive { Name = WellKnown.String, Type = PrimitiveType.Model, Parent = Object };
         public static Primitive ValueType = new Primitive { Name = WellKnown.ValueType, Type = PrimitiveType.Model, Parent = Object };
+        // CANON (docs/engine-notes.md CANON GENERICS): ref-tip generic argumanlarinin ortak temsilcisi (.NET __Canon).
+        // Model class, Object'ten turer, C'de GCHeader*. Runtime tipi DEGILDIR: descriptor'u yok, typeof/new/cast'te
+        // asla sembol olarak gorunmez (emisyon assert) — exact tip her zaman sozlukten (dict) gelir.
+        public static Primitive Canon = new Primitive { Name = "__Canon", Type = PrimitiveType.Model, Parent = Object, IsCanon = true };
+        public bool IsCanon;          // __Canon ya da marker
+        public int CanonIndex = -1;   // marker: sahibin kacinci generic argumani icinde (-1 = __Canon'un kendisi)
+        public int[] CanonPath;       // marker: arguman icindeki yol (TypeArguments indeksleri; -1 = ElementType)
+        public bool CanonIsMethod;    // marker: metot generic argumani (true) / tip argumani (false)
+        public bool IsCanonMarker => IsCanon && CanonIndex >= 0;
+        // Paylasim: exact ref-tip orneklemesinin (List<string>) kod/yerlesim sahibi canon orneklemesi (List<__Canon>).
+        // null = paylasimsiz (value-type argumanli ya da generic degil) ya da canon'un kendisi.
+        public Primitive Canonical;
+        public bool IsSharedExact => Canonical != null && Canonical != this;
+        public bool IsCanonForm; // bu ornek bir canon ornegidir (argumanlarinda __Canon var; kod burada, descriptor yok)
 
         public static Primitive IntArray = ArrayOf(Int);
         public static Primitive ByteArray = ArrayOf(Byte);

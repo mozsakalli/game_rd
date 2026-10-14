@@ -740,7 +740,7 @@ public static class Program
 
     // ---- wasm32 (docs/platform-hosts.md H4): emscripten ile editorde derlenir (toolchain indirilir, EmsdkToolchain) ----
     // <proje>/Build/wasm/
-    //   game.js + game.wasm + game.data   HER build (emcc; game.data = --preload-file game.pak)
+    //   game.js + game.wasm + game.pak    HER build (emcc; pak AYNEN kopyalanir, host fetch ile heap'e alir; MEMFS/game.data yok)
     //   index.html                        ILK uretimde sablondan (platforms/wasm/shell), sonra DOKUNULMAZ (kullaniciya ait)
     // Nesneler <proje>/Library/aot/wasm/obj/ altinda: generated.c her build, runtime/shim'ler mtime cache. Tarayici file:// ile wasm yuklemez:
     // Build/wasm/ bir HTTP sunucudan servis edilmeli (editor "Run in Browser" ya da `python -m http.server`).
@@ -779,15 +779,18 @@ public static class Program
         string common = $"-w -DSOKOL_GLES3 {NativeIncludes} {longjmp} " + (debug ? "-O0 -g -DDIGITOYENGINE_DEBUG" : opt + lto) + cExtra;
         var res = DigitoyEngine.Build.CcBuild.Compile(emcc, objDir, common, items, Console.WriteLine);
         var objs = res.Objects;
-        // Link: WebGL2, bellek buyur, setjmp/longjmp (exception = longjmp + shadow stack), pak MEMFS'e gomulu (game.data).
+        // Link: WebGL2, bellek buyur, setjmp/longjmp (exception = longjmp + shadow stack). FILESYSTEM=0: MEMFS/TTY/syscall JS'i
+        // (~40 KB) yok; pak host_wasm.c'de fetch -> heap -> de_fs_mount_memory. _malloc dis aktarilir (fetch tamponu).
         // Nesne listesi rsp dosyasindan (CcBuild.Link; komut satiri limiti).
         string outJs = Path.Combine(outDir, "game.js");
         string link = (debug ? "-g -sASSERTIONS=1" : opt + lto) +
             " -sUSE_WEBGL2=1 -sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2 -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=64MB -sSTACK_SIZE=8MB" +
-            $" {longjmp} -sMALLOC=emmalloc -sENVIRONMENT=web -sEXIT_RUNTIME=0 -sMODULARIZE=0 -sEXPORT_NAME=Module" +
-            " -sEXPORTED_RUNTIME_METHODS=UTF8ToString" + linkExtra;
-        DigitoyEngine.Build.CcBuild.Link(emcc, objs, $"--preload-file {Quote(pak + "@/data/Build/game.pak")}", link, outJs, Console.WriteLine);
-        Console.WriteLine($"emcc ok -> {Path.Combine(outDir, "game.wasm")} ({new FileInfo(Path.Combine(outDir, "game.wasm")).Length / 1024} KB wasm, {new FileInfo(Path.Combine(outDir, "game.data")).Length / 1024} KB data)");
+            $" {longjmp} -sMALLOC=emmalloc -sENVIRONMENT=web -sEXIT_RUNTIME=0 -sMODULARIZE=0 -sEXPORT_NAME=Module -sFILESYSTEM=0" +
+            " -sEXPORTED_RUNTIME_METHODS=UTF8ToString -sEXPORTED_FUNCTIONS=_main,_malloc" + linkExtra;
+        DigitoyEngine.Build.CcBuild.Link(emcc, objs, "", link, outJs, Console.WriteLine);
+        foreach (var stale in new[] { "game.data" }) { var sp = Path.Combine(outDir, stale); if (File.Exists(sp)) File.Delete(sp); } // eski MEMFS paketi
+        File.Copy(pak, Path.Combine(outDir, "game.pak"), true);
+        Console.WriteLine($"emcc ok -> {Path.Combine(outDir, "game.wasm")} ({new FileInfo(Path.Combine(outDir, "game.wasm")).Length / 1024} KB wasm, {new FileInfo(outJs).Length / 1024} KB js, {new FileInfo(pak).Length / 1024} KB pak)");
 
         // kabuk: yalniz yoksa (kullaniciya ait)
         string index = Path.Combine(outDir, "index.html");
@@ -1224,10 +1227,11 @@ public static class Program
         while (queue.Count > 0)
         {
             var c = queue.Dequeue();
-            foreach (var op in c.Operations)
+            foreach (var op in c.Shared.Operations) // CANON: exact kabuk govdesiz -> canon govde gezilir
             {
                 if (op.Code == null) continue;
                 Visit(op.Code, c);
+                if (op.Code.IsSharedExact) Visit(op.Code.Shared, c);
                 if (op.Type == OpType.CallVirtual && byName.TryGetValue(op.Code.SimpleName, out var cands))
                     foreach (var cand in cands)
                         if (cand != op.Code && IsSubtype(cand.Owner, op.Code.Owner) && Signature.Matches(cand, op.Code)) Visit(cand, c);

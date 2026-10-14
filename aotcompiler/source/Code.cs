@@ -94,7 +94,11 @@ namespace DigitoyEngine.Language
         public object Value;
         public Code Code;
         public Primitive PrimitiveRef; // New icin: olusturulacak model tipi
-        public List<Primitive> TypeArguments = new List<Primitive>(); // New/Call generic ise somutlastirma argumanlari
+        public List<Primitive> TypeArguments = new List<Primitive>(); // New/Call generic ise somutlastirma argumanlari (canon govdede MARKER'li acik bicim; Resolver temizlemez)
+        public Primitive OpenRef; // canon govde: PrimitiveRef'in marker'li ACIK bicimi (Resolver somutlamadan once saklar); dict slot anahtari
+        public int DictSlot = -1; // canon govde: bu op'un sozluk slotu (-1 = exact bilgi gerekmiyor; -2 = cagrilan ayni sozlugu paylasir -> kendi __dict)
+        public int DictSlotFn = -1; // DelegateNew: ctx'li hedef icin FnPtr slotu (instantiating stub); DictSlot delegate tipinin TypeHandle'i
+        public int DictSlotIface = -1; // CallVirtual (iface): canon iceren iface tipinin exact descriptor slotu (itable anahtari)
         public Label Label; // Label op'unda bu op'un kimligi, Br/Brtrue/Brfalse'de hedef
 
         public override string ToString() => $"Op(Type={Type}, Slot={Slot}, Field={(Field != null ? Field.Owner.Name + "$" + Field.Name : "null")}, Value={Value}, Code={(Code != null ? Code.EncodeName() : "null")}, PrimitiveRef={(PrimitiveRef != null ? PrimitiveRef.Name : "null")})";
@@ -139,6 +143,15 @@ namespace DigitoyEngine.Language
         // SOMUT generic baglamla (Owner.TypeArguments + MethodTypeArguments) IL'den yeniden cevrilir (docs/engine-notes.md GENERICS-S1).
         public object IlSource;
         public List<Primitive> MethodTypeArguments; // generic METHOD orneklemesi: sablonun GenericParameters sirasiyla somut argumanlar
+        // CANON: exact ref-tip orneklemesinin kabugu govdesizdir; kodu bu canon Code'dadir (List<string>.Add -> List<__Canon>.Add).
+        // null = paylasimsiz. Emisyon/Trim/vtable girisleri daima Canonical uzerinden gider.
+        public Code Canonical;
+        public bool IsSharedExact => Canonical != null && Canonical != this;
+        public Code Shared => Canonical ?? this;
+        // canon kod: gizli `__dict` parametresi alir mi (K6): static metot, struct uyesi, canon generic metot. Class instance metodu this'ten bulur.
+        public bool IsCanonCode => (Owner != null && Owner.IsCanonForm) || (MethodTypeArguments != null && MethodTypeArguments.Contains(Primitive.Canon));
+        public bool NeedsDictParam => IsCanonCode && !IsExternal && NativeBody == null && (IsStatic || (Owner != null && Owner.IsStruct) || (MethodTypeArguments != null && MethodTypeArguments.Contains(Primitive.Canon)));
+        public bool HasMethodDict => MethodTypeArguments != null && MethodTypeArguments.Contains(Primitive.Canon); // sozluk sahibi metot (yoksa Owner)
         public ushort CilAttributes; // System.Reflection.MethodAttributes
         public List<PrimitiveAttribute> Attributes = new List<PrimitiveAttribute>(); // custom attribute'lar (reflection tablosu)
 

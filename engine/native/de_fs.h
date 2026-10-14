@@ -7,7 +7,7 @@
 //   Backend'ler (ayni sozlesme):
 //     desktop / iOS : stdio (fopen/fseek/fread)             [bu dosya]
 //     Android       : stdio + APK assets/ icin fd+offset    [bu dosya, __ANDROID__: "asset:<ad>" yolu]
-//     web (wasm)    : fetch -> bellek, read = memcpy          [de_fs_web.c, ileride]
+//     web (wasm)    : host fetch -> heap, de_fs_mount_memory; read = memcpy [bu dosya, __EMSCRIPTEN__]
 //
 //   Is modeli: TUM IO ve decode worker'da, managed TEK thread. Her cagri aninda
 //   bir job id doner; sonucu de_async kuyruguna yazilir (de_async.h), ana thread
@@ -40,6 +40,13 @@ extern "C"
 #endif
     DE_FS_API long long de_fs_size(int handle);
     DE_FS_API void de_fs_close(int handle);
+#if defined(__EMSCRIPTEN__)
+    // Web: dosya sistemi YOK (-sFILESYSTEM=0). Host, pak'i fetch ile heap'e alir ve bu yolla baglar; de_fs_open(path)
+    // ayni yolu gorunce bellek handle'i verir (read = memcpy, decode = stbi_from_memory). Bellek host'a ait (free edilmez).
+    DE_FS_API void de_fs_mount_memory(const char *path, const void *data, long long len);
+    // Bagli bellek dosyasinin araligi (audio: pak icindeki muzik -> Blob). 1 = var.
+    DE_FS_API int de_fs_mem_range(const char *path, const void **data, long long *len);
+#endif
 
     // [offset, offset+length) araligini okur -> job; tamamlanma data/len (malloc'lu, de_async_free).
     // handle < 0 ise `path` kullanilir (editor loose dosyalari). length 0 = dosyanin tamami.

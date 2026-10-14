@@ -57,6 +57,9 @@ namespace DigitoyEngine.Language
             if (t == Primitive.String) return "&vmstring_type";
             if (t == Primitive.ValueType) return "&vmvaluetype_type";
             if (t == Primitive.Void || t.Type == PrimitiveType.Void) return "&vmvoid_type"; // MethodInfo.ReturnType == typeof(void) (.NET)
+            // CANON: descriptor yok; trace kaydinin sahibi acik generic tanim (digitoyengine_method_owner_name "List<T>" basar)
+            if (Canon.ContainsCanon(t))
+                return t.IsCanonForm && t.InstantiatedFrom != null && reflectedGenericDefs.ContainsKey(CName(t.InstantiatedFrom.Name)) ? $"&{TypeSym(t.InstantiatedFrom)}" : "0";
             if (t.IsEnum) return typeIndex.ContainsKey(t) ? $"&{CName(t.Name)}_type" : "&vmint32_type";
             var prim = PrimTypeSym(t);
             if (prim != null) return "&" + prim;
@@ -92,8 +95,12 @@ namespace DigitoyEngine.Language
             c.Owner != null && c.Owner.IsInterface && IsEmittableModel(c.Owner) && c.GenericParameters.Count == 0;
         // P/Invoke marshal sarmalayicisi olan REFERANSSIZ extern'ler kayit almaz: sarmalayici static'tir, adresi alinirsa
         // native sembolu guclu ister (link kirilir). Diger extern'ler zayif prototiple kayitlanir (fn 0 olabilir).
+        // CANON: exact kabuk (List<string>.Add) govdesiz ama reflection/modul baglama kaydi alir; fn = canon fn ya da stub (K7).
+        static bool IsExactShellRecord(Code c) =>
+            c.IsSharedExact && c.GenericParameters.Count == 0 && OwnsMethodTable(c.Owner) && !HasOpenTypeArgs(c.Owner)
+            && IsEmittableCode(c.Shared) && !c.Shared.IsExternal;
         static bool HasMethodRecord(Code c) =>
-            ((IsEmittableCode(c) && !(c.IsExternal && NeedsPInvokeMarshal(c) && !hostReferenced.Contains(c))) || IsIfaceDecl(c))
+            ((IsEmittableCode(c) && !(c.IsExternal && NeedsPInvokeMarshal(c) && !hostReferenced.Contains(c))) || IsIfaceDecl(c) || IsExactShellRecord(c))
             && TrimPlan.MethodRecord(c) != MethodRecordKind.None;
         // Tip descriptor'i uretilen kod icinde mi (Type.methods baglanabilir)? Runtime kokleri (Object/String) -> sahipsiz grup.
         static bool OwnsMethodTable(Primitive p) =>
@@ -119,7 +126,8 @@ namespace DigitoyEngine.Language
                 if (hashes.TryGetValue(h, out var other) && other != name)
                     throw new Exception($"meta: metot adi hash cakismasi: '{name}' vs '{other}'");
                 hashes[h] = name;
-                bool trace = TrimPlan.MethodRecord(c) == MethodRecordKind.Trace && !IsIfaceDecl(c);
+                // CANON kodu yalniz trace kaydi alir (gizli __dict parametresi sekil thunk'u/Invoke ile uyumsuz; reflection exact kabuktan)
+                bool trace = (TrimPlan.MethodRecord(c) == MethodRecordKind.Trace || c.IsCanonCode) && !IsIfaceDecl(c);
                 if (trace) traceOnly.Add(c);
                 var owners = trace ? traceByOwner : byOwner;
                 if (OwnsMethodTable(c.Owner))
@@ -188,6 +196,11 @@ namespace DigitoyEngine.Language
             if (p.CilAttributes != 0) sb.Append($", .cilattrs = {p.CilAttributes}u");
             if (p.InstantiatedFrom != null && reflectedGenericDefs.ContainsKey(CName(p.InstantiatedFrom.Name)))
                 sb.Append($", .generic_def = &{TypeSym(p.InstantiatedFrom)}");
+            if (p.IsSharedExact && !p.IsInterface && !p.IsDelegate) // CANON (K9/K10): exact descriptor sozluk + statics tasir
+            {
+                if (p.StaticFields.Count > 0) sb.Append($", .statics = &{StaticsSym(p)}");
+                sb.Append($", .dict = {TypeDictSym(p)}");
+            }
             return sb.ToString();
         }
 
@@ -195,12 +208,13 @@ namespace DigitoyEngine.Language
         static string MemberMetaTail(Primitive owner, PrimitiveField f)
         {
             var cn = CName(owner.Name);
+            var st = StructTag(owner);
             var fn = CName(f.Name);
             var tag = ExportTag(f.Type);
             var attrs = AttrTail($"{cn}_fattrs_{fn}", MemberAttrs(owner, f.Attributes)) + $", .cilattrs = {f.CilAttributes}";
             if (f.IsStatic)
                 return $", .tag = '{tag}', .size = (unsigned short)sizeof({StaticSym(f)}), .addr = (void*)&{StaticSym(f)}, .hash = {Fnv64(f.Name)}ull{attrs}";
-            return $", .tag = '{tag}', .offset = (unsigned short)offsetof(struct {cn}, {fn}), .size = (unsigned short)sizeof(((struct {cn}*)0)->{fn}), .hash = {Fnv64(f.Name)}ull{attrs}";
+            return $", .tag = '{tag}', .offset = (unsigned short)offsetof(struct {st}, {fn}), .size = (unsigned short)sizeof(((struct {st}*)0)->{fn}), .hash = {Fnv64(f.Name)}ull{attrs}";
         }
 
         // ---- custom attribute tablolari (docs/registry-removal.md Faz 4b) ----
@@ -338,7 +352,8 @@ namespace DigitoyEngine.Language
                     tt.rows.Add($"    {{ {prefix}0, {decl}, {ptypes} }},");
                     continue;
                 }
-                string fn = hasBody ? $"(const void*)&{CSym(c)}" : "0";
+                string fn = hasBody ? $"(const void*)&{FnPtrSym(c)}" : "0";
+                RequestStub(c); // CANON: ctx isteyen exact kabuk -> stub tanimi + prototipi
                 string tramp = HasVirtualTramp(c) ? $"(const void*)&{VTrampSym(c)}" : "0";
                 var attrs = MemberAttrs(c.Owner, c.Attributes);
                 int nattrs = EmittableAttrs(attrs).Count;
