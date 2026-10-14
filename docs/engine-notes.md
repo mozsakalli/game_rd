@@ -1,5 +1,25 @@
 # DigitoyEngine R&D (game_rd)
 
+## REGEX FAZ 1: corelib'de minimal .NET-uyumlu motor (2026-10-14, selftest 82/84 = eski 2 bilinen; Demo85 21/21 .NET paritesi)
+- KARAR (kullanıcı): POSIX/PCRE/compile-time yok; kendimiz, **çok minimal**, tek dosya `aotcompiler/c_runtime/corelib/Regex.cs`
+  (eski 2-pattern'lik Prefix/Suffix stub'u SİLİNDİ; engine'de çağıran yoktu). Kapsam = Common + core.upm **runtime** kullanımı:
+  `^[\p{L}\d _-]+$` (NickValidator) ve `\{(\d+)(?::([^}]+))?\}` + `Replace(MatchEvaluator)` (LocalizationFormatter).
+- Alt küme: literal/kaçış (`\{ \} \( \) \. \\ \n \t \r \uXXXX`), `.`, `[..] [^..] a-z`, `\d\D\w\W\s\S \p{L} \p{N}`, `( ) (?: ) |`,
+  `* + ? {m} {m,} {m,n}` + tembel, `^ $` (.NET: son `\n` öncesi). Options: None/Compiled(yok sayılır)/IgnoreCase/Singleline/
+  CultureInvariant; diğeri ve dışı yapılar ctor'da `ArgumentException("regex: desteklenmeyen yapi '..' @konum")`.
+  Yüzey: `Regex(.., opt) IsMatch/Match(+startat)/Replace(string|evaluator)` + statikleri (8'lik pattern cache) + `Escape`;
+  `Capture←Group←Match` (gerçek .NET'e karşı derlenmiş IL `Capture.get_Value` çağırır — hiyerarşi şart), `GroupCollection`,
+  `MatchEvaluator`, `RegexOptions`. `$1/$$` yerine koyma var.
+- İç yapı: parser → `Node[]` (KChar/KAny/KSet/KBol/KEol/KGroup/KRepeat, kind<0 = grup kapanışı); **tek çekirdek**
+  `MatchSeq(seq,i,pos,Cont)` delegate'siz continuation zinciri (`Cont{seq,idx}` ya da tekrar adımı `rep,count,iterStart`);
+  boş tekrar guard'ı; 1M adım sınırı → `InvalidOperationException`. Tüm API `Scan` üstünden.
+- SINIR: `\p{L}`/`\w` corelib `Char.IsLetter` = Latin aralıkları (Kiril/Arap nick → eşleşmez; Char tabloları ayrı iş). FAZ 2:
+  lookaround, isimli grup, backreference, `\b`, Multiline, `Matches`, `Split`.
+- Parite testi: tests Cases/Test64.cs (Demo85) — baseline gerçek .NET; **desteklenmeyen yapının hata vermesi bu harness'ta
+  test edilemez** (.NET'te geçerli). yuzbir: `NickValidator.cctor` stub kapısından çıktı; `System.IO.InvalidDataException`
+  corelib'e eklendi (IO.cs) → **yuzbir full build Common.dll ile ilk kez geçti ve boot OK** (eager cctor'lar: Inflater
+  DEFLATE tabloları, NickValidator regex). Kalan Common stub'ları (diag.txt) erişilmez; Katman A listesi duruyor.
+
 ## UNITY MCP PORTU — unity/Mcp (2026-10-14, yuzbirextra.unity'de doğrulandı)
 - `com.digitoygames.mcp` UPM paketi (yalnız Editor/): editör RPC'sinin Unity 6 portu; motor koduna/`tools/mcp-bridge`'e
   dokunulmadı. Ayrı köprü `Bridge~/` (.NET 9, env `UNITY_MCP_PORT`, default 5158, domain reload için 20×500ms reconnect).

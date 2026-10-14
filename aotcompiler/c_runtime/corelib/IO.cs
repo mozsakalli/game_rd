@@ -12,6 +12,13 @@ namespace System.IO
         public EndOfStreamException() : base("Unable to read beyond the end of the stream.") { }
     }
 
+    public class InvalidDataException : Exception
+    {
+        public InvalidDataException() : base("Found invalid data while decoding.") { }
+        public InvalidDataException(string message) : base(message) { }
+        public InvalidDataException(string message, Exception innerException) : base(message, innerException) { }
+    }
+
     public class Stream : IDisposable
     {
         public virtual bool CanRead { get { return false; } }
