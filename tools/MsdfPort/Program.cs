@@ -36,7 +36,7 @@ const int BakePad = 6;
 const float BakePixelDistScale = 21f;
 const double MsdfAngleThreshold = 3.0;
 
-dll ??= Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "editor", "bin", "Debug", "net9.0", "digitoyengine_native.dll"));
+dll ??= Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, "..", "..", "..", "..", "..", "editor", "bin", "Debug", "net10.0", "digitoyengine_native.dll"));
 if (!noRef && !File.Exists(dll))
 {
     Console.Error.WriteLine($"referans DLL yok: {dll} (--dll ver ya da --no-ref)");

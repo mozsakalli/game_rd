@@ -1,9 +1,0 @@
-[host] pak: ../Build/game.pak
-[host] katalog: reflection (AOT), 14 component tipi
-[host] yukleniyor 0/9
-[host] yukleniyor 2/9
-[host] yukleniyor 4/9
-[host] yukleniyor 6/9
-[host] yukleniyor 8/9
-[host] yukleniyor 9/9
-[host] sahne hazir: Login/LoginScene.scene

@@ -5,7 +5,7 @@ $clang = "C:\Program Files\LLVM\bin\clang.exe"
 $work = "obj\selftest-c"
 & $clang -O1 -w -Ic_runtime "$work\interp_host.c" c_runtime/vmrt.c c_runtime/corelib.c c_runtime/vmint.c -o "$work\interp_host.exe"
 if ($LASTEXITCODE -ne 0) { exit 1 }
-$baseline = (cmd /c "dotnet tests\dotnet-selftest\bin\Debug\net9.0\DotnetSelfTest.dll 2>&1") -join "`n"
+$baseline = (cmd /c "dotnet tests\dotnet-selftest\bin\Debug\net10.0\DotnetSelfTest.dll 2>&1") -join "`n"
 $p = Start-Process -FilePath "$work\interp_host.exe" -ArgumentList "$work\selftest.dmod" -RedirectStandardOutput "$work\interp_out.txt" -RedirectStandardError "$work\interp_err.txt" -PassThru -NoNewWindow
 if (-not $p.WaitForExit(30000)) { $p.Kill(); Write-Output "[interp] TIMEOUT (30s) - sonsuz dongu?" }
 $actual = ((Get-Content "$work\interp_out.txt") + (Get-Content "$work\interp_err.txt" | Where-Object { $_ -match '^\[' })) -join "`n"

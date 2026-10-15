@@ -144,7 +144,6 @@ public unsafe class App
         LayoutTests.Run(_catalog);
         PointerTests.Run(_catalog);
         RenderGroupTests.Run(_catalog);
-        PixelEffectTests.Run();
         PlayerPrefsTests.Run(projectPath);
         AsyncQueueTests.Run();
         NetTests.Run();

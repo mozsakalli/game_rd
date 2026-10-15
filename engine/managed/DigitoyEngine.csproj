@@ -4,7 +4,7 @@
        oyun player'lari bunu referanslar. langtest 'engine' build modu bu DLL'i CIL
        frontend ile IR'a yukler, C'ye transpile eder ve native host + sokol ile linkler. -->
   <PropertyGroup>
-    <TargetFramework>net9.0</TargetFramework>
+    <TargetFramework>net10.0</TargetFramework>
     <Nullable>disable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>

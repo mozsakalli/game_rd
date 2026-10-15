@@ -18,14 +18,14 @@ static class IdeFiles
         WriteIfMissing(Path.Combine(project.Root, ".gitignore"), GitIgnore);
     }
 
-    // Kurulu: <exe>/tools/mcp-bridge/mcp-bridge.dll; dev: <repo>/tools/mcp-bridge/bin/Debug/net9.0/mcp-bridge.dll (yoksa yazilmaz).
+    // Kurulu: <exe>/tools/mcp-bridge/mcp-bridge.dll; dev: <repo>/tools/mcp-bridge/bin/Debug/net10.0/mcp-bridge.dll (yoksa yazilmaz).
     public static string BridgeDll
     {
         get
         {
             string installed = Path.Combine(AppContext.BaseDirectory, "tools", "mcp-bridge", "mcp-bridge.dll");
             if (File.Exists(installed)) return installed;
-            string dev = Path.Combine(App.RepoRoot, "tools", "mcp-bridge", "bin", "Debug", "net9.0", "mcp-bridge.dll");
+            string dev = Path.Combine(App.RepoRoot, "tools", "mcp-bridge", "bin", "Debug", "net10.0", "mcp-bridge.dll");
             return File.Exists(dev) ? dev : null;
         }
     }

@@ -23,7 +23,7 @@ Write-Output "ok   runtime .a"
 Write-Output "== selftest"
 & $clang -O1 -w -Ic_runtime obj\selftest-c\generated.c "$out\digitoyengine_runtime.a" -o "$out\selftest.exe"
 if ($LASTEXITCODE -ne 0) { Write-Output "FAIL: selftest link"; exit 1 }
-$baseline = (cmd /c "dotnet tests\dotnet-selftest\bin\Debug\net9.0\DotnetSelfTest.dll 2>&1") -join "`n"
+$baseline = (cmd /c "dotnet tests\dotnet-selftest\bin\Debug\net10.0\DotnetSelfTest.dll 2>&1") -join "`n"
 $p = Start-Process -FilePath "$out\selftest.exe" -RedirectStandardOutput "$out\st_out.txt" -RedirectStandardError "$out\st_err.txt" -PassThru -NoNewWindow
 if (-not $p.WaitForExit(60000)) { $p.Kill(); Write-Output "FAIL: selftest TIMEOUT" }
 $actual = (Get-Content "$out\st_out.txt") -join "`n"

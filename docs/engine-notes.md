@@ -1,5 +1,20 @@
 # DigitoyEngine R&D (game_rd)
 
+## .NET 10 UPGRADE (2026-10-15, tum projeler net10.0; SDK 10.0.203, runtime 10.0.7)
+- KARAR: 16 csproj `net9.0 -> net10.0` (UnityCheck netstandard2.1 kaldi, Unity icin). Hardcode cikti yollari da guncellendi:
+  editor/GameCode.cs (uretilen csproj TFM), editor/IdeFiles.cs, aotcompiler/source/Program.cs, tools/MsdfPort/Program.cs,
+  aotcompiler/tests/*.ps1, 3x .vscode/mcp.json, oyun csproj HintPath'leri, copilot-instructions.md, editor-distribution.md.
+- Roslyn paketi 4.12.0/4.14.0 DEGISMEDI (net10 ile calisiyor; C# 14 istenirse ayri is). global.json yok.
+- DOGRULAMA: tum projeler build OK; editor Sandbox acilis testleri hepsi PASS (lifecycle 23, movieclip 65, serialization 38, ...);
+  RPC `code.build` OK (oyun kodu TPA'dan net10 referanslariyla in-process derleniyor). AOT CIL selftest 82/84 — 2 FAIL
+  (Test10 InlineArray4 string.Format, Test47 StringSplitOptions) ESKI BILINEN (bkz. "selftest 68/71" notu), net9 binary'si de
+  ayni tipleri referansliyor; .NET 10 regresyonu yok.
+- DAGITIM ETKISI: editor kullanicilarinda artik .NET 10 Runtime gerekir (docs/editor-distribution.md).
+- TEMIZLIK (ayni gun, kullanici karari): editor/PixelEffectTests.cs SILINDI (kasitli bozuk shader acilis log'una sokol
+  GL_SHADER_COMPILATION_FAILED gurultusu basiyordu; fx compose zaten ProgressTests'te dolayli kapsanir). editor/AudioTests.cs
+  SILINDI (Run cagrisi 2026-10-11'de kaldirilmisti, dosya olu kalmisti). Kokteki eski stdout dokumleri out_*.txt (9 dosya) git'ten
+  cikarildi. Acilis testleri 15 grup, hepsi PASS.
+
 ## WASM: FILESYSTEM=0, pak fetch -> heap (2026-10-14, Sandbox tarayicida dogrulandi; game.js 116 -> 65 KB)
 - KARAR: `--preload-file`/MEMFS/`game.data` KALDIRILDI. `-sFILESYSTEM=0` (+`-sEXPORTED_FUNCTIONS=_main,_malloc`); `game.pak` Build/wasm'a
   AYNEN kopyalanir. `host_wasm.c`: main loop once kurulur (g_running=0 -> bos frame), `de_js_fetch_pak("game.pak")` (EM_JS fetch ->

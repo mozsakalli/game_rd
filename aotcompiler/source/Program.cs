@@ -943,7 +943,7 @@ public static class Program
         // Engine her zaman host'tadir: provided listesinde DigitoyEngine yoksa AOT engine DLL'i (player Release) eklenir.
         if (!provided.Any(p => Path.GetFileNameWithoutExtension(p).Equals("DigitoyEngine", StringComparison.OrdinalIgnoreCase)))
         {
-            var engine = Path.Combine(RepoRoot, "player", "bin", "Release", "net9.0", "DigitoyEngine.dll");
+            var engine = Path.Combine(RepoRoot, "player", "bin", "Release", "net10.0", "DigitoyEngine.dll");
             if (!File.Exists(engine)) throw new Exception("AOT engine DLL yok (once player build alin): " + engine);
             provided.Insert(0, engine);
         }
@@ -1007,7 +1007,7 @@ public static class Program
     {
         var (exit, output) = RunProcess("dotnet", $"build {Quote(EngineProj)} -c Debug -v q");
         if (exit != 0) throw new Exception($"engine dll derlemesi basarisiz:\n{output}");
-        var dll = Path.Combine("engine", "managed", "bin", "Debug", "net9.0", "DigitoyEngine.dll");
+        var dll = Path.Combine("engine", "managed", "bin", "Debug", "net10.0", "DigitoyEngine.dll");
         if (!File.Exists(dll)) throw new Exception($"engine dll bulunamadi: {dll}");
         return dll;
     }
@@ -1141,7 +1141,7 @@ public static class Program
     {
         var (exit, output) = RunProcess("dotnet", $"build {Quote(SelftestProj)} -c Debug -v q");
         if (exit != 0) throw new Exception($"selftest dll derlemesi basarisiz:\n{output}");
-        var dll = Path.Combine("tests", "dotnet-selftest", "bin", "Debug", "net9.0", "DotnetSelfTest.dll");
+        var dll = Path.Combine("tests", "dotnet-selftest", "bin", "Debug", "net10.0", "DotnetSelfTest.dll");
         if (!File.Exists(dll)) throw new Exception($"dll bulunamadi: {dll}");
         return dll;
     }

@@ -1,6 +1,6 @@
 # DigitoyEngine R&D — çalışma kuralları
 
-Kendi 2D-ağırlıklı oyun motoru + editörü (C# .NET 9 + sokol/GLFW native shim, custom AOT). Kalıcı karar
+Kendi 2D-ağırlıklı oyun motoru + editörü (C# .NET 10 + sokol/GLFW native shim, custom AOT). Kalıcı karar
 günlüğü ve tuzaklar: [docs/engine-notes.md](../docs/engine-notes.md) (kronolojik, en yeni üstte) —
 yeni işe başlamadan ilgili bölümü oku; oturum sonunda yeni kararları oraya ekle.
 
@@ -13,7 +13,7 @@ yeni işe başlamadan ilgili bölümü oku; oturum sonunda yeni kararları oraya
 - `engine/managed` DigitoyEngine.dll (motor), `engine/native` sokol_shim.c (FFI), `editor/` DigitoyEditor.exe,
   `player/` GUI'siz runtime, `aotcompiler/` C AOT, `Projects/<oyun>/` Unity benzeri proje (Assets/, ProjectSettings/, Library/).
 - Build: native `engine\native\build_editor.cmd`; managed `dotnet build editor`; çalıştır
-  `editor\bin\Debug\net9.0\DigitoyEditor.exe [projeKökü]` (Start-Process ile; açıkken build DLL kilidi verir → Stop-Process).
+  `editor\bin\Debug\net10.0\DigitoyEditor.exe [projeKökü]` (Start-Process ile; açıkken build DLL kilidi verir → Stop-Process).
 - Açılış testleri (Lifecycle/Serialization/Layout/Pointer/...) editör start'ında koşar, stdout'a PASS/FAIL yazar.
 
 ## Mimari değişmezler

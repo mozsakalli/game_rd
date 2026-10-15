@@ -1,7 +1,7 @@
 # Editör Dağıtımı (Publish) — Plan
 
 ## Hedef
-Editör bir ürün gibi dağıtılır: zip indir → aç → `DigitoyEditor.exe`. Makinede yalnız **.NET 9 Runtime**.
+Editör bir ürün gibi dağıtılır: zip indir → aç → `DigitoyEditor.exe`. Makinede yalnız **.NET 10 Runtime**.
 Player/modül build için **hiçbir kurulum yok**: toolchain (clang+lld, mingw-w64 CRT/import lib'leri) pakette gömülü.
 Repo, kaynak kod, `dotnet build`, `.csproj` üretimi son kullanıcı makinesinde yok.
 

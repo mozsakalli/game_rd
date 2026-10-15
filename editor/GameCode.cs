@@ -102,7 +102,7 @@ public sealed class GameCode
     // IDE projesi (Unity'nin Assembly-CSharp.csproj'u): proje kokune <Ad>.Game.csproj yazar — yalniz
     // IntelliSense/gezinme icin, editor derlemesi bunu KULLANMAZ (in-process Roslyn). Kaynak kumesi glob
     // (Assets/**/*.cs, Editor/ haric) oldugundan dosya ekle/sil'de yeniden uretim gerekmez; ayarlar
-    // RoslynCompiler ile birebir (net9.0, unsafe, nullable kapali, DEBUG;TRACE;DE_GAME). bin/obj Library/'ye.
+    // RoslynCompiler ile birebir (net10.0, unsafe, nullable kapali, DEBUG;TRACE;DE_GAME). bin/obj Library/'ye.
     public static void WriteIdeProject(Project project)
     {
         string engineDll = typeof(DigitoyEngine.GameObject).Assembly.Location;
@@ -116,7 +116,7 @@ public sealed class GameCode
         sb.AppendLine("  </PropertyGroup>");
         sb.AppendLine("  <Import Project=\"Sdk.props\" Sdk=\"Microsoft.NET.Sdk\" />");
         sb.AppendLine("  <PropertyGroup>");
-        sb.AppendLine("    <TargetFramework>net9.0</TargetFramework>");
+        sb.AppendLine("    <TargetFramework>net10.0</TargetFramework>");
         sb.AppendLine("    <OutputType>Library</OutputType>");
         sb.AppendLine($"    <AssemblyName>{asmName}</AssemblyName>");
         sb.AppendLine("    <RootNamespace></RootNamespace>");
