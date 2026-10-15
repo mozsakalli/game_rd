@@ -1788,8 +1788,11 @@ static class RpcCommands
             m.Add("trimmed", trimmed);
         }
         else if (AssetDatabase.ImportTypeOf(rel) == typeof(Sprite)
-            && ImageHeader.TryReadSize(full, out int w, out int h))
+            && (ImageHeader.TryReadSize(full, out int w, out int h)
+                || (rel.EndsWith(".svg", StringComparison.OrdinalIgnoreCase)
+                    && ImportPipeline.ArtifactPath(rel, "main") is string vec && ImageHeader.TryReadSize(vec, out w, out h))))
         {
+            // Vektor kaynak: boyut import ciktisinda (DVEC basligi), kaynak svg'de degil.
             m.Add("width", DocNode.Scal(w.ToString(CultureInfo.InvariantCulture)));
             m.Add("height", DocNode.Scal(h.ToString(CultureInfo.InvariantCulture)));
             m.Add("atlas", DocNode.Scal("false"));

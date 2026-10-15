@@ -288,7 +288,7 @@ static class Program
         if (UpToDate(marker, h) && File.Exists(dst)) { Skipped.Add("editor native (win)"); return; }
         Fresh(marker);
         string native = Path.Combine(RepoRoot, "engine", "native");
-        var srcs = new List<string> { "sokol_shim.c", "de_fs.c", "de_async.c", "de_net.c", "audio_shim.c", "de_image_write.c" }.Select(s => Path.Combine(native, s)).ToList();
+        var srcs = new List<string> { "sokol_shim.c", "de_fs.c", "de_async.c", "de_net.c", "audio_shim.c", "de_image_write.c", "de_svg_compile.c" }.Select(s => Path.Combine(native, s)).ToList();
         srcs.AddRange(GlfwWin.Select(g => Path.Combine(native, "glfw-master", "src", g + ".c")));
         string tmp = Path.Combine(Path.GetTempPath(), "DigitoyPublish-win-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(tmp);
@@ -325,19 +325,20 @@ static class Program
         {
             string defs = "-DSOKOL_METAL -D_GLFW_COCOA -DSOKOL_IMPL";
             string incs = $"-I\"{native}\" -I\"{Path.Combine(native, "glfw-master", "include")}\"";
-            string shim = Path.Combine(tmp, "sokol_shim.o"), audio = Path.Combine(tmp, "audio_shim.o"), fs = Path.Combine(tmp, "de_fs.o"), asy = Path.Combine(tmp, "de_async.o"), net = Path.Combine(tmp, "de_net.o"), iw = Path.Combine(tmp, "de_image_write.o");
+            string shim = Path.Combine(tmp, "sokol_shim.o"), audio = Path.Combine(tmp, "audio_shim.o"), fs = Path.Combine(tmp, "de_fs.o"), asy = Path.Combine(tmp, "de_async.o"), net = Path.Combine(tmp, "de_net.o"), iw = Path.Combine(tmp, "de_image_write.o"), svg = Path.Combine(tmp, "de_svg_compile.o");
             Run("clang", $"-O1 -w -c -fobjc-arc -x objective-c \"{Path.Combine(native, "sokol_shim.c")}\" {defs} {incs} -o \"{shim}\"");
             Run("clang", $"-O1 -w -c -fobjc-arc -x objective-c \"{Path.Combine(native, "audio_shim.c")}\" {defs} {incs} -o \"{audio}\""); // muzik: AVFoundation (ObjC)
             Run("clang", $"-O1 -w -c \"{Path.Combine(native, "de_fs.c")}\" {defs} {incs} -o \"{fs}\"");
             Run("clang", $"-O1 -w -c \"{Path.Combine(native, "de_async.c")}\" {defs} {incs} -o \"{asy}\"");
             Run("clang", $"-O1 -w -c \"{Path.Combine(native, "de_net.c")}\" {defs} {incs} -o \"{net}\"");
             Run("clang", $"-O1 -w -c \"{Path.Combine(native, "de_image_write.c")}\" {defs} {incs} -o \"{iw}\""); // editor-only PNG/JPG encoder
+            Run("clang", $"-O1 -w -c \"{Path.Combine(native, "de_svg_compile.c")}\" {defs} {incs} -o \"{svg}\""); // editor-only SVG -> DVEC
             var cxx = CompileMsdf("clang++", tmp, incs);
             var glfw = new[] { "context.c", "init.c", "input.c", "monitor.c", "platform.c", "vulkan.c", "window.c", "egl_context.c", "osmesa_context.c",
                 "null_init.c", "null_joystick.c", "null_monitor.c", "null_window.c",
                 "cocoa_init.m", "cocoa_joystick.m", "cocoa_monitor.m", "cocoa_window.m", "nsgl_context.m", "macos_time.c", "posix_module.c", "posix_thread.c" };
             string frameworks = "-framework Cocoa -framework IOKit -framework CoreFoundation -framework CoreGraphics -framework CoreVideo -framework AppKit -framework QuartzCore -framework Metal -framework MetalKit -framework AudioToolbox -framework AVFoundation -framework CoreMedia";
-            Run("clang", $"-O1 -w -dynamiclib -fvisibility=default -Wno-deprecated-declarations {defs} {incs} \"{shim}\" \"{audio}\" \"{fs}\" \"{asy}\" \"{net}\" \"{iw}\" " +
+            Run("clang", $"-O1 -w -dynamiclib -fvisibility=default -Wno-deprecated-declarations {defs} {incs} \"{shim}\" \"{audio}\" \"{fs}\" \"{asy}\" \"{net}\" \"{iw}\" \"{svg}\" " +
                 string.Join(" ", cxx.Select(o => $"\"{o}\"")) + " " +
                 string.Join(" ", glfw.Select(g => $"\"{Path.Combine(src, g)}\"")) + $" {frameworks} -lc++ -install_name \"@rpath/libdigitoyengine_native.dylib\" -o \"{dst}\"");
         }

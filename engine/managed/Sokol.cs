@@ -186,6 +186,28 @@ public static unsafe class Sokol
         de_image_free(p);
         return r;
     }
+
+    // SVG -> DVEC derleyici (de_svg_compile.c, editor-only). scale: dogal px'e carpan; maxSize: kenar ust siniri
+    // (0 = 4096). Donus yonetilen kopya + hedef w/h; hata = null. Runtime bu blob'u PNG gibi decode eder (de_vector.h).
+    [DllImport(Lib, EntryPoint = "de_svg_compile")]
+    extern static byte* de_svg_compile(byte* svg, int svgLen, float scale, int maxSize, int* outLen, int* outW, int* outH);
+    [DllImport(Lib, EntryPoint = "de_svg_free")]
+    extern static void de_svg_free(void* p);
+
+    public static byte[] SvgCompile(ReadOnlySpan<byte> svgUtf8, float scale, int maxSize, out int w, out int h)
+    {
+        int len, ow, oh;
+        byte* p;
+        fixed (byte* s = svgUtf8)
+            p = de_svg_compile(s, svgUtf8.Length, scale, maxSize, &len, &ow, &oh);
+        w = ow; h = oh;
+        if (p == null)
+            return null;
+        var r = new byte[len];
+        new ReadOnlySpan<byte>(p, len).CopyTo(r);
+        de_svg_free(p);
+        return r;
+    }
 #endif
 
     [DllImport(Lib, EntryPoint = "de_sokol_commit")]

@@ -3,7 +3,7 @@ using System.IO;
 
 namespace DigitoyEditor;
 
-// Gorsel boyutunu DOSYA BASLIGINDAN okur (PNG IHDR / JPEG SOFn): piksel decode ve
+// Gorsel boyutunu DOSYA BASLIGINDAN okur (PNG IHDR / JPEG SOFn / DVEC vektor): piksel decode ve
 // GPU yuklemesi yok, senkron ve ucuz. Editor tooling (asset.info RPC, inspector)
 // sahnede hic kullanilmamis bir png'nin boyutunu bununla ogrenir.
 public static class ImageHeader
@@ -24,6 +24,13 @@ public static class ImageHeader
             }
             if (n >= 4 && head[0] == 0xFF && head[1] == 0xD8)
                 return ReadJpeg(fs, out width, out height);
+            if (n >= 12 && head[0] == 'D' && head[1] == 'V' && head[2] == 'E' && head[3] == 'C')
+            {
+                // DVEC vektor blob'u (de_vector.h): u16 LE w/h @8.
+                width = head[8] | (head[9] << 8);
+                height = head[10] | (head[11] << 8);
+                return width > 0 && height > 0;
+            }
         }
         catch (IOException)
         {

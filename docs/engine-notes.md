@@ -1,5 +1,32 @@
 # DigitoyEngine R&D (game_rd)
 
+## VEKTÖR ASSET (SVG) — FAZ 1: DVEC KODEK + STANDALONE SPRITE (2026-10-16, editör/pak/player uçtan uca; badge.svg 830 B kaynak → 392 B pak girişi)
+- AMAÇ yalnız **asset boyutu**: çözünürlük import'ta sabit (`scale`), DPI ölçeği YOK, runtime vektör çizimi YOK. SVG import'ta
+  canvas benzeri **komut akışına** (M/L/C/Z + boya) derlenir, runtime yükleme anında bir kez rasterize eder (ikon: ms düzeyi, worker'da).
+- BİÇİM "DVEC" ([de_vector.h](../engine/native/de_vector.h) başındaki şema): header (ver, flags, shapeCount, u16 w/h) + shape (fill/stroke
+  boya: solid | linear/radial gradient stop'lu + ters xform; fillRule, join/cap, dash, opacity, paint order) + path'ler. Koordinat
+  **i16 sabit nokta 1/16 px** (hedef uzayda; ±2048 px'e sığmazsa flags bit0 → f32). Ölçek import'ta koordinatlara İŞLENİR: stroke
+  genişliği/dash ×s, gradient ters xform'un [0..3] ÷s ([4..5] aynı). nanosvg'nin cubic'e açtığı doğru parçaları `L`'ye indirgenir.
+- NATIVE: runtime rasterizer `de_vector.h` (nanosvgrast, stb tarzı tek başlık, implementasyon **de_fs.c içinde**) → player/Android/iOS
+  kaynak listeleri DEĞİŞMEDİ. `de_fs` decode job'u blob magic'ine bakar: DVEC → `de_vector_rasterize` (RGBA satır-0-altta), değilse stbi.
+  Editör-only [de_svg_compile.c](../engine/native/de_svg_compile.c) (nanosvg parser: XML/CSS/transform/`<use>` çözümü) `de_svg_compile(svg,
+  scale, maxSize)`; build_editor.cmd/.sh + EditorPublisher listelerine eklendi. `de_vector_draw(dst, x, y)` Faz 2 (atlas sayfası) için hazır.
+- MANAGED: [VectorImporter](../editor/VectorImporter.cs) `.svg` → `main` = DVEC (`Standalone`; atlas yutarsa pak'a girmez), ayar
+  `VectorImportSettings{scale=1, maxSize=4096}` (.meta `importer:` bloğu). `AssetDatabase._importers[".svg"]=Sprite`; LoadTexture/
+  ReloadTexture/pak builder/player **sıfır değişiklik** (PNG yolu). AssetWatcher `.svg` png dalında (reimport + yerinde patch + atlasDirty).
+  [ImageHeader](../editor/ImageHeader.cs) DVEC başlığından w/h okur; `asset.info` svg için artifact'e bakar (kaynak svg'de boyut yok).
+- nanosvg YAMASI ([nanosvg.h](../engine/native/nanosvg.h) `nsvg__convertGradCoord`): `gradientUnits=objectBoundingBox`'ta birimsiz
+  `0..1` değerleri spec'e göre bbox ORANI; özgün kod kullanıcı birimi sayıp gradient'i 1 px'e sıkıştırıyordu (düz renk). Upstream
+  güncellenirse yamayı taşı.
+- SINIRLAR: nanosvg `<text>/<filter>/<mask>/<clipPath>` desteklemez (sessiz atlanır) → tasarım SVG'leri outline'lı olmalı. Radial
+  gradient focal (fx/fy) yok sayılır, spread modları yok. Import stamp'ine native derleyici GİRMEZ: de_svg_compile değişince
+  svg'ler elle reimport (dosyaya dokun / importer Version artır).
+- TUZAK: `dotnet build editor` native DLL'i `engine/native/build`'den bin'e KOPYALAR; native'i yeniden derleyince managed build'i de
+  çalıştırmadan editör eski DLL'i yükler. `player.build` bellekteki PlayerSettings'i kullanır; dosyadan değişiklik için editörü yeniden aç.
+- FAZ 2 (yapılmadı): atlas üyeliği — svg bölgeleri aynı sayfada `width×height` yer tutar, sayfa PNG'sinde şeffaf delik, `SpriteTable.Pages[i]`
+  vektör listesi, runtime `ComposePage` job (PNG decode + `de_vector_draw`). Faz 3: Inspector önizleme.
+- Test varlıkları: `Projects/Sandbox/Assets/Vector/badge.svg` (+ `VectorTest.scene`, 2 SpriteRenderer) — Faz 2 atlas testi için bırakıldı.
+
 ## BOXSTYLE v3 — İSİMLİ DURUMLAR (2026-10-15, layout 112 PASS; Sandbox StyledButton + BlueButton.asset göç etti)
 - `enum BoxState` ve sabit `hover/pressed/disabled/selected` alanları SİLİNDİ → `BoxStyle { normal, List<BoxStyleState> variants,
   transition, transitionEase }`, `BoxStyleState.key` (serbest metin). Sözleşmeli adlar: `BoxStyle.PressedKey/DisabledKey/HoverKey/

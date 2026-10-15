@@ -138,6 +138,7 @@ public sealed class AssetDatabase
         [".png"] = typeof(Sprite),
         [".jpg"] = typeof(Sprite),
         [".jpeg"] = typeof(Sprite),
+        [".svg"] = typeof(Sprite), // vektor: import'ta DVEC'e derlenir, runtime PNG gibi decode eder
         [".prefab"] = typeof(Prefab),
         [".ttf"] = typeof(Font),
         [".otf"] = typeof(Font),

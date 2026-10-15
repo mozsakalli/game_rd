@@ -15,6 +15,9 @@
 #define STB_IMAGE_IMPLEMENTATION
 #define STBI_STATIC
 #include "stb_image.h"
+// DVEC vektor kodegi (svg import ciktisi): decode job'u magic'i gorunce stbi yerine rasterize eder.
+#define DE_VECTOR_IMPLEMENTATION
+#include "de_vector.h"
 
 #if defined(_WIN32)
 #define WIN32_LEAN_AND_MEAN
@@ -260,6 +263,9 @@ static void de_run_job(de_job_t *job)
         int w = 0, h = 0, comp = 0;
         unsigned char *px = NULL;
         int ch = 4;
+        if (de_vector_is(blob, len))
+            px = de_vector_rasterize(blob, len, &w, &h); // vektor: cozunurluk header'da, RGBA satir 0 altta
+        else
         {
             // Dosyadaki kanal korunur: gray (1) -> R8, digerleri RGBA'ya tamamlanir (2/3 kanal GPU formati yok).
             if (stbi_info_from_memory(blob, (int)len, &w, &h, &comp) && comp == 1)

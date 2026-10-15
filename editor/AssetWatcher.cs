@@ -139,7 +139,7 @@ public static class AssetWatcher
         bool atlasDirty = false;
         switch (ext)
         {
-            case ".png" or ".jpg" or ".jpeg":
+            case ".png" or ".jpg" or ".jpeg" or ".svg":
                 // Once artifact tazelenir (ImageImporter), sonra yerinde piksel patch'i: sahne/play/referanslar hic bozulmaz.
                 if (File.Exists(full))
                     ImportPipeline.EnsureImported(rel, force: true);
