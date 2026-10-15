@@ -37,11 +37,33 @@ public sealed class EditorScene
     public void Load(string path, TypeCatalog catalog, AssetDatabase assets)
     {
         Path = path;
-        Doc = File.Exists(path) ? SceneDoc.Load(path) : new SceneDoc();
-        Doc.LocTable = Localize.TableKeyFor(AssetKeyOf(path, assets));
-        Doc.ExpandPrefabs(catalog, assets); // delta kayitlari tam agaca acilir
+        _catalog = catalog;
+        _assets = assets;
+        LoadFromText(File.Exists(path) ? File.ReadAllText(path) : null, Localize.TableKeyFor(AssetKeyOf(path, assets)));
         Instantiate(catalog, assets);
         _savedVersion = History.Version;
+    }
+
+    // TEMA MODU (SceneDoc.ActiveTheme dolu): Doc = projeksiyon (taban + katman), Base = taban; ikisi ayni metinden
+    // Prepare edilir (id uzayi ortak, nested id'ler deterministik). Taban modunda Base == Doc (sifir ek maliyet).
+    public SceneDoc Base { get; private set; }
+    public bool ThemeMode => Base != null && !ReferenceEquals(Base, Doc);
+    public string Theme => Doc?.AppliedTheme ?? "";
+
+    void LoadFromText(string text, string locTable)
+    {
+        string theme = SceneDoc.ActiveTheme ?? "";
+        Doc = text != null ? SceneDoc.Parse(text) : new SceneDoc();
+        Doc.LocTable = locTable;
+        Doc.Prepare(_catalog, _assets, theme);
+        if (!string.IsNullOrEmpty(theme) && text != null)
+        {
+            Base = SceneDoc.Parse(text);
+            Base.LocTable = locTable;
+            Base.Prepare(_catalog, _assets, "");
+        }
+        else
+            Base = Doc;
     }
 
     // Mutlak sahne/prefab yolu -> Assets'e goreli anahtar (kapsam tablosu bundan turer); Assets disindaysa null.
@@ -70,17 +92,77 @@ public sealed class EditorScene
     // prefab'a gore 'override' sanilir); cache ancak Collapse'tan sonra dusurulur.
     public void ReexpandPrefabs() => ReexpandFrom(Collapse());
 
-    public string Collapse() => _catalog == null ? null : Doc.ToYaml(_catalog, _assets);
+    // Dosya metni: taban modunda Doc collapse'li; tema modunda TABAN + aktif katman (DiffTheme) + pasif katmanlar ham.
+    public string Collapse()
+    {
+        if (_catalog == null)
+            return null;
+        if (!ThemeMode)
+            return Doc.ToYaml(_catalog, _assets);
+        var layer = Doc.DiffTheme(Base, _catalog, _assets);
+        if (layer.Fields.Count > 0)
+            Base.Themes[Doc.AppliedTheme] = layer;
+        else
+            Base.Themes.Remove(Doc.AppliedTheme); // bos katman dosyada durmaz
+        return Base.ToYaml(_catalog, _assets);
+    }
 
     public void ReexpandFrom(string collapsedYaml)
     {
         if (_catalog == null || collapsedYaml == null)
             return;
-        string locTable = Doc?.LocTable;
-        Doc = SceneDoc.Parse(collapsedYaml);
-        Doc.LocTable = locTable;
-        Doc.ExpandPrefabs(_catalog, _assets);
+        LoadFromText(collapsedYaml, Doc?.LocTable);
         Instantiate(_catalog, _assets);
+    }
+
+    // Tema degisimi (App.SetWorkingTheme → WithPrefabEdit reexpand'inden once): katmanlar arasi GO kumesi
+    // farkli oldugundan undo yigini temizlenir; kaydedilmemis degisiklik varsa dirty kalir.
+    public void ResetHistoryKeepDirty()
+    {
+        bool dirty = Dirty;
+        History.Clear();
+        _savedVersion = dirty ? -1 : History.Version;
+    }
+
+    // Tema modunda node'un TABAN karsiligi (Inspector tema seridi + Revert to base); yoksa/taban modunda null.
+    public SceneDoc.GoDoc BaseNodeOf(SceneDoc.GoDoc g) => ThemeMode ? Base.FindGo(g.Id) : null;
+
+    public SceneDoc.CompDoc BaseCompOf(SceneDoc.GoDoc g, SceneDoc.CompDoc cd)
+    {
+        var b = BaseNodeOf(g);
+        return b != null ? SceneDoc.FindCompByAddress(b, SceneDoc.CompAddressOf(g, cd)) : null;
+    }
+
+    // Tema katmanindaki bu GO'ya ait degisiklikleri tabana dondurur (undo'lu, normal op'lar).
+    public void RevertNodeToBase(SceneDoc.GoDoc g)
+    {
+        var b = BaseNodeOf(g);
+        if (b == null)
+            return;
+        if (g.Name != b.Name) SetName(g, b.Name);
+        if (g.Active != b.Active) SetActive(g, b.Active);
+        if (g.Layer != b.Layer) SetLayer(g, b.Layer);
+        if (!SameV3(g.Pos, b.Pos) || !SameV3(g.Rot, b.Rot) || !SameV3(g.Scale, b.Scale))
+            SetTransform(g, b.Pos, b.Rot, b.Scale);
+        for (int i = g.Components.Count - 1; i >= 0; i--)
+        {
+            var cd = g.Components[i];
+            var bc = SceneDoc.FindCompByAddress(b, SceneDoc.CompAddressOf(g, cd));
+            if (bc == null) { RemoveComponent(g, cd); continue; }
+            if (cd.Enabled != bc.Enabled) SetEnabled(g, cd, bc.Enabled);
+            var entry = _catalog?.Find(cd.Type);
+            if (entry == null) continue;
+            foreach (var f in entry.Schema)
+            {
+                var cur = FindProp(cd, f);
+                var bv = FindProp(bc, f);
+                if (!(cur == null && bv == null) && !DocNode.Equal(cur, bv))
+                    SetProp(g, cd, f, cur, bv?.Clone());
+            }
+        }
+        foreach (var bc in b.Components)
+            if (SceneDoc.FindCompByAddress(g, SceneDoc.CompAddressOf(b, bc)) == null)
+                RestoreComponent(g, bc, null);
     }
 
     // Doc'tan taze projeksiyon: eski projeksiyon sahnesi tamamen yikilir.
@@ -122,7 +204,7 @@ public sealed class EditorScene
             return;
         FlushPendingLoc();
         AssetWatcher.NoteSelfWrite(Path);
-        File.WriteAllText(Path, Doc.ToYaml(_catalog, _assets)); // prefab'lar deltaya sikisir
+        File.WriteAllText(Path, Collapse()); // prefab'lar deltaya, tema katmani diff'e sikisir
         _savedVersion = History.Version;
         LocTableStore.Flush(); // sahneyle birlikte ceviri tablosu da diske
         // Stage'de prefab cache'i BURADA dusurulmez: stash'li sahne eski prefab'la acik;
@@ -379,8 +461,18 @@ public sealed class EditorScene
     }
 
     // Prefab instance'i: kok kaydi eklenir ve hemen expand edilir (bellek hep acik model).
+    // Stage'de kendisini ya da kendisini iceren bir prefab'i sokmak DONGU olurdu → red (dosyaya hic yazilamaz).
     public SceneDoc.GoDoc InstantiatePrefab(string guid, int parentId, Vec3? worldPos = null)
     {
+        if (SingleRoot && Path != null && _assets?.Root != null)
+        {
+            string selfRel = System.IO.Path.GetRelativePath(_assets.Root, Path).Replace('\\', '/');
+            if (_assets.PrefabDependsOn(guid, selfRel))
+            {
+                EditorLog.Warning("[prefab] cannot nest: " + _assets.ResolvePath(guid) + " contains or is " + selfRel + " (cycle)");
+                return null;
+            }
+        }
         var prefab = _assets.LoadPrefab(guid)?.Doc;
         if (prefab == null)
             return null;
@@ -421,12 +513,14 @@ public sealed class EditorScene
 
     // Doc alt agacindan .prefab dosyasi uretir ve alt agaci o prefab'in instance'i
     // olarak BAGLAR (Unity connect). Node'lar yerinde kalir, yalniz prefab isaretleri
-    // basilir — canli sahne degismez. v1: prefab'a bagli nesneden yeni prefab yok (nested v2).
+    // basilir — canli sahne degismez. Alt agac prefab instance'lari ICEREBILIR (nested):
+    // dosyaya delta kaydi olarak yazilirlar; connect sonrasi dis instance'in duz cocuklaridir
+    // (outermost override kurali). Kok prefab'a bagliysa (instance kok/cocugu) ret (variant degil).
     public bool CreatePrefabAsset(SceneDoc.GoDoc g, string absPath)
     {
         if (g.IsPrefabRoot || g.IsPrefabChild)
         {
-            EditorLog.Warning("[prefab] prefab'a bagli nesneden yeni prefab uretilemez (nested v2)");
+            EditorLog.Warning("[prefab] cannot create a prefab from a prefab instance node (no variants)");
             return false;
         }
         var sub = new List<(SceneDoc.GoDoc doc, int index)>();
@@ -445,10 +539,29 @@ public sealed class EditorScene
                 Parent = o == g ? 0 : toLocal.GetValueOrDefault(o.Parent),
                 Name = o.Name,
                 Active = o.Active,
+                Layer = o.Layer,
                 Pos = o.Pos,
                 Rot = o.Rot,
                 Scale = o.Scale,
             };
+            // Ic instance isaretleri yerel uzaya tasinir: ToYaml collapse kaydi + diff'i buradan uretir.
+            if (o.IsPrefabRoot)
+            {
+                pg.PrefabGuid = o.PrefabGuid;
+                pg.PrefabLocalId = o.PrefabLocalId;
+                pg.PrefabRootId = toLocal[o.Id];
+                pg.PrefabIds = new Dictionary<int, int>();
+                foreach (var kv in o.PrefabIds)
+                    if (toLocal.TryGetValue(kv.Value, out int lid))
+                        pg.PrefabIds[kv.Key] = lid;
+                if (o.PrefabRemoved is { Count: > 0 })
+                    pg.PrefabRemoved = new List<int>(o.PrefabRemoved);
+            }
+            else if (o.IsPrefabChild && toLocal.TryGetValue(o.PrefabRootId, out int rootLocal))
+            {
+                pg.PrefabLocalId = o.PrefabLocalId;
+                pg.PrefabRootId = rootLocal;
+            }
             foreach (var cd in o.Components)
             {
                 var nc = new SceneDoc.CompDoc { Type = cd.Type, Enabled = cd.Enabled };
@@ -462,7 +575,7 @@ public sealed class EditorScene
         }
 
         AssetWatcher.NoteSelfWrite(absPath);
-        pd.Save(absPath);
+        pd.Save(absPath, _catalog, _assets); // ic instance'lar delta olarak
         _assets.ScanMetas(createMissing: true); // guid alsin
         string rel = System.IO.Path.GetRelativePath(_assets.Root, absPath).Replace('\\', '/');
         string guid = _assets.PathToGuid(rel);
@@ -474,14 +587,24 @@ public sealed class EditorScene
 
         var op = new ConnectPrefabOp { RootId = g.Id, Guid = guid };
         foreach (var (o, _) in sub)
-            op.Locals.Add((o.Id, toLocal[o.Id]));
+            op.Locals.Add(new ConnectPrefabOp.Entry
+            {
+                GoId = o.Id,
+                LocalId = toLocal[o.Id],
+                PrevGuid = o.PrefabGuid,
+                PrevLocalId = o.PrefabLocalId,
+                PrevRootId = o.PrefabRootId,
+                PrevIds = o.PrefabIds,
+                PrevRemoved = o.PrefabRemoved,
+            });
         History.Push(op);
         ApplyConnectPrefab(op, undo: false);
         EditorLog.Info("[prefab] olusturuldu: " + rel);
         return true;
     }
 
-    // Connect isaretleri: undo soker (dosya kalir), redo yeniden basar. Canli etkilenmez.
+    // Connect isaretleri: undo onceki isaretleri (ic instance'lar dahil) geri koyar (dosya kalir),
+    // redo yeniden basar: tum alt agac dis instance'in cocugu, ic kokler duz cocuk olur. Canli etkilenmez.
     internal void ApplyConnectPrefab(ConnectPrefabOp op, bool undo)
     {
         var root = FindGo(op.RootId);
@@ -489,31 +612,35 @@ public sealed class EditorScene
             return;
         if (undo)
         {
-            foreach (var (goId, _) in op.Locals)
+            foreach (var e in op.Locals)
             {
-                var o = FindGo(goId);
+                var o = FindGo(e.GoId);
                 if (o == null)
                     continue;
-                o.PrefabLocalId = 0;
-                o.PrefabRootId = 0;
+                o.PrefabGuid = e.PrevGuid;
+                o.PrefabLocalId = e.PrevLocalId;
+                o.PrefabRootId = e.PrevRootId;
+                o.PrefabIds = e.PrevIds;
+                o.PrefabRemoved = e.PrevRemoved;
             }
-            root.PrefabGuid = null;
-            root.PrefabIds = null;
-            root.PrefabRemoved = null;
         }
         else
         {
-            root.PrefabGuid = op.Guid;
-            root.PrefabIds = new Dictionary<int, int>();
-            foreach (var (goId, localId) in op.Locals)
+            var ids = new Dictionary<int, int>();
+            foreach (var e in op.Locals)
             {
-                root.PrefabIds[localId] = goId;
-                var o = FindGo(goId);
+                ids[e.LocalId] = e.GoId;
+                var o = FindGo(e.GoId);
                 if (o == null)
                     continue;
-                o.PrefabLocalId = localId;
+                o.PrefabGuid = null;
+                o.PrefabIds = null;
+                o.PrefabRemoved = null;
+                o.PrefabLocalId = e.LocalId;
                 o.PrefabRootId = op.RootId;
             }
+            root.PrefabGuid = op.Guid;
+            root.PrefabIds = ids;
         }
     }
 
@@ -526,8 +653,33 @@ public sealed class EditorScene
         SetProp(g, cd, f, cur, prefabValue);
     }
 
-    // Sahnedeki degeri PREFAB'A yazar (dosya dahil) ve override'i olmayan diger
-    // instance'lara yayar. v1: undo'suz (prefab dosyasi degisir — Unity'de de ayri dert).
+    // PREFAB'A YAZIM KAPSAMI (Apply yolu): (a) sahne(ler) ESKI cache ile deltaya sikisir, (b) prefab doc
+    // mutasyonlanip collapse'li kaydedilir, (c) tum prefab cache duser, (d) delta'dan yeniden acilir.
+    // Yayilim boylece dogrudan VE nested tuketicilere (Avatar → Table → sahne) ayni yoldan gelir; uygulanan
+    // instance'in override'i yeni prefab degerine esit ciktigindan diff'ten kendiliginden duser (sahte
+    // override yok). App stash'li sahneyi de kapsama alir (stage'de). Testler varsayilani kullanir.
+    internal static Action<EditorScene, Action> PrefabEditScope = (es, mutate) =>
+    {
+        string a = es.Collapse();
+        mutate();
+        es._assets.InvalidateAllPrefabs();
+        es.ReexpandFrom(a);
+    };
+
+    // Cache'teki (expanded) prefab doc'unu dosyasina COLLAPSE'LI yazar; duz Save nested instance'lari duzlestirirdi.
+    void SavePrefabDoc(SceneDoc prefabDoc, string guid)
+    {
+        string rel = _assets.ResolvePath(guid);
+        if (string.IsNullOrEmpty(rel))
+            return;
+        string pp = System.IO.Path.Combine(_assets.Root, rel);
+        AssetWatcher.NoteSelfWrite(pp);
+        prefabDoc.Save(pp, _catalog, _assets);
+    }
+
+    // Sahnedeki degeri PREFAB'A yazar (dosya dahil); yayilim PrefabEditScope ile. Nested node'dan Apply
+    // EN DIS prefab'a yazilir (Unity default'u): Table instance'indaki avatar alani → Table.prefab'ta
+    // Avatar instance'ina nested override. v1: undo'suz (prefab dosyasi degisir — Unity'de de ayri dert).
     public void ApplyFieldToPrefab(SceneDoc.GoDoc g, SceneDoc.CompDoc cd, SerializedType.FieldSchema f)
     {
         if (!Doc.TryGetPrefabSource(g, _assets, out var prefabDoc, out var sourceNode, out var rootRec))
@@ -539,119 +691,50 @@ public sealed class EditorScene
         var cur = FindProp(cd, f);
         if (cur == null)
             return;
-        var oldPrefabVal = SceneDoc.RemappedPrefabValue(sourceComp, f, rootRec.PrefabIds); // yayilim kiyasi icin
-
         // Sahne degeri prefab uzayina (ters remap'li klon) yazilir.
         var inv = SceneDoc.InvertMap(rootRec.PrefabIds);
         var toPrefab = cur.Clone();
         SceneDoc.RemapValue(toPrefab, f, inv);
-        bool wrote = false;
-        for (int i = 0; i < sourceComp.Props.Count; i++)
-            if (sourceComp.Props[i].Key == f.Name || (f.FormerName != null && sourceComp.Props[i].Key == f.FormerName))
-            {
-                sourceComp.Props[i] = new(f.Name, toPrefab);
-                wrote = true;
-                break;
-            }
-        if (!wrote)
-            sourceComp.Props.Add(new(f.Name, toPrefab));
-
-        // Prefab dosyasini kaydet (cache'teki Doc mutasyonla ayni nesne).
-        string rel = _assets.ResolvePath(rootRec.PrefabGuid);
-        if (!string.IsNullOrEmpty(rel))
+        string guid = rootRec.PrefabGuid;
+        PrefabEditScope(this, () =>
         {
-            string pp = System.IO.Path.Combine(_assets.Root, rel);
-            AssetWatcher.NoteSelfWrite(pp);
-            prefabDoc.Save(pp);
-        }
-
-        // Diger instance'lara yayilim: alanin ESKI prefab degerinde kalanlara
-        // (override'sizlara) yeni deger; override'i olan instance korunur.
-        foreach (var r in Doc.Objects)
-        {
-            if (!r.IsPrefabRoot || r.PrefabGuid != rootRec.PrefabGuid || r == rootRec)
-                continue;
-            if (!r.PrefabIds.TryGetValue(sourceNode.Id, out int sceneId))
-                continue;
-            var tg = FindGo(sceneId);
-            var tcd = tg != null ? SceneDoc.FindCompByAddress(tg, addr) : null;
-            if (tcd == null)
-                continue;
-            var tCur = FindProp(tcd, f);
-            var oldInR = RemapAcross(oldPrefabVal, f, inv, r.PrefabIds);
-            if (tCur != null && !DocNode.Equal(tCur, oldInR))
-                continue; // instance'in kendi override'i var: dokunma
-            var newInR = SceneDoc.RemappedPrefabValue(sourceComp, f, r.PrefabIds);
-            if (newInR == null)
-                continue;
-            if (tCur == null)
-                tcd.Props.Add(new(f.Name, newInR));
-            else
-            {
-                tCur.Scalar = newInR.Scalar;
-                tCur.Items = newInR.Items;
-                tCur.Fields = newInR.Fields;
-            }
-        }
-        RefreshLive();
+            bool wrote = false;
+            for (int i = 0; i < sourceComp.Props.Count; i++)
+                if (sourceComp.Props[i].Key == f.Name || (f.FormerName != null && sourceComp.Props[i].Key == f.FormerName))
+                {
+                    sourceComp.Props[i] = new(f.Name, toPrefab);
+                    wrote = true;
+                    break;
+                }
+            if (!wrote)
+                sourceComp.Props.Add(new(f.Name, toPrefab));
+            SavePrefabDoc(prefabDoc, guid);
+        });
     }
 
-    // rootRec uzayindaki degeri once prefab uzayina (inv), sonra hedef uzaya (map) cevirir.
-    static DocNode RemapAcross(DocNode v, SerializedType.FieldSchema f,
-        Dictionary<int, int> inv, Dictionary<int, int> map)
-    {
-        if (v == null)
-            return null;
-        var c = v.Clone();
-        SceneDoc.RemapValue(c, f, inv);
-        SceneDoc.RemapValue(c, f, map);
-        return c;
-    }
-
-    // Node duzeyi alani (pos/rot/scale/name/active) PREFAB'A yazar + dosya + yayilim.
+    // Node duzeyi alani (pos/rot/scale/name/active) PREFAB'A yazar + dosya + yayilim (PrefabEditScope).
     public void ApplyNodeFieldToPrefab(SceneDoc.GoDoc g, string prop)
     {
         if (!Doc.TryGetPrefabSource(g, _assets, out var prefabDoc, out var src, out var rootRec))
             return;
-        // Eski prefab degeri (yayilim kiyasi) + yeni deger src'ye yazilir.
-        Vec3 oldPos = src.Pos, oldRot = src.Rot, oldScale = src.Scale;
-        string oldName = src.Name;
-        bool oldActive = src.Active;
-        switch (prop)
+        if (prop is not ("pos" or "rot" or "scale" or "name" or "active"))
+            return;
+        Vec3 pos = g.Pos, rot = g.Rot, scale = g.Scale;
+        string name = g.Name;
+        bool active = g.Active;
+        string guid = rootRec.PrefabGuid;
+        PrefabEditScope(this, () =>
         {
-            case "pos": src.Pos = g.Pos; break;
-            case "rot": src.Rot = g.Rot; break;
-            case "scale": src.Scale = g.Scale; break;
-            case "name": src.Name = g.Name; break;
-            case "active": src.Active = g.Active; break;
-            default: return;
-        }
-        string rel = _assets.ResolvePath(rootRec.PrefabGuid);
-        if (!string.IsNullOrEmpty(rel))
-        {
-            string pp = System.IO.Path.Combine(_assets.Root, rel);
-            AssetWatcher.NoteSelfWrite(pp);
-            prefabDoc.Save(pp);
-        }
-        foreach (var r in Doc.Objects)
-        {
-            if (!r.IsPrefabRoot || r.PrefabGuid != rootRec.PrefabGuid || r == rootRec)
-                continue;
-            if (!r.PrefabIds.TryGetValue(src.Id, out int sceneId))
-                continue;
-            var tg = FindGo(sceneId);
-            if (tg == null || tg == r)
-                continue; // kok node alanlari instance'a aittir
             switch (prop)
             {
-                case "pos": if (SameV3(tg.Pos, oldPos)) tg.Pos = g.Pos; break;
-                case "rot": if (SameV3(tg.Rot, oldRot)) tg.Rot = g.Rot; break;
-                case "scale": if (SameV3(tg.Scale, oldScale)) tg.Scale = g.Scale; break;
-                case "name": if (tg.Name == oldName) tg.Name = g.Name; break;
-                case "active": if (tg.Active == oldActive) tg.Active = g.Active; break;
+                case "pos": src.Pos = pos; break;
+                case "rot": src.Rot = rot; break;
+                case "scale": src.Scale = scale; break;
+                case "name": src.Name = name; break;
+                case "active": src.Active = active; break;
             }
-        }
-        RefreshLive();
+            SavePrefabDoc(prefabDoc, guid);
+        });
     }
 
     static bool SameV3(Vec3 a, Vec3 b) => a.x == b.x && a.y == b.y && a.z == b.z;
@@ -780,6 +863,12 @@ public sealed class EditorScene
     {
         if (g.Id == newParentId || g.Id == insertBeforeId || IsDescendantOf(newParentId, g.Id))
             return;
+        // Tema katmaninda kardes sirasi temsil edilmiyor (yalniz parent): tabanda var olan GO'nun sirasi degistirilemez.
+        if (ThemeMode && Base.FindGo(g.Id) != null)
+        {
+            EditorLog.Warning("[theme] sibling order is not part of a theme layer; switch to default theme to reorder");
+            return;
+        }
         if (SingleRoot && newParentId == 0 && g.Parent != 0)
         {
             EditorLog.Warning("[prefab] prefab has a single root; keep objects under it");

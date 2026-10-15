@@ -27,16 +27,17 @@ static class RpcCommands
             return s;
         }
         r.Add("workflow", Lines(
-            "1. scene.dump (acik sahne) ya da scene.new/scene.open; ornek almak icin mevcut bir sahneyi dump'la",
+            "1. scene.tree (KOMPAKT hiyerarsi: id, ad, component tipleri; root/depth ile kademeli gez) ya da scene.new/scene.open. Detay: scene.dump(go, props) alt agac/alan degerleri, prop.get(go, comp). Tum sahne scene.dump(props=true) BUYUK, gerekmedikce cagirma",
             "2. comp.types → comp.schema(type): alanlar, default, enum degerleri, format. Tahmin etme, semaya bak",
             "3. TOPLU kur: scene.apply(objects) — GO + components + props + children tek istekte (tek undo, atomik). Kucuk rotus: prop.set/transform.set",
-            "4. view.device(name) → sim.run(frames, screenshot=true) → PNG'ye bak → input.tap(x,y) (screenshot pikseli == koordinat) → render.screenshot",
+            "4. view.device(name) → sim.run(frames, describe=true) → METIN ozete bak (render.describe: rect/text/click; rect merkezi = input.tap koordinati) → input.tap(x,y) → tekrar describe. Gorsel ton/suphe: screenshot=true ya da render.screenshot (koordinat = region.x + px * toScreen)",
             "5. Hata donerse yol+sebep verir ve hicbir sey uygulanmaz; duzelt, tekrar gonder. scene.diff = son dump'tan beri ne degisti",
             "6. scene.save YALNIZ kullanici isterse (her sey undo'lu kalir)"));
         r.Add("scene", Lines(
             "GO = id + parent + pos/rot/scale + components. Kok parent=0. Ayni parent'ta liste sirasi = cizim sirasi (sonraki ustte); SortingOrder onde gelir",
             "UI primitifi = LayoutBox: kutu (fill/border/radius/shadow) + metin (font,text,textSize,textAlign,textAlignV,textFill) + yerlesim. fitScreen=true → ekrani kaplar (arka plan)",
             "LayoutBox konum: anchorMin/anchorMax/pivot (0..1, parent'a gore; '0.5 0.5' = ortala) + anchoredPos (mantiksal px ofset) + width/height. layout=Vertical|Horizontal cocuklari dizer (spacing, padding, alignChildren, justifyChildren)",
+            "Flex cocuk alanlari (COCUKTA): grow, shrink, margin (l t r b), minWidth/maxWidth/minHeight/maxHeight, alignSelf=Auto|Start|Center|End|Stretch (flex icinde anchor DEGIL alignSelf=Stretch genisletir). Kaydirmali liste: kutuda overflowY=Scroll + ayni GO'ya ScrollView component'i (jest+atalet); scrollOffset animatable",
             "TextSprite = serbest metin, SpriteRenderer = gorsel (Sprite asset), ParticleSystem, MovieClip = doc'ta koreografi (intro/loop), CameraComponent opsiyonel (yoksa piksel-ortho fallback)",
             "'Buton' tipi YOK: gorunum LayoutBox, davranis KOD ister (Component alt sinifi OnPointerClick override; engine.api Component). Kod: asset.write(.cs) + code.build → comp.types yenilenir"));
         r.Add("values", Lines(
@@ -47,7 +48,9 @@ static class RpcCommands
         r.Add("movieclip", Lines(
             "comp MovieClip props: Fps, FrameCount, Loop, PlayOnStart, 'Tracks[0].Target':'$Go:Transform:0', 'Tracks[0].Path':'Scale' (anim.props(type) yollar), 'Tracks[0].Keys[0].Value':'0 0 1 0', 'Tracks[0].Keys[0].Ease':'OutBack', 'Tracks[0].Keys[1].Frame':20, 'Tracks[0].Keys[1].Value':'1 1 1 0'"));
         r.Add("coordinates", Lines(
-            "input.* ve screenshot (scale=1) MANTIKSAL nokta, sol-ust orijin, y asagi; view.device mantiksal boyutu belirler (view.get)",
+            "input.* MANTIKSAL nokta, sol-ust orijin, y asagi; view.device mantiksal boyutu belirler (view.get)",
+            "render.describe = ekranin METIN ozeti (gorunur renderer'lar, rect 'x y w h' mantiksal, text, sprite, fill, click): hizli degerlendirme ve tiklama hedefi icin ONCE bunu kullan; rect merkezi dogrudan input.tap. pixels=N kaba renk izgarasi (ekran bos mu). Goruntu yalniz gorsel kalite/suphe icin",
+            "Screenshot VARSAYILAN KUCULTULMUS (maxSize=1024, jpg): tiklama koordinati = region.x + px * toScreen (sonuctaki carpan; region yoksa 0). Detay gerekirse render.screenshot(region='x y w h') ile bolgeyi tam cozunurlukte al; scale=1, maxSize=0, format=png → piksel == koordinat",
             "input.tap donusu: hit (degdi mi), target (hiyerarsi yolu), handlers (kosan handler sayisi) — 0 ise davranis kodu yok demektir"));
         r.Add("rules", Lines(
             "Sahne/prefab YAML'ini ASLA dogrudan yazma (asset.write ile bile): scene.apply/edit.batch/prop.set kullan — undo'lu, dogrulanir, canli patch",
@@ -62,6 +65,10 @@ static class RpcCommands
             "Parametreli metin sablonu tabloda ('{0} coins'); kod key bilmeden comp.Format(args) cagirir. Play'de args gelmeden sablon gorunmez",
             "Ceviri dongusu: loc.languages -> loc.addLanguage(code) (yalniz katalog) -> loc.missing(lang) -> cevir -> loc.set(entries) (tek undo). Dil degistir: loc.setLanguage(lang) (edit + Play aninda). Denetim: loc.unused, loc.usages(key), loc.glyphCheck",
             "Tabloyu asset.write ile YAZMA: loc.set/loc.rename/loc.remove kullan (undo'lu, canli)"));
+        r.Add("themes", Lines(
+            "TEMA (xmas, kurban...): sahne/prefab DOSYASININ ICINDE isimli override katmani (themes: {xmas: {overrides, removed, added}}); sahne kopyasi/kod dali YOK. Build tek temayla piser (PlayerSettings.activeTheme ya da asset.buildPak/player.build theme=...), diger temalar ve asset'leri pak'a girmez. Runtime tema bilmez",
+            "Akis: theme.add(name) -> theme.set(name) (calisilan tema = dil gibi: edit + Play; undo yigini temizlenir) -> normal prop.set/comp.add/scene.addGo/scene.removeGo: HEPSI o temanin katmanina yazilir, taban dokunulmaz -> scene.save. theme.set('') tabana doner",
+            "Ortak parca (avatar cercevesi) temalanacaksa katmani EN IC prefab'a koy (prefab stage'de theme.set + duzenle): tum tuketiciler (masa, leaderboard, sahne) otomatik alir. Tema modunda kardes sirasi degistirilemez; theme.check yetim override'lari listeler; theme.setBuild(name) build temasi"));
         r.Add("editorUi", Lines(
             "Editor GUI otomasyonu: ui.panels (panel/tab rect'leri, pencere boyutu) -> ui.screenshot (tum pencere, piksel == koordinat) -> ui.click/ui.drag/ui.scroll/ui.type/ui.key. Jest frame'e yayilir; sonraki komut jest bitince kosar (ui.wait gerekmez, animasyon icin istege bagli)",
             "Combo: ui.click ile ac, acilan listedeki ogeye ui.click (popup ayri pencere ama koordinat ana pencere uzayinda; satir 20px). Metin: alana ui.click, sonra ui.type; '\\n' Enter. Ctrl+Z: ui.key('z','ctrl')",
@@ -71,26 +78,142 @@ static class RpcCommands
 
     // --- gozlem ---
 
-    [RpcCommand("scene.dump", "Acik sahnenin doc dokumu (id/parent/ad/transform/component'ler); diff baseline'ini sifirlar")]
-    static DocNode SceneDump(RpcContext ctx)
+    // Doc hiyerarsisi: parent id → cocuklar (doc sirasi = kardes sirasi). Her cagri tek gecis; buyuk sahnede
+    // tam dump yerine kademeli gezinti (scene.tree root/depth) icin.
+    static Dictionary<int, List<SceneDoc.GoDoc>> ChildIndex(SceneDoc doc)
+    {
+        var idx = new Dictionary<int, List<SceneDoc.GoDoc>>();
+        foreach (var g in doc.Objects)
+        {
+            if (!idx.TryGetValue(g.Parent, out var list))
+                idx[g.Parent] = list = new List<SceneDoc.GoDoc>();
+            list.Add(g);
+        }
+        return idx;
+    }
+
+    // "root": doc id ya da 'A/B/C' yolu (koklerden iner; tek segment ise once kok adi, yoksa tum agacta ad).
+    static SceneDoc.GoDoc ResolveDocGo(RpcContext ctx, string key, Dictionary<int, List<SceneDoc.GoDoc>> idx)
+    {
+        if (int.TryParse(key, NumberStyles.Integer, CultureInfo.InvariantCulture, out int id))
+            return ctx.Scene.FindGo(id);
+        var segs = key.Split('/', StringSplitOptions.RemoveEmptyEntries);
+        if (segs.Length == 0)
+            return null;
+        SceneDoc.GoDoc cur = null;
+        if (idx.TryGetValue(0, out var roots))
+            foreach (var r in roots)
+                if (r.Name == segs[0]) { cur = r; break; }
+        if (cur == null && segs.Length == 1)
+        {
+            foreach (var g in ctx.Scene.Doc.Objects)
+                if (g.Name == segs[0])
+                    return g;
+            return null;
+        }
+        for (int k = 1; cur != null && k < segs.Length; k++)
+        {
+            SceneDoc.GoDoc next = null;
+            if (idx.TryGetValue(cur.Id, out var kids))
+                foreach (var c in kids)
+                    if (c.Name == segs[k]) { next = c; break; }
+            cur = next;
+        }
+        return cur;
+    }
+
+    static SceneDoc.GoDoc RequireDocGo(RpcContext ctx, string key, Dictionary<int, List<SceneDoc.GoDoc>> idx)
+        => ResolveDocGo(ctx, key, idx) ?? throw new RpcError($"GO yok: '{key}' (id ya da 'A/B' yolu; scene.tree ile gor)");
+
+    [RpcCommand("scene.tree", "KOMPAKT hiyerarsi (ONCE BUNU CAGIR): satir basina '{id} {girinti}{ad} [inactive] {prefab} (component tipleri)'. root: id ya da 'A/B' yolu (bos = tum sahne); depth: en fazla derinlik (0 = sinirsiz; 1 = yalniz root'un kendisi/kokler); comps=false → tipler gizli. Satirin sonunda '+N' = depth nedeniyle gizlenen alt eleman sayisi")]
+    static DocNode SceneTree(RpcContext ctx, string root = "", int depth = 0, bool comps = true)
+    {
+        var doc = ctx.Scene.Doc;
+        var idx = ChildIndex(doc);
+        var lines = DocNode.Seq();
+        int count = 0;
+        int Descendants(SceneDoc.GoDoc g)
+        {
+            int n = 0;
+            if (idx.TryGetValue(g.Id, out var kids))
+                foreach (var c in kids) n += 1 + Descendants(c);
+            return n;
+        }
+        void Walk(SceneDoc.GoDoc g, int d)
+        {
+            var sb = new System.Text.StringBuilder();
+            sb.Append(g.Id.ToString(CultureInfo.InvariantCulture)).Append(' ').Append(' ', d * 2).Append(g.Name);
+            if (!g.Active) sb.Append(" [inactive]");
+            if (g.IsPrefabRoot)
+                sb.Append(" {").Append(Path.GetFileNameWithoutExtension(ctx.Assets?.ResolvePath(g.PrefabGuid) ?? g.PrefabGuid)).Append('}');
+            if (comps && g.Components.Count > 0)
+            {
+                sb.Append(" (");
+                for (int i = 0; i < g.Components.Count; i++)
+                {
+                    if (i > 0) sb.Append(", ");
+                    sb.Append(g.Components[i].Type);
+                    if (!g.Components[i].Enabled) sb.Append("[off]");
+                }
+                sb.Append(')');
+            }
+            bool cut = depth > 0 && d + 1 >= depth;
+            if (cut)
+            {
+                int hidden = Descendants(g);
+                if (hidden > 0) sb.Append(" +").Append(hidden.ToString(CultureInfo.InvariantCulture));
+            }
+            lines.Items.Add(DocNode.Scal(sb.ToString()));
+            count++;
+            if (cut) return;
+            if (idx.TryGetValue(g.Id, out var kids))
+                foreach (var c in kids) Walk(c, d + 1);
+        }
+        if (root.Length > 0)
+            Walk(RequireDocGo(ctx, root, idx), 0);
+        else if (idx.TryGetValue(0, out var roots))
+            foreach (var r in roots) Walk(r, 0);
+        var res = DocNode.Map();
+        res.Add("scene", DocNode.Scal(doc.Name));
+        res.Add("lines", lines);
+        res.Add("count", DocNode.Scal(count.ToString(CultureInfo.InvariantCulture)));
+        res.Add("total", DocNode.Scal(doc.Objects.Count.ToString(CultureInfo.InvariantCulture)));
+        return res;
+    }
+
+    [RpcCommand("scene.dump", "Acik sahnenin doc dokumu (id/parent/ad/transform/component'ler). go: yalniz bu GO'nun alt agaci (id ya da 'A/B' yolu; bos = tum sahne); props=false → alan degerleri atlanir (yalniz tipler). Tam dump (go bos) diff baseline'ini sifirlar. BUYUK sahnede once scene.tree")]
+    static DocNode SceneDump(RpcContext ctx, string go = "", bool props = true)
     {
         var root = DocNode.Map();
         root.Add("name", DocNode.Scal(ctx.Scene.Doc.Name));
         root.Add("path", DocNode.Scal(ctx.Scene.Path ?? ""));
         root.Add("dirty", DocNode.Scal(ctx.Scene.Dirty ? "true" : "false"));
         var objects = DocNode.Seq();
+        if (go.Length > 0)
+        {
+            var idx = ChildIndex(ctx.Scene.Doc);
+            void Walk(SceneDoc.GoDoc g)
+            {
+                objects.Items.Add(DumpGo(g, props));
+                if (idx.TryGetValue(g.Id, out var kids))
+                    foreach (var c in kids) Walk(c);
+            }
+            Walk(RequireDocGo(ctx, go, idx));
+            root.Add("objects", objects);
+            return root;
+        }
         _diffBaseline.Clear();
         foreach (var g in ctx.Scene.Doc.Objects)
         {
             var og = DumpGo(g);
             _diffBaseline[g.Id] = og.Clone();
-            objects.Items.Add(og);
+            objects.Items.Add(props ? og : DumpGo(g, false));
         }
         root.Add("objects", objects);
         return root;
     }
 
-    static DocNode DumpGo(SceneDoc.GoDoc g)
+    static DocNode DumpGo(SceneDoc.GoDoc g, bool props = true)
     {
         var og = DocNode.Map();
         og.Add("id", DocNode.Scal(g.Id.ToString(CultureInfo.InvariantCulture)));
@@ -112,12 +235,12 @@ static class RpcCommands
                 oc.Add("type", DocNode.Scal(cd.Type));
                 if (!cd.Enabled)
                     oc.Add("enabled", DocNode.Scal("false"));
-                if (cd.Props.Count > 0)
+                if (props && cd.Props.Count > 0)
                 {
-                    var props = DocNode.Map();
+                    var pm = DocNode.Map();
                     foreach (var kv in cd.Props)
-                        props.Add(kv.Key, kv.Value.Clone());
-                    oc.Add("props", props);
+                        pm.Add(kv.Key, kv.Value.Clone());
+                    oc.Add("props", pm);
                 }
                 comps.Items.Add(oc);
             }
@@ -164,8 +287,8 @@ static class RpcCommands
         return root;
     }
 
-    [RpcCommand("scene.dumpLive", "CANLI sahne dokumu (runtime degerler; which: edit|play)")]
-    static DocNode DumpLive(RpcContext ctx, string which = "edit")
+    [RpcCommand("scene.dumpLive", "CANLI sahne dokumu (runtime degerler; which: edit|play). go: yalniz bu GO'nun alt agaci (hiyerarsi yolu 'A/B' ya da tekil ad; bos = tum sahne)")]
+    static DocNode DumpLive(RpcContext ctx, string which = "edit", string go = "")
     {
         var scene = which switch
         {
@@ -178,8 +301,15 @@ static class RpcCommands
         var root = DocNode.Map();
         root.Add("name", DocNode.Scal(scene.Name));
         var objects = DocNode.Seq();
-        for (int i = 0; i < scene.RootCount; i++)
-            DumpLiveGo(scene.GetRoot(i), 0, objects);
+        if (go.Length > 0)
+        {
+            var target = FindLiveByPath(scene, go)
+                ?? throw new RpcError($"canli sahnede GO yok: '{go}' (yol 'A/B/C' ya da tekil ad)");
+            DumpLiveGo(target, 0, objects);
+        }
+        else
+            for (int i = 0; i < scene.RootCount; i++)
+                DumpLiveGo(scene.GetRoot(i), 0, objects);
         root.Add("objects", objects);
         return root;
     }
@@ -1205,8 +1335,8 @@ static class RpcCommands
         return null;
     }
 
-    [RpcCommand("sim.run", "N frame simule eder, canli dokumle doner. SABIT ADIM: her sim frame'i dt=1/fps (gercek saatten bagimsiz, deterministik). Play degilse baslatir; play'deyken doc DEGISTIYSE oyun sahnesi otomatik yeniden dogar (frame 0'dan; restart=true her zaman). screenshot=true sonda PNG; captureEvery=K → her K frame'de PNG (frames listesi; animasyon inceleme); stop=true sonda durdurur")]
-    static DocNode SimRun(RpcContext ctx, int frames = 60, bool stop = false, bool screenshot = false, bool restart = false, int captureEvery = 0, int fps = 60)
+    [RpcCommand("sim.run", "N frame simule eder, canli dokumle doner. SABIT ADIM: her sim frame'i dt=1/fps (gercek saatten bagimsiz, deterministik). Play degilse baslatir; play'deyken doc DEGISTIYSE oyun sahnesi otomatik yeniden dogar (frame 0'dan; restart=true her zaman). describe=true sonda render.describe (ekranin metin ozeti; UCUZ, once bunu dene); screenshot=true sonda goruntu (kucultulmus jpg; maxSize/format render.screenshot ile ayni, tiklama = px * toScreen); captureEvery=K → her K frame'de goruntu (frames listesi; animasyon inceleme); stop=true sonda durdurur")]
+    static DocNode SimRun(RpcContext ctx, int frames = 60, bool stop = false, bool screenshot = false, bool restart = false, int captureEvery = 0, int fps = 60, int maxSize = 1024, string format = "jpg", bool describe = false)
     {
         if (frames < 1 || frames > 100000)
             throw new RpcError("frames 1..100000 olmali");
@@ -1214,6 +1344,8 @@ static class RpcCommands
             throw new RpcError("fps 1..1000 olmali");
         if (captureEvery < 0 || (captureEvery > 0 && frames / captureEvery > 2000))
             throw new RpcError("captureEvery: en fazla 2000 kare yakalanir");
+        if (format != "jpg" && format != "png")
+            throw new RpcError("format jpg|png olmali");
         bool restarted = false;
         if (PlayMode.State == PlayState.Editing)
             PlayMode.Play();
@@ -1231,7 +1363,7 @@ static class RpcCommands
         {
             if (captures != null && RpcHost.FrameCount >= nextCapture && RpcHost.FrameCount <= target)
             {
-                var shot = RenderScreenshot();
+                var shot = RenderScreenshot(maxSize: maxSize, format: format);
                 shot.Fields.Insert(0, new KeyValuePair<string, DocNode>("frame", DocNode.Scal((RpcHost.FrameCount - start).ToString(CultureInfo.InvariantCulture))));
                 captures.Items.Add(shot);
                 nextCapture += captureEvery;
@@ -1242,8 +1374,10 @@ static class RpcCommands
             var dump = DumpLive(ctx, "play");
             if (restarted)
                 dump.Add("restarted", DocNode.Scal("true"));
+            if (describe)
+                dump.Add("describe", RpcDescribe.DescribePlay(ctx));
             if (screenshot)
-                dump.Add("screenshot", RenderScreenshot());
+                dump.Add("screenshot", RenderScreenshot(maxSize: maxSize, format: format));
             if (captures != null)
                 dump.Add("frames", captures);
             if (stop)
@@ -1255,8 +1389,8 @@ static class RpcCommands
 
     // --- goruntu + cihaz profili + pointer (AI'in gozu ve eli) ---
     // KOORDINAT SOZLESMESI: her sey MANTIKSAL nokta (Screen.width x height, sol-ust
-    // orijin, y asagi). render.screenshot varsayilan olarak bu boyutta PNG yazar ->
-    // goruntu pikseli == input.* koordinati birebir.
+    // orijin, y asagi). render.screenshot varsayilan KUCULTULMUS jpg yazar (maxSize=1024):
+    // tiklama = region.x + px * toScreen; scale=1 & maxSize=0 → goruntu pikseli == koordinat.
 
     [RpcCommand("view.get", "Game View boyutu/cihaz profili (mantiksal + fiziksel + pixelRatio)")]
     static DocNode ViewGet()
@@ -1321,26 +1455,57 @@ static class RpcCommands
 
     static int _shotSeq;
 
-    [RpcCommand("render.screenshot", "Game View'in son frame'ini PNG yazar. scale: mantiksal boyuta carpan (1 = Screen boyutu, tiklama koordinatiyla birebir; pixelRatio = tam fiziksel). path bos = Library/Screenshots/shot_N.png")]
-    static DocNode RenderScreenshot(string path = "", float scale = 1f)
+    [RpcCommand("render.screenshot", "Game View'in son frame'ini yazar. VARSAYILAN KUCULTULMUS: maxSize=1024 uzun kenar, jpg q80 (hizli yorum). TIKLAMA KOORDINATI = region.x + px * toScreen (sonuctaki carpan; region yoksa 0). scale: mantiksal boyuta carpan (maxSize ile sinirli); maxSize=0 sinirsiz; format jpg|png (scale=1, maxSize=0, png = piksel==koordinat); region 'x y w h' (mantiksal koordinat) → yalniz o bolge, detay icin. path bos = Library/Screenshots/shot_N.jpg|png")]
+    static DocNode RenderScreenshot(string path = "", float scale = 1f, int maxSize = 1024, string format = "jpg", int quality = 80, string region = "")
     {
         if (scale <= 0f || scale > 8f)
             throw new RpcError("scale 0..8 araliginda olmali");
+        if (format != "jpg" && format != "png")
+            throw new RpcError("format jpg|png olmali");
+        if (maxSize < 0 || maxSize > 16384)
+            throw new RpcError("maxSize 0..16384 olmali");
+        if (quality < 1 || quality > 100)
+            throw new RpcError("quality 1..100 olmali");
+        var req = new GameOutput.ShotRequest { Scale = scale, MaxSize = maxSize, Jpg = format == "jpg", Quality = quality };
+        if (region.Length > 0)
+        {
+            var f = ParseFloats(region, 4, "region");
+            if (f[2] <= 0 || f[3] <= 0)
+                throw new RpcError("region w/h pozitif olmali");
+            req.RegionX = f[0]; req.RegionY = f[1]; req.RegionW = f[2]; req.RegionH = f[3];
+        }
         if (path.Length == 0)
-            path = Path.Combine("Library", "Screenshots", $"shot_{++_shotSeq:D4}.png");
+            path = Path.Combine("Library", "Screenshots", $"shot_{++_shotSeq:D4}.{format}");
         string full = Path.IsPathRooted(path) ? path : Path.Combine(App.Project.Root, path);
-        var (w, h) = GameOutput.Screenshot(full, scale);
+        var res = GameOutput.Screenshot(full, req);
         var r = DocNode.Map();
         r.Add("path", DocNode.Scal(Path.GetFullPath(full)));
-        r.Add("w", DocNode.Scal(w.ToString(CultureInfo.InvariantCulture)));
-        r.Add("h", DocNode.Scal(h.ToString(CultureInfo.InvariantCulture)));
-        r.Add("scale", DocNode.Scal(F(scale)));
+        r.Add("w", DocNode.Scal(res.W.ToString(CultureInfo.InvariantCulture)));
+        r.Add("h", DocNode.Scal(res.H.ToString(CultureInfo.InvariantCulture)));
         r.Add("screenW", DocNode.Scal(F(GameOutput.ViewW)));
         r.Add("screenH", DocNode.Scal(F(GameOutput.ViewH)));
+        if (region.Length > 0)
+            r.Add("region", DocNode.Scal(string.Create(CultureInfo.InvariantCulture, $"{res.RegionX:R} {res.RegionY:R} {res.RegionW:R} {res.RegionH:R}")));
+        // Tiklama koordinati = region.x + px * toScreen (goruntu kucultulmus/kirpilmis olabilir).
+        r.Add("toScreen", DocNode.Scal(F(res.ToScreen)));
+        r.Add("format", DocNode.Scal(format));
+        r.Add("bytes", DocNode.Scal(res.Bytes.ToString(CultureInfo.InvariantCulture)));
         r.Add("pixelRatio", DocNode.Scal(F(GameOutput.PixelRatio)));
         r.Add("playing", DocNode.Scal(PlayMode.PlayScene != null ? "true" : "false"));
         if (PlayMode.PlaySceneStale)
             r.Add("stale", DocNode.Scal("true")); // doc degisti, oyun sahnesi eski: sim.run ile tazele
+        return r;
+    }
+
+    static float[] ParseFloats(string s, int count, string label)
+    {
+        var parts = s.Split(new[] { ' ', ',' }, StringSplitOptions.RemoveEmptyEntries);
+        if (parts.Length != count)
+            throw new RpcError($"'{label}' {count} sayi olmali: '{s}'");
+        var r = new float[count];
+        for (int i = 0; i < count; i++)
+            if (!float.TryParse(parts[i], NumberStyles.Float, CultureInfo.InvariantCulture, out r[i]))
+                throw new RpcError($"'{label}' sayi degil: '{parts[i]}'");
         return r;
     }
 
@@ -1353,8 +1518,8 @@ static class RpcCommands
         return PlayMode.PlayScene ?? throw new RpcError("oyun sahnesi yok (play baslatilamadi)");
     }
 
-    [RpcCommand("anim.goto", "Play sahnesindeki MovieClip'i KESIN bir kareye goturur ve durdurur (deterministik kare yakalama; sim.run gercek saatle ilerler). go: hiyerarsi yolu/adi ('ROOT' ya da 'BG/Panel'), frame kesirli olabilir (12.5), clip = GO'daki kacinci MovieClip. play=true → o kareden oynatmaya devam. screenshot=true → bir render sonra PNG")]
-    static DocNode AnimGoto(RpcContext ctx, string go, float frame, int clip = 0, bool play = false, bool screenshot = false)
+    [RpcCommand("anim.goto", "Play sahnesindeki MovieClip'i KESIN bir kareye goturur ve durdurur (deterministik kare yakalama; sim.run gercek saatle ilerler). go: hiyerarsi yolu/adi ('ROOT' ya da 'BG/Panel'), frame kesirli olabilir (12.5), clip = GO'daki kacinci MovieClip.     play=true → o kareden oynatmaya devam. describe=true → bir render sonra render.describe (metin); screenshot=true → goruntu (kucultulmus jpg, toScreen)")]
+        static DocNode AnimGoto(RpcContext ctx, string go, float frame, int clip = 0, bool play = false, bool screenshot = false, bool describe = false)
     {
         var s = RequirePlayScene();
         var target = FindLiveByPath(s, go)
@@ -1373,21 +1538,24 @@ static class RpcCommands
         r.Add("frame", DocNode.Scal(F(mc.CurrentFramePosition)));
         r.Add("totalFrames", DocNode.Scal(mc.TotalFrames.ToString(CultureInfo.InvariantCulture)));
         r.Add("playing", DocNode.Scal(mc.IsPlaying ? "true" : "false"));
-        if (!screenshot)
+        if (!screenshot && !describe)
             return r;
         int at = RpcHost.FrameCount + 1;
         RpcHost.Defer(() =>
         {
             if (RpcHost.FrameCount <= at)
                 return null; // ornekleme bir frame ciksin
-            r.Add("screenshot", RenderScreenshot());
+            if (describe)
+                r.Add("describe", RpcDescribe.DescribePlay(ctx));
+            if (screenshot)
+                r.Add("screenshot", RenderScreenshot());
             return r;
         });
         return null;
     }
 
     // "A/B/C" yolu ya da tekil ad ile canli GO (play sahnesi): yol koklerden iner; tek segment ise tum agacta ada bakar.
-    static GameObject FindLiveByPath(Scene s, string path)
+    internal static GameObject FindLiveByPath(Scene s, string path)
     {
         if (string.IsNullOrEmpty(path))
             return null;
@@ -1483,7 +1651,7 @@ static class RpcCommands
     }
 
     // Canli GO'nun hiyerarsi yolu ("BG/Panel/CloseBtn") — play sahnesinde doc id yok, yol tek adres.
-    static string LivePath(GameObject go)
+    internal static string LivePath(GameObject go)
     {
         string path = go.name;
         for (var t = go.transform.parent; t != null; t = t.parent)
@@ -1712,20 +1880,40 @@ static class RpcCommands
         return r;
     }
 
-    [RpcCommand("asset.buildPak", "Release asset paketini (Build/game.pak) uretir; sonuc log.tail'de")]
-    static DocNode AssetBuildPak()
+    [RpcCommand("asset.buildPak", "Release asset paketini (Build/game.pak) uretir; sonuc log.tail'de. theme: bu temayla pisir (bos = PlayerSettings.activeTheme; 'default' = taban)")]
+    static DocNode AssetBuildPak(string theme = null)
     {
-        bool ok = AssetPackBuilder.Build();
+        AssetPackBuilder.ThemeOverride = ThemeArg(theme);
+        bool ok;
+        try { ok = AssetPackBuilder.Build(); }
+        finally { AssetPackBuilder.ThemeOverride = null; }
         var r = DocNode.Map();
         r.Add("ok", DocNode.Scal(ok ? "true" : "false"));
         return r;
     }
 
-    [RpcCommand("player.build", "game.pak + aotcompiler ile player uretir (target: windows=exe | android=Android Studio projesi | ios=Xcode projesi (Build/ios) | wasm=Build/wasm web cikti); sonuc build bitince doner")]
-    static DocNode PlayerBuild(string target = "windows")
+    // RPC tema argumani: null/bos = PlayerSettings.activeTheme (override yok), "default" = taban (""), ad = o tema.
+    static string ThemeArg(string theme)
+    {
+        if (string.IsNullOrWhiteSpace(theme))
+            return null;
+        theme = theme.Trim();
+        if (string.Equals(theme, "default", StringComparison.OrdinalIgnoreCase))
+            return "";
+        if (!App.Project.Player.themes.Contains(theme))
+            throw new RpcError("unknown theme: " + theme + " (theme.list)");
+        return theme;
+    }
+
+    [RpcCommand("player.build", "game.pak + aotcompiler ile player uretir (target: windows=exe | android=Android Studio projesi | ios=Xcode projesi (Build/ios) | wasm=Build/wasm web cikti); sonuc build bitince doner. theme: pak temasi (bos = PlayerSettings.activeTheme)")]
+    static DocNode PlayerBuild(string target = "windows", string theme = null)
     {
         int v0 = PlayerBuilder.Version;
-        if (!PlayerBuilder.Start(target))
+        AssetPackBuilder.ThemeOverride = ThemeArg(theme); // PlayerBuilder pak'i senkron kurar, sonra temizlenir
+        bool started;
+        try { started = PlayerBuilder.Start(target); }
+        finally { AssetPackBuilder.ThemeOverride = null; }
+        if (!started)
         {
             var r = DocNode.Map();
             r.Add("ok", DocNode.Scal("false"));
@@ -1817,7 +2005,7 @@ static class RpcCommands
 
     static string V3(Vec3 v) => string.Create(CultureInfo.InvariantCulture, $"{v.x:R} {v.y:R} {v.z:R}");
 
-    static string F(float v) => v.ToString("R", CultureInfo.InvariantCulture);
+    internal static string F(float v) => v.ToString("R", CultureInfo.InvariantCulture);
 
     static Vec3 ParseV3(string s, string label)
     {

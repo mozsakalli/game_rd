@@ -4,6 +4,9 @@ namespace DigitoyEngine;
 
 public enum LayoutMode { None = 0, Horizontal = 1, Vertical = 2 }
 public enum LayoutAlign { Start = 0, Center = 1, End = 2 }
+// Cocugun capraz eksende KENDI hizasi (CSS align-self): Auto = parent'in alignChildren'i;
+// Stretch = capraz boyut parent'in capraz alanini doldurur (margin dusulur, min/max clamp).
+public enum LayoutAlignSelf { Auto = 0, Start = 1, Center = 2, End = 3, Stretch = 4 }
 // Ana eksende cocuk GRUBUNUN dagilimi (CSS justify-content). Yalniz grow'lu
 // cocuk yokken anlamli: grow varsa kalan alan zaten cocuklara dagitilir.
 // SpaceBetween = ilk/son kenara yapisik, kalan esit aralara; SpaceAround = her
@@ -18,8 +21,17 @@ public enum LayoutJustify { Start = 0, Center = 1, End = 2, SpaceBetween = 3, Sp
 //           gecer; ana eksen authored boyutta kalir, capraz eksen (Grow ise)
 //           satir toplamina buyur. Capraz eksende veya layout=None'da anlamsiz
 //           (Visible gibi davranir). Kelime-kutusu richtext'in yerlesim temeli.
-// Scroll (Hidden + icerik ofseti) 2. faz.
-public enum OverflowMode { Grow = 0, Visible = 1, Hidden = 2, Wrap = 3 }
+// Scroll   = Hidden + icerik ofseti (scrollOffset): cocuklar ana/capraz eksende kaydirilir,
+//           kutu authored boyutta; jest/atalet ScrollView component'inde. Icerik olcusu
+//           (ScrollMax) arrange'da hesaplanir; penceredeki cocuklar dis kalirsa cizilmez/tiklanmaz.
+public enum OverflowMode { Grow = 0, Visible = 1, Hidden = 2, Wrap = 3, Scroll = 4 }
+
+// Kutu arkaplan sprite'inin yerlesimi (CSS object-fit / background-repeat):
+// Stretch = kutuya gerilir (9-slice yalniz bu modda), Contain = oran korunur, kutuya
+// sigacak sekilde kuculur ve ortalanir, Cover = oran korunur, kutuyu doldurur, tasan
+// kisim uv'den kirpilir, Tile = mantiksal boyutunda sol-ustten doser (CPU grid,
+// TileCap'i asarsa karo buyutulur — shader/doku tekrar modu gerekmez, atlas uyesi olur).
+public enum SpriteFit { Stretch = 0, Contain = 1, Cover = 2, Tile = 3 }
 
 // Unity DrivenRectTransformTracker'in sorgu-tabanli muadili: bir component kendi
 // GO'sunun transform'unu suruyorsa editor/araclar bunu JENERIK ogrenir — editor
@@ -78,6 +90,16 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
     [SerializeField] Vec2 anchorMax = new(0.5f, 0.5f);
     [SerializeField] Vec2 anchoredPos;             // pivot'un anchor noktasina gore ofseti
     [SerializeField] float grow;                   // >0: parent grubun kalan alanindan agirlikli pay
+    // >0: ana eksende tasma varsa agirlikli kucul (CSS flex-shrink; basis = preferred). Tek tur
+    // dagitim (min'e takilan cocugun artigi yeniden dagitilmaz — bilincli yaklasim). grow'lu
+    // cocuk shrink'e girmez (zaten leftover'dan pay alir). Wrap'te yok sayilir.
+    [SerializeField] float shrink;
+    // Dis bosluk (CSS margin; left, top, right, bottom). Flex'te ana eksen toplamina ve capraz
+    // hizaya girer; stretch anchor'da kenarlardan dusulur; nokta anchor'da yok sayilir (absolute).
+    [SerializeField] Vec4 margin;
+    // Boyut sinirlari (0 = yok): olcum ve arrange'daki HER boyut yazimi tek clamp'ten gecer.
+    [SerializeField] float minWidth, maxWidth, minHeight, maxHeight;
+    [SerializeField] LayoutAlignSelf alignSelf;    // capraz eksende kendi hizam (Auto = parent'inki)
     [SerializeField] bool ignoreLayout;            // grup beni dizmesin (anchor'la yerlesirim)
     [SerializeField] LayoutMode layout;            // cocuk dizme modu
     [SerializeField] float spacing;
@@ -87,6 +109,10 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
     [SerializeField] bool reverse;
     [SerializeField] OverflowMode overflowX;   // Grow degilse icerik bu ekseni buyutmez
     [SerializeField] OverflowMode overflowY;
+    // Scroll ekseninde icerik kaydirmasi (pozitif = icerik yukari/sola kayar; CSS scrollLeft/Top).
+    // Doc'taki deger = baslangic; runtime ScrollView yazar. Degisim boyutu etkilemez ->
+    // MarkDirty degil, yalniz ArrangeChildren (alt agac FinishChild ile atlanir).
+    [SerializeField] Vec2 scrollOffset;
 
     // --- stil (StyleBox) ---
     [SerializeField] Gradient fill = new(Color.Transparent);
@@ -96,7 +122,8 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
 
     // --- doku (opsiyonel arkaplan resmi; slice9* > 0 ise 9-slice) ---
     [SerializeField] Sprite sprite;
-    [SerializeField] Vec4 slice9; // left, top, right, bottom; kaynak doku pikseli
+    [SerializeField, ShowIf(nameof(sprite))] SpriteFit spriteFit;
+    [SerializeField, ShowIf(nameof(sprite))] Vec4 slice9; // left, top, right, bottom; kaynak doku pikseli (yalniz Stretch)
 
     float padLeft { get => padding.x; set => padding.x = value; }
     float padTop { get => padding.y; set => padding.y = value; }
@@ -155,6 +182,18 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
     public Vec2 AnchorMax { get => anchorMax; set { if (anchorMax.x != value.x || anchorMax.y != value.y) { anchorMax = value; MarkDirty(); } } }
     public Vec2 AnchoredPos { get => anchoredPos; set { if (anchoredPos.x != value.x || anchoredPos.y != value.y) { anchoredPos = value; MarkDirty(); } } }
     public float Grow { get => grow; set { if (grow != value) { grow = value; MarkDirty(); } } }
+    public float Shrink { get => shrink; set { if (shrink != value) { shrink = value; MarkDirty(); } } }
+    public Vec4 Margin { get => margin; set { margin = value; MarkDirty(); } }
+    public float MarginLeft { get => margin.x; set { if (margin.x != value) { margin.x = value; MarkDirty(); } } }
+    public float MarginTop { get => margin.y; set { if (margin.y != value) { margin.y = value; MarkDirty(); } } }
+    public float MarginRight { get => margin.z; set { if (margin.z != value) { margin.z = value; MarkDirty(); } } }
+    public float MarginBottom { get => margin.w; set { if (margin.w != value) { margin.w = value; MarkDirty(); } } }
+    public float MarginAll { get => margin.x; set { margin = new Vec4(value, value, value, value); MarkDirty(); } }
+    public float MinWidth { get => minWidth; set { if (minWidth != value) { minWidth = value; MarkDirty(); } } }
+    public float MaxWidth { get => maxWidth; set { if (maxWidth != value) { maxWidth = value; MarkDirty(); } } }
+    public float MinHeight { get => minHeight; set { if (minHeight != value) { minHeight = value; MarkDirty(); } } }
+    public float MaxHeight { get => maxHeight; set { if (maxHeight != value) { maxHeight = value; MarkDirty(); } } }
+    public LayoutAlignSelf AlignSelf { get => alignSelf; set { if (alignSelf != value) { alignSelf = value; MarkDirty(); } } }
     public bool IgnoreLayout { get => ignoreLayout; set { if (ignoreLayout != value) { ignoreLayout = value; MarkDirty(); } } }
     public LayoutMode Layout { get => layout; set { if (layout != value) { layout = value; MarkDirty(); } } }
     public float Spacing { get => spacing; set { if (spacing != value) { spacing = value; MarkDirty(); } } }
@@ -169,6 +208,28 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
     public OverflowMode OverflowX { get => overflowX; set { if (overflowX != value) { overflowX = value; MarkDirty(); } } }
     public OverflowMode OverflowY { get => overflowY; set { if (overflowY != value) { overflowY = value; MarkDirty(); } } }
     public OverflowMode Overflow { get => overflowX; set { OverflowX = value; OverflowY = value; } }
+
+    // --- scroll ---
+    public bool ScrollsX => overflowX == OverflowMode.Scroll;
+    public bool ScrollsY => overflowY == OverflowMode.Scroll;
+    // Icerik - gorunur alan (>= 0); arrange'da yazilir. Ofsetin dogal araligi [0, ScrollMax].
+    public Vec2 ScrollMax { get { ResolveIfDirty(); return _scrollMax; } }
+    Vec2 _scrollMax;
+
+    // Clamp'siz yazim (overscroll/yay ScrollView'de). Boyut degismez: kirletmek yerine
+    // cocuklar dogrudan yeniden yerlesir; kutu zaten kirliyse bekleyen cozum yeni degeri okur.
+    public Vec2 ScrollOffset
+    {
+        get => scrollOffset;
+        set
+        {
+            if (scrollOffset.x == value.x && scrollOffset.y == value.y)
+                return;
+            scrollOffset = value;
+            if (!_dirty && _gameObject != null && !_destroyed)
+                ArrangeChildren();
+        }
+    }
 
     // Stil degisimi layout'u ETKILEMEZ; quad emisyonu her frame stil alanlarindan
     // okur — cache yok, kirletme gerekmez.
@@ -188,6 +249,7 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
     public float CornerRadius { get => radiusTL; set { radiusTL = radiusTR = radiusBR = radiusBL = value; } }
 
     public Sprite Sprite { get => sprite; set => sprite = value; }
+    public SpriteFit SpriteFit { get => spriteFit; set => spriteFit = value; }
     public Vec4 Scale9 { get => slice9; set => slice9 = value; }
     public float Slice9Left { get => slice9Left; set => slice9Left = value; }
     public float Slice9Top { get => slice9Top; set => slice9Top = value; }
@@ -257,11 +319,36 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
         return true;
     }
 
-    protected internal override void OnEnable() => MarkDirty();
+    // Pick: rect vurusu + ata Hidden/Scroll klibi (kirpilan parca tiklanmaz: cizim = tiklama).
+    // Klip yalniz vurusta hesaplanir (down aninda, zincir yuruyusu).
+    public override bool HitTest(in Ray ray, out float distance, out Vec3 point)
+    {
+        if (!base.HitTest(in ray, out distance, out point))
+            return false;
+        ref var wm = ref transform._getWorldMatrix();
+        ComputeClip(in wm);
+        if (!_hasClip)
+            return true;
+        if (!Mat4.Inverse(ref wm, out var inv))
+            return true;
+        var lp = Mat4.TransformPoint(ref inv, point);
+        return lp.x >= _clX0 && lp.x <= _clX1 && lp.y >= _clY0 && lp.y <= _clY1;
+    }
+
+    protected internal override void OnEnable()
+    {
+        MarkDirty();
+        ApplyStyle();
+    }
+
     protected internal override void OnDisable() => ParentBox()?.MarkDirty();
 
     // Editor Inspector'i alanlara dogrudan yazar; sonrasinda bunu cagirir.
-    protected internal override void OnValidate() => MarkDirty();
+    protected internal override void OnValidate()
+    {
+        MarkDirty();
+        ValidateStyle();
+    }
 
     // Kirlet + zinciri yukari kirlet (autosize etkisi) + sweep kuyruguna gir.
     // INVARIANT: dirty kutu ⇒ tum ata kutulari dirty (cozum hep zincir tepesinden).
@@ -394,7 +481,7 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
     {
         if (_prefWValid)
             return _prefW;
-        _prefW = ComputePreferredW();
+        _prefW = ClampW(ComputePreferredW());
         _prefWValid = true;
         return _prefW;
     }
@@ -403,10 +490,18 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
     {
         if (_prefHValid)
             return _prefH;
-        _prefH = ComputePreferredH();
+        _prefH = ClampH(ComputePreferredH());
         _prefHValid = true;
         return _prefH;
     }
+
+    // min/max (0 = yok). Tum boyut yazimlari buradan gecer; default'ta 2 kiyas.
+    float ClampW(float w) => maxWidth > 0 && w > maxWidth ? maxWidth : (w < minWidth ? minWidth : w);
+    float ClampH(float h) => maxHeight > 0 && h > maxHeight ? maxHeight : (h < minHeight ? minHeight : h);
+
+    // Cocugun ana/capraz eksende layout'a girdigi dis boyut (preferred + margin).
+    float OuterW() => PreferredW() + margin.x + margin.z;
+    float OuterH() => PreferredH() + margin.y + margin.w;
 
     float ComputePreferredW()
     {
@@ -432,7 +527,7 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
                     continue;
                 n++;
                 if (b.grow <= 0)
-                    sum += b.PreferredW(); // grow'lu cocuk olcume 0 girer (payini arrange verir)
+                    sum += b.OuterW(); // grow'lu cocuk olcume 0 girer (payini arrange verir)
             }
             return MathF.Max(aw, sum + pad + spacing * Math.Max(0, n - 1));
         }
@@ -442,7 +537,7 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
             var b = BoxOf(t);
             if (b == null || b.ignoreLayout)
                 continue;
-            mx = MathF.Max(mx, b.PreferredW());
+            mx = MathF.Max(mx, b.OuterW());
         }
         return MathF.Max(aw, mx + pad);
     }
@@ -469,7 +564,7 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
                     continue;
                 n++;
                 if (b.grow <= 0)
-                    sum += b.PreferredH();
+                    sum += b.OuterH();
             }
             return MathF.Max(ah, sum + pad + spacing * Math.Max(0, n - 1));
         }
@@ -479,7 +574,7 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
             var b = BoxOf(t);
             if (b == null || b.ignoreLayout)
                 continue;
-            mx = MathF.Max(mx, b.PreferredH());
+            mx = MathF.Max(mx, b.OuterH());
         }
         return MathF.Max(ah, mx + pad);
     }
@@ -504,7 +599,7 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
             var b = BoxOf(t);
             if (b == null || b.ignoreLayout)
                 continue;
-            float main = horiz ? b.PreferredW() : b.PreferredH();
+            float main = horiz ? b.OuterW() : b.OuterH();
             float add = (n > 0 ? spacing : 0) + main;
             if (n > 0 && used + add > availMain + WrapEps)
             {
@@ -516,7 +611,7 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
             }
             used += add;
             n++;
-            lineCross = MathF.Max(lineCross, horiz ? b.PreferredH() : b.PreferredW());
+            lineCross = MathF.Max(lineCross, horiz ? b.OuterH() : b.OuterW());
         }
         if (n > 0)
             sum += (lines > 0 ? spacing : 0) + lineCross;
@@ -525,7 +620,8 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
 
     // --- yerlestirme (arrange): yukaridan asagi ---
 
-    // Anchor yerlesimi: nokta anchor'da boyut = preferred, stretch'te span*parent + delta.
+    // Anchor yerlesimi: nokta anchor'da boyut = preferred, stretch'te span*parent + delta -
+    // margin (kenarlardan dusulur; min/max clamp'i kutuyu anchor araliginda sol/ust'e yaslar).
     // transform pozisyonu = pivot noktasinin parent-lokal yeri (rect pivot etrafinda).
     void PlaceInParent(LayoutBox parent)
     {
@@ -540,8 +636,8 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
         }
         else
         {
-            w = (anchorMax.x - anchorMin.x) * pw + width;
-            x = tlx + anchorMin.x * pw + anchoredPos.x + pivot.x * w;
+            w = ClampW((anchorMax.x - anchorMin.x) * pw + width - margin.x - margin.z);
+            x = tlx + anchorMin.x * pw + anchoredPos.x + margin.x + pivot.x * w;
         }
 
         float h, y;
@@ -552,8 +648,8 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
         }
         else
         {
-            h = (anchorMax.y - anchorMin.y) * ph + height;
-            y = tly + anchorMin.y * ph + anchoredPos.y + pivot.y * h;
+            h = ClampH((anchorMax.y - anchorMin.y) * ph + height - margin.y - margin.w);
+            y = tly + anchorMin.y * ph + anchoredPos.y + margin.y + pivot.y * h;
         }
 
         _rw = w;
@@ -585,6 +681,34 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
 
     void ArrangeChildren()
     {
+        // Scroll ofseti: cocuklar bu kadar kaydirilir (yalniz Scroll ekseninde).
+        float offX = ScrollsX ? scrollOffset.x : 0f, offY = ScrollsY ? scrollOffset.y : 0f;
+        ArrangeChildrenCore(offX, offY);
+        if (ScrollsX || ScrollsY)
+            MeasureScrollContent(offX, offY);
+    }
+
+    // Icerik olcusu = katilan cocuklarin sag/alt kenar max'i (margin dahil) + pad; ofset
+    // geri eklenir (pozisyonlar kaydirilmis). Yalniz scroll kutusunda, cocuk basina 4 flop.
+    void MeasureScrollContent(float offX, float offY)
+    {
+        float tlx = -pivot.x * _rw, tly = -pivot.y * _rh;
+        float right = tlx, bottom = tly;
+        for (var t = transform.FirstChild; t != null; t = t.NextSibling)
+        {
+            var b = BoxOf(t);
+            if (b == null || b.ignoreLayout)
+                continue;
+            right = MathF.Max(right, b._placedX + (1f - b.pivot.x) * b._rw + b.margin.z);
+            bottom = MathF.Max(bottom, b._placedY + (1f - b.pivot.y) * b._rh + b.margin.w);
+        }
+        float contentW = right - tlx + padRight + offX, contentH = bottom - tly + padBottom + offY;
+        _scrollMax = new Vec2(ScrollsX ? MathF.Max(0f, contentW - _rw) : 0f,
+                              ScrollsY ? MathF.Max(0f, contentH - _rh) : 0f);
+    }
+
+    void ArrangeChildrenCore(float offX, float offY)
+    {
         if (layout == LayoutMode.None)
         {
             for (var t = transform.FirstChild; t != null; t = t.NextSibling)
@@ -595,6 +719,8 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
                 bool wasDirty = b._dirty;
                 float ow = b._rw, oh = b._rh;
                 b.PlaceInParent(this);
+                if (!b.ignoreLayout && (offX != 0f || offY != 0f))
+                    b.SetPos(b._placedX - offX, b._placedY - offY); // dekor (ignoreLayout) kaymaz
                 FinishChild(b, wasDirty, ow, oh);
             }
             return;
@@ -605,12 +731,12 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
         // Ana eksen Wrap ise satir dizimi ayri yol (grow bu modda yok sayilir).
         if ((horiz ? overflowX : overflowY) == OverflowMode.Wrap)
         {
-            ArrangeWrapped(horiz);
+            ArrangeWrapped(horiz, offX, offY);
             return;
         }
 
-        // 1. gecis: sabit toplam + grow agirlik toplami.
-        float fixedSum = 0, growSum = 0;
+        // 1. gecis: sabit toplam (dis boyut = preferred + margin) + grow/shrink agirlik toplami.
+        float fixedSum = 0, growSum = 0, shrinkSum = 0;
         int count = 0;
         for (var t = transform.FirstChild; t != null; t = t.NextSibling)
         {
@@ -621,14 +747,42 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
             if (b.grow > 0)
                 growSum += b.grow;
             else
-                fixedSum += horiz ? b.PreferredW() : b.PreferredH();
+            {
+                float pref = horiz ? b.PreferredW() : b.PreferredH();
+                fixedSum += pref + (horiz ? b.margin.x + b.margin.z : b.margin.y + b.margin.w);
+                shrinkSum += b.shrink * pref; // CSS: shrink agirligi = shrink * basis
+            }
         }
 
         float availMain = (horiz ? _rw - padLeft - padRight : _rh - padTop - padBottom)
             - spacing * Math.Max(0, count - 1);
         float leftover = MathF.Max(0, availMain - fixedSum);
+        // Tasma + shrink'li cocuk varsa: acik, shrink*pref agirligiyla dagitilir. Tasma yoksa
+        // maliyet bir kiyas. Min clamp'e takilan cocuk olursa (nadir) TEK ek tur: takilanlarin
+        // sabit kucultmesi dusulur, kalan acik serbest cocuklara k2 ile yeniden dagitilir
+        // (CSS freeze dongusunun 2 adimla kesilmis hali; 3+ kademeli takilma dagitilmaz).
+        float shrinkK = 0f, shrinkK2 = 0f;
+        if (shrinkSum > 0 && fixedSum > availMain)
+        {
+            float deficit = fixedSum - availMain;
+            shrinkK = shrinkK2 = deficit / shrinkSum;
+            float frozen = 0, freeW = 0;
+            for (var t = transform.FirstChild; t != null; t = t.NextSibling)
+            {
+                var b = BoxOf(t);
+                if (b == null || b.ignoreLayout || b.grow > 0 || b.shrink <= 0)
+                    continue;
+                float pref = horiz ? b.PreferredW() : b.PreferredH();
+                float want = pref - shrinkK * b.shrink * pref;
+                float got = horiz ? b.ClampW(want) : b.ClampH(want);
+                if (got != want) frozen += pref - got;
+                else freeW += b.shrink * pref;
+            }
+            if (frozen > 0 && freeW > 0)
+                shrinkK2 = MathF.Max(0f, (deficit - frozen) / freeW);
+        }
         float crossAvail = horiz ? _rh - padTop - padBottom : _rw - padLeft - padRight;
-        float tlx = -pivot.x * _rw, tly = -pivot.y * _rh;
+        float tlx = -pivot.x * _rw - offX, tly = -pivot.y * _rh - offY; // scroll: tum cocuklar kayar
         float cursor = horiz ? tlx + padLeft : tly + padTop;
         // grow'lu cocuk kalan alani tuketir; yoksa justify grubu ana eksende dagitir.
         float gap = spacing;
@@ -656,31 +810,67 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
                 continue;
             }
 
-            float main = b.grow > 0 ? leftover * (b.grow / growSum)
-                : (horiz ? b.PreferredW() : b.PreferredH());
-            float cross = horiz ? b.PreferredH() : b.PreferredW();
-            float crossOff = alignChildren switch
+            // Ana eksen margin'leri (mA = bas, mB = son), capraz margin'ler (mC0 = bas, mC1 = son).
+            float mA = horiz ? b.margin.x : b.margin.y, mB = horiz ? b.margin.z : b.margin.w;
+            float mC0 = horiz ? b.margin.y : b.margin.x, mC1 = horiz ? b.margin.w : b.margin.z;
+            float main;
+            if (b.grow > 0)
+                main = leftover * (b.grow / growSum) - mA - mB;
+            else
             {
-                LayoutAlign.Center => (crossAvail - cross) * 0.5f,
-                LayoutAlign.End => crossAvail - cross,
-                _ => 0,
-            };
+                main = horiz ? b.PreferredW() : b.PreferredH();
+                if (shrinkK > 0f && b.shrink > 0f)
+                {
+                    // 1. tur sonucu clamp'e takiliyorsa o degerde donar; takilmayan k2 ile kuculur.
+                    float want = main - shrinkK * b.shrink * main;
+                    float got = horiz ? b.ClampW(want) : b.ClampH(want);
+                    main = got != want ? got : main - shrinkK2 * b.shrink * main;
+                }
+            }
+            main = horiz ? b.ClampW(main) : b.ClampH(main);
+            b.CrossPlacement(horiz, crossAvail - mC0 - mC1, alignChildren, out float cross, out float crossOff);
 
             if (horiz)
             {
                 b._rw = main;
                 b._rh = cross;
-                b.SetPos(cursor + b.pivot.x * main, tly + padTop + crossOff + b.pivot.y * cross);
+                b.SetPos(cursor + mA + b.pivot.x * main, tly + padTop + mC0 + crossOff + b.pivot.y * cross);
             }
             else
             {
                 b._rw = cross;
                 b._rh = main;
-                b.SetPos(tlx + padLeft + crossOff + b.pivot.x * cross, cursor + b.pivot.y * main);
+                b.SetPos(tlx + padLeft + mC0 + crossOff + b.pivot.x * cross, cursor + mA + b.pivot.y * main);
             }
-            cursor += main + gap;
+            cursor += mA + main + mB + gap;
             FinishChild(b, wasDirty, ow, oh);
         }
+    }
+
+    // Capraz eksen: boyut + hiza ofseti. alignSelf Auto -> parent'in alignChildren'i;
+    // Stretch -> capraz alan (margin dusulmus) clamp'li. avail = margin dusulmus capraz alan.
+    void CrossPlacement(bool horiz, float avail, LayoutAlign parentAlign, out float cross, out float off)
+    {
+        if (alignSelf == LayoutAlignSelf.Stretch)
+        {
+            cross = horiz ? ClampH(avail) : ClampW(avail);
+            off = 0;
+            return;
+        }
+        cross = horiz ? PreferredH() : PreferredW();
+        var a = alignSelf switch
+        {
+            LayoutAlignSelf.Start => LayoutAlign.Start,
+            LayoutAlignSelf.Center => LayoutAlign.Center,
+            LayoutAlignSelf.End => LayoutAlign.End,
+            _ => parentAlign,
+        };
+        off = a switch
+        {
+            LayoutAlign.Center => (avail - cross) * 0.5f,
+            LayoutAlign.End => avail - cross,
+            _ => 0,
+        };
     }
 
     // justifyChildren -> (ilk cocuk oncesi bosluk, her araliga eklenecek pay).
@@ -715,10 +905,10 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
     // hizalar (End ~ alt hizalama, baseline yaklasigi). grow yok sayilir (kelime
     // kutulari icin anlamsiz; satir-ici pay dagitimi gerekirse 2. faz). reverse
     // uyeleri ters siradan paketler. Satir arasi bosluk = spacing (CSS gap analogu).
-    void ArrangeWrapped(bool horiz)
+    void ArrangeWrapped(bool horiz, float offX, float offY)
     {
         float availMain = horiz ? _rw - padLeft - padRight : _rh - padTop - padBottom;
-        float tlx = -pivot.x * _rw, tly = -pivot.y * _rh;
+        float tlx = -pivot.x * _rw - offX, tly = -pivot.y * _rh - offY;
         float mainStart = horiz ? tlx + padLeft : tly + padTop;
         float crossCursor = horiz ? tly + padTop : tlx + padLeft;
 
@@ -734,13 +924,13 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
                 var b = BoxOf(scan);
                 if (b == null || b.ignoreLayout)
                     continue;
-                float main = horiz ? b.PreferredW() : b.PreferredH();
+                float main = horiz ? b.OuterW() : b.OuterH();
                 float add = (n > 0 ? spacing : 0) + main;
                 if (n > 0 && used + add > availMain + WrapEps)
                     break;
                 used += add;
                 n++;
-                lineCross = MathF.Max(lineCross, horiz ? b.PreferredH() : b.PreferredW());
+                lineCross = MathF.Max(lineCross, horiz ? b.OuterH() : b.OuterW());
             }
             // 2) yerlestirme: [node, scan) arasi; satir ici justify (CSS gibi satir bazli).
             JustifyOffsets(MathF.Max(0, availMain - used), n, out float lead, out float extraGap);
@@ -759,27 +949,23 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
                     FinishChild(b, wasDirty, ow, oh);
                     continue;
                 }
-                float main = horiz ? b.PreferredW() : b.PreferredH();
-                float cross = horiz ? b.PreferredH() : b.PreferredW();
-                float crossOff = alignChildren switch
-                {
-                    LayoutAlign.Center => (lineCross - cross) * 0.5f,
-                    LayoutAlign.End => lineCross - cross,
-                    _ => 0,
-                };
+                float mA = horiz ? b.margin.x : b.margin.y, mB = horiz ? b.margin.z : b.margin.w;
+                float mC0 = horiz ? b.margin.y : b.margin.x, mC1 = horiz ? b.margin.w : b.margin.z;
+                float main = horiz ? b.PreferredW() : b.PreferredH(); // zaten clamp'li
+                b.CrossPlacement(horiz, lineCross - mC0 - mC1, alignChildren, out float cross, out float crossOff);
                 if (horiz)
                 {
                     b._rw = main;
                     b._rh = cross;
-                    b.SetPos(cursor + b.pivot.x * main, crossCursor + crossOff + b.pivot.y * cross);
+                    b.SetPos(cursor + mA + b.pivot.x * main, crossCursor + mC0 + crossOff + b.pivot.y * cross);
                 }
                 else
                 {
                     b._rw = cross;
                     b._rh = main;
-                    b.SetPos(crossCursor + crossOff + b.pivot.x * cross, cursor + b.pivot.y * main);
+                    b.SetPos(crossCursor + mC0 + crossOff + b.pivot.x * cross, cursor + mA + b.pivot.y * main);
                 }
-                cursor += main + gap;
+                cursor += mA + main + mB + gap;
                 FinishChild(b, wasDirty, ow, oh);
             }
             node = scan;
@@ -810,6 +996,37 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
     // .fx LOCALUV penceresi icin kutunun lokal dikdortgeni (Encode basinda yazilir).
     float _fxX0, _fxY1, _fxInvW, _fxInvH;
 
+    // --- gradient baglami ---
+    // EmitLayer/EncodeTextured LINEAR gradient'li katman cizerken kurar: EmitQuad aktifken
+    // cagiranin c0/c1'ini YOK SAYAR, 4 kose rengini kutu bandina gore kendisi ornekler
+    // (capraz yon = tint0..3 bilinear, ek quad yok) ve ara duraklarda quad'i durak
+    // cizgisinde boler (GPU lineer interpolasyonu duragi atlamasin). Golge/isik/radial/
+    // metin yollari baglami kullanmaz (kendi renklerini verir).
+    bool _gcActive;
+    Gradient _gc;
+    float _gcX0, _gcY0, _gcInvW, _gcInvH;
+
+    void BeginGradient(in Gradient g)
+    {
+        _gcActive = g.type == GradientType.Linear;
+        _gc = g;
+    }
+
+    void EndGradient() => _gcActive = false;
+
+    // Kutu-lokal noktanin gradient eksenindeki konumu (0..1 disina tasabilir, At clamp'ler).
+    float GradT(float x, float y)
+    {
+        float tx = (x - _gcX0) * _gcInvW, ty = (y - _gcY0) * _gcInvH;
+        switch (_gc.direction)
+        {
+            case GradientDirection.Horizontal: return tx;
+            case GradientDirection.Diagonal: return (tx + ty) * 0.5f;
+            case GradientDirection.DiagonalReverse: return (1f - tx + ty) * 0.5f;
+            default: return ty;
+        }
+    }
+
     void ComputeClip(in Mat4 wm)
     {
         _hasClip = false;
@@ -823,8 +1040,8 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
         // Devre disi/yok edilmis ata (ParentBox'in dislayacagi) zinciri keser.
         for (var p = _parentBox; p != null && p._enabled && !p._destroyed; p = p._parentBox)
         {
-            bool hx = p.overflowX == OverflowMode.Hidden;
-            bool hy = p.overflowY == OverflowMode.Hidden;
+            bool hx = p.overflowX == OverflowMode.Hidden || p.overflowX == OverflowMode.Scroll;
+            bool hy = p.overflowY == OverflowMode.Hidden || p.overflowY == OverflowMode.Scroll;
             if (!hx && !hy)
                 continue;
             ref var pm = ref p.transform._getWorldMatrix();
@@ -913,6 +1130,8 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
             if (lp.x != _placedX || lp.y != _placedY)
                 transform.localPosition = new Vec3(_placedX, _placedY, lp.z);
         }
+        SyncStyle(); // HasStyle kontrolunden ONCE: asset yeni dolgu vermis olabilir
+        _everEncoded = true;
         if (!HasStyle && !HasText)
             return;
         ResolveIfDirty();
@@ -924,7 +1143,21 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
         int layer = _effectiveOrder;  // ayni layer'da parent < cocuk (Scene DFS submit sirasi)
         float x0 = -pivot.x * _rw, y0 = -pivot.y * _rh;
         float x1 = x0 + _rw, y1 = y0 + _rh;
+        // Kutu duzeyi culling: ata klibinin tamamen disindaysa (golge payi dahil) hicbir
+        // parca/glyph dolasilmaz — scroll listesinde gorunmeyen oge bedava. 4 kiyas.
+        if (_hasClip)
+        {
+            float ex = 0f, ey = 0f;
+            if (HasShadow)
+            {
+                ex = shadowBlur + shadowGrow + MathF.Abs(shadowOffset.x);
+                ey = shadowBlur + shadowGrow + MathF.Abs(shadowOffset.y);
+            }
+            if (x1 + ex <= _clX0 || x0 - ex >= _clX1 || y1 + ey <= _clY0 || y0 - ey >= _clY1)
+                return;
+        }
         _fxX0 = x0; _fxY1 = y1; _fxInvW = 1f / _rw; _fxInvH = 1f / _rh;
+        _gcX0 = x0; _gcY0 = y0; _gcInvW = _fxInvW; _gcInvH = _fxInvH;
 
         if (HasShadow)
             EmitShadow(queue, wm, x0, y0, x1, y1, layer); // ayni layer'da ilk = altta
@@ -1095,14 +1328,16 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
         float ix0 = x0 + b, ix1 = x1 - b, iy0 = y0 + b, iy1 = y1 - b;
         if (ix1 <= ix0 || iy1 <= iy0)
             return;
-        void Solid(float ax0, float ay0, float ax1, float ay1)
+        Span<float> rects = stackalloc float[InteriorRectsMax * 4];
+        int n = SolidInterior(rects, x0 + rtl, y0 + rtl, x1 - rtr, y0 + rtr, x1 - rbr, y1 - rbr, x0 + rbl, y1 - rbl,
+            ix0, iy0, ix1, iy1);
+        for (int i = 0; i < n; i++)
         {
+            float ax0 = rects[i * 4], ay0 = rects[i * 4 + 1], ax1 = rects[i * 4 + 2], ay1 = rects[i * 4 + 3];
             if (ax1 <= ax0 || ay1 <= ay0)
-                return;
+                continue;
             EmitQuad(q, mat, wm, ax0, ay0, ax1, ay1, su0, sv0, su1, sv1, col, col, false, default, layer);
         }
-        SolidInterior(Solid, x0 + rtl, y0 + rtl, x1 - rtr, y0 + rtr, x1 - rbr, y1 - rbr, x0 + rbl, y1 - rbl,
-            ix0, iy0, ix1, iy1);
     }
 
     // Tek katman rounded-rect: 4 SDF kose hucresi + 4 kenar falloff seridi +
@@ -1121,6 +1356,10 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
             return;
         bool inner = innerBlur > 0f;
         bool ring = isBorder || inner;
+        if (!inner)
+            BeginGradient(isBorder ? borderFill : fill);
+        else
+            EndGradient();
         // Ic golge: gercek kose radius'lari kesme dairesi icin saklanir, hucre band kadar buyur.
         float ttl = rtl, ttr = rtr, tbr = rbr, tbl = rbl;
         if (inner)
@@ -1258,26 +1497,39 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
         VEdge(y0 + rtr, y1 - rbr, x1, false, ringR);
 
         if (ring)
+        {
+            EndGradient();
             return;
+        }
 
         // Ic dolgu: kenar seritlerinin ici, kose hucreleriyle cakismadan. Hucre ic
         // kenarlari hucrelerle AYNI ifadeyle (x0 + rtl vb.) uretilir — bit-esit dikis.
         float ix0 = x0 + EdgeIn, ix1 = x1 - EdgeIn, iy0 = y0 + EdgeIn, iy1 = y1 - EdgeIn;
         if (ix1 <= ix0 || iy1 <= iy0)
-            return;
-        void Solid(float ax0, float ay0, float ax1, float ay1)
         {
+            EndGradient();
+            return;
+        }
+        Span<float> rects = stackalloc float[InteriorRectsMax * 4];
+        int n = SolidInterior(rects, x0 + rtl, y0 + rtl, x1 - rtr, y0 + rtr, x1 - rbr, y1 - rbr, x0 + rbl, y1 - rbl,
+            ix0, iy0, ix1, iy1);
+        for (int i = 0; i < n; i++)
+        {
+            float ax0 = rects[i * 4], ay0 = rects[i * 4 + 1], ax1 = rects[i * 4 + 2], ay1 = rects[i * 4 + 3];
             if (ax1 <= ax0 || ay1 <= ay0)
-                return;
+                continue;
             EmitQuad(q, mat, wm, ax0, ay0, ax1, ay1, su0, sv0, su1, sv1, At(gh ? ax0 : ay0), At(gh ? ax1 : ay1), gh, default, layer);
         }
-        SolidInterior(Solid, x0 + rtl, y0 + rtl, x1 - rtr, y0 + rtr, x1 - rbr, y1 - rbr, x0 + rbl, y1 - rbl,
-            ix0, iy0, ix1, iy1);
+        EndGradient();
     }
 
     // Kose hucreleri disinda kalan ic alan: ust bant (+kose altlari), orta, alt bant.
     // Kose ic kenarlari cagirandan hazir gelir (hucre quad'lariyla ayni float).
-    static void SolidInterior(Action<float, float, float, float> solid,
+    // Dikdortgenler rects'e (x0,y0,x1,y1 dortluleri, en fazla 7) yazilir, sayi doner —
+    // delegate YOK: Action parametresi cagiranin closure'ini her Encode'da heap'e cikariyordu.
+    const int InteriorRectsMax = 7;
+
+    static int SolidInterior(Span<float> rects,
         float tlX, float tlY, float trX, float trY, float brX, float brY, float blX, float blY,
         float ix0, float iy0, float ix1, float iy1)
     {
@@ -1286,18 +1538,31 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
         brX = MathF.Min(brX, ix1); brY = MathF.Min(brY, iy1);
         blX = MathF.Max(blX, ix0); blY = MathF.Min(blY, iy1);
         float topY = MathF.Max(tlY, trY), botY = MathF.Min(blY, brY);
-        solid(tlX, iy0, trX, topY);
-        if (tlY < topY) solid(ix0, tlY, tlX, topY);
-        if (trY < topY) solid(trX, trY, ix1, topY);
-        solid(ix0, topY, ix1, botY);
-        solid(blX, botY, brX, iy1);
-        if (blY > botY) solid(ix0, botY, blX, blY);
-        if (brY > botY) solid(brX, botY, ix1, brY);
+        int n = 0;
+        AddRect(rects, ref n, tlX, iy0, trX, topY);
+        if (tlY < topY) AddRect(rects, ref n, ix0, tlY, tlX, topY);
+        if (trY < topY) AddRect(rects, ref n, trX, trY, ix1, topY);
+        AddRect(rects, ref n, ix0, topY, ix1, botY);
+        AddRect(rects, ref n, blX, botY, brX, iy1);
+        if (blY > botY) AddRect(rects, ref n, ix0, botY, blX, blY);
+        if (brY > botY) AddRect(rects, ref n, brX, botY, ix1, brY);
+        return n;
     }
 
-    // Dokulu kutu: stretch tek quad / slice9 3x3 grid. UI shader'in dokulu gecis
+    static void AddRect(Span<float> rects, ref int n, float ax0, float ay0, float ax1, float ay1)
+    {
+        rects[n * 4] = ax0; rects[n * 4 + 1] = ay0; rects[n * 4 + 2] = ax1; rects[n * 4 + 3] = ay1;
+        n++;
+    }
+
+    // Dokulu kutu: SpriteFit'e gore Stretch tek quad / slice9 3x3 grid, Contain/Cover
+    // tek quad (CPU rect/uv hesabi), Tile CPU grid. UI shader'in dokulu gecis
     // modu (USER.w<0) — sprite atlas sayfasindaysa kutu parcalari/metinle ayni
     // pipeline+doku, tek draw. Radius/border bu modda uygulanmaz (bilinen sinir).
+    // fill gorunurse tint olarak carpilir (linear gradient baglamla; Tile'da karo
+    // basina degil kutu bandina gore — desen uzerinde surekli gecis).
+    const int TileCap = 256; // Tile modunda en fazla quad; asarsa karo buyutulur
+
     void EncodeTextured(RenderQueue q, in Mat4 world, float x0, float y0, float x1, float y1, int layer)
     {
         var tex = sprite.Page;
@@ -1316,13 +1581,22 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
         var user = UiPieces.TexturedUser;
         bool tinted = fill.Visible;
         bool gh = fill.IsHorizontal;
+        if (tinted) BeginGradient(fill); else EndGradient();
         Color cTop = tinted ? FillAt(gh ? x0 : y0) : Color.White;
         Color cBot = tinted ? FillAt(gh ? x1 : y1) : Color.White;
+
+        if (spriteFit != SpriteFit.Stretch)
+        {
+            EncodeFitted(q, in world, x0, y0, x1, y1, uu0, vv0, uuS, vvS, mat, in user, cTop, cBot, gh, layer);
+            EndGradient();
+            return;
+        }
 
         if (slice9Left <= 0 && slice9Top <= 0 && slice9Right <= 0 && slice9Bottom <= 0)
         {
             EmitQuad(q, mat, world, x0, y0, x1, y1,
                 uu0, vv0, uu0 + uuS, vv0 + vvS, cTop, cBot, gh, user, layer);
+            EndGradient();
             return;
         }
 
@@ -1346,12 +1620,72 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
                     uu0 + us[c + 1] * uuS, vv0 + vs[r] * vvS,
                     tinted ? FillAt(gh ? xs[c] : ys[r]) : Color.White,
                     tinted ? FillAt(gh ? xs[c + 1] : ys[r + 1]) : Color.White, gh, user, layer);
+        EndGradient();
+    }
+
+    // Contain/Cover/Tile yerlesimi (9-slice yok). Oran sprite'in MANTIKSAL boyutundan.
+    // uv yonelimi: v1 <-> ust kenar (vv0+vvS), v0 <-> alt kenar (vv0).
+    void EncodeFitted(RenderQueue q, in Mat4 world, float x0, float y0, float x1, float y1,
+        float uu0, float vv0, float uuS, float vvS, Material mat, in Vec4 user, Color cTop, Color cBot, bool gh, int layer)
+    {
+        float w = x1 - x0, h = y1 - y0;
+        float tw = Math.Max(1, sprite.LogicalWidth), th = Math.Max(1, sprite.LogicalHeight);
+        switch (spriteFit)
+        {
+            case SpriteFit.Contain:
+            {
+                float k = MathF.Min(w / tw, h / th);
+                float dw = tw * k, dh = th * k;
+                float dx0 = x0 + (w - dw) * 0.5f, dy0 = y0 + (h - dh) * 0.5f;
+                EmitQuad(q, mat, world, dx0, dy0, dx0 + dw, dy0 + dh,
+                    uu0, vv0, uu0 + uuS, vv0 + vvS, cTop, cBot, gh, user, layer);
+                return;
+            }
+            case SpriteFit.Cover:
+            {
+                // Kutuyu dolduran olcek; tasan eksen uv'den simetrik kirpilir.
+                float k = MathF.Max(w / tw, h / th);
+                float fx = w / (tw * k), fy = h / (th * k);
+                float cu0 = uu0 + (1f - fx) * 0.5f * uuS, cu1 = uu0 + (1f + fx) * 0.5f * uuS;
+                float cv0 = vv0 + (1f - fy) * 0.5f * vvS, cv1 = vv0 + (1f + fy) * 0.5f * vvS;
+                EmitQuad(q, mat, world, x0, y0, x1, y1, cu0, cv0, cu1, cv1, cTop, cBot, gh, user, layer);
+                return;
+            }
+            default: // Tile
+            {
+                int nx = (int)MathF.Ceiling(w / tw), ny = (int)MathF.Ceiling(h / th);
+                if (nx * ny > TileCap)
+                {
+                    // Karo buyut: quad sayisi TileCap'e sigsin (desen olcegi degisir, patlama olmaz).
+                    float s = MathF.Sqrt((float)(nx * ny) / TileCap);
+                    tw *= s; th *= s;
+                    nx = (int)MathF.Ceiling(w / tw); ny = (int)MathF.Ceiling(h / th);
+                }
+                float vTop = vv0 + vvS;
+                for (int r = 0; r < ny; r++)
+                {
+                    float ty0 = y0 + r * th, ty1 = MathF.Min(ty0 + th, y1);
+                    float fy = (ty1 - ty0) / th;            // kismi karo: dokunun UST kismi
+                    float v0 = vTop - fy * vvS;
+                    for (int c = 0; c < nx; c++)
+                    {
+                        float tx0 = x0 + c * tw, tx1 = MathF.Min(tx0 + tw, x1);
+                        float fx = (tx1 - tx0) / tw;        // kismi karo: dokunun SOL kismi
+                        EmitQuad(q, mat, world, tx0, ty0, tx1, ty1,
+                            uu0, v0, uu0 + fx * uuS, vTop, cTop, cBot, gh, user, layer);
+                    }
+                }
+                return;
+            }
+        }
     }
 
     // Lokal-uzay dikdortgenini world matrisiyle tek instanced quad'a cevirir.
     // c0/c1 gradient EKSENI boyunca renkler (gradH=false: ust/alt, true: sol/sag).
-    // Klip penceresi varsa quad kirpilir: UV lineer remap (SDF parca ornekleme
-    // orantili kalir) + gradient renkleri kirpilan banda lerp'lenir.
+    // Gradient baglami aktifse c0/c1/gradH yok sayilir: kose renkleri GradT'den
+    // orneklenir, ara duraklarda quad eksen boyunca duraklarda bolunur (capraz yonde
+    // ara durak yok — Gradient.MidStops). Klip penceresi varsa quad kirpilir:
+    // UV lineer remap (SDF parca ornekleme orantili kalir) + kose renkleri banda lerp'lenir.
     void EmitQuad(RenderQueue q, Material mat, in Mat4 world,
         float qx0, float qy0, float qx1, float qy1,
         float u0, float v0, float u1, float v1,
@@ -1359,6 +1693,71 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
     {
         if (qx1 <= qx0 || qy1 <= qy0)
             return;
+        if (!_gcActive)
+        {
+            // Kose sirasi: BL, BR, TR, TL (tint0..3, ust kenar uv.y=1).
+            if (gradH) EmitQuadCore(q, mat, in world, qx0, qy0, qx1, qy1, u0, v0, u1, v1, c0, c1, c1, c0, in user, layer);
+            else EmitQuadCore(q, mat, in world, qx0, qy0, qx1, qy1, u0, v0, u1, v1, c1, c1, c0, c0, in user, layer);
+            return;
+        }
+        int mids = _gc.MidStops; // capraz yonde hep 0 (Gradient.MidStops)
+        if (mids == 0)
+        {
+            EmitGradPart(q, mat, in world, qx0, qy0, qx1, qy1, qx0, qy0, qx1, qy1, u0, v0, u1, v1, in user, layer);
+            return;
+        }
+        // Eksenel: durak cizgileri kutu bandindan lokale (hucrelerle ayni ifade: x0 + t*w).
+        bool h = _gc.IsHorizontal;
+        float a0 = h ? qx0 : qy0, a1 = h ? qx1 : qy1;
+        float org = h ? _gcX0 : _gcY0, span = h ? 1f / _gcInvW : 1f / _gcInvH;
+        float cur = a0;
+        for (int i = 0; i < mids; i++)
+        {
+            float s = org + Math.Clamp(_gc.MidPos(i), 0f, 1f) * span;
+            if (s <= cur || s >= a1)
+                continue;
+            if (h) EmitGradPart(q, mat, in world, qx0, qy0, qx1, qy1, cur, qy0, s, qy1, u0, v0, u1, v1, in user, layer);
+            else EmitGradPart(q, mat, in world, qx0, qy0, qx1, qy1, qx0, cur, qx1, s, u0, v0, u1, v1, in user, layer);
+            cur = s;
+        }
+        if (h) EmitGradPart(q, mat, in world, qx0, qy0, qx1, qy1, cur, qy0, a1, qy1, u0, v0, u1, v1, in user, layer);
+        else EmitGradPart(q, mat, in world, qx0, qy0, qx1, qy1, qx0, cur, qx1, a1, u0, v0, u1, v1, in user, layer);
+    }
+
+    // (fx0..fy1) tam quad'in (sx0..sy1) alt dikdortgeni: uv orantili alt pencere,
+    // kose renkleri gradient baglamindan. v1 <-> ust, v0 <-> alt.
+    void EmitGradPart(RenderQueue q, Material mat, in Mat4 world,
+        float fx0, float fy0, float fx1, float fy1,
+        float sx0, float sy0, float sx1, float sy1,
+        float u0, float v0, float u1, float v1, in Vec4 user, int layer)
+    {
+        if (sx1 <= sx0 || sy1 <= sy0)
+            return;
+        if (sx0 != fx0 || sx1 != fx1)
+        {
+            float iw = 1f / (fx1 - fx0), du = u1 - u0;
+            float t0 = (sx0 - fx0) * iw, t1 = (sx1 - fx0) * iw;
+            u1 = u0 + du * t1;
+            u0 += du * t0;
+        }
+        if (sy0 != fy0 || sy1 != fy1)
+        {
+            float ih = 1f / (fy1 - fy0);
+            float t0 = (sy0 - fy0) * ih, t1 = (sy1 - fy0) * ih;
+            float dv = v0 - v1;
+            float nv1 = v1 + dv * t0, nv0 = v1 + dv * t1;
+            v1 = nv1; v0 = nv0;
+        }
+        Color cTL = _gc.AtExtrapolated(GradT(sx0, sy0)), cTR = _gc.AtExtrapolated(GradT(sx1, sy0));
+        Color cBR = _gc.AtExtrapolated(GradT(sx1, sy1)), cBL = _gc.AtExtrapolated(GradT(sx0, sy1));
+        EmitQuadCore(q, mat, in world, sx0, sy0, sx1, sy1, u0, v0, u1, v1, cBL, cBR, cTR, cTL, in user, layer);
+    }
+
+    void EmitQuadCore(RenderQueue q, Material mat, in Mat4 world,
+        float qx0, float qy0, float qx1, float qy1,
+        float u0, float v0, float u1, float v1,
+        Color cBL, Color cBR, Color cTR, Color cTL, in Vec4 user, int layer)
+    {
         if (_hasClip)
         {
             float nx0 = MathF.Max(qx0, _clX0), ny0 = MathF.Max(qy0, _clY0);
@@ -1371,12 +1770,9 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
                 float t0 = (nx0 - qx0) * iw, t1 = (nx1 - qx0) * iw;
                 u1 = u0 + du * t1;
                 u0 += du * t0;
-                if (gradH)
-                {
-                    Color ca = LerpC(c0, c1, t0);
-                    c1 = LerpC(c0, c1, t1);
-                    c0 = ca;
-                }
+                Color tl = LerpC(cTL, cTR, t0), tr = LerpC(cTL, cTR, t1);
+                Color bl = LerpC(cBL, cBR, t0), br = LerpC(cBL, cBR, t1);
+                cTL = tl; cTR = tr; cBL = bl; cBR = br;
                 qx0 = nx0; qx1 = nx1;
             }
             if (ny0 != qy0 || ny1 != qy1)
@@ -1387,12 +1783,9 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
                 float dv = v0 - v1;
                 float nv1 = v1 + dv * t0, nv0 = v1 + dv * t1;
                 v1 = nv1; v0 = nv0;
-                if (!gradH)
-                {
-                    Color ca = LerpC(c0, c1, t0);
-                    c1 = LerpC(c0, c1, t1);
-                    c0 = ca;
-                }
+                Color tl = LerpC(cTL, cBL, t0), bl = LerpC(cTL, cBL, t1);
+                Color tr = LerpC(cTR, cBR, t0), br = LerpC(cTR, cBR, t1);
+                cTL = tl; cBL = bl; cTR = tr; cBR = br;
                 qy0 = ny0; qy1 = ny1;
             }
         }
@@ -1422,10 +1815,7 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
         // parcalari kutu disina tasabilir -> 0..1 disi degerler normal).
         var fxRect = new Vec4((qx0 - _fxX0) * _fxInvW, (_fxY1 - qy1) * _fxInvH, sx * _fxInvW, sy * _fxInvH);
         // tint koseleri uv uzayinda: 0=BL 1=BR 2=TR 3=TL (ust kenar = uv.y=1)
-        if (gradH)
-            q.DrawMesh(Mesh.Quad(), mat, in m, c0, c1, c1, c0, in user, in FxParams, in fxRect, u0, v0, u1, v1, layer);
-        else
-            q.DrawMesh(Mesh.Quad(), mat, in m, c1, c1, c0, c0, in user, in FxParams, in fxRect, u0, v0, u1, v1, layer);
+        q.DrawMesh(Mesh.Quad(), mat, in m, cBL, cBR, cTR, cTL, in user, in FxParams, in fxRect, u0, v0, u1, v1, layer);
     }
 
     const float SnapGrid = 1024f; // 2^10: |deger| < 8192 iken izgara toplamlari tam
@@ -1460,6 +1850,34 @@ internal sealed class LayoutSystem : ISceneSystem
     LayoutBox[] _queue = new LayoutBox[32];
     int _count;
 
+    // Gecisteki kutular (stil transition): yalniz bunlar tick'lenir; biten/yok edilen duser.
+    LayoutBox[] _trans = new LayoutBox[8];
+    int _transCount;
+
+    internal void AddTransition(LayoutBox b)
+    {
+        for (int i = 0; i < _transCount; i++)
+            if (ReferenceEquals(_trans[i], b))
+                return;
+        if (_transCount == _trans.Length) Array.Resize(ref _trans, _transCount * 2);
+        _trans[_transCount++] = b;
+    }
+
+    void TickTransitions(float dt)
+    {
+        int w = 0;
+        for (int i = 0; i < _transCount; i++)
+        {
+            var b = _trans[i];
+            bool keep = b != null && !b._destroyed && b.TickTransition(dt);
+            if (keep)
+                _trans[w++] = b;
+        }
+        for (int i = w; i < _transCount; i++)
+            _trans[i] = null;
+        _transCount = w;
+    }
+
     internal void Queue(LayoutBox b)
     {
         if (_count == _queue.Length) Array.Resize(ref _queue, _count * 2);
@@ -1470,6 +1888,8 @@ internal sealed class LayoutSystem : ISceneSystem
     // FitScreen kutular kuyrukta KALIR (ekran boyutu degisimi izlensin).
     public void AfterUpdate(Scene scene)
     {
+        if (_transCount > 0)
+            TickTransitions(Time.deltaTime); // edit modunda dt=0: gecis ilerlemez
         int n = _count;
         if (n == 0)
             return;

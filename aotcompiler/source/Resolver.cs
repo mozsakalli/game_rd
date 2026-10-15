@@ -191,17 +191,30 @@ namespace DigitoyEngine.Language
             {
                 if (code.GenericParameters.Count > 0 || (code.Owner != null && code.Owner.IsGeneric))
                     continue; // template: vtable'i yok, klonlari zaten kapsamda
-                foreach (var op in code.Operations)
-                    if (op.Type == OpType.CallVirtual || (op.Type == OpType.DelegateNew && op.Slot == -2))
-                    {
-                        if (op.Code.Owner == null)
-                            throw new System.Exception($"CallVirtual hedefi Owner'siz: {op.Code.Name}");
-                        int slot = op.Code.Owner.VTable.IndexOf(op.Code);
-                        if (slot < 0)
-                            throw new System.Exception($"CallVirtual hedefi vtable'da yok (virtual isaretli mi?): {op.Code.EncodeName()} (cagiran: {code.EncodeName()}, op TypeArgs=[{string.Join(",", op.TypeArguments.Select(a => a.Name))}], hedef owner generic={op.Code.Owner.IsGeneric} vtable={op.Code.Owner.VTable.Count})");
-                        op.Slot = slot;
-                    }
+                AssignVirtualSlots(code);
             }
+        }
+        static void AssignVirtualSlots(Code code)
+        {
+            foreach (var op in code.Operations)
+                if (op.Type == OpType.CallVirtual || (op.Type == OpType.DelegateNew && op.Slot == -2))
+                {
+                    if (op.Code.Owner == null)
+                        throw new System.Exception($"CallVirtual hedefi Owner'siz: {op.Code.Name}");
+                    int slot = op.Code.Owner.VTable.IndexOf(op.Code);
+                    if (slot < 0)
+                        throw new System.Exception($"CallVirtual hedefi vtable'da yok (virtual isaretli mi?): {op.Code.EncodeName()} (cagiran: {code.EncodeName()}, op TypeArgs=[{string.Join(",", op.TypeArguments.Select(a => a.Name))}], hedef owner generic={op.Code.Owner.IsGeneric} vtable={op.Code.Owner.VTable.Count})");
+                    op.Slot = slot;
+                }
+        }
+
+        // MODUL (ModuleWriter): paylasimli exact kabugun EXACT ozellesmis klonu — govdesi IL'den exact baglamla yeni cevrildi;
+        // ayni cozum (tip somutlama + etiket + sanal slot) + modul lowering'i (iface cagrisinin tip operandi). Canon host'un ic meselesidir.
+        public static void ResolveModuleClone(Context ctx, Code clone)
+        {
+            ResolveCodeBody(ctx, clone);
+            AssignVirtualSlots(clone);
+            Lower.LowerModuleClone(clone);
         }
 
         // Acik generic uygulama dugumunu (kapali argumanli) somut ornege cevirir; dizi elemani uzerinden rekursif.

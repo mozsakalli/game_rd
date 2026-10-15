@@ -270,7 +270,7 @@ public static class GameHost
         if (sceneBytes == null)
             throw new Exception("startScene bulunamadi: " + startScene);
         var doc = SceneDoc.Parse(System.Text.Encoding.UTF8.GetString(sceneBytes), startScene);
-        doc.ExpandPrefabs(catalog, assets);
+        doc.Prepare(catalog, assets, SceneDoc.ActiveTheme);
         doc.Spawn(null, catalog, assets);
     }
 #endif

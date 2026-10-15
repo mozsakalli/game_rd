@@ -88,7 +88,7 @@ public static class SceneLoader
             if (!baked)
             {
                 var doc = SceneDoc.Parse(System.Text.Encoding.UTF8.GetString(bytes), key);
-                doc.ExpandPrefabs(catalog, assets);
+                doc.Prepare(catalog, assets, SceneDoc.ActiveTheme);
                 op.Root = doc.Spawn(parent, catalog, assets);
             }
             else

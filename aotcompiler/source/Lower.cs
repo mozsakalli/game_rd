@@ -37,6 +37,17 @@ namespace DigitoyEngine.Language
                 }
         }
 
+        // MODUL klonu (ModuleWriter; canon disi exact govde): yalniz slot gerektirmeyen gizli operandlar. Sozluklu callee olamaz
+        // (klonlar exact kabuklara cagirir; ModuleWriter onlari da klonlar) -> LdDictConst uretilmez, iface cagrisina LdType konur.
+        public static void LowerModuleClone(Code code)
+        {
+            Rewrite(code, (op, result) =>
+            {
+                if (op.Type == OpType.CallVirtual && op.Code.Owner != null && op.Code.Owner.IsInterface)
+                    result.Add(new Op { Type = OpType.LdType, PrimitiveRef = op.Code.Owner, Line = op.Line });
+            });
+        }
+
         static void Rewrite(Code code, System.Action<Op, List<Op>> emit)
         {
             var ops = code.Operations;

@@ -122,6 +122,8 @@ public sealed partial class SceneDoc
     internal static void RemapCompRefs(CompDoc cd, TypeCatalog catalog, Dictionary<int, int> map,
         bool clearUnmapped = false)
     {
+        if (map == null)
+            return; // kimlik (tema katmani): ref'ler ayni id uzayinda
         var entry = catalog?.Find(cd.Type);
         if (entry == null)
             return;
@@ -138,7 +140,7 @@ public sealed partial class SceneDoc
     public static void RemapValue(DocNode node, SerializedType.FieldSchema field,
         Dictionary<int, int> map, bool clearUnmapped = false)
     {
-        if (node == null)
+        if (node == null || map == null)
             return;
         if (field.Kind is SerializedType.Kind.GoRef or SerializedType.Kind.CompRef)
         {
@@ -195,7 +197,12 @@ public sealed partial class SceneDoc
 
     void ApplyOverrides(GoDoc root)
     {
-        var ovs = root.PendingOverrides;
+        ApplyOverrideItems(root.PendingOverrides, root.PrefabIds);
+    }
+
+    // Override listesini uygular; map = localId -> sceneId (null = kimlik: tema katmani, ayni id uzayi).
+    internal void ApplyOverrideItems(DocNode ovs, Dictionary<int, int> map)
+    {
         if (ovs?.Items == null)
             return;
         foreach (var o in ovs.Items)
@@ -203,7 +210,8 @@ public sealed partial class SceneDoc
             if (!o.IsMap)
                 continue;
             int local = int.TryParse(o.GetScalar("node"), out int l) ? l : 0;
-            if (!root.PrefabIds.TryGetValue(local, out int sceneId))
+            int sceneId = local;
+            if (map != null && !map.TryGetValue(local, out sceneId))
                 continue;
             var g = FindById(sceneId);
             if (g == null)
@@ -217,6 +225,8 @@ public sealed partial class SceneDoc
                 {
                     case "name": g.Name = value?.Scalar ?? g.Name; break;
                     case "active": g.Active = value?.Scalar != "false"; break;
+                    case "layer": g.Layer = int.TryParse(value?.Scalar, out int ly) ? ly : g.Layer; break;
+                    case "parent": g.Parent = int.TryParse(value?.Scalar, out int pr) ? pr : g.Parent; break; // yalniz tema katmani uretir
                     case "pos": g.Pos = SerializedType.ParseVec3(value?.Scalar ?? "0 0 0"); break;
                     case "rot": g.Rot = SerializedType.ParseVec3(value?.Scalar ?? "0 0 0"); break;
                     case "scale": g.Scale = SerializedType.ParseVec3(value?.Scalar ?? "1 1 1"); break;
@@ -319,21 +329,27 @@ public sealed partial class SceneDoc
             bool isRoot = g == root;
             // Kok transform/ad instance'a aittir (normal alanlarda yazildi) — diff yok.
             if (!isRoot)
-            {
-                if (g.Name != pl.Name)
-                    AddOverride(ovs, pl.Id, null, "name", DocNode.Scal(g.Name));
-                if (g.Active != pl.Active)
-                    AddOverride(ovs, pl.Id, null, "active", DocNode.Scal(g.Active ? "true" : "false"));
-                if (!SameV3(g.Pos, pl.Pos))
-                    AddOverride(ovs, pl.Id, null, "pos", DocNode.Scal(V3(g.Pos)));
-                if (!SameV3(g.Rot, pl.Rot))
-                    AddOverride(ovs, pl.Id, null, "rot", DocNode.Scal(V3(g.Rot)));
-                if (!SameV3(g.Scale, pl.Scale))
-                    AddOverride(ovs, pl.Id, null, "scale", DocNode.Scal(V3(g.Scale)));
-            }
+                DiffNodeFields(ovs, pl, g);
             DiffComponents(ovs, pl, g, catalog, root.PrefabIds);
         }
         return ovs;
+    }
+
+    // GO duzeyi alanlar (name/active/layer/TRS): kaynak node'a gore fark -> override satiri.
+    static void DiffNodeFields(DocNode ovs, GoDoc pl, GoDoc g)
+    {
+        if (g.Name != pl.Name)
+            AddOverride(ovs, pl.Id, null, "name", DocNode.Scal(g.Name));
+        if (g.Active != pl.Active)
+            AddOverride(ovs, pl.Id, null, "active", DocNode.Scal(g.Active ? "true" : "false"));
+        if (g.Layer != pl.Layer)
+            AddOverride(ovs, pl.Id, null, "layer", DocNode.Scal(g.Layer.ToString(CultureInfo.InvariantCulture)));
+        if (!SameV3(g.Pos, pl.Pos))
+            AddOverride(ovs, pl.Id, null, "pos", DocNode.Scal(V3(g.Pos)));
+        if (!SameV3(g.Rot, pl.Rot))
+            AddOverride(ovs, pl.Id, null, "rot", DocNode.Scal(V3(g.Rot)));
+        if (!SameV3(g.Scale, pl.Scale))
+            AddOverride(ovs, pl.Id, null, "scale", DocNode.Scal(V3(g.Scale)));
     }
 
     void DiffComponents(DocNode ovs, GoDoc pl, GoDoc g, TypeCatalog catalog, Dictionary<int, int> map)

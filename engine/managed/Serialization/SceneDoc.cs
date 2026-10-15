@@ -19,6 +19,14 @@ public sealed partial class SceneDoc
     // dosyanin konumundan turer (YAML'a yazilmaz). null = kapsam yok (test/gecici doc) -> baglar tablosuz kurulur.
     public string LocTable;
 
+    // Tema katmanlari (ad -> ham {overrides, removed, added} haritasi). Dosyadan gelir, dosyaya aynen doner;
+    // aktif olan Prepare/ApplyTheme ile projeksiyona bindirilir, EditorScene.Collapse DiffTheme ile tazeler.
+    public readonly Dictionary<string, DocNode> Themes = new(StringComparer.OrdinalIgnoreCase);
+
+    // Bellekteki projeksiyona uygulanmis tema ("" = taban). ActiveTheme: yukleyicilerin (editor/pak) uygulayacagi tema.
+    public string AppliedTheme = "";
+    public static string ActiveTheme = "";
+
     public sealed class GoDoc
     {
         public int Id;
@@ -258,6 +266,11 @@ public sealed partial class SceneDoc
 
     public void Save(string path) => File.WriteAllText(path, ToYaml());
 
+    // Collapse'li kayit: prefab instance'lari delta olarak yazilir. Cache'ten gelen (expanded) prefab doc'u
+    // kaydeden HER yol bunu kullanmali; duz Save nested instance'lari duzlestirir.
+    public void Save(string path, TypeCatalog catalog, AssetDatabase assets)
+        => File.WriteAllText(path, ToYaml(catalog, assets));
+
     public static SceneDoc Load(string path) => Parse(File.ReadAllText(path));
 
     // assetKey: Assets'e goreli sahne/prefab anahtari -> kapsam tablosu (LocTable) turetilir.
@@ -277,39 +290,52 @@ public sealed partial class SceneDoc
         bool collapse = catalog != null && assets != null;
         var root = DocNode.Map();
         root.Add("scene", DocNode.Scal(Name));
+        if (Themes.Count > 0)
+        {
+            // Tema katmanlari (aktif olani EditorScene.Collapse DiffTheme ile tazeler; pasifler ham gecer).
+            var tm = DocNode.Map();
+            foreach (var kv in Themes)
+                tm.Add(kv.Key, kv.Value);
+            root.Add("themes", tm);
+        }
         var objects = DocNode.Seq();
         root.Add("objects", objects);
         foreach (var g in Objects)
         {
             if (collapse && g.IsPrefabChild)
                 continue; // delta: expand-node diske yazilmaz
-            var m = DocNode.Map();
-            m.Add("id", DocNode.Scal(g.Id.ToString(CultureInfo.InvariantCulture)));
-            m.Add("parent", DocNode.Scal(g.Parent.ToString(CultureInfo.InvariantCulture)));
-            m.Add("name", DocNode.Scal(g.Name));
-            if (!g.Active)
-                m.Add("active", DocNode.Scal("false"));
-            if (g.Layer != 0)
-                m.Add("layer", DocNode.Scal(g.Layer.ToString(CultureInfo.InvariantCulture)));
-            m.Add("pos", DocNode.Scal(V3(g.Pos)));
-            m.Add("rot", DocNode.Scal(V3(g.Rot)));
-            m.Add("scale", DocNode.Scal(V3(g.Scale)));
-            if (collapse && g.IsPrefabRoot)
-            {
-                WritePrefabRecord(m, g, catalog, assets);
-                objects.Items.Add(m);
-                continue;
-            }
-            if (g.Components.Count > 0)
-            {
-                var comps = DocNode.Seq();
-                m.Add("components", comps);
-                foreach (var cd in g.Components)
-                    comps.Items.Add(CompToNode(cd));
-            }
-            objects.Items.Add(m);
+            objects.Items.Add(GoToNode(g, collapse, catalog, assets));
         }
         return Yaml.Write(root);
+    }
+
+    // Tek GO kaydi (ToYaml ve tema `added` listesi ayni yolu kullanir).
+    DocNode GoToNode(GoDoc g, bool collapse, TypeCatalog catalog, AssetDatabase assets)
+    {
+        var m = DocNode.Map();
+        m.Add("id", DocNode.Scal(g.Id.ToString(CultureInfo.InvariantCulture)));
+        m.Add("parent", DocNode.Scal(g.Parent.ToString(CultureInfo.InvariantCulture)));
+        m.Add("name", DocNode.Scal(g.Name));
+        if (!g.Active)
+            m.Add("active", DocNode.Scal("false"));
+        if (g.Layer != 0)
+            m.Add("layer", DocNode.Scal(g.Layer.ToString(CultureInfo.InvariantCulture)));
+        m.Add("pos", DocNode.Scal(V3(g.Pos)));
+        m.Add("rot", DocNode.Scal(V3(g.Rot)));
+        m.Add("scale", DocNode.Scal(V3(g.Scale)));
+        if (collapse && g.IsPrefabRoot)
+        {
+            WritePrefabRecord(m, g, catalog, assets);
+            return m;
+        }
+        if (g.Components.Count > 0)
+        {
+            var comps = DocNode.Seq();
+            m.Add("components", comps);
+            foreach (var cd in g.Components)
+                comps.Items.Add(CompToNode(cd));
+        }
+        return m;
     }
 
     static DocNode CompToNode(CompDoc cd)
@@ -342,43 +368,50 @@ public sealed partial class SceneDoc
         var doc = new SceneDoc();
         var root = Yaml.Parse(text);
         doc.Name = root.GetScalar("scene", "Main");
+        var themes = root.Get("themes");
+        if (themes?.Fields != null)
+            foreach (var kv in themes.Fields)
+                if (kv.Value != null && kv.Value.IsMap)
+                    doc.Themes[kv.Key] = kv.Value;
         var objects = root.Get("objects");
         if (objects?.Items == null)
             return doc;
         foreach (var m in objects.Items)
+            if (m.IsMap)
+                doc.Objects.Add(ParseGoRecord(m));
+        return doc;
+    }
+
+    // Tek GO kaydi (Parse ve tema `added` listesi ayni yolu kullanir). Prefab kaydi ise delta
+    // olarak tasinir (ExpandPrefabs acar), component'ler prefab'dan gelir.
+    static GoDoc ParseGoRecord(DocNode m)
+    {
+        var g = new GoDoc
         {
-            if (!m.IsMap)
-                continue;
-            var g = new GoDoc
-            {
-                Id = ParseInt(m.GetScalar("id")),
-                Parent = ParseInt(m.GetScalar("parent")),
-                Name = m.GetScalar("name", "GameObject"),
-                Active = m.GetScalar("active", "true") != "false",
-                Layer = ParseInt(m.GetScalar("layer", "0")),
-                Pos = SerializedType.ParseVec3(m.GetScalar("pos", "0 0 0")),
-                Rot = SerializedType.ParseVec3(m.GetScalar("rot", "0 0 0")),
-                Scale = SerializedType.ParseVec3(m.GetScalar("scale", "1 1 1")),
-            };
-            doc.Objects.Add(g);
-            string prefab = m.GetScalar("prefab", null);
-            if (!string.IsNullOrEmpty(prefab))
-            {
-                // Delta kaydi: ExpandPrefabs cagrilana kadar bosaltilmis instance koku.
-                g.PrefabGuid = prefab;
-                g.PrefabIds = ParseIdMap(m.GetScalar("prefabIds", ""));
-                g.PrefabRemoved = ParseIdList(m.GetScalar("removed", ""));
-                g.PendingOverrides = m.Get("overrides");
-                continue; // component'ler prefab'dan gelir
-            }
-            var comps = m.Get("components");
-            if (comps?.Items == null)
-                continue;
+            Id = ParseInt(m.GetScalar("id")),
+            Parent = ParseInt(m.GetScalar("parent")),
+            Name = m.GetScalar("name", "GameObject"),
+            Active = m.GetScalar("active", "true") != "false",
+            Layer = ParseInt(m.GetScalar("layer", "0")),
+            Pos = SerializedType.ParseVec3(m.GetScalar("pos", "0 0 0")),
+            Rot = SerializedType.ParseVec3(m.GetScalar("rot", "0 0 0")),
+            Scale = SerializedType.ParseVec3(m.GetScalar("scale", "1 1 1")),
+        };
+        string prefab = m.GetScalar("prefab", null);
+        if (!string.IsNullOrEmpty(prefab))
+        {
+            g.PrefabGuid = prefab;
+            g.PrefabIds = ParseIdMap(m.GetScalar("prefabIds", ""));
+            g.PrefabRemoved = ParseIdList(m.GetScalar("removed", ""));
+            g.PendingOverrides = m.Get("overrides");
+            return g;
+        }
+        var comps = m.Get("components");
+        if (comps?.Items != null)
             foreach (var cm in comps.Items)
                 if (cm.IsMap)
                     g.Components.Add(CompFromNode(cm));
-        }
-        return doc;
+        return g;
     }
 
     // Yaml comp haritasi -> CompDoc (Parse ve prefab addComp override'i ayni yolu kullanir).

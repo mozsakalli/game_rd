@@ -1,0 +1,52 @@
+type: BoxStyle
+fields:
+  normal:
+    look:
+      fill:
+        type: Linear
+        direction: Vertical
+        color: '#4a90e2ff'
+        color2: '#1c3f7aff'
+      border: 2 2 2 2
+      borderFill:
+        color: '#9ec5ffff'
+      radius: 14 14 14 14
+      shadowColor: '#00000099'
+      shadowOffset: 0 6
+      shadowBlur: 12
+      lightColor: '#ffffff90'
+      lightWidth: 0.9
+      lightHeight: 20
+      lightOffset: 0 2
+      textFill:
+        color: '#ffffffff'
+      textShadowColor: '#00000080'
+      textShadowOffset: 0 2
+      textShadowBlur: 4
+  variants:
+    - key: pressed
+      overrides: Fill, BorderFill, Shadow, Transform
+      look:
+        fill:
+          type: Linear
+          direction: Vertical
+          color: '#1c3f7aff'
+          color2: '#122a52ff'
+        borderFill:
+          color: '#ffffffff'
+        shadowColor: '#00000040'
+        shadowOffset: 0 2
+        shadowBlur: 6
+        scale: 0.92 0.92
+        rotation: -3
+    - key: disabled
+      overrides: Fill, BorderFill, TextFill, Light, Shadow
+      look:
+        fill:
+          color: '#55555aff'
+        borderFill:
+          color: '#77777cff'
+        textFill:
+          color: '#aaaaaaff'
+  transition: 0.2
+  transitionEase: OutCubic

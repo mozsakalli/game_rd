@@ -85,6 +85,10 @@ public sealed partial class InspectorPanel : EditorWindow
         }
         if (instRoot != null)
             DrawPrefabHeader(es, instRoot, ref y, w);
+        // Tema modu: tabandan farkli GO ise tema basligi + Revert to base (katman = Doc - Base).
+        var baseNode = es.BaseNodeOf(g);
+        if (es.ThemeMode)
+            DrawThemeHeader(es, g, baseNode, ref y, w);
 
         Header(ref y, w, "Transform");
         // Driven pozisyon (ITransformDriver, orn. layout): soluk salt-okunur satir,
@@ -100,10 +104,10 @@ public sealed partial class InspectorPanel : EditorWindow
         }
         else
         {
-            pos = Vec3RowPrefab(ref y, w, "Position", g.Pos, prefabChild ? prefabSrc.Pos : null);
+            pos = Vec3RowPrefab(ref y, w, "Position", g.Pos, prefabChild ? prefabSrc.Pos : null, baseNode?.Pos);
         }
-        var rot = Vec3RowPrefab(ref y, w, "Rotation", g.Rot, prefabChild ? prefabSrc.Rot : null);
-        var scale = Vec3RowPrefab(ref y, w, "Scale", g.Scale, prefabChild ? prefabSrc.Scale : null);
+        var rot = Vec3RowPrefab(ref y, w, "Rotation", g.Rot, prefabChild ? prefabSrc.Rot : null, baseNode?.Rot);
+        var scale = Vec3RowPrefab(ref y, w, "Scale", g.Scale, prefabChild ? prefabSrc.Scale : null, baseNode?.Scale);
         if (!Same(pos, g.Pos) || !Same(rot, g.Rot) || !Same(scale, g.Scale))
             es.SetTransform(g, pos, rot, scale);
         y += 4;
@@ -180,7 +184,7 @@ public sealed partial class InspectorPanel : EditorWindow
             {
                 if (!DocVisible(f, cd))
                     continue;
-                DrawField(es, g, cd, f, ref y, w, prefabComp, prefabMap);
+                DrawField(es, g, cd, f, ref y, w, prefabComp, prefabMap, es.BaseCompOf(g, cd));
                 if (NativeSizeTargets(entry.Schema, f, out var widthField, out var heightField))
                     DrawSetNativeSize(es, g, cd, f, widthField, heightField, ref y, w);
             }
@@ -383,6 +387,46 @@ public sealed partial class InspectorPanel : EditorWindow
         return _ovCache;
     }
 
+    // Tema basligi: calisilan tema + bu GO tabandan farkli mi ("theme-only" = tabanda yok) + Revert to base.
+    void DrawThemeHeader(EditorScene es, SceneDoc.GoDoc g, SceneDoc.GoDoc baseNode, ref float y, float w)
+    {
+        bool differs = baseNode == null || NodeDiffers(es, g, baseNode);
+        if (Event.Current.Type == EventType.Repaint)
+        {
+            GuiRenderer.DrawRect(new Rect(2, y, w, 20), new Color(64, 50, 34, 255), 0);
+            string txt = "Theme: " + es.Theme + (baseNode == null ? " (theme-only object)" : differs ? " (modified)" : "");
+            GuiRenderer.DrawTextIn(new Rect(8, y, w - 130, 20), txt, SmallFont, ThemeStripColor, false, 2);
+        }
+        if (baseNode != null && differs && Gui.Button(new Rect(w - 120, y + 1, 118, 18), "Revert to base"))
+            es.RevertNodeToBase(g);
+        y += RowH + 2;
+    }
+
+    static bool NodeDiffers(EditorScene es, SceneDoc.GoDoc g, SceneDoc.GoDoc b)
+    {
+        if (g.Name != b.Name || g.Active != b.Active || g.Layer != b.Layer || g.Parent != b.Parent
+            || !Same(g.Pos, b.Pos) || !Same(g.Rot, b.Rot) || !Same(g.Scale, b.Scale) || g.Components.Count != b.Components.Count)
+            return true;
+        for (int i = 0; i < g.Components.Count; i++)
+        {
+            var cd = g.Components[i];
+            var bc = SceneDoc.FindCompByAddress(b, SceneDoc.CompAddressOf(g, cd));
+            if (bc == null || bc.Enabled != cd.Enabled)
+                return true;
+            var entry = App.Catalog?.Find(cd.Type);
+            if (entry == null)
+                continue;
+            foreach (var f in entry.Schema)
+            {
+                var a = FindProp(cd, f);
+                var bv = FindProp(bc, f);
+                if (!(a == null && bv == null) && !DocNode.Equal(a, bv))
+                    return true;
+            }
+        }
+        return false;
+    }
+
     // Unity modeli: instance basligi + acilir Overrides listesi (Revert/Apply burada).
     void DrawPrefabHeader(EditorScene es, SceneDoc.GoDoc instRoot, ref float y, float w)
     {
@@ -531,7 +575,7 @@ public sealed partial class InspectorPanel : EditorWindow
 
     void DrawField(EditorScene es, SceneDoc.GoDoc g, SceneDoc.CompDoc cd,
         SerializedType.FieldSchema f, ref float y, float w,
-        SceneDoc.CompDoc prefabComp = null, Dictionary<int, int> prefabMap = null)
+        SceneDoc.CompDoc prefabComp = null, Dictionary<int, int> prefabMap = null, SceneDoc.CompDoc baseComp = null)
     {
         var node = FindProp(cd, f);
 
@@ -541,7 +585,14 @@ public sealed partial class InspectorPanel : EditorWindow
         bool overridden = prefabComp != null && !(node == null && prefabVal == null)
             && !DocNode.Equal(node, prefabVal);
         if (overridden && Event.Current.Type == EventType.Repaint)
-            GuiRenderer.DrawRect(new Rect(4, y + 1, 3, 16), new Color(95, 155, 245, 255), 1);
+            GuiRenderer.DrawRect(new Rect(4, y + 1, 3, 16), PrefabStripColor, 1);
+        // Tema farki (Base'den): ikinci serit, tema rengi (prefab seridiyle yan yana durabilir).
+        if (baseComp != null)
+        {
+            var bv = FindProp(baseComp, f);
+            if (!(node == null && bv == null) && !DocNode.Equal(node, bv) && Event.Current.Type == EventType.Repaint)
+                GuiRenderer.DrawRect(new Rect(8, y + 1, 3, 16), ThemeStripColor, 1);
+        }
 
         if (IsLocCandidate(f))
         {
@@ -719,13 +770,18 @@ public sealed partial class InspectorPanel : EditorWindow
         y += RowH;
     }
 
+    static readonly Color PrefabStripColor = new(95, 155, 245, 255);
+    static readonly Color ThemeStripColor = new(245, 170, 80, 255);
+
     // Prefab-farkindalikli transform satiri: override'da yalniz mavi serit
-    // (Revert/Apply tepedeki Overrides panelinden).
-    Vec3 Vec3RowPrefab(ref float y, float w, ReadOnlySpan<char> label, Vec3 v, Vec3? src)
+    // (Revert/Apply tepedeki Overrides panelinden); tema farkinda turuncu serit.
+    Vec3 Vec3RowPrefab(ref float y, float w, ReadOnlySpan<char> label, Vec3 v, Vec3? src, Vec3? baseV = null)
     {
         bool overridden = src.HasValue && !Same(v, src.Value);
         if (overridden && Event.Current.Type == EventType.Repaint)
-            GuiRenderer.DrawRect(new Rect(4, y + 1, 3, 16), new Color(95, 155, 245, 255), 1);
+            GuiRenderer.DrawRect(new Rect(4, y + 1, 3, 16), PrefabStripColor, 1);
+        if (baseV.HasValue && !Same(v, baseV.Value) && Event.Current.Type == EventType.Repaint)
+            GuiRenderer.DrawRect(new Rect(8, y + 1, 3, 16), ThemeStripColor, 1);
         if (Event.Current.Type == EventType.Repaint)
             GuiRenderer.DrawTextIn(new Rect(12, y, LabelW, 18), label, LabelFont, LabelColor, false, 2);
         var nv = Vec3Drags(new Rect(12 + LabelW, y, w - LabelW - 12, 18), v, true);
@@ -753,6 +809,8 @@ public sealed partial class InspectorPanel : EditorWindow
             if (_showOverrides)
                 h += (Overrides(App.EditScene, instRoot)?.Items.Count ?? 0) * (RowH - 2) + 4;
         }
+        if (App.EditScene.ThemeMode)
+            h += RowH + 2; // tema basligi
         int componentIndex = 0;
         foreach (var cd in g.Components)
         {

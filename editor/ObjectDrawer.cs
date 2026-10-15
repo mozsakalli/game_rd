@@ -177,6 +177,11 @@ public sealed class ObjectDrawer
                 break;
             case SerializedType.Kind.Enum:
                 {
+                    if (valueType.IsDefined(typeof(FlagsAttribute), false))
+                    {
+                        DrawFlags(valueRect, valueType, value, setValue, ref changed);
+                        break;
+                    }
                     string[] names = Enum.GetNames(valueType);
                     int index = Array.IndexOf(names, value?.ToString() ?? "");
                     int next = Gui.ComboBox(valueRect, index, names);
@@ -326,6 +331,46 @@ public sealed class ObjectDrawer
         setValue(value);
         ResetTextBuffers();
         changed = true;
+    }
+
+    // [Flags] enum: ozet etiketli combo; listede her bit "[x] Ad" / "[ ] Ad" — secim o biti CEVIRIR
+    // (popup kapanir, tekrar acilir). Sifir ve bilesik degerler listelenmez. Flags enum cizimi icin
+    // yeni kontrol yazilmadi (ComboBox yeniden kullanildi); dizi alloc'u yalniz editor cizimi.
+    static readonly Dictionary<Type, (string[] names, long[] bits)> _flagInfo = new();
+
+    static void DrawFlags(in Rect rect, Type enumType, object value, Action<object> setValue, ref bool changed)
+    {
+        if (!_flagInfo.TryGetValue(enumType, out var info))
+        {
+            var ns = new List<string>();
+            var bs = new List<long>();
+            foreach (var v in Enum.GetValues(enumType))
+            {
+                long b = Convert.ToInt64(v);
+                if (b != 0 && (b & (b - 1)) == 0) { ns.Add(v.ToString()); bs.Add(b); }
+            }
+            info = (ns.ToArray(), bs.ToArray());
+            _flagInfo[enumType] = info;
+        }
+        long cur = value != null ? Convert.ToInt64(value) : 0;
+        var items = new string[info.names.Length + 1];
+        int set = 0;
+        string first = null;
+        for (int i = 0; i < info.names.Length; i++)
+        {
+            bool on = (cur & info.bits[i]) != 0;
+            items[i + 1] = (on ? "[x] " : "[  ] ") + info.names[i];
+            if (on) { set++; first ??= info.names[i]; }
+        }
+        // 0. eleman = ozet etiketi (ComboBox secili elemani etiket olarak basar); secilirse no-op.
+        items[0] = set == 0 ? "None" : set == 1 ? first : set == info.names.Length ? "All" : first + " +" + (set - 1);
+        int picked = Gui.ComboBox(rect, 0, items);
+        if (picked >= 1 && picked <= info.bits.Length)
+        {
+            long next = cur ^ info.bits[picked - 1];
+            setValue(Enum.ToObject(enumType, next));
+            changed = true;
+        }
     }
 
     void DrawString(in Rect rect, string current, Action<object> setValue,

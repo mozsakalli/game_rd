@@ -106,6 +106,7 @@ public sealed partial class InspectorPanel
         }
         AssetWatcher.NoteSelfWrite(_aPath);
         ObjectSerializer.Save(_aObj, _aPath, App.Assets);
+        AssetDatabase.NoteObjectChanged(); // canli instance duzenlendi: referans tutanlar (LayoutBox.style) tazelensin
         if (AtlasSystem.IsAtlasGroupAsset(_aPath))
             AtlasSystem.RefreshAll(); // grup ayari degisti: hemen yeniden paketle
     }

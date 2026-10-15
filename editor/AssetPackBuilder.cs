@@ -36,7 +36,30 @@ static class AssetPackBuilder
     internal static bool Build() => Build(null, null);
 
     // outPath: null = <proje>/Build/game.pak. extra: pak'a eklenecek ham girdiler (modul kodu gibi; sikistirilir, bagimliliksiz).
+    // TEMA: pak TEK temayla piser — ThemeOverride (RPC/CLI) yoksa PlayerSettings.activeTheme. Prefab cache calisilan temayla
+    // dolu olabilir: build boyunca build temasiyla yeniden kurulur, sonunda editorun temasina geri doner.
+    internal static string ThemeOverride;
+
     internal static bool Build(string outPath, IReadOnlyList<(string Key, byte[] Data)> extra)
+    {
+        var assets = App.Assets;
+        string prevTheme = SceneDoc.ActiveTheme;
+        SceneDoc.ActiveTheme = ThemeOverride ?? App.Project.Player.activeTheme ?? "";
+        assets.InvalidateAllPrefabs();
+        try
+        {
+            if (!string.IsNullOrEmpty(SceneDoc.ActiveTheme))
+                EditorLog.Info("[pak] theme: " + SceneDoc.ActiveTheme);
+            return BuildCore(outPath, extra);
+        }
+        finally
+        {
+            SceneDoc.ActiveTheme = prevTheme;
+            assets.InvalidateAllPrefabs();
+        }
+    }
+
+    static bool BuildCore(string outPath, IReadOnlyList<(string Key, byte[] Data)> extra)
     {
         var assets = App.Assets;
         var catalog = App.Catalog;
@@ -297,7 +320,7 @@ static class AssetPackBuilder
         try
         {
             var doc = SceneDoc.Parse(File.ReadAllText(file), key);
-            doc.ExpandPrefabs(catalog, assets); // delta kayitlari -> tam agac (ic ice dahil)
+            doc.Prepare(catalog, assets, SceneDoc.ActiveTheme); // delta -> tam agac (ic ice) + build temasi (tek tema pak'a girer)
             // Kapsam ceviri tablosu varsa sahnenin bagimliligi (pak'a girer, Spawn'dan once hazir olur).
             if (doc.LocTable != null && assets.Exists(doc.LocTable) && !assetRefs.Contains(doc.LocTable))
                 assetRefs.Add(doc.LocTable);

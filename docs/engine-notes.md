@@ -1,5 +1,369 @@
 # DigitoyEngine R&D (game_rd)
 
+## BOXSTYLE v3 — İSİMLİ DURUMLAR (2026-10-15, layout 112 PASS; Sandbox StyledButton + BlueButton.asset göç etti)
+- `enum BoxState` ve sabit `hover/pressed/disabled/selected` alanları SİLİNDİ → `BoxStyle { normal, List<BoxStyleState> variants,
+  transition, transitionEase }`, `BoxStyleState.key` (serbest metin). Sözleşmeli adlar: `BoxStyle.PressedKey/DisabledKey/HoverKey/
+  SelectedKey` + hazır hash'ler `BoxStyle.Pressed/Disabled/Hover/Selected`. `BoxStyle.Hash(key)` = `ClipHash.Of` (FNV-1a).
+- RUNTIME: string yok. `StateSet` (4 int + Count; Add/Remove/Contains/Clear, sıkıştırmalı) kutunun aktif durumları. `BoxStyle.
+  Resolve(in StateSet, out state)`: normal + eşleşen varyantlar **LİSTE SIRASIYLA** maskeyle bindirilir (sonraki ezer → pressed+
+  selected bileşimi stil yazarının sırasıyla tanımlanır). Hash indeksi `_hashes` `ObjectVersion`'da/eleman sayısı değişince bir kez
+  kurulur (`EnsureIndex`); alloc yalnız kurulumda. 4 eş zamanlı durum üst sınır (5. sessiz red).
+- LAYOUTBOX API: `SetState(int|string)` (tek duruma indirger; 0/"" = Normal), `AddState/RemoveState(int|string)`, `ClearStates`,
+  `HasState`, `StateCount`, `States`. `ApplyStates` eski SetState gövdesi (CaptureLook → transition). Edit modunda stilde olmayan
+  key → `AssetDatabase.LogWarning` "[style] 'go': state 'x' is not defined" (release'te sıfır maliyet: EditMode kontrolü).
+- GÖÇ: FormerlySerializedAs yapı farkı (struct → liste) taşıyamaz; tek asset (BlueButton.asset) elle `variants: [{key: pressed…},
+  {key: disabled…}]` biçimine çevrildi. Eski `pressed:`/`disabled:` alanları içeren dosya yüklenirse SESSİZCE yok sayılır (bilinmeyen
+  alan) → varyantsız stil. Başka projede eski BoxStyle varsa elle çevir.
+- Inspector: `variants` jenerik liste (key metin + [Flags] overrides combosu); tüketicide (Button) key combosu YAPILMADI (sonra).
+  MovieClip State track YAPILMADI.
+- TESTLER (LayoutTests.StyleNamedStates): string/hash API, liste sırası bindirme (pressed Fill'i ezer, Radius selected'tan kalır),
+  RemoveState yeniden çözüm, bilinmeyen key → Normal, StateSet kapasite/sıkıştırma, Add/Remove/Resolve 0 alloc, YAML round-trip.
+
+## TEMA KATMANI — UYGULANDI (2026-10-15, theme 32 PASS + prefab 34 PASS, RPC canlı doğrulandı; karar bölümü aşağıda)
+- BİÇİM ([SceneDoc.Theme.cs](../engine/managed/Serialization/SceneDoc.Theme.cs)): dosyada `themes: { xmas: { overrides:[{node,comp,
+  prop,value}], removed:"7 9", added:[GoDoc kayıtları] } }` — prefab instance override ŞEMASI/KODU birebir (`ApplyOverrideItems(ovs,
+  map)`, map=null → kimlik; `DiffNodeFields` + `DiffComponents` ortak). `node` = doc'un kendi id'si (remap yok; instance içi node'lar
+  kalıcı prefabIds ile adreslenir). `added` prefab instance kaydı olabilir. Pasif katmanlar ham DocNode olarak `doc.Themes`'te taşınır,
+  aynen geri yazılır. Node override'ına `layer` ve `parent` (yalnız tema üretir) eklendi; `layer` prefab diff'ine de girdi (önce
+  sessiz kayboluyordu).
+- TEK BOĞAZ `doc.Prepare(catalog, assets, theme)` = `ExpandPrefabs → ApplyTheme → ExpandPrefabs` (added instance'lar). Tüm yükleyiciler:
+  `EditorScene.LoadFromText`, `AssetDatabase.MakePrefab` (→ Avatar'ın xmas katmanı Table/leaderboard/sahnede OTOMATİK), `BakeScene`,
+  `SceneLoader`, `GameHost` loose. `SceneDoc.ActiveTheme` (static, DE_EDITOR) = yükleyicilerin uygulayacağı tema; `AppliedTheme` bellekte.
+  RUNTIME TEMA BİLMEZ: release YAML okumaz, SceneBinary/player/AOT sıfır değişiklik.
+- AYARLAR: `PlayerSettings.themes` (serbest ad listesi, taban "default" yazılmaz) + `PlayerSettings.activeTheme` (BUILD teması);
+  `EditorSettings.workingTheme` (kullanıcı). Pak: `AssetPackBuilder.Build` → `ThemeOverride ?? activeTheme`; build boyunca
+  `ActiveTheme` o tema + prefab cache iki kez düşürülür (çalışılan temayla dolu olabilir), sonunda editörünkine döner. Yalnız çözülmüş
+  doc pişer → diğer temaların asset'leri pak'a girmez (test: xmas sprite guid'i taban refs'te yok).
+- EDİTÖR (`EditorScene`): tema modunda `Base` (taban projeksiyonu) + `Doc` (taban+katman), ikisi AYNI metinden Prepare (id uzayı ortak).
+  `Collapse()` = `Base.Themes[aktif] = Doc.DiffTheme(Base)` + `Base.ToYaml` → Save/reexpand/Apply/stage boğazları DEĞİŞMEDEN çalışır.
+  Taban modunda `Base == Doc`. ÖNEMLİ: Base de aynı (temalı) prefab cache'iyle açılır — prefab'ın kendi tema katkısı bu dosyanın
+  katmanı değildir; aksi halde Avatar'ın "snow"u sahne katmanına kopyalanırdı (test: diff'te Label yok).
+  Toolbar **Working theme** combosu (dil combosunun solunda; liste boşsa gizli): `App.SetWorkingTheme` = `WithPrefabEdit(ActiveTheme=x)`
+  (collapse eski temayla → cache düşer → reexpand) + `ResetHistoryKeepDirty` + Selection.Clear. Kayıt istemez (dil gibi).
+  Tema modunda `MoveGameObject` (kardeş sırası) tabandaki GO için REDDEDİLİR (temsili yok); `Reparent` serbest (`parent` override).
+  Inspector: alan/TRS Base'den farklıysa TURUNCU ikinci şerit (prefab mavisi x=4, tema x=8), GO başında "Theme: xmas (modified|
+  theme-only object)" + **Revert to base** (`RevertNodeToBase`: undo'lu normal op'lar). `BaseNodeOf/BaseCompOf` yardımcıları.
+- RPC [RpcTheme.cs](../editor/RpcTheme.cs): `theme.list/set/add/remove(purge)/setBuild/check`; `asset.buildPak(theme)`,
+  `player.build(target, theme)` ("default" = taban). `rpc.guide` "themes" bölümü (akış + "katmanı en iç prefab'a koy").
+- TESTLER [editor/ThemeTests.cs](../editor/ThemeTests.cs): parse/yaz round-trip (pasif katman aynen), ApplyTheme (override name/layer,
+  removed alt ağaç, added düz GO + added prefab instance'ın expand + kendi override + Avatar katmanı), bilinmeyen tema = taban,
+  nested (Avatar xmas → Table → sahne), bake bayt farkı + asset ref ayrımı, DiffTheme ⇄ Apply simetrisi (prefab tema katkısı sahne
+  katmanına yazılmaz; aynı doc diff'i boş), ThemeOrphans, EditorScene tema modu (SetProp/AddGo/RemoveGo tema-only/Move reddi/Reparent
+  → Collapse: taban dokunulmadı, katman = eski+yeni, dirty korunur, UndoCount 0), default'a dönüş + pasif katman bayt-eş taşınır.
+- **RİSKLER / SONRA DÜZELTİLECEK (kullanıcı: "not al, düzelteceğiz")**:
+  1. Tema geçişinde undo yığını temizlenir (katmanlar arası GO kümesi farklı). Alternatif: undo op'ları tema etiketli tutmak.
+  2. Tema modunda prefab Overrides paneli (`BuildOverrides` Doc üstünde) temalı alanları da "prefab override" sayar; Apply düğmesi
+     tema değerini prefab'a yazar. Doğrusu: tema modunda Apply'ı gizlemek ya da Base'e göre filtrelemek.
+  3. `added` GO'lar ApplyTheme'de listenin SONUNA eklenir → çizim sırası (eşit SortingOrder'da liste sırası) temada kardeşlerin sonunda;
+     `insertBefore` kaydı yok. Reorder reddi de bundan. Çözüm: added kaydına `before: id`.
+  4. Tema modunda instance içindeki prefab çocuğunu silmek `root.PrefabRemoved`'ı Doc'ta işaretler ama katmana yalnız `removed` yazılır;
+     projeksiyon doğru, instance kaydı tabanda değişmez (istenen) — ancak Overrides paneli tutarsız gösterebilir (madde 2 ile aynı kök).
+  5. `theme.check` tema modunda aktif katmanı son Collapse'tan okur (Doc'taki taze diff değil).
+  6. Yetim override (tabanda silinen node) sessizce atlanır (prefab missing-node kuralı); `theme.check` ile görünür, otomatik temizlik yok.
+  7. Prefab stage'de tema modu: `SingleRoot` + tema `added` kök altında — test edilmedi (sahne yolu test edildi; aynı kod).
+  8. `PlayerSettingsWindow` `themes` listesini jenerik çizer; ad doğrulama (boş/"default") yalnız RPC `theme.add`'de.
+  9. Tema katmanı instance × tema matrisi yok (sahnedeki instance'a tema-özel dokunuş = sahnenin katmanı, outermost kuralı) — bilinçli.
+
+## NESTED PREFAB (bileşim) — TAMAMLANDI (2026-10-15, prefab 34 PASS, diğer suite'ler değişmedi)
+- İHTİYAÇ: Avatar.prefab (foto + çerçeve) masa/leaderboard/sahne — her yerde; tema (xmas karlı çerçeve) tek yerden.
+  "Sahnede yan yana türevler" (variant) DEĞİL; bileşim.
+- BULGU: prefab dosyası içinde instance kaydı zaten yaşıyordu (stage = sahne; Save collapse'lı). Kırık tek halka TÜKETİMDİ:
+  `MakePrefab` doc'u yalnız Parse ediyordu → Table başka yerde açılırken içindeki Avatar kaydı component'siz boş GO
+  (pak, `LoadPrefab().Instantiate()`, sahne — hepsi). İkincil: `InvalidatePrefab(rel)` yalnız o dosya (nested tüketici bayat),
+  Apply cache doc'unu `Save()`=collapse'siz yazıyordu (nested içeren prefab'a Apply → iç instance düzleşir), elle yayılım yalnız
+  aynı-guid instance'lara, CreatePrefabAsset instance içeren alt ağacı reddediyordu, döngü koruması/prefab testi yoktu.
+- MODEL: **cache'teki prefab Doc HEP EXPANDED** ([AssetDatabase.MakePrefab](../engine/managed/AssetDatabase.cs), DE_EDITOR):
+  Parse → iç instance kökleri için `LoadPrefab` (özyineleme) → `ExpandPrefabs`. Tüketen sahne/prefab düz node kopyalar
+  (`ExpandInstance` DEĞİŞMEDİ) → **outermost override kuralı**: sahnedeki Table instance'ında avatara dokunuş Table instance
+  kaydına yazılır; Table stage'inde Avatar kendi instance kaydıyla görünür (Unity default'u). Mevcut diff yetenekleri
+  (prop/enabled/addComp/removeComp/name/active/TRS/removed) iç içe için BEDAVA geçerli — yeni diff kodu yok.
+- DÖNGÜ: `_prefabLoading` seti; yükleme sırasında aynı key → `LogWarning("[prefab] dongu: A → B → A")` + null → iç kayıt
+  missing-prefab gibi delta kalır (çökmez/kaybolmaz). `Prefab.Deps` (geçişli yol seti) expand'de toplanır;
+  `PrefabDependsOn(a,b)`; `EditorScene.InstantiatePrefab` stage'de kendini/kendini içereni REDDEDER (dosyaya hiç yazılamaz).
+- INVALIDATE: `InvalidateAllPrefabs()` — bağımlılık grafı izlemek yerine tüm cache düşer (YAML küçük, bayat kopya riski sıfır).
+  `App.ReexpandAllPrefabs` → `WithPrefabEdit(null)`.
+- APPLY YOLU yeniden kuruldu (`EditorScene.PrefabEditScope`, App stash'li sahneyi de kapsar — `App.WithPrefabEdit`):
+  (a) sahne(ler) ESKİ cache ile collapse, (b) prefab doc mutasyon + `Save(path, catalog, assets)` COLLAPSE'LI, (c) tüm cache
+  düşer, (d) delta'dan reexpand. Yayılım doğrudan VE nested tüketicilere aynı yoldan; uygulanan instance'ın override'ı yeni
+  prefab değerine eşit çıktığından diff'ten kendiliğinden düşer (sahte override yok). Elle yayılım kodu SİLİNDİ. Nested
+  node'dan Apply = en dış prefab'a nested override satırı (Table.prefab'ta Avatar kaydına). Apply hâlâ undo'suz (eskisi gibi).
+- `SceneDoc.Save(path, catalog, assets)` eklendi; cache'ten gelen (expanded) prefab doc'u kaydeden HER yol bunu kullanmalı.
+- `CreatePrefabAsset`: alt ağaç instance İÇEREBİLİR (kök instance'a bağlıysa yine ret — variant değil). İç işaretler
+  (PrefabGuid/Ids/Removed/LocalId/RootId) yerel uzaya taşınır, dosya collapse'lı yazılır (iç kayıt delta + diff), Layer da
+  kopyalanır. `ConnectPrefabOp.Entry` önceki işaretleri saklar → undo birebir geri koyar; connect sonrası iç kökler düz çocuk.
+- ID KARARLILIĞI: Table.prefab'taki iç kaydın `prefabIds` kalıcı (Avatar-local → Table-local), sahne haritası Table-local →
+  scene. Bilinen sınır: Avatar'a yeni çocuk eklenip Table henüz kaydedilmediyse Table-local id hesaplanır (deterministik,
+  kalıcı değil); Table bir kez kaydedilince kalıcılaşır (Unity'nin de bedeli).
+- PAK/RUNTIME: sıfır değişiklik (BakeScene zaten expand ediyor; artık iç seviye de dolu). Release baked yolu dokunulmadı.
+  Katalog yoksa (`assets.Catalog` null) expand ref remap'siz çalışır; GameHost/editör katalogu önce atar.
+- TESTLER [editor/PrefabTests.cs](../editor/PrefabTests.cs) (geçici klasör + gerçek AssetDatabase): iki seviye expand + ref remap
+  (Deck→avatar-1 Frame), sıfır sahte override + round-trip bayt-eş, nested (Table) + sahne override katmanları, removed iki
+  seviyede, addComp/removeComp nested node'da, bake/spawn paritesi + ref çözümü, yayılım (Avatar değişti → nested override ve
+  sahne override'ı duruyor, yeni çocuk iki instance'a), döngü uyarısı + Deps/PrefabDependsOn, Apply (Table.prefab nested satır,
+  collapse'lı, override düştü, ikinci Table instance'ına yayıldı), CreatePrefabAsset instance içeren alt ağaç + undo/redo +
+  expanded doğrulama, stage döngü reddi.
+- TEMA için zemin hazır: Avatar.prefab'ın xmas katmanı (çerçeve sprite) `LoadPrefab`'da doc düzeyinde çözülünce masa/leaderboard/
+  sahne otomatik karlı olur (aşağıdaki TEMA kararı). Sıradaki iş tema katmanı.
+
+## TEMA (bayram/sezon skin) — KARAR (2026-10-15, tartışma sonucu; uygulama üstteki bölümde)
+- SORU: Noel/Kurban gibi temalar için mevcut ekranları her seferinde sahneden mi düzenleyeceğiz? HAYIR. Sahne kopyası
+  (drift, loc/prefab bağı çoğalması) ve kodda `if (xmas)` (asset adı koda sızar) REDDEDİLDİ.
+- REDDEDİLEN 2. YOL — asset remap (`[Asset] Theme {Source→Replacement}` + AssetDatabase çözümünde dolaylama): kesişen kaygıyı
+  iyi çözer ama tüm asset pipeline'ını keser, karışık (kullanıcı). Yapısal fark (ek GO) yapamaz.
+- REDDEDİLEN 3. YOL — Unity prefab variant (ayrı dosya `Menu_Xmas.prefab`): "ne farklı" sorusunu çözer, "hangisi etkin"
+  sorusunu çözmez (referans veren sahne değişmek zorunda); yalnız prefab, sahne yok; N tema × M dosya patlaması.
+- KARAR: TEMA = DOC'TA İSİMLİ OVERRIDE KATMANI, loc gibi first-class, build-time projeksiyon.
+  * Tema listesi serbest metin (loc `Languages[]` gibi): `ProjectSettings.themes: [default, xmas, kurban, ...]`; ilk = taban.
+  * Doc biçimi (prefab VE sahne — her SceneDoc): GO'nun yanında
+    `themes: { xmas: { overrides:[{node,comp,prop,value}], removed:"7", added:[GoDoc...] } }` — mevcut prefab instance
+    override şemasıyla BİREBİR; uygulama/diff kodu `ExpandInstance`/`DiffComponents` yolunun yeniden kullanımı
+    (`ApplyThemeLayer(doc, theme)`). Taban doc değişmez; katman yalnız delta.
+  * EDİTÖR: toolbar "Working theme" combosu (Working language ile aynı yer ve anlam; ayrı "preview theme" YOK). `default`
+    seçiliyken normal edit; başka tema seçiliyken HER edit tema katmanına diff'lenir (taban'a yazılmaz): prop → overrides,
+    GO ekle → added, GO sil → removed. Inspector'da tema rengi şerit + "Revert to base". Prefab stage'de aynı. Play da
+    working theme ile koşar.
+  * RUNTIME'DA TEMA YOK. Motor (DigitoyEngine.dll) temadan habersiz; `Theme.Current`/Version/SceneBinary alanı/player
+    seçimi YOK. Proje HER ZAMAN TEK AKTİF TEMAYLA derlenir: `PlayerSettings.activeTheme` (ya da `player_build(theme)`);
+    pak = `ApplyTheme(doc, aktif) → BakeScene` düz doc. Diğer katmanlar ve asset'leri pak'a GİRMEZ (bağımlılık toplayıcı
+    yalnız çözülmüş doc'u gezer). Amaç sürdürülebilirlik, dinamik indirme/DLC DEĞİL (kullanıcı). Canlı tema geçişi
+    gereksinim değil; editörde combo değişimi = `ReexpandFrom` (reload).
+  * Sınırlar (v1): instance × tema matrisi YOK (tema katmanı prefab'ın/sahnenin kendisinde; instance'a tema-özel dokunuş
+    gerekiyorsa sahnenin kendi katmanı override eder). Tema tek eksen, nesting/kombinasyon yok. BoxStyle `[Asset]` olduğu
+    için stilin kendisi temalanmaz → doc'ta `style` ref'i override edilir; ortak buton tekrarı nested prefab borcuna bağlı.
+  * Sonraki doğrulamalar: `theme.check` (taban'da silinen GO'ya yetim override), `theme.assets(name)` (tema asset raporu),
+    `theme.remove(name)`. Yetim override davranışı = prefab'ın mevcut "missing node" kuralı.
+- UNITY VARIANT İLE FARK: variant = ayrı dosya/GUID, referans veren seçer, yalnız prefab, yapısal türetme zinciri
+  (yeniden kullanım: aynı sahnede yan yana türevler). Tema = aynı dosyada katman, proje-geneli tek anahtar, her doc,
+  kesişen kaygı, bir anda TEK etkin (projeksiyon). En yakın akraba Android `res/values-xx/` qualifier / Xcode appearance.
+  "Sahnede yan yana türevler" (RedButton/BlueButton) ihtiyacı temayla ÇÖZÜLMEZ → nested prefab / variant ayrı tartışma
+  (bileşim YAPILDI — üstteki NESTED PREFAB bölümü; variant/türetme hâlâ yok, bilinçli).
+
+## RPC: render.describe — EKRANIN METIN OZETI (2026-10-15)
+- `render.describe(which=play, root, types, minSize=2, clickable, pixels=0)` ([editor/RpcDescribe.cs](../editor/RpcDescribe.cs)):
+  gorunur renderer'lar cizim sirasinda; her biri `path, type, rect "x y w h" (mantiksal, ekrana kirpilmis; partial=true tasma),
+  order, alpha(<1), text, sprite, fill (duz #rrggbbaa ya da Linear:#a→#b), tint, click`. `rect` merkezi dogrudan `input.tap`
+  (dogrulandi: FitPerspective kamerada GUEST/TERMS merkezine tap → ayni target). `pixels=N` → N sutun x orana gore satir
+  ortalama renk izgarasi (`GameOutput.PixelGrid`, mevcut ReadImage). `sim.run(describe=true)` / `anim.goto(describe=true)`.
+- Guide: ONCE describe (ucuz, kesin), screenshot yalniz gorsel ton/suphe icin.
+- MOTORA SIFIR DOKUNUS (kullanici sarti: runtime'a sizmasin): projeksiyon editorde, kameranin public `ScreenPointToRay(0,0)`
+  isinindan turetilir (yon (0,0,1) = ortho → dunya xy; aksi halde Origin = goz, goz→p dogrusunun z=0 kesiti) + `GetWorldRect`
+  ile dogrusal haritalama. Renderer bbox = `GetLocalSelectionBounds` 4 kose × world matrix. Kamera secimi, alpha/enabled
+  filtresi ve `HasHandlerInChain` PointerInput.Pick'in editor kopyasi (InternalsVisibleTo). Klip (Hidden/Scroll) ile kirpilan
+  cocuk rect'te tam gorunur — v2 adayi (`clipped`). ParticleSystem bbox kaba.
+
+## RPC: KUCUK/JPEG SCREENSHOT + scene.tree (2026-10-15; Unity MCP paketinden geri port)
+- `render.screenshot(path, scale, maxSize=1024, format=jpg, quality=80, region)`: VARSAYILAN kucultulmus jpg (AI gorsel token
+  maliyeti piksel sayisiyla olceklenir). Sonucta `toScreen` (= region.w / w) ve `region`: TIKLAMA = region.x + px*toScreen.
+  Eski birebir davranis: `scale=1, maxSize=0, format=png`. Encoder: jpg = native `de_image_encode` (stb, zaten vardi),
+  png = `PngWriter`. `GameOutput.Screenshot(path, ShotRequest)` bolgeyi mantiksal koordinatta kirpar (RT fiziksel → px/vw).
+  `sim.run(maxSize, format)` ve `anim.goto` ayni yoldan gecer; MCP koprusu png|jpg + `frames[]` listesini image content yapar.
+  `ui.screenshot` (editor penceresi) PNG kaldi — bilerek, UI otomasyonunda piksel==koordinat.
+- `scene.tree(root, depth, comps)`: satir basina `{id} {girinti}{ad} [inactive] {prefab} (Tipler)`, depth kesince `+N` gizli
+  eleman; `root` id ya da 'A/B' yolu. `scene.dump(go, props)` alt agac + prop'suz dump (yalniz TAM dump diff baseline'ini
+  sifirlar); `scene.dumpLive(which, go)` alt agac. Guide adim 1 artik scene.tree. Doc'ta parent→children indeksi her cagrida
+  tek gecis (`ChildIndex`) — doc'a kalici indeks eklenmedi.
+- Kopru dll'i VS Code MCP sureci acikken kopyalanamaz (MSB3027): MCP sunucusunu yeniden baslat, sonra build.
+
+## OTURUM KAPANIS — WEB-KAFASI UI PAKETI EKSIKLERI (2026-10-15; cizim + flex + scroll + boxstyle v1/v2 bitti, layout 102 PASS)
+- DURUM: editor KAPALI. Diskte KAYDEDILMEMIS test sahneleri `Sandbox/Assets/Scenes/{DrawTest,FlexTest,ScrollTest,StyleTest}.scene`
+  (bos dosya + .meta; icerikleri %TEMP%\{drawtest,flextest,scrolltest,styletest}_apply.json — scene.apply ile yeniden kurulur).
+  Kalici ornekler: `Styles/BlueButton.asset` (maskeli), `Scripts/StyledButton.cs`. `Localization.asset`'e scene.apply'in ekledigi
+  `scroll_test.item*` anahtarlari duruyor (istenmiyorsa geri al). Git'te commit YOK — tum degisiklikler working tree'de.
+- EKSIK / SONRAKI ADIMLAR (oncelik sirasi onerisi):
+  1. Press-shift (basinca 2px kayma): pozisyon layout'un surdugu alan -> BoxLook'a `offset` + Encode'da quad'lara render ofseti
+     (transform'a degil); hit-test ofseti de gormeli.
+  2. Hover: Pointer'a enter/exit (`OnPointerEnter/Exit`), bosta Move'da hit-test maliyeti — masaustu/editor icin opt-in bayrak
+     (`PointerInput.TrackHover`), mobilde kapali. BoxState.Hover slotu hazir.
+  3. Kutu-olmayan cocuk renderer (SpriteRenderer/TextSprite) Hidden/Scroll altinda kirpilmiyor ve culling'siz: klip penceresini
+     `Scene.WalkRenderers`'ta alpha gibi indir, `Renderer.Encode` basinda rect kiyasi.
+  4. Scrollbar: opsiyonel cocuk kutu (`IgnoreLayout`) + ofset orani; ScrollView'e `scrollbar` CompRef. Yatay+dikey birlikte test
+     edilmedi (kod iki ekseni bagimsiz destekliyor).
+  5. Grow + maxWidth'te artik diger grow'lulara dagitilmaz (tek tur) — shrink'teki 2. tur deseni kopyalanabilir.
+  6. Capraz gradient'te ara durak yok (eksen-hizali quad'la bolunemez) — istenirse shader'da (USER yok; mod-paketleme/uniform kurali).
+  7. Radial gradient 2 durak; keyfi aci gradient yok; ClipRound kapsam disi (mask benzeri genel efekt yolu ile birlikte).
+  8. BoxStyle: varyant `Sprite` grubu test edilmedi (kod var); "Copy from Normal" dugmesi yok (maske mirasi yeterli); stil varken
+     kutunun surulen alanlari Inspector'da salt-okunur DEGIL (Unity gibi; jenerik "driven fields" mekanizmasi yok).
+  9. Transition sirasinda MovieClip/Tween ayni kutunun BoxLook alanini yazarsa son yazan kazanir; Transform katmani da ayni.
+  10. Klip asset'i (`@keyframes` karsiligi: MovieClip'i [Asset] olarak referansla uygulamak; hedef yolu goreli cozum).
+  11. Editor/RPC: native combo popup'i (modal) acikken RPC yanit vermiyor -> popup acikken de istek islensin ya da `ui.key esc` oncelikli.
+      `edit.undo` sim restart'ini da geri alabiliyor (ust uste apply'da Root birikti). `rpc.ps1`'e trailing-newline korumasi
+      (`.Trim()`) eklenebilir.
+  12. Serializer `byte` desteklemiyor (int/float) — Gradient.stops int kaldi; istenirse Kind.Int'e byte/short eslemesi.
+  13. AOT/player tarafinda yeni tipler (BoxStyle, ScrollView, BoxLook struct icinde Sprite ref) pak/DOBJ ile HIC test edilmedi —
+      `AssetPackBuilder` + player calistirmasi bir sonraki oturumda ilk is olmali.
+  14. BOXSTYLE v3 — YAPILDI 2026-10-15 (ustteki bolum): sabit `BoxState` enum yerine ISIMLI durumlar — `BoxStyleState.key` (string) +
+      `List<BoxStyleState> variants`; oyun durumlari ("turn-active", "selected-wrong", "vip") ve COKLU aktif durum (pressed+selected,
+      liste sirasiyla bindirme). String yalniz authoring'de: yuklemede/ObjectVersion'da key'ler bir kez hash'lenir (ClipHash deseni),
+      runtime `SetState/AddState/RemoveState(int hash)` + hash hesaplayan string overload (alloc yok), kutuda kucuk sabit hash dizisi.
+      Resolve yine durum degisiminde bir kez. Button sozlesmeli adlar ("pressed","disabled"). Yazim hatasi: edit modunda log uyarisi +
+      Inspector'da atanan stilin key'leri combo. MovieClip Trigger/State track'inden tetiklenebilir.
+- OLCUM OZETI (regresyon referansi): EncodeBench 300 kutu 2-stop ~3.2 ms / 4-stop ~4.7 ms / capraz ~3.3 ms, 0 B; ArrangeBench 300 cocuk
+  0.07 ms, 0 B; tum testler 0 alloc sartli.
+
+## BOXSTYLE v2 — OVERRIDE MASKESI + TRANSFORM KATMANI (scale/rotation) + Inspector [Flags] (2026-10-15, layout 102 PASS, editor basili screenshot)
+- MASKE: `BoxStyleState.enabled` -> `BoxLookFields overrides` ([Flags]: Fill, Border, BorderFill, Radius, Shadow, InnerShadow, Light,
+  TextFill, TextOutline, TextShadow, Transform, Sprite — GRUP bazli, alan degil). Varyant yalniz maskeli gruplari Normal'in ustune
+  bindirir (CSS `:active { background }` hissi); None = varyant yok. `BoxStyle.Resolve(state, out BoxStyleState)` durum degisiminde bir
+  kez (~12 bit kiyasi, alloc yok); `For(ref)` kalkti. Normal'de maske yok sayilir (tam temel).
+- TRANSFORM KATMANI: `BoxLook.scale` (Vec2) + `rotation` (derece z), lerp'li. `LayoutBox.ApplyTransformLook`: stil Transform'a ILK
+  dokundugunda taban (`_baseScale/_baseRot`) okunur; `localScale = taban*scale`, `eulerZ = taban+rotation`; notr (1,1/0 ya da (0,0)=
+  belirtilmemis) ve hic dokunulmamissa Transform'a YAZIM YOK (stil kullanmayan kutuya sifir maliyet). Stil kalkinca (`Style=null`)
+  `RestoreTransform`. `CaptureLook` surulen orani geri hesaplar (yarida kesme dogru). scale (0,0) -> (1,1) (Resolve + Apply).
+  Scale layout'a girmez kurali geregi MarkDirty yok. Baska surucu (Tween/MovieClip) ayni anda Transform yazarsa son yazan kazanir.
+  Pozisyon ofseti (basinca 2px kayma) ALINMADI: pozisyon layout'un surdugu alan (Encode geri basar) -> render ofseti gerekir, 2. adim.
+- INSPECTOR [Flags] (editor/ObjectDrawer.DrawFlags, jenerik): [Flags] enum -> ComboBox; 0. eleman OZET ("Fill +3" / None / All),
+  digerleri "[x] Ad" / "[  ] Ad", secim biti CEVIRIR (Enum.ToObject). Sifir/bilesik degerler listelenmez. Serializer flags'i zaten
+  "A, B" metniyle yaziyor/okuyor (Enum.TryParse). Ozet dogrulandi; popup native pencere oldugundan ui.screenshot'ta gorunmez.
+- "COPY FROM NORMAL" DUGMESI YAPILMADI: maske mirasi sorunu cozuyor; tip-ozel Inspector kodu olurdu (kullaniciya anlatildi).
+- EDITOR DOGRULAMA: BlueButton.asset maskeli: pressed `overrides: Fill, BorderFill, Shadow, Transform` + `scale 0.92`, `rotation -3`;
+  disabled `Fill, BorderFill, TextFill, Light, Shadow`. Shop basiliyken: kucuk+egik, koyu dolgu, beyaz border, light/radius Normal'den
+  miras; birakinca birebir geri. Locked: gri, light yok.
+- TESTLER: StyleMaskAndTransform — Normal notr -> Transform'a dokunulmadi; maske: Fill ezildi, Border/Shadow miras; Transform grubu
+  taban x 0.9 / +5 derece; Normal'e donus taban; stil kaldirilinca taban geri. Onceki StyleApplyAndTransition maske modeline tasindi.
+- TUZAK: editor combo popup'i (native, modal) acikken RPC yanit vermiyor — ui.click ile combo acarsan once kapat (esc gonderilemez cunku
+  RPC de bekliyor); editoru kapatmak gerekti. Ayri bakilacak (RPC'nin popup acikken de islenmesi).
+
+## BOXSTYLE ASSET + DURUM + TRANSITION (2026-10-15, layout 97 PASS, editor: 3 buton Normal/Pressed/Disabled + asset canli guncelleme)
+- VERI (engine/managed/BoxStyle.cs): `BoxLook` struct = LayoutBox'in LAYOUT'U ETKILEMEYEN gorunum alanlari (fill, border+borderFill,
+  radius, shadow*, innerShadow*, light*, textFill/outline/shadow) + `Lerp` (Gradient: renk/durak lerp, type/direction/stops %50'de
+  adim). `BoxStyleState { enabled, look, sprite, spriteFit, slice9 }` (sprite alanlari ADIM). `[Asset][CreateAssetMenu("UI/Box Style")]
+  BoxStyle { normal, hover, pressed, disabled, selected, transition sn, transitionEase }`; `For(state)` ref doner (etkin degilse Normal).
+  Varyant = TAM KOPYA (alan bazli override maskesi v2). `BoxState { Normal, Hover, Pressed, Disabled, Selected }`.
+- LAYOUTBOX (LayoutBox.Style.cs partial): `[SerializeField] BoxStyle style` + `Style` property; stil varken kutunun kendi gorunum alanlari
+  SURULUR (ustune kopyalanir; Unity Selectable gibi — doc'a kopya degerler yazilir, zararsiz). `SetState(s)`: adim alanlari aninda;
+  BoxLook `from = CaptureLook()` (yarida kesilince mevcut degerden) -> `to`, `LayoutSystem.AddTransition`; ilk Encode'dan once
+  (`_everEncoded` false: OnEnable'daki baslangic durumu) ya da EditMode/dur<=0 -> ani (giris flash'i yok). Tick `LayoutSystem.
+  AfterUpdate -> TickTransition(dt)` yalniz listedeki kutular; dt=0 edit modunda ilerlemez. Hicbir BoxLook alani MarkDirty uretmez ->
+  gecis layout'a sifir maliyet; alloc 0 (testte sart).
+- ASSET DEGISIM BILDIRIMI (jenerik): `AssetDatabase.ObjectVersion` (static) — `ReloadObject` basarisinda ++, editor `SaveAssetNow` ->
+  `NoteObjectChanged()` ++ (self-write maskesi watcher reload'unu engelledigi icin). Kutu Encode'da `SyncStyle`: referans degisti
+  (`_styleApplied`) ya da versiyon degisti -> `ApplyStyle` (1-2 kiyas/frame). OnValidate -> `ValidateStyle` yalniz gecis yokken (animasyon
+  bildirimi OnAnimatedPropertiesApplied -> OnValidate gecisi oldurmesin).
+- HOVER v1'de URETILMEZ (Pointer bosta Move sifir maliyet; mobil oncelik) — slot hazir. Durum kaynagi OYUN KODU: Sandbox
+  `Scripts/StyledButton.cs` ornegi (Down->Pressed, Up/DragStart->Normal, interactable=false->Disabled); yuzbirextra Button.cs DOKUNULMADI.
+- SERIALIZER: ic ice struct (BoxStyleState.look.fill) + struct icinde Sprite referansi sorunsuz; YAML elle yazildi (asset.write),
+  `comp.schema` style alanini `Asset tip: BoxStyle` gosterdi; `code.build` ile StyledButton katalogda.
+- EDITOR DOGRULAMA: Sandbox `Scenes/StyleTest.scene` (KAYDEDILMEDI; JSON %TEMP%\styletest_apply.json; asset `Styles/BlueButton.asset`
+  + `Scripts/StyledButton.cs` DISKTE kaldi): Play/Shop Normal (gradient+border+light+golge+metin golgesi), Shop basiliyken (input.tap
+  holdFrames=90 + es zamanli render.screenshot, Start-Job) Pressed (koyu, beyaz border, radius 20), birakinca Normal; Locked Disabled gri.
+  Asset'i diskte degistirince (mavi->yesil) sahneye dokunmadan kutular canli guncellendi (piksel 167/232/188), geri alindi.
+- TESTLER: StyleApplyAndTransition — kopya, versiyon bump -> yeniden kopya (bump'siz kopya yok), t=0.5 ara deger, yarida kesme mevcut
+  degerden, bitis + listeden dusme, etkin olmayan varyant -> Normal, stilsiz SetState gorunumu degistirmez, tick+sync 0 B.
+- SONRAKI ADAYLAR: varyant override maskesi / "Copy from Normal" editor dugmesi; hover (enter/exit, masaustu); varyantta `scale`
+  (Button.cs olcek tween'inin stile tasinmasi); klip asset'i; scrollbar.
+
+## SCROLLVIEW — Overflow=Scroll + ScrollView component'i, kutu culling, klipli hit-test (2026-10-15, layout 87 PASS, editor uctan uca)
+- MODEL: `OverflowMode.Scroll` = Hidden (geometrik klip, batch kirmaz) + `scrollOffset` (Vec2, serilesir = baslangic; animatable ->
+  Tween/MovieClip scrollTo bedava). Arrange: `ArrangeChildren` -> `ArrangeChildrenCore(offX, offY)` (flex/wrap tlx/tly kaydirilir; None'da
+  PlaceInParent sonrasi SetPos; ignoreLayout dekor KAYMAZ) + `MeasureScrollContent` (yalniz scroll kutusunda: cocuk sag/alt kenar max'i +
+  pad + ofset -> `ScrollMax` = max(0, icerik - gorunur)). Uniform/GPU kaydirma REDDEDILDI: klip zaten batch kirmiyor, pointer/klip/MovieClip
+  CPU pozisyon okuyor; layout zaten SetPos yaziyor (ofset = 1 toplama).
+- OFSET DEGISIMI MARKDIRTY DEGIL: dirty zinciri tepeye kadar kirletip tum agaci cozerdi. `ScrollOffset` setter boyut degismedigi icin
+  dogrudan `ArrangeChildren()` (alt agac FinishChild ile atlanir; kutu zaten kirliyse bekleyen cozum yeni degeri okur).
+- SCROLLVIEW (engine/managed/ScrollView.cs, `[AddComponentMenu("Layout/Scroll View")]`): LayoutBox pointer handler'i TASIMAZ — handler
+  bayragi tip-bazli, her kutu pick adayi olup altindakilerin tiklamasini calardi. Jest ayri component'te: Down hizi sifirlar + baslangic
+  ofseti; OnDrag `e.worldTotal` -> kutu lokal (Mat4.Inverse) -> ofset = baslangic - hareket, sinir disinda `OverscrollDrag` direnci; hiz
+  frame farki/dt yumusatilmis (0.4/0.6), parmak durunca (`_dragMoved` bayragi — frameCount yalniz UpdateAll'da artar, pointer/Update
+  sirasi belirsiz) hiz yarilanir; Up -> Update'te atalet (`Friction` ussel sonum, sinira carpinca durur, `MinVelocity` altinda biter)
+  ya da sinir disinda yay (`SpringSpeed`). Alloc yok; hareket yokken Update 1-2 kiyas. Cocuk Button'lar Down alir, DragStart'ta iptal
+  eder (mevcut desen), Click yalniz suruklenmediyse — ayrim Pointer esiginden bedava.
+- KUTU CULLING (tum Hidden/Scroll altinda): Encode'da ComputeClip sonrasi kutu rect (+golge payi) ∩ pencere bos -> return (4 kiyas) —
+  parca/glyph dolasilmaz; uzun listede yuk gorunur oge kadar.
+- HITTEST KLIP: `LayoutBox.HitTest` override = base rect vurusu + ata klip penceresi (ComputeClip vurusta, lokal nokta testi) — kirpilan
+  cocuk tiklanmaz (cizim = tiklama). Kutu-olmayan cocuk renderer'lar (SpriteRenderer) hala kirpilmaz/culling'siz (bilinen sinir; liste
+  ogeleri kutu + kutu sprite'i + kutu metni ile kurulur).
+- POINTER FIX: `ComputeWorldTotal` kamera yoksa 0 donuyordu (Pick piksel-ortho fallback kullanirken) -> kamerasiz sahnede drag toplami
+  hep sifirdi. Simdi ayni fallback isini.
+- TESTLER: ScrollSmoke (authored boyut + ScrollMax, ofset kaydirma, kirletmedi, pencere ici/disi quad, klip ici/disi HitTest),
+  ScrollViewGesture (Pointer.Down/Move/Up ile drag ofseti, kumulatif, atalet devam/sonum sinir icinde, overscroll negatif + yay 0'a).
+- EDITOR UCTAN UCA: Sandbox `Scenes/ScrollTest.scene` (KAYDEDILMEDI; JSON %TEMP%\scrolltest_apply.json): 14 oge (alignSelf=Stretch —
+  flex icinde stretch ANCHOR degil alignSelf genisletir, rpc.guide'a yazildi), input.drag 240px -> ~690px kayma (atalet), kutu
+  disina tap miss / icine tap Item10 hit. TUZAK: `edit.undo` sim restart'i da geri alabiliyor -> ust uste apply'da Root birikti;
+  temizlik `scene.removeGo(id)`.
+- SONRAKI ADAYLAR: scrollbar (opsiyonel cocuk kutu + ofset orani), kutu-olmayan cocuk klip/culling (pencereyi WalkRenderers'ta alpha gibi
+  indirmek), BoxStyle asset + durum/transition, klip asset'i.
+
+## LAYOUTBOX FLEX TAMAMLAMA — margin / min-max / alignSelf / shrink (2026-10-15, layout 74 PASS, arrange bench 0.07 ms/300 cocuk, 0 B)
+- YENI ALANLAR (cocuk kutuda, hepsi SerializeField -> Inspector/animatable/RPC otomatik): `margin` Vec4 (L,T,R,B), `minWidth/maxWidth/
+  minHeight/maxHeight` (0 = yok), `alignSelf` (LayoutAlignSelf: Auto|Start|Center|End|Stretch), `shrink` float. Property'ler Grow deseni
+  (degisim -> MarkDirty). Yeni gecis YOK: hepsi mevcut olcum/arrange donglerine toplama/clamp olarak girdi.
+- OLCUM: `PreferredW/H` cache'i artik `ClampW/H` ile clamp'li (tum boyut yazimlari tek noktadan). Cocuk katkisi `OuterW/H` = preferred +
+  margin (flex toplami, None-eksen max'i, WrapContentCross kirilimi — arrange ile AYNI ifade, tutarlilik korunur).
+- ARRANGE (flex): 1. geciste `fixedSum += pref + margin`, `shrinkSum += shrink*pref` (CSS agirligi) bedava toplanir. Ana eksen:
+  grow -> `leftover*pay - margin`; aksi pref; sonra clamp. Capraz: `CrossPlacement` — Stretch = capraz alan - margin, clamp'li; Auto =
+  parent alignChildren. Pozisyon `cursor + mA`, cursor `+= mA + main + mB + gap`.
+- SHRINK: yalniz `shrinkSum>0 && fixedSum>availMain` iken (tasma yoksa 1 kiyas). k1 = acik/shrinkSum; min/max'a TAKILAN cocuk varsa TEK
+  ek tur (frozen kucultme dusulur, kalan acik serbest cocuklara k2) — CSS freeze dongusunun 2 adimla kesilmis hali (3+ kademeli takilma
+  dagitilmaz; bilincli). grow'lu cocuk shrink'e girmez; Wrap'ta shrink yok (CSS'te de satir ici ikincil).
+- PLACEINPARENT (anchor/None/ignoreLayout): stretch anchor'da (`anchorMin != anchorMax`) margin kenarlardan dusulur + clamp (clamp kutuyu
+  bas kenara yaslar); nokta anchor'da margin yok sayilir (CSS absolute benzeri — margin flex kavrami).
+- GROW + max: grow'lu cocuk max'a takilinca artik DIGER grow'lulara dagitilmaz (tek tur; CSS dagitir). Gerekirse shrink'teki gibi 2. tur.
+- TESTLER: FlexMarginMinMax (autosize margin dahil, konum, max/min olcum+arrange, grow+max, stretch anchor margin), FlexShrink (orantili,
+  shrink=0 sabit, min clamp + artik yeniden dagitim, tasma yokken etkisiz), FlexAlignSelf (Auto/End/Stretch margin/Stretch maxHeight),
+  FlexWrapMargin (dis boyutla kirilim, satir caprazi, 2. satir konumu), ArrangeBench (300 cocuk karisik, 0 B sarti). NOT: testte
+  `transform.localPosition` okumak PULL DEGIL — once Rect*/ResolveIfDirty.
+- GORSEL: Sandbox `Scenes/FlexTest.scene` (KAYDEDILMEDI, undo'lu; JSON %TEMP%\flextest_apply.json): 4 satir — genis (tasma yok), dar
+  (shrink: A 140, B min 150 donuk, D 2x, hepsi padding'e sigar), alignSelf+margin, grow+max+margin. Dogrulandi.
+- RPC ISTEMCI TUZAGI (onceki girisin "zincir takiliyor" notunun sebebi): `Get-Content -Raw` sondaki CRLF'yi tasir -> rpc.ps1 WriteLine ile
+  sunucuya ikinci BOS satir gider, yanit okumasi takilir (editor istegi uygulamis olur). Dosyadan JSON gonderirken `.Trim()`.
+
+## LAYOUTBOX CIZIM PAKETI — 4 duraklı/çapraz gradient + SpriteFit (2026-10-15, layout 55 PASS, bench 0 B alloc, DrawTest screenshot)
+- BAGLAM: RmlUi (Downloads/rmlui-master, 6.3) incelendi: RCSS/transition/flexbox/decorator yetenekleri "web kafasi" uretkenligi veriyor
+  ama DOM + property sozlugu + element basina geometri + batch'siz; dusuk uc mobil hedefi yok. KARAR: gommek YOK; yetenekler tek tek,
+  sicak yol (Encode -> EmitQuad -> tek instanced draw) degismeden eklenir. Adim adim: 1) cizim (bu giris) 2) sonraki karar kullanicida
+  (adaylar: BoxStyle asset + durum/transition, flex tamamlama margin/min-max/alignSelf/shrink, ScrollView, asset MovieClip).
+  ClipRound (yuvarlak kose cocuk kirpma) KAPSAM DISI birakildi — ileride mask benzeri daha genel efekt yolu.
+- KANAL KURALI (yeni): `Instance.user[4]` DOLU (x smoothing, y kenar merkezi/isaret, z ic bant, w mod). Kanal isteyen ozellik sirasiyla:
+  mod-paketleme (Progress deseni) -> grup-basi opcode/uniform (scissor granulerligi) -> EN SON instance genisletme (144->160 B = 55k
+  sprite'ta %11 bant). Bu paket 0 kanal, 0 shader degisikligi kullandi.
+- GRADIENT (Gradient.cs YENIDEN, uyumluluk kaygisi yok — kullanici karari): `GradientDirection` += Diagonal (TL->BR), DiagonalReverse
+  (TR->BL). Duraklar `stops` (int 2..4; 0 = eski yaml = 2), `color3/stop3`, `color4/stop4`; `At(t)` parcali-lineer, `AtExtrapolated(t)`
+  0..1 disinda komsu segmentin dogrusunu uzatir (kanal clamp'li). `MidStops` capraz yonde HEP 0: durak cizgileri capraz olur, eksen-hizali
+  quad'larla bolunemez (2x2 yaklasim denendi: parca sinirinda 12/255 dikis -> reddedildi). Serializer byte desteklemiyor (int/float) ->
+  stops int.
+- LAYOUTBOX gradient BAGLAMI: `BeginGradient/EndGradient` (EmitLayer dolgu/border, EncodeTextured tint) aktifken `EmitQuad` cagiranin
+  c0/c1/gradH'ini YOK SAYAR: `GradT(x,y)` ile 4 kose rengini kutu bandindan ornekler (capraz = tint0..3 bilinear, ek quad yok), eksenel ara
+  duraklarda quad'i durak cizgisinde boler (`EmitGradPart`, en fazla 3 parca, yalniz duraktan gecen quad). `EmitQuadCore` 4 kose renkli;
+  klip remap'i bilinear (eski c0/c1 ozel hali). Golge/isik/radial/ic golge/metin baglam kullanmaz (kendi renkleri).
+- DIKIS DUZELTMESI (onceden de vardi, 4/255): kose hucresi/kenar seridi AA payi kadar kutu DISINA tasar, `At` clamp'ledigi icin hucre
+  icindeki egim bozuluyordu -> `AtExtrapolated`. Olcum: H3 kutusu x=798 sutunu 38/34 -> 35/35.
+- SPRITEFIT (`spriteFit`, ShowIf sprite): Stretch (mevcut; 9-slice yalniz burada) | Contain (oran korunur, ortalanir) | Cover (oran korunur,
+  uv simetrik kirpilir) | Tile (mantiksal boyutta sol-ustten CPU grid; kismi karo uv kirpmali; `TileCap=256` asilirsa karo buyutulur).
+  Tile icin fragment'e atlas rect gerekirdi (vertex sablonunda `a_uvrect` fragment'e gecmiyor) -> shader altyapisina dokunmamak icin CPU
+  grid secildi. Tint (fill) karo basina degil kutu bandina gore (desen ustunde surekli gecis).
+- ALLOC FIX (onceden vardi): `SolidInterior(Action solid, ...)` delegate aliyordu -> EmitLayer/EmitShadow closure'u her Encode'da heap'e
+  (400 B/kutu). Simdi `Span<float> rects` (stackalloc 7x4) + `AddRect(ref n)`; Span local function'da yakalanamaz (CS9108) -> statik helper.
+- BENCH (editor/LayoutTests EncodeBench, 300 kutu radius+border, 10 tekrar): 2-stop 5700 quad 3.3 ms, 4-stop 7500 quad 4.8 ms, capraz 5700
+  quad 3.5 ms; hepsi 0 B alloc (PASS/FAIL sarti). Draw call: ayni materyal -> tek instanced draw korunur (quad sayisi degisir, batch degil).
+- TESTLER: GradientStopsSmoke (At 3/4 durak, stops=0 geriye uyum, capraz ek quad yok, capraz ara durak yok sayilir, dikey 3 durak bolme
+  sinirli artis), SpriteFitSmoke (Contain/Cover tek quad + slice9 yok sayilir, Tile 4x3=12, cap). Gorsel: Sandbox `Scenes/DrawTest.scene`
+  (KAYDEDILMEDI — undo'lu; apply JSON %TEMP%\drawtest_apply.json): 4 durak dikey + border, 3 durak yatay, capraz, regresyon kutusu
+  (border gradient+shadow+light+inner shadow), radial, Stretch/Contain/Cover/Tile/Tile+tint. Login sahnesi aciliyor, stil bozulmadi.
+- RPC NOTU: rpc.ps1 ile 3-4 komutluk zincir bazen takiliyor (editor sahneyi uygulamis, yanit okunmuyor); tek tek cagri sorunsuz. Ayri bakilacak.
+
+## INTERP (vmint) — canon dunyasinda yeniden ayaga kaldirma; SIMDILIK KAPALI, TEKRAR ELE ALINACAK (2026-10-15, 3 deneme)
+- DURUM: `AOT_MODULES=1` selftest interp yolu 0/347 (yuklenmiyordu: `host'ta tip yok: __Canon`) -> **98/347 PASS** (yukleniyor, kosuyor).
+  AOT yolu etkilenmedi (125/347, generated.c birebir). Eski 84 case'ten interp'te 29 FAIL (8,10,30,32,44,46,47,53,55-58,61-72,81,83,84).
+- MODEL: canon HOST'UN IC MESELESI; modul yalniz EXACT ozellesmis kod tasir. `ModuleWriter.W.Exact(c)`: paylasimli exact kabuk
+  (List<string>.Add, govdesiz) -> klon (`Code.ExactContext=true`), `CilFrontend.TranslateInstance` MARKER'SIZ exact baglamla yeniden
+  cevirir, `Resolver.ResolveModuleClone` (ResolveCodeBody + AssignVirtualSlots(code) + `Lower.LowerModuleClone`: yalniz iface LdType).
+  Canon govde/canon sahipli ornek (`IsCanonCode`) modulde YOK: `Method()` ownersiz placeholder (`Ad#canon`, host'ta bulunmaz -> stub);
+  `__dict` vtable sentinel'i de placeholder (slot hizasi). `Type()`: `__Canon` -> object; canon-form tip -> object (`canon->object` sayaci,
+  yalniz placeholder imzalari). `IsLocalType`: canon-form asla yerel; `IsLocalCode`: IsCanonCode asla yerel. Write/VisitType ctx enumerasyonlari
+  snapshot (klon cevirisi ctx'ye ornek ekler).
+- vmint: host'ta olmayan extern (Span ctor intrinsic'i, host'un trim'ledigi uye, zayif sembol 0) artik YUKLEME HATASI DEGIL -> yerel stub
+  (`stubReason`, cagrilirsa NotImplementedException; AOT stub sozlesmesi). ModuleWriter `DictSlotKind` int yazar; vmint yeni OP enum'lari.
+- KALAN (27x `canon sozluk op'u` OLUMCUL + 1x `typeof: descriptor'suz tip`): bazi gomulu (EmbeddedMethods, 8 439) govdelerde hala LdDictSlot/
+  *Rt op'u var -> kaynak: provided sablonun somutlamasi olarak YEREL yazilan ama govdesi canon'dan gelen kodlar (IsSharedExact degil,
+  IsCanonCode degil ama Operations canon govdesiyle paylasilan?) ya da struct generic (KVP<string,int> = KVP<__Canon,int> paylasimli)
+  uyeleri. TESHIS ADIMI: dmod yazilirken op.Type in {LdDictSlot,...Rt} goren metotlari raporla (`report.ReachableStubs` benzeri liste),
+  kaynagi (Exact klon mu, yerel mi) bul. Ardindan: ya o kodlar da `Exact()` yoluna girer ya da vmint'e modul sozlugu (dmod'da slot tablosu,
+  yuklemede Demarker esdegeri, frame'de __dict, this->vtable sentinel) eklenir — ikincisi "modulde canon paylasimi" karari (gerekli degil).
+- BILINEN SINIRLAR: modulde GVM (generic sanal metot) cagrisi placeholder -> NotImplemented; `T[]` IEnumerable<T> (AOT'de de yok).
+- Intrinsic'ler (Span/MemoryExtensions/Buffer/FieldInfo.RefAt): frontend ZATEN genel IR op'larina aciyor (TrySpanCall/TrySpanNewobj:
+  AddrLocal/LoadInd/SpanOps.Copy/NewArray...) — C'ye ozgu degil; interp icin ek lowering gerekmedi. Sorun yalniz host'ta karsiligi olmayan
+  `extern` bildirimlerinin yukleme hatasi vermesiydi (yukarida stub'a cevrildi).
+
 ## CANON LOWERING — sozluk karari IR'da acik op, emitter/interp canon bilmez (2026-10-15, P0-P4 bitti; selftest 125/347 sabit)
 - NEDEN: canon sozluk karari Resolver.RequestSlots'ta verilip `Op.DictSlot/DictSlotFn/DictSlotIface` YAN-ALANINDA saklaniyor, CTranspiler
   12 handler + 4 helper'da (`TypeAddr/StaticRef/TypeTestOp/UnboxValueOp/DictArgFor`) "sozlukten mi sabitten mi" diye yeniden yorumluyordu

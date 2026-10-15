@@ -162,6 +162,7 @@ namespace DigitoyEngine.Language
         public string DisplayName;  // C# sozdizimli uye gosterimi: "Deep(int[], int)" / ".ctor(int)" / "Finalize()"
         public string UntranslatableReason; // null degilse: govde cevrilemedi, CTranspiler tipe uygun sifir stub uretir
         public bool BodyCloned; // monomorphization: ornek govdesi IL'den bir kez cevrildi (serialize edilmez)
+        public bool ExactContext; // ModuleWriter exact klonu: IL cevirisi marker'siz, tam exact baglamla (canon host'un ic meselesi)
         // IL kaynagi (CilFrontend.IlRef): sablon ve tum ornekleri AYNI IL govdesini tasir; ornek govdesi klonlanmaz,
         // SOMUT generic baglamla (Owner.TypeArguments + MethodTypeArguments) IL'den yeniden cevrilir (docs/engine-notes.md GENERICS-S1).
         public object IlSource;

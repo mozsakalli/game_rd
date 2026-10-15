@@ -1150,8 +1150,12 @@ static void vm_resolve_method(LoadCtx *L, VmMethod *m)
             int ifaceOwner = m->owner && (m->owner->kind == TK_IFACE || (m->owner->kind == TK_EXTERN && (m->owner->flags & 2)));
             if (!e && !ifaceOwner)
             {
-                ld_err(L, "host'ta metot yok: %s", m->name, 0);
-                return;
+                // Host'ta olmayan extern (AOT'de frontend intrinsic'ine acilan Span ctor'u gibi, ya da host'un trim'ledigi uye):
+                // yukleme HATASI degil, cagrilirsa NotImplementedException (AOT stub sozlesmesi). Modulun hic cagirmadigi uye yuku dusurmez.
+                m->local = 1;
+                m->nops = 0;
+                m->stubReason = "host'ta metot yok (extern/intrinsic)";
+                goto local_layout;
             }
             int sh = e ? -1 : vm_shape_of(m->ret, m->nargs, m->args, 0);
             m->hostm = e;
@@ -1165,9 +1169,15 @@ static void vm_resolve_method(LoadCtx *L, VmMethod *m)
         m->thunk = e->thunk;
         m->resolvedExtern = 1;
         if (!m->fn)
-            ld_err(L, "host'ta extern uygulanmamis (zayif sembol 0): %s", m->name, 0);
+        {
+            m->local = 1;
+            m->nops = 0;
+            m->stubReason = "host'ta extern uygulanmamis (zayif sembol 0)";
+            goto local_layout;
+        }
         return;
     }
+local_layout:;
     // yerel: frame blob yerlesimi (struct arg/local depolari)
     int off = 0;
     m->argBlobOff = (int *)vm_zalloc(sizeof(int) * (m->nargs ? m->nargs : 1));

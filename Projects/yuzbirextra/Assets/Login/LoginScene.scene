@@ -288,7 +288,6 @@ objects:
     components:
       - type: LayoutBox
         font: dd3069bf887d44eb80d125c87f3eda93
-        text: BAĞLAN
         fill:
           type: Linear
           direction: Vertical
@@ -334,17 +333,17 @@ objects:
     components:
       - type: LayoutBox
         font: dd3069bf887d44eb80d125c87f3eda93
-        text: GUEST LOGIN
         padding: 50 15 50 15
         fill:
           type: Linear
           direction: Vertical
-          color: '#00000000'
-          color2: '#00000000'
+          color: '#808080ff'
+          color2: '#131313ff'
+          stops: 0
         borderFill:
           type: Solid
           direction: Vertical
-          color: '#ffffffff'
+          color: '#ffffff85'
           color2: '#00000000'
         border: 2 2 2 2
         radius: 20 20 20 20
@@ -352,6 +351,7 @@ objects:
         textSize: 70
         BlocksRaycast: true
         text@loc: login_scene.guest
+        lightColor: '#aeaeae00'
       - type: Button
         buttonId: guest
   - id: 6
@@ -376,7 +376,6 @@ objects:
     components:
       - type: LayoutBox
         font: dd3069bf887d44eb80d125c87f3eda93
-        text: APPLE LOGIN
         padding: 50 15 50 15
         radius: 20 20 20 20
         fill:
@@ -450,7 +449,6 @@ objects:
     scale: 1 1 1
     components:
       - type: LayoutBox
-        text: Giriş tuşlarına basarak
         font: d486343bc94940e3bed6cd5ef1f70231
         textSize: 38
         textShadowColor: '#000000ff'
@@ -465,7 +463,6 @@ objects:
     components:
       - type: LayoutBox
         textSize: 40
-        text: Hizmet Koşullarımızı
         font: dd3069bf887d44eb80d125c87f3eda93
         textShadowColor: '#000000ff'
         border: 0 0 0 2
@@ -494,7 +491,6 @@ objects:
     scale: 1 1 1
     components:
       - type: LayoutBox
-        text: ve
         font: d486343bc94940e3bed6cd5ef1f70231
         textSize: 38
         textShadowColor: '#000000ff'
@@ -508,7 +504,6 @@ objects:
     scale: 1 1 1
     components:
       - type: LayoutBox
-        text: Gizlilik Politikamızı
         font: dd3069bf887d44eb80d125c87f3eda93
         textSize: 40
         textShadowColor: '#000000ff'
@@ -532,7 +527,6 @@ objects:
     scale: 1 1 1
     components:
       - type: LayoutBox
-        text: kabul etmiş olursunuz.
         textSize: 42
         font: d486343bc94940e3bed6cd5ef1f70231
         textShadowColor: '#000000ff'

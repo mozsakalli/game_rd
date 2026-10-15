@@ -1,13 +1,13 @@
-using System;
+﻿using System;
 
 namespace DigitoyEngine;
 
 // LayoutBox metin katmani: kutu vatandasi SDF metin. TextSprite ozellik paritesi
-// (dikey gradient dolgu, kontur, golge — hepsi instance verisinden her frame
+// (dikey gradient dolgu, kontur, golge â€” hepsi instance verisinden her frame
 // okunur) + kutu ozellikleri: word wrap (padding icli rect'e), ellipsis (sigmayan
 // satir/blok "..." ile kirpilir), yatay/dikey hizalama. Yerlesim cache'i yalniz
 // font/metin/boyut/hiza/wrap/rect degisince kurulur (glyph quad'lari kutu-icerik
-// uzayinda saklanir; stil degisimi rebuild istemez). Cizim ayni EmitQuad yolu —
+// uzayinda saklanir; stil degisimi rebuild istemez). Cizim ayni EmitQuad yolu â€”
 // font atlasi UiPieces bolgesini de tasidigindan kutu + metin tek draw'a merge olur.
 public sealed unsafe partial class LayoutBox
 {
@@ -89,7 +89,7 @@ public sealed unsafe partial class LayoutBox
     // --- olcum (PreferredW/H'den cagrilir; metin = icerik) ---
 
     // Dogal (wrap'siz) en genis satir. Wrap + authored genislik varsa metin
-    // kutuyu GENISLETMEZ (icine sarilir) — 0 doner, authored width kazanir.
+    // kutuyu GENISLETMEZ (icine sarilir) â€” 0 doner, authored width kazanir.
     float TextPreferredW()
     {
         if (!HasText)
@@ -106,7 +106,7 @@ public sealed unsafe partial class LayoutBox
     }
 
     // Satir sayisi * satir yuksekligi. Wrap genisligi = authored width (varsa);
-    // grow/stretch'te nihai _rw olcum aninda bilinmez — bilinccli yaklasiklik.
+    // grow/stretch'te nihai _rw olcum aninda bilinmez â€” bilinccli yaklasiklik.
     float TextPreferredH()
     {
         if (!HasText)
@@ -124,10 +124,10 @@ public sealed unsafe partial class LayoutBox
     // --- satir kirici (greedy word wrap; olcum + kurulum ayni yolu kullanir) ---
     // pos'tan bir satir tuketir; genislikler SDF-px uzayinda. Kirilim tercihen
     // son bosluktan (bosluk yutulur, genislige girmez); tek kelime sigmazsa
-    // karakter kirilimi (satir basina en az 1 glyph — sonsuz dongu olmaz).
+    // karakter kirilimi (satir basina en az 1 glyph â€” sonsuz dongu olmaz).
     // w = advance toplami (ellipsis kirpma olcusu). inkL/inkR = murekkep sol/sag
     // kenari (kalem orijinine gore). Sigma testi murekkep genisligiyle yapilir
-    // (inkR-inkL <= availW) — Grow'da availW = murekkep olcusu, advance ile
+    // (inkR-inkL <= availW) â€” Grow'da availW = murekkep olcusu, advance ile
     // karsilastirmak sahte wrap uretirdi.
     bool NextLine(ref int pos, float availW, out int start, out int end, out float w, out float inkL, out float inkR)
     {
@@ -154,7 +154,7 @@ public sealed unsafe partial class LayoutBox
             int gi = font.GlyphIndex(c);
             ref readonly var g = ref font.GlyphAt(gi);
             // Spacing glyph'ler ARASINA girer (ilk glyph'ten once / sonuncudan sonra yok):
-            // satir genisligi = advance toplami + (n-1)*spacing — aksi halde align kayar.
+            // satir genisligi = advance toplami + (n-1)*spacing â€” aksi halde align kayar.
             float gap = prev >= 0 ? font.Kerning(prev, gi) + SpacingSdf : 0;
             float add = gap + g.Advance;
             // Murekkep kenarlari: glyph'in alt-piksel InkL/InkR'si (quad/pad degil, gorunen piksel).
@@ -332,13 +332,13 @@ public sealed unsafe partial class LayoutBox
             return;
         // Kendi Hidden eksenimiz metni kutu rect'inde kirpar (ata klibiyle kesisir).
         // Encode'un SON emisyonu oldugundan klip alanlarini mutasyonlamak guvenli.
-        if (overflowX == OverflowMode.Hidden)
+        if (overflowX == OverflowMode.Hidden || overflowX == OverflowMode.Scroll)
         {
             EnsureClip();
             _clX0 = MathF.Max(_clX0, x0);
             _clX1 = MathF.Min(_clX1, x0 + _rw);
         }
-        if (overflowY == OverflowMode.Hidden)
+        if (overflowY == OverflowMode.Hidden || overflowY == OverflowMode.Scroll)
         {
             EnsureClip();
             _clY0 = MathF.Max(_clY0, y0);
@@ -383,7 +383,7 @@ public sealed unsafe partial class LayoutBox
             cOut = MathF.Max(cFill - textOutlineWidth / scale / TextSdfSpread, 0.05f);
 
         // Painter sirasi ayni layer'da submit sirasi: golge -> kontur -> dolgu.
-        // Golge/kontur USER.y NEGATIF: MSDF sayfada gercek SDF (.a) okunur — kenardan
+        // Golge/kontur USER.y NEGATIF: MSDF sayfada gercek SDF (.a) okunur â€” kenardan
         // uzak/kaydirilmis esikler median'da guvenilir degil; R8 sayfada isaret yok sayilir.
         if (textShadowColor.a > 0)
         {

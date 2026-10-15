@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using DigitoyEngine;
 using DigitoyEngine.Editor;
 
@@ -151,7 +152,11 @@ public unsafe class App
         CatalogTests.Run(_catalog);
         ObjectBinaryTests.Run(_catalog);
         LocalizationTests.Run(_catalog);
+        PrefabTests.Run(_catalog);
+        ThemeTests.Run(_catalog);
 #endif
+        // Apply yolu: stash'li sahne (stage) de kapsama girsin.
+        EditorScene.PrefabEditScope = (es, mutate) => WithPrefabEdit(mutate);
         // Kullanici ayarlari (standart: [Serializable] + ObjectSerializer).
         // Otomatik sahne ACILMAZ: yalniz kullanicinin son actigi sahne (varsa) geri gelir.
         _settingsPath = System.IO.Path.Combine(projectPath, "UserSettings", "EditorSettings.asset");
@@ -167,6 +172,8 @@ public unsafe class App
         GameOutput.Orientation = Settings.gameViewOrientation;
         GameOutput.OneToOne = Settings.gameViewOneToOne;
         LocTableStore.ApplyWorkingLanguage();
+        // Working theme: proje listesinde yoksa (silinmis) tabana duser; prefab cache henuz bos.
+        SceneDoc.ActiveTheme = ThemeNames().Contains(Settings.workingTheme ?? "") ? Settings.workingTheme : "";
         if (Settings.sceneCamZoom > 0)
             _sceneView.SetView(new Vec2(Settings.sceneCamX, Settings.sceneCamY), Settings.sceneCamZoom);
         if (Settings.lastScene.Length > 0)
@@ -403,6 +410,9 @@ public unsafe class App
         }
         // Working language: edit projeksiyonu + Play bu dili gorur; inspector bu dilin hucresini duzenler.
         DrawLanguageCombo(new Rect(_screenW - 96, 3, 90, 20));
+        // Working theme (dil gibi): edit projeksiyonu + Play; duzenlemeler bu temanin katmanina yazilir.
+        if (Project.Player.themes.Count > 0)
+            DrawThemeCombo(new Rect(_screenW - 96 - 6 - 110, 3, 110, 20));
         // Arka plan is durumu (derleme, player build vs.): non-modal, toolbar'da yasar.
         if (e.Type == EventType.Repaint)
         {
@@ -437,6 +447,54 @@ public unsafe class App
         int next = Gui.ComboBox(rect, idx, _langNames);
         if (next != idx && next >= 0 && next < _langNames.Length)
             LocTableStore.WorkingLanguage = _langNames[next];
+    }
+
+    // --- Working theme (docs/engine-notes.md TEMA) ---
+    static string[] _themeNames = System.Array.Empty<string>();
+
+    // Combo listesi: "default" (taban) + PlayerSettings.themes.
+    internal static List<string> ThemeNames()
+    {
+        var list = new List<string> { "" };
+        foreach (var t in Project?.Player?.themes ?? new List<string>())
+            if (!string.IsNullOrWhiteSpace(t) && !list.Contains(t.Trim()))
+                list.Add(t.Trim());
+        return list;
+    }
+
+    static void DrawThemeCombo(in Rect rect)
+    {
+        var names = ThemeNames();
+        if (_themeNames.Length != names.Count)
+            _themeNames = new string[names.Count];
+        int idx = 0;
+        for (int i = 0; i < names.Count; i++)
+        {
+            _themeNames[i] = names[i].Length == 0 ? "default" : names[i];
+            if (string.Equals(names[i], SceneDoc.ActiveTheme, System.StringComparison.OrdinalIgnoreCase))
+                idx = i;
+        }
+        int next = Gui.ComboBox(rect, idx, _themeNames);
+        if (next != idx && next >= 0 && next < names.Count)
+            SetWorkingTheme(names[next]);
+    }
+
+    // Tema gecisi = dil gibi kayit istemez: acik sahne(ler) deltaya sikisir (aktif katman diff'lenir), tema degisir,
+    // prefab cache duser (katman LoadPrefab'da bindiriliyor), yeniden acilir. Undo yigini temizlenir, dirty korunur.
+    internal static void SetWorkingTheme(string theme)
+    {
+        theme ??= "";
+        if (string.Equals(theme, SceneDoc.ActiveTheme, System.StringComparison.OrdinalIgnoreCase))
+            return;
+        if (theme.Length > 0 && !ThemeNames().Contains(theme))
+            throw new System.ArgumentException("unknown theme: " + theme + " (PlayerSettings.themes)");
+        Settings.workingTheme = theme;
+        SaveSettings();
+        WithPrefabEdit(() => SceneDoc.ActiveTheme = theme);
+        _editScene.ResetHistoryKeepDirty();
+        _stashedScene?.ResetHistoryKeepDirty();
+        Selection.Clear();
+        EditorLog.Info("[theme] working theme: " + (theme.Length == 0 ? "default" : theme));
     }
 
     // Zero-alloc perf HUD (sag ust): frame ms (EMA), alloc/frame, canli GO sayisi.
@@ -566,12 +624,16 @@ public unsafe class App
     }
 
     // Prefab degisti: acik sahne VE (stage'deyse) stash'li sahne once ESKI prefab'a gore
-    // deltaya sikisir, cache sonra duser, ikisi de taze prefab'la acilir.
-    internal static void ReexpandAllPrefabs(string changedRel)
+    // deltaya sikisir, cache sonra TUMDEN duser (nested tuketiciler de bayatlar), ikisi de taze acilir.
+    internal static void ReexpandAllPrefabs(string changedRel) => WithPrefabEdit(null);
+
+    // Apply yolu + dosya degisimi ayni bogaz: collapse(eski cache) → mutate → invalidate all → reexpand.
+    internal static void WithPrefabEdit(Action mutate)
     {
         string a = _editScene.Collapse();
         string b = _stashedScene?.Collapse();
-        _assets.InvalidatePrefab(changedRel);
+        mutate?.Invoke();
+        _assets.InvalidateAllPrefabs();
         _editScene.ReexpandFrom(a);
         _stashedScene?.ReexpandFrom(b);
     }

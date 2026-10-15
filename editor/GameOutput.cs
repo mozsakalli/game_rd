@@ -155,28 +155,114 @@ static unsafe class GameOutput
         _rtH = h;
     }
 
-    // RT'yi okuyup PNG yazar (pass disinda cagrilmali — RPC pump frame basinda).
-    // scale: mantiksal boyuta carpan (1 = Screen.width x height; PixelRatio = tam fiziksel).
-    // Kutu filtreli kucultme; cikti RGB (alfa atilir). Donus: yazilan boyut.
-    public static (int w, int h) Screenshot(string path, float scale)
+    // Kaba renk izgarasi (render.describe pixels=N): cols sutun x orana gore satir, hucre = kutu ortalamasi
+    // "rrggbb". Piksel okumadan "ekran bos mu / parlak bolge nerede" sorusuna metin cevap.
+    public static string[] PixelGrid(int cols)
     {
         var rt = EnsureTarget();
         int sw = _rtW, sh = _rtH;
-        int dw = Math.Max(1, (int)MathF.Round(ViewW * scale));
-        int dh = Math.Max(1, (int)MathF.Round(ViewH * scale));
+        cols = Math.Clamp(cols, 1, 128);
+        int rows = Math.Clamp((int)MathF.Round(cols * sh / (float)sw), 1, 128);
+        byte* src = (byte*)NativeMemory.Alloc((nuint)(sw * sh * 4));
+        try
+        {
+            if (ReadImage(rt.ImageId, sw, sh, src) == 0)
+                throw new InvalidOperationException("GPU okuma desteklenmiyor (yalniz GL backend)");
+            var lines = new string[rows];
+            var sb = new System.Text.StringBuilder(cols * 7);
+            float kx = (float)sw / cols, ky = (float)sh / rows;
+            for (int y = 0; y < rows; y++)
+            {
+                sb.Clear();
+                int y0 = (int)(y * ky), y1 = Math.Max(y0 + 1, (int)((y + 1) * ky));
+                for (int x = 0; x < cols; x++)
+                {
+                    int x0 = (int)(x * kx), x1 = Math.Max(x0 + 1, (int)((x + 1) * kx));
+                    long r = 0, g = 0, b = 0; int n = 0;
+                    for (int yy = y0; yy < y1 && yy < sh; yy++)
+                    {
+                        byte* row = src + ((sh - 1 - yy) * sw) * 4; // GL satir 0 = alt
+                        for (int xx = x0; xx < x1 && xx < sw; xx++)
+                        {
+                            byte* p = row + xx * 4;
+                            r += p[0]; g += p[1]; b += p[2]; n++;
+                        }
+                    }
+                    if (x > 0) sb.Append(' ');
+                    if (n > 0) sb.Append((r / n).ToString("x2")).Append((g / n).ToString("x2")).Append((b / n).ToString("x2"));
+                    else sb.Append("000000");
+                }
+                lines[y] = sb.ToString();
+            }
+            return lines;
+        }
+        finally
+        {
+            NativeMemory.Free(src);
+        }
+    }
+
+    // Screenshot istegi/sonucu. Region MANTIKSAL koordinat (sol-ust, y asagi); null = tum ekran.
+    // MaxSize: uzun kenar siniri (0 = sinirsiz) — AI'in gorsel token maliyeti piksel sayisiyla olceklenir,
+    // o yuzden varsayilan kucultulmus jpg. Cikti olcegi = Scale, MaxSize asilirsa dusurulur.
+    public struct ShotRequest
+    {
+        public float Scale;
+        public int MaxSize;
+        public bool Jpg;
+        public int Quality;
+        public float RegionX, RegionY, RegionW, RegionH; // RegionW<=0 → tum ekran
+    }
+
+    public struct ShotResult
+    {
+        public int W, H;          // yazilan goruntu
+        public int Bytes;
+        public float RegionX, RegionY, RegionW, RegionH; // kirpilmis (mantiksal)
+        public float ToScreen;    // tiklama = RegionX + px * ToScreen
+    }
+
+    // RT'yi okuyup PNG/JPG yazar (pass disinda cagrilmali — RPC pump frame basinda).
+    // Kutu filtreli kucultme; cikti RGB (alfa atilir). Jpg = native stb encoder; Png = PngWriter (daha kucuk).
+    public static ShotResult Screenshot(string path, in ShotRequest req)
+    {
+        var rt = EnsureTarget();
+        int sw = _rtW, sh = _rtH;
+        float vw = ViewW, vh = ViewH;
+        // Bolge: mantiksal → kirp.
+        float rx = 0, ry = 0, rw = vw, rh = vh;
+        if (req.RegionW > 0 && req.RegionH > 0)
+        {
+            rx = Math.Clamp(req.RegionX, 0, Math.Max(0, vw - 1));
+            ry = Math.Clamp(req.RegionY, 0, Math.Max(0, vh - 1));
+            rw = Math.Clamp(req.RegionW, 1, vw - rx);
+            rh = Math.Clamp(req.RegionH, 1, vh - ry);
+        }
+        float eff = req.Scale;
+        if (req.MaxSize > 0)
+        {
+            float longEdge = Math.Max(rw, rh) * eff;
+            if (longEdge > req.MaxSize)
+                eff *= req.MaxSize / longEdge;
+        }
+        int dw = Math.Max(1, (int)MathF.Round(rw * eff));
+        int dh = Math.Max(1, (int)MathF.Round(rh * eff));
+        // Mantiksal → RT pikseli (RT fiziksel boyutta).
+        float px = sw / vw, py = sh / vh;
+        float sx0 = rx * px, sy0 = ry * py;
+        float kx = rw * px / dw, ky = rh * py / dh;
         byte* src = (byte*)NativeMemory.Alloc((nuint)(sw * sh * 4));
         try
         {
             if (ReadImage(rt.ImageId, sw, sh, src) == 0)
                 throw new InvalidOperationException("GPU okuma desteklenmiyor (yalniz GL backend)");
             var rgb = new byte[dw * dh * 3];
-            float kx = (float)sw / dw, ky = (float)sh / dh;
             for (int y = 0; y < dh; y++)
             {
-                int y0 = (int)(y * ky), y1 = Math.Max(y0 + 1, (int)((y + 1) * ky));
+                int y0 = (int)(sy0 + y * ky), y1 = Math.Max(y0 + 1, (int)(sy0 + (y + 1) * ky));
                 for (int x = 0; x < dw; x++)
                 {
-                    int x0 = (int)(x * kx), x1 = Math.Max(x0 + 1, (int)((x + 1) * kx));
+                    int x0 = (int)(sx0 + x * kx), x1 = Math.Max(x0 + 1, (int)(sx0 + (x + 1) * kx));
                     int r = 0, g = 0, b = 0, n = 0;
                     for (int yy = y0; yy < y1 && yy < sh; yy++)
                     {
@@ -193,13 +279,30 @@ static unsafe class GameOutput
                 }
             }
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path)));
-            using var fs = File.Create(path);
-            PngWriter.WriteRgb(fs, dw, dh, rgb);
+            int bytes;
+            if (req.Jpg)
+            {
+                var enc = Sokol.ImageEncode(rgb, dw, dh, 3, jpg: true, req.Quality, flip: false)
+                    ?? throw new InvalidOperationException("jpg kodlama basarisiz");
+                File.WriteAllBytes(path, enc);
+                bytes = enc.Length;
+            }
+            else
+            {
+                using var fs = File.Create(path);
+                PngWriter.WriteRgb(fs, dw, dh, rgb);
+                bytes = (int)fs.Length;
+            }
+            return new ShotResult
+            {
+                W = dw, H = dh, Bytes = bytes,
+                RegionX = rx, RegionY = ry, RegionW = rw, RegionH = rh,
+                ToScreen = rw / dw,
+            };
         }
         finally
         {
             NativeMemory.Free(src);
         }
-        return (dw, dh);
     }
 }

@@ -25,6 +25,12 @@ public class PlayerSettings
     [HideInInspector] public List<string> scenes = new();
     [HideInInspector] public string startScene = "Scenes/Main.scene"; // Assets'e goreli ilk sahne
 
+    // TEMA (docs/engine-notes.md TEMA): sahne/prefab dosyalarindaki isimli override katmanlari. themes = proje-geneli
+    // ad listesi (serbest metin: xmas, kurban...; taban "default" listede YAZILMAZ). activeTheme = BUILD temasi: pak tek
+    // temayla piser, digerleri ve asset'leri pak'a girmez (bos = taban). Editor "Working theme" EditorSettings'te (kullanici).
+    public List<string> themes = new();
+    public string activeTheme = "";
+
     // Masaustu pencere varsayilanlari (mantiksal/point birim).
     public int defaultWidth = 1280;
     public int defaultHeight = 720;

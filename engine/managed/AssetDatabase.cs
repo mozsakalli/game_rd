@@ -319,6 +319,12 @@ public sealed class AssetDatabase
         return obj;
     }
 
+    // [Asset] nesne icerigi degisti sayaci: yerinde reload (ReloadObject) ve editor Inspector
+    // kaydi (NoteObjectChanged; self-write maskesi watcher reload'unu engeller) arttirir.
+    // Tuketici (LayoutBox.style) frame'de TEK int kiyasiyla bayatligi anlar — polling/kopya yok.
+    public static int ObjectVersion { get; private set; }
+    public static void NoteObjectChanged() => ObjectVersion++;
+
     // Editor: .asset degisti / reimport -> AYNI instance yerinde tazelenir (component referanslari bozulmaz).
     public bool ReloadObject(string keyOrGuid)
     {
@@ -328,7 +334,10 @@ public sealed class AssetDatabase
         var bytes = ReadObjectBytes(key);
         if (bytes == null)
             return false;
-        return ReadObject(key, bytes, existing) != null;
+        bool ok = ReadObject(key, bytes, existing) != null;
+        if (ok)
+            ObjectVersion++;
+        return ok;
     }
 
     // Elle yazilan .asset: editorde KAYNAK YAML (importer artifact'i degil; AtlasGroup gibi importer'li
@@ -932,7 +941,35 @@ public sealed class AssetDatabase
         if (SceneBinary.IsBaked(bytes))
             return new Prefab { Key = key, Baked = bytes, Assets = this };
 #if DE_EDITOR
-        return new Prefab { Key = key, Doc = SceneDoc.Parse(System.Text.Encoding.UTF8.GetString(bytes), key), Assets = this };
+        // Cache'teki Doc HEP EXPANDED: prefab icindeki instance kayitlari (nested) burada acilir, tuketen
+        // sahne/prefab duz node kopyalar (outermost override kurali). Ozyineleme LoadPrefab uzerinden;
+        // dongu (A→B→A) _prefabLoading ile kesilir: ic kayit missing-prefab gibi delta olarak kalir.
+        if (!_prefabLoading.Add(key))
+        {
+            LogWarning?.Invoke("[prefab] dongu: " + string.Join(" → ", _prefabLoading) + " → " + key);
+            return null;
+        }
+        try
+        {
+            var doc = SceneDoc.Parse(System.Text.Encoding.UTF8.GetString(bytes), key);
+            var p = new Prefab { Key = key, Doc = doc, Assets = this };
+            foreach (var g in doc.Objects)
+                if (g.IsPrefabRoot && g.PrefabLocalId == 0)
+                {
+                    string inner = ResolvePath(g.PrefabGuid);
+                    var ip = LoadPrefab(inner);
+                    if (ip == null)
+                        continue;
+                    p.Deps.Add(inner);
+                    p.Deps.UnionWith(ip.Deps);
+                }
+            doc.Prepare(Catalog, this, SceneDoc.ActiveTheme); // nested + aktif tema katmani (Avatar xmas → her tuketici)
+            return p;
+        }
+        finally
+        {
+            _prefabLoading.Remove(key);
+        }
 #else
         LogWarning?.Invoke("[prefab] baked degil (YAML release'te desteklenmez): " + key);
         return null;
@@ -962,6 +999,26 @@ public sealed class AssetDatabase
 
     // Dis degisiklik: prefab cache'i duser, sonraki LoadPrefab diskten okur.
     public bool InvalidatePrefab(string relPath) => _prefabs.Remove(relPath);
+
+    // Editor: bir prefab degisince ONU ICEREN prefab'larin expanded cache'i de bayatlar; bagimlilik grafi
+    // izlemek yerine tum cache duser (YAML kucuk, tekrar parse ucuz; bayat kopya riski sifir).
+    public void InvalidateAllPrefabs() => _prefabs.Clear();
+
+#if DE_EDITOR
+    readonly HashSet<string> _prefabLoading = new(); // MakePrefab ozyinelemesinde acik olan anahtarlar (dongu korumasi)
+
+    // guid/yol'un (gecisli) icerdigi prefab'lar arasinda `other` var mi (stage'e kendini/atasini sokma reddi).
+    public bool PrefabDependsOn(string keyOrGuid, string otherKeyOrGuid)
+    {
+        string a = ResolvePath(keyOrGuid), b = ResolvePath(otherKeyOrGuid);
+        if (string.IsNullOrEmpty(a) || string.IsNullOrEmpty(b))
+            return false;
+        if (string.Equals(a, b, StringComparison.OrdinalIgnoreCase))
+            return true;
+        var p = LoadPrefab(a);
+        return p != null && p.Deps.Contains(b);
+    }
+#endif
 
     // Bekleyen async yukleme sayisi (atlas pack gibi toplu isler "hepsi indi mi" diye bakar).
     public int PendingCount => _pending.Count;

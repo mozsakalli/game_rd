@@ -5,7 +5,7 @@ using System.Text.Json.Nodes;
 
 // MCP (stdio, JSON-RPC 2.0) <-> DigitoyEditor RPC (TCP localhost:5157, satir-bazli JSON) koprusu.
 // Araç listesi editorun rpc.describe self-schema'sindan URETILIR: editorde yeni [RpcCommand]
-// = otomatik yeni MCP tool. PNG yolu donen sonuclara (render.screenshot, sim.run screenshot)
+// = otomatik yeni MCP tool. Goruntu yolu donen sonuclara (render.screenshot, sim.run screenshot/frames; png|jpg)
 // image content eklenir -> AI ekran goruntusunu dogrudan gorur.
 //
 // Kullanim (.vscode/mcp.json): "command": "dotnet", "args": ["run","--project","tools/mcp-bridge"]
@@ -200,12 +200,12 @@ static class Program
         {
             var result = Rpc(cmd, args);
             content.Add(new JsonObject { ["type"] = "text", ["text"] = result.ToJsonString(new JsonSerializerOptions { WriteIndented = false }) });
-            foreach (var png in FindPngs(result))
+            foreach (var img in FindImages(result))
                 content.Add(new JsonObject
                 {
                     ["type"] = "image",
-                    ["data"] = Convert.ToBase64String(File.ReadAllBytes(png)),
-                    ["mimeType"] = "image/png",
+                    ["data"] = Convert.ToBase64String(File.ReadAllBytes(img)),
+                    ["mimeType"] = MimeOf(img),
                 });
             return new JsonObject { ["content"] = content };
         }
@@ -216,17 +216,30 @@ static class Program
         }
     }
 
-    // Sonucta "path": "*.png" (kok ya da "screenshot" cocugu) varsa dosyayi gorsel olarak ekle.
-    static IEnumerable<string> FindPngs(JsonNode result)
+    // Sonucta "path": "*.png|*.jpg" (kok, "screenshot" cocugu ya da "frames" listesi) varsa dosyayi gorsel olarak ekle.
+    static IEnumerable<string> FindImages(JsonNode result)
     {
         if (result is not JsonObject o)
             yield break;
-        if (o["path"]?.GetValue<string>() is string p && p.EndsWith(".png", StringComparison.OrdinalIgnoreCase) && File.Exists(p))
+        if (ImagePath(o["path"]) is string p)
             yield return p;
-        if (o["screenshot"] is JsonObject s
-            && s["path"]?.GetValue<string>() is string p2 && p2.EndsWith(".png", StringComparison.OrdinalIgnoreCase) && File.Exists(p2))
+        if (o["screenshot"] is JsonObject s && ImagePath(s["path"]) is string p2)
             yield return p2;
+        if (o["frames"] is JsonArray frames)
+            foreach (var f in frames)
+                if (f is JsonObject fo && ImagePath(fo["path"]) is string p3)
+                    yield return p3;
     }
+
+    static string? ImagePath(JsonNode? n)
+    {
+        if (n is not JsonValue v || !v.TryGetValue<string>(out var s))
+            return null;
+        bool img = s.EndsWith(".png", StringComparison.OrdinalIgnoreCase) || s.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) || s.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase);
+        return img && File.Exists(s) ? s : null;
+    }
+
+    static string MimeOf(string path) => path.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ? "image/png" : "image/jpeg";
 
     // --- editor RPC (TCP, satir-bazli) ---
 

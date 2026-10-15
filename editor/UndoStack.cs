@@ -29,6 +29,14 @@ public sealed class UndoStack
     public int UndoCount => _undo.Count;
     public int RedoCount => _redo.Count;
 
+    // Tema gecisi: yigin bosalir (GO kumesi degisti), Version artar (dirty hesabi EditorScene'de).
+    public void Clear()
+    {
+        _undo.Clear();
+        _redo.Clear();
+        Version++;
+    }
+
     // Her doc mutasyonunda artar (coalesce dahil) — "aninda hot reload" tetigi.
     public int Version { get; private set; }
 
@@ -340,12 +348,22 @@ public sealed class RemovePrefabChildOp : UndoOp
         => es.ApplyRemovePrefabChild(RootId, LocalId, Items, undo);
 }
 
-// Alt agac yeni yaratilan prefab'a BAGLANDI (connect). Undo isaretleri soker (dosya kalir).
+// Alt agac yeni yaratilan prefab'a BAGLANDI (connect). Undo onceki isaretleri geri koyar (dosya kalir).
 public sealed class ConnectPrefabOp : UndoOp
 {
+    public sealed class Entry
+    {
+        public int GoId, LocalId;
+        // Connect oncesi isaretler (ic instance kok/cocuklari icin dolu): undo birebir geri koyar.
+        public string PrevGuid;
+        public int PrevLocalId, PrevRootId;
+        public Dictionary<int, int> PrevIds;
+        public List<int> PrevRemoved;
+    }
+
     public int RootId;
     public string Guid;
-    public readonly List<(int goId, int localId)> Locals = new();
+    public readonly List<Entry> Locals = new();
 
     public ConnectPrefabOp() => Sealed = true;
 

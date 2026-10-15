@@ -53,10 +53,11 @@ namespace DigitoyEngine.Language
             public List<string> EmbeddedMethods = new List<string>();
             public List<string> ExternMethods = new List<string>();
             public List<(Code code, string via)> ReachableStubs = new List<(Code, string)>();
-            public int Strings, Fields, Bytes;
+            public int Strings, Fields, Bytes, CanonRefs; // CanonRefs: canon-form tip referansi object'e indirildi (placeholder imzalari)
             public override string ToString() =>
                 $"tip: {LocalTypes.Count} yerel + {EmbeddedTypes.Count} gomulu + {ExternTypes.Count} dis; " +
-                $"metot: {LocalMethods.Count} yerel + {EmbeddedMethods.Count} gomulu + {ExternMethods.Count} dis; alan ref {Fields}; string {Strings}; {Bytes} bayt";
+                $"metot: {LocalMethods.Count} yerel + {EmbeddedMethods.Count} gomulu + {ExternMethods.Count} dis; alan ref {Fields}; string {Strings}; {Bytes} bayt" +
+                (CanonRefs > 0 ? $"; canon->object {CanonRefs}" : "");
         }
 
         sealed class W
@@ -93,6 +94,7 @@ namespace DigitoyEngine.Language
                 if (p == null || p == Primitive.Object || p == Primitive.String || p == Primitive.ValueType) return false;
                 if (p.Type != PrimitiveType.Model && !p.IsEnum) return false; // skaler/array/pointer: yapisal
                 if (p.IsGenericParameter || p.GenericTemplate != null || p.IsGeneric) return false; // sablon/acik: asla
+                if (p.IsCanonForm || p.IsCanon) return false; // canon host'un ic meselesi: modul yalniz exact ozellesmis tipleri tasir
                 if (InBundle(p.Assembly)) return true;
                 if (p.TypeArguments.Count > 0) { preferHost = true; return true; } // provided sablonun somutlamasi
                 return false;
@@ -103,6 +105,7 @@ namespace DigitoyEngine.Language
                 preferHost = false;
                 if (c == null || c.IsExternal || c.NativeBody != null) return false; // govde C'de -> host'ta olmali
                 if (c.GenericParameters.Count > 0 || (c.Owner != null && (c.Owner.IsGeneric || c.Owner.GenericTemplate != null))) return false;
+                if (c.IsCanonCode) return false; // canon govde / canon sahipli ornek: modulde yok (Method() placeholder; exact kabuklar klonlanir)
                 if (c.Owner != null && IsLocalType(c.Owner, out var ownerPrefer))
                 {
                     preferHost = ownerPrefer;
@@ -117,14 +120,57 @@ namespace DigitoyEngine.Language
             public int Type(Primitive p)
             {
                 if (p == null) return -1;
+                if (p.IsCanon) p = Primitive.Object; // modul canon bilmez: __Canon temsili = object (ayni yerlesim)
+                if (p.IsCanonForm) { report.CanonRefs++; p = Primitive.Object; } // canon govde placeholder imzalari (GVM): yalniz sekil, object yeter
                 if (typeIdx.TryGetValue(p.Name, out var i)) return i;
                 i = types.Count; types.Add(p); typeIdx[p.Name] = i;
                 work.Enqueue(p);
                 return i;
             }
+            // CANON -> MODUL: paylasimli exact kabuk (List<string>.Add, govdesiz; kodu host'un canon govdesinde) modulde EXACT ozellesmis
+            // klon olarak yazilir: ayni IL, exact baglamla yeniden cevrilir (Resolver.ResolveModuleClone). Interp paylasim istemez; canon host'un
+            // ic meselesi kalir. Sentinel (__dict vtable slotu) ownersiz placeholder.
+            readonly Dictionary<Code, Code> exactClones = new Dictionary<Code, Code>();
+            Code dictSentinelPlaceholder;
+            readonly Dictionary<Code, Code> canonPlaceholders = new Dictionary<Code, Code>();
+            public Code Exact(Code c)
+            {
+                if (c == null || !c.IsSharedExact) return c;
+                if (exactClones.TryGetValue(c, out var k)) return k;
+                k = new Code
+                {
+                    Owner = c.Owner, SimpleName = c.SimpleName, ByrefNamedMangle = c.ByrefNamedMangle, Assembly = c.Assembly, Template = c.Template,
+                    IsExternal = c.IsExternal, Inline = c.Inline, Arguments = c.Arguments, IsStatic = c.IsStatic, IsVirtual = c.IsVirtual,
+                    IsOverride = c.IsOverride, ExplicitInterface = c.ExplicitInterface, ReturnType = c.ReturnType, NativeBody = c.NativeBody,
+                    NativeHeader = c.NativeHeader, ExternalSymbol = c.ExternalSymbol, SourceFile = c.SourceFile, DisplayName = c.DisplayName,
+                    IlSource = c.IlSource, MethodTypeArguments = c.MethodTypeArguments, CilAttributes = c.CilAttributes, Attributes = c.Attributes,
+                    ExactContext = true,
+                };
+                exactClones[c] = k;
+                if (!k.IsExternal && k.NativeBody == null)
+                {
+                    try
+                    {
+                        if (!Cil.CilFrontend.TranslateInstance(ctx, k)) throw new Exception("IL kaynagi hazir degil");
+                        if (k.UntranslatableReason == null) Resolver.ResolveModuleClone(ctx, k);
+                    }
+                    catch (Exception ex) { k.Operations.Clear(); k.UntranslatableReason = "modul exact klon: " + ex.Message.Split('\n')[0]; }
+                }
+                return k;
+            }
             public int Method(Code c, string from)
             {
                 if (c == null) return -1;
+                if (Context.IsDictSentinel(c)) c = dictSentinelPlaceholder ??= new Code { SimpleName = "__dict", IsStatic = true, IsExternal = true }; // vtable slot hizasi korunur; asla cagrilmaz
+                else if (c.IsCanonCode)
+                {
+                    // canon govde ya da canon sahipli ornek (exact tipin vtable'indaki GVM Probe<__Canon>.Convert<string> gibi): modulde
+                    // karsiligi yok -> ownersiz, host'ta bulunmayan placeholder (cagrilirsa NotImplemented). BILINEN SINIR: modulde GVM.
+                    if (!canonPlaceholders.TryGetValue(c, out var ph))
+                        canonPlaceholders[c] = ph = new Code { SimpleName = c.SimpleName + "#canon", IsStatic = c.IsStatic, IsExternal = true, Arguments = c.Arguments, ReturnType = c.ReturnType, MethodTypeArguments = c.MethodTypeArguments };
+                    c = ph;
+                }
+                c = Exact(c);
                 if (methodIdx.TryGetValue(c, out var i)) return i;
                 i = methods.Count; methods.Add(c); methodIdx[c] = i;
                 if (!via.ContainsKey(c)) via[c] = from;
@@ -165,11 +211,13 @@ namespace DigitoyEngine.Language
                 }
             }
 
+            string cur = "kok";
             public void Drain()
             {
                 while (work.Count > 0)
                 {
                     var item = work.Dequeue();
+                    cur = item is Primitive cp ? "tip " + cp.Name : "metot " + ((Code)item).EncodeName();
                     if (item is Primitive p) VisitType(p);
                     else VisitCode((Code)item);
                 }
@@ -194,7 +242,7 @@ namespace DigitoyEngine.Language
                 VisitAttrs(p.Attributes);
                 if (p.IsDelegate) { Type(p.DelegateReturn); foreach (var dp in p.DelegateParams) Type(dp); }
                 // yerel tipin TUM uyeleri (host sanal/iface uzerinden her birine girebilir; ctor/statikler modul kodundan)
-                foreach (var c in ctx.AllCodes)
+                foreach (var c in ctx.AllCodes.ToList()) // snapshot: exact klon cevirisi ctx'ye yeni kayit ekleyebilir
                     if (c.Owner == p && c.GenericParameters.Count == 0)
                         Method(c, "uye:" + p.Name);
                 foreach (var m in p.VTable) Method(m, "vtable:" + p.Name);
@@ -256,10 +304,10 @@ namespace DigitoyEngine.Language
         {
             var w = new W(ctx, new HashSet<string>(bundledAssemblies));
             w.Str(info ?? "");
-            foreach (var p in ctx.AllPrimitives)
+            foreach (var p in ctx.AllPrimitives.ToList()) // snapshot (Exact klonlari ctx'yi buyutebilir)
                 if (w.IsLocalType(p, out var prefer) && !prefer)
                     w.Type(p);
-            foreach (var c in ctx.AllCodes)
+            foreach (var c in ctx.AllCodes.ToList())
                 if (w.IsLocalCode(c, out var prefer) && !prefer)
                     w.Method(c, "kok");
             if (entry != null) w.Method(entry, "entry");

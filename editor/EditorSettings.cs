@@ -24,4 +24,6 @@ public class EditorSettings
     public bool gameViewOneToOne;
     // Toolbar "Working language" (Localize.Language; edit projeksiyonu + Play). Bos = tablonun kaynak dili.
     public string workingLanguage = "";
+    // Toolbar "Working theme" (SceneDoc.ActiveTheme; edit projeksiyonu + Play). Bos = taban (default).
+    public string workingTheme = "";
 }

@@ -31,8 +31,10 @@ yeni işe başlamadan ilgili bölümü oku; oturum sonunda yeni kararları oraya
   gönder) veya MCP `digitoy-editor` (`.vscode/mcp.json`; önce `dotnet build tools/mcp-bridge`). `rpc.describe` = şema,
   `rpc.guide` = kavramlar/biçimler — MCP köprüsü bunu initialize'da `instructions` olarak otomatik gömer (prompt'ta
   "önce describe çağır" yazmak gerekmez); kural metninin tek sahibi editördeki `rpc.guide`.
-- Tipik akış: `view.device(name)` → `sim.run(frames, screenshot=true)` → görüntüyü incele → `input.tap/drag` →
-  `render.screenshot`. Yeni component tipi için önce `comp.schema`. Kod yazımı `asset.write` + `code.build`.
+- Tipik akış: `scene.tree(root, depth)` (kompakt hiyerarşi; büyük sahnede kademeli gez, detay `scene.dump(go, props)`) →
+  `view.device(name)` → `sim.run(frames, describe=true)` → **`render.describe` metin özeti** (rect/text/click; rect merkezi =
+  tap koordinatı; `pixels=N` kaba renk ızgarası) → `input.tap/drag` → tekrar describe. Görsel ton/şüphe için `screenshot=true`
+  / `render.screenshot`. Yeni component tipi için önce `comp.schema`. Kod yazımı `asset.write` + `code.build`.
   Asset bilgisi (yol/guid/tip, görsel width/height, atlas üyeliği) için `asset.list(filter,type)` / `asset.info(path)` —
   boyut öğrenmek için kod yazıp çalıştırma.
 - ANİMASYON SINIRI: hedefi doc'ta yazılabilen koreografi (sahne intro, giriş/çıkış, idle loop) = **MovieClip**
@@ -42,8 +44,9 @@ yeni işe başlamadan ilgili bölümü oku; oturum sonunda yeni kararları oraya
   `Tracks[0].Keys[0].Value="0 0 1 0"`, `Tracks[0].Keys[0].Ease="OutBack"`, `Tracks[0].Keys[1].Frame=30`,
   `Tracks[0].Keys[1].Value="1 1 1 0"` (index == eleman sayısı → sona ekle; value null → sil). `comp.schema` iç içe
   alanları ve ref biçimlerini (`format`) verir.
-- KOORDİNAT SÖZLEŞMESİ: input ve screenshot (scale=1) MANTIKSAL nokta, sol-üst orijin, y aşağı;
-  screenshot pikseli == tıklama koordinatı. Yön `PlayerSettings.orientation`'dan; sim/screenshot ona sadık.
+- KOORDİNAT SÖZLEŞMESİ: input MANTIKSAL nokta, sol-üst orijin, y aşağı. Screenshot VARSAYILAN KÜÇÜLTÜLMÜŞ (maxSize=1024,
+  jpg): tıklama = `region.x + px * toScreen` (sonuçtaki çarpan); detay için `render.screenshot(region="x y w h")`;
+  `scale=1, maxSize=0, format=png` → piksel == koordinat. Yön `PlayerSettings.orientation`'dan; sim/screenshot ona sadık.
 - Her sahne işinin sonunda `<sahne>.intent.md` (sahnenin yanında, APPEND-ONLY): prompt + yapı + INVARIANTLAR +
   doğrulama. Sahneye dokunmadan ÖNCE oku. Sahne KAYDETME kararı kullanıcınındır (undo'lu bırak, söyle).
 - Sahne/prefab YAML'ını ASLA doğrudan düzenleme; TOPLU iş için `scene.apply(objects)` (bildirimsel ağaç: GO + components +

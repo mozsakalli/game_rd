@@ -182,14 +182,19 @@ public sealed class PointerInput
         _ev._worldValid = false; // world hesabi tembel: istenirse guncel konumdan
     }
 
-    // Guncel imlec isininin drag duzlemiyle kesisimi - down noktasi.
+    // Guncel imlec isininin drag duzlemiyle kesisimi - down noktasi. Kamera yoksa Pick ile
+    // ayni piksel-ortho fallback isini (aksi halde kamerasiz sahnede drag toplami hep sifirdi).
     internal Vec3 ComputeWorldTotal()
     {
-        if (_camera == null)
-            return default;
-        if (!_camera.ScreenPointToRay(_curScreen.x, _curScreen.y,
-                _scene.ScreenWidth, _scene.ScreenHeight, out var ray))
-            return default;
+        Ray ray;
+        if (_camera != null)
+        {
+            if (!_camera.ScreenPointToRay(_curScreen.x, _curScreen.y,
+                    _scene.ScreenWidth, _scene.ScreenHeight, out ray))
+                return default;
+        }
+        else
+            ray = new Ray { Origin = new Vec3(_curScreen.x, _curScreen.y, -16384f), Dir = new Vec3(0, 0, 1) };
         if (ray.Dir.z > -1e-8f && ray.Dir.z < 1e-8f)
             return default;
         float t = (_planeZ - ray.Origin.z) / ray.Dir.z;
