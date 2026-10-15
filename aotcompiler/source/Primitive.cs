@@ -85,8 +85,10 @@ namespace DigitoyEngine.Language
             if (a.Type == PrimitiveType.Long || b.Type == PrimitiveType.Long) return Long;
             bool au = a.Type == PrimitiveType.UInt, bu = b.Type == PrimitiveType.UInt;
             if (au && bu) return UInt;
-            if (au) return IsSignedSmall(b) ? Long : UInt; // uint+int -> long (C#); uint+byte -> uint
-            if (bu) return IsSignedSmall(a) ? Long : UInt;
+            // IL yiginda int32/uint32 ayrimi YOK (Roslyn int<->uint icin conv emit etmez); C# kaynaginda long gereken `uint+int`
+            // zaten acik conv.i8/conv.u8 ile gelir. Karisim -> 32-bit islem; isaret yalniz .un opcode'larinda (frontend Conv ile verir).
+            if (au) return IsSignedSmall(b) ? Int : UInt;
+            if (bu) return IsSignedSmall(a) ? Int : UInt;
             return Int;
         }
 
@@ -169,6 +171,10 @@ namespace DigitoyEngine.Language
         // Model class, Object'ten turer, C'de GCHeader*. Runtime tipi DEGILDIR: descriptor'u yok, typeof/new/cast'te
         // asla sembol olarak gorunmez (emisyon assert) — exact tip her zaman sozlukten (dict) gelir.
         public static Primitive Canon = new Primitive { Name = "__Canon", Type = PrimitiveType.Model, Parent = Object, IsCanon = true };
+        // CANON LOWERING yigin degerleri (Lower.cs): GC disi ham isaretciler; yalniz Ld*/..Rt op'lari arasinda yasar.
+        public static Primitive TypeHandle = new Primitive { Name = "__TypeHandle", Type = PrimitiveType.Pointer }; // const Type*
+        public static Primitive DictHandle = new Primitive { Name = "__DictHandle", Type = PrimitiveType.Pointer }; // const void *const *
+        public static Primitive FnPtrHandle = new Primitive { Name = "__FnPtrHandle", Type = PrimitiveType.Pointer }; // const void*
         public bool IsCanon;          // __Canon ya da marker
         public int CanonIndex = -1;   // marker: sahibin kacinci generic argumani icinde (-1 = __Canon'un kendisi)
         public int[] CanonPath;       // marker: arguman icindeki yol (TypeArguments indeksleri; -1 = ElementType)

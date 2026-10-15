@@ -125,7 +125,7 @@ namespace DigitoyEngine.Language
 
         // runtime exception kind -> corelib sinifi (DIGITOYENGINE_EX_* indeksleri; Resolver.ResolveAll doldurur,
         // corelib yuklenmemisse null kalir - runtime kind'lar o programda yakalanamaz, rapor yolu calisir)
-        public Primitive[] ExceptionKindTypes = new Primitive[8];
+        public Primitive[] ExceptionKindTypes = new Primitive[16]; // vmrt.h DIGITOYENGINE_EX_KINDS ile ayni
 
         public IEnumerable<Primitive> AllPrimitives => primitiveOrder;
         public IEnumerable<Code> AllCodes => codeOrder;

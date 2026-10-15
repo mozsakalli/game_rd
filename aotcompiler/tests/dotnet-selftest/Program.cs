@@ -2,7 +2,9 @@ using System;
 
 internal static class Program
 {
-    private const int CaseCount = 85;
+    private const int CaseCount = 97;
+    // Par96 (async): .NET'te Task.Yield tek thread'de bitmiyor -> atlanir.
+    private static bool Disabled(int number) { return number == 96; }
 
     // CIL frontend dostu dispatch: delegate dizisi/generic yok, duz switch.
     private static int RunCase(int number)
@@ -93,6 +95,18 @@ internal static class Program
             case 83: return Demo83.App83.Run();
             case 84: return Demo84.App84.Run();
             case 85: return Demo85.App85.Run();
+            case 86: return Demo86.App86.Run();
+            case 87: return Demo87.App87.Run();
+            case 88: return Demo88.App88.Run();
+            case 89: return Demo89.App89.Run();
+            case 90: return Demo90.App90.Run();
+            case 91: return Demo91.App91.Run();
+            case 92: return Demo92.App92.Run();
+            case 93: return Demo93.App93.Run();
+            case 94: return Demo94.App94.Run();
+            case 95: return Demo95.App95.Run();
+            case 96: return Demo96.App96.Run();
+            case 97: return Demo97.App97.Run();
             default: return 0;
         }
     }
@@ -102,6 +116,7 @@ internal static class Program
     {
         for (int number = 1; number <= CaseCount; number++)
         {
+            if (Disabled(number)) continue;
             try
             {
                 int actual = RunCase(number);

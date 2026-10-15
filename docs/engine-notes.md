@@ -1,5 +1,174 @@
 # DigitoyEngine R&D (game_rd)
 
+## CANON LOWERING — sozluk karari IR'da acik op, emitter/interp canon bilmez (2026-10-15, P0-P4 bitti; selftest 125/347 sabit)
+- NEDEN: canon sozluk karari Resolver.RequestSlots'ta verilip `Op.DictSlot/DictSlotFn/DictSlotIface` YAN-ALANINDA saklaniyor, CTranspiler
+  12 handler + 4 helper'da (`TypeAddr/StaticRef/TypeTestOp/UnboxValueOp/DictArgFor`) "sozlukten mi sabitten mi" diye yeniden yorumluyordu
+  (~60 nokta). Yeni T-bagimli op gelince (A4) emitter'da eksik kaliyordu. Tartisilan alternatifler (sanal ozellestirme, ham tip param,
+  thin wrapper otomasyonu, canon'u atmak) REDDEDILDI: hepsi ya paylasimi daraltir ya runtime tablo ekler ya da zaten canon'a donusur.
+  KARAR: .NET/IL2CPP modeli kalir (ref paylasimi + derleme-zamani slot tablosu), yalniz IR'da acik hale gelir.
+- MODEL (`aotcompiler/source/Lower.cs` = "bu op exact tip ister" kararinin TEK sahibi): yeni OpType'lar (Code.cs sonunda; vmint OP_ enum ayni
+  sira) — gizli operandlar `LdType`(statik descriptor) `LdDictSlot`(Slot=indeks, Value=DictSlotKind) `LdDictSelf` `LdDictConst`(exact callee
+  sozluk sembolu) `LdFnPtr`; tuketiciler `NewRt NewArrayRt BoxRt UnboxRt UnboxOrDefaultRt IsTypeRt AsTypeRt CastRt TypeOfRt GetStaticRt
+  SetStaticRt AddrStaticRt ExIsRt ExBindRt DelegateNewRt` (tip descriptor'u YIGINDAN, Primitive.TypeHandle/DictHandle/FnPtrHandle yigin tipleri).
+  SOZLESME: gizli operandlar tuketicinin HEMEN ONCESINDE (bitisik), tepededir: Rt op [.., degerler, T]; DelegateNewRt [recv?, dt, fn];
+  Call/CallVirtual [.., args, ifaceT?, dict?] (callee ABI NeedsDictParam -> dict; iface cagrisinda itable anahtari HER ZAMAN operand: statik LdType
+  / canon LdDictSlot -> emitter tek yol). Trim/vmint bitisiklige dayanir (`Lower.HiddenSlot`). Iki asama: (1) Resolver sabit noktasinda canon
+  govdeler (`LowerCanonCode`: slot talebi + yeniden yazim; talep yeni ornek dogurabilir), (2) sabit nokta sonrasi `LowerRest` (LdDictConst/LdType/
+  LdFnPtr). Ekleme sonrasi `Linker.LinkLabels`. Ref kutusu / struct `new` icin slot YINE istenir ve operand gider (Trim exact hedefi bu op'tan
+  gorur; emitter pop edip yok sayar) — eski davranisla birebir. NullableWrap: slot istenir, operand yok (eskisi gibi).
+- EMITTER: handler'lar `HiddenType(op, Rt)` ile T'yi pop eder; yardimcilar "T verildi mi" ile calisir (`TypeTestT/UnboxValueT/StaticRefT`).
+  `CVal.IsConst` (gizli operand sabit, SpillStack atlar) — regex degil: `X_s_dict` kullanici alani `*_dict` kalibina yakalanmisti (P1 deneme 1).
+  `Op.DictSlot*` alanlari ve `Resolver.RequestSlots` SILINDI. `CTranspiler.Canon.cs` (yeni partial) = BAGLAMA katmani: FnPtrSym/StubSym/
+  TypeDictSym/MethodDictSym/DictSymOf, Dict()/DictPrologue (this->vtable[sentinel]), EmitStub/RequestStub/VSlotRefOf, EmitDict/
+  ExportTypeSymStrict, VSlotRef sentinel, CanonFieldCType/FieldCast'ler/CanonInst (paylasilan yerlesim), `VirtualCallTakesDict` (exact GVM slotu
+  stub, canon slot sozluk alir — Lower ile ayni kural). KAPI: CTranspiler.cs op handler araliginda `Canon.|IsCanon|IsSharedExact|Canonical|
+  DictSlot|DictSentinel` = 0 (yalniz `case OpType.LdDictSlot` etiketi).
+- DOGRULAMA: `tools/gen_diff.py <taban.c> <yeni.c> [--canon-only|--exact-only]` — generated.c fonksiyon bazli normalize diff (temp adlari/
+  etiketler sirali yeniden adlandirilir, STEP/SETLINE atilir). Taban `obj/lower_base/generated.c`. SONUC: 29 212 fonksiyon (3 488 canon)
+  BAYT BAYT AYNI; selftest 125/347; Sandbox lean 2506 KB / full 4926 KB (degismedi); Sandbox.exe calisti (60 fps, Login sahnesi).
+- vmint (P4): OP_ enum senkron; `LdType`/`LdFnPtr` ham isaretci push; iface CallVirtual tip operandini duser (dispatch kendi kaydindan);
+  sozluk op'lari (`LdDictSlot/LdDictSelf/LdDictConst/*Rt`) `vm_fail("canon sozluk op'u: modul canon destegi henuz yok")`. ModuleWriter
+  DictSlotKind'i int yazar. Interp yolu ONCEDEN kirik (`host'ta tip yok: __Canon`) — INTERP ISI (ayri): modul sozlukleri (dmod'da slot
+  tablolari, yuklemede Demarker esdegeri, frame'de __dict, this->vtable sentinel) bu op'larin ustune kurulur.
+- SIRADA (P5, ayri onay): cift yazilan semantikler Lower'a — checked aritmetik (conv.ovf), DivCheck, conv doyurma, constrained->box+callvirt,
+  Nullable box — vmint `vm_conv/OP_Div` kopyalari silinir.
+
+## GC REFMAP — struct icinde ref TEK KAYNAK + barrier sozlesmesi + A4 koku (2026-10-15, selftest 125/347 sabit, regresyon yok)
+- NEDEN: "struct icinde ref" bilgisi 4 yerde ayri hesaplaniyordu (CTranspiler.CollectGcRefPaths C yol string'i; vmint
+  vm_host_struct_refs reflection members[]'dan -> trim'e bagli sessiz GC riski; uretilen trace_*/trace_inline_* fn'leri; canon
+  EmitCanonTrace/IsSharedExact ozel dallari). Barrier karari emitter'da `CVal.Owner` sahip sezgisiyle veriliyordu; oysa
+  gc_write_barrier(obj,val) obj'yi yok sayiyordu. Kullanici karari: yama degil kok, NativeAOT GCDesc / IL2CPP gc_desc modeli.
+- DEGISMEZLER (R1-R6): R1 tip basina TEK RefMap (`aotcompiler/source/RefMap.cs`, alan zinciri, onbellekli) -> descriptor'da
+  `Type.refmap` = `X_refmap[] = { n, offsetof(struct X, a.b.c)... }` (class: nesne basindan, struct: payload'dan; ofseti C hesaplar).
+  R2 TUM GC tuketicileri tablodan: `gc_trace_object` (trace fn + refmap), `digitoyengine_trace_array` (eleman refmap), kutu
+  (flags STRUCT -> header atlanir), statik kokler `GcStaticRoot{addr,map}[]` (`gc_add_static_roots`), vmint host struct `e->refmap`.
+  URETILEN TIPLERDE TRACE FN YOK (trace yalniz runtime ic tipleri: dizi/string/closure/modul yerel). R3 barrier GC'nin sozlesmesi:
+  `DIGITOYENGINE_BARRIER_REF(slot*)` / `BARRIER_MAP(slot*, refmap)` inline `if (unlikely(gc_marking))`; sahip hicbir zaman
+  derleyicide sezilmez (CVal.Owner SILINDI); kusakli/card-mark GC gelirse yalniz runtime degisir. R4 hedef kurali: local/arg struct'a
+  yazim barrier'siz; alan/eleman/statik/pointer(StoreInd) hedef barrier'li. R5 canon yerlesim = exact yerlesim -> tek tablo
+  (`RefMapSym -> StructTag(canon)`), canon trace ozel dali yok. R6 tek canlilik kapisi (A4 asagida).
+- A4 KOKU (`Items<(int,string)>` -> `ValueTuple<int,__Canon>` generated.c derlenmiyordu): `Code.IsCanonCode/NeedsDictParam/
+  HasMethodDict` metot argumaninda yalniz UST DUZEY `__Canon` ariyordu (`Contains(Primitive.Canon)`); struct<ref> argumanli generic
+  METOT canon kod sayilmiyor -> sozluk yok, canon tipler `&X_type` ile adresleniyordu. Tip tarafi (IsCanonForm) zaten ozyinelemeli
+  `Canon.ContainsCanon` kullaniyordu; metot tarafi ayni kapiya baglandi. Test97 CanonStructArg: Items<(int,string)>/Items<KV<string>>
+  box/typeof/is/Equals .NET ile birebir. Par94 `TupItems` -> `Items(tup)` geri acildi.
+- TEST (Cases/Test97.cs, CaseCount 97, Par96 Disabled): (a) [gcbench] 100x full GC, 100k Node + struct dizileri -> stderr;
+  (b) TriColor: GERCEK beyaz->siyah barrier sinavi (dongu MARK'tayken taranmamis nesnenin tek ref'i statik slot / statik struct /
+  MARK'ta dogan siyah nesnenin alani / struct dizisi elemani / struct kopyasi / canon List / Dictionary<int,struct>'a tasinir, sonra
+  ayni boy tahsisle slot geri kullanilir). BULGU: eski Demo51 ("genc -> yasli") tri-color ARTIMLI GC'de barrier GEREKTIRMEZ (yeni nesne
+  siyah dogar) -> AOT_NOBARRIER=1'de bile geciyordu, hicbir seyi sinamiyordu. Test97 NOBARRIER'de FAIL (kapi calisiyor).
+- OLCUM: selftest 125/347 (eski 84: yalniz 10,47; AYNI), AOT_CANON=0 ayni. generated.c: 870 refmap tablosu, 0 trace fn, 8983
+  BARRIER_REF + 738 BARRIER_MAP, 0 gc_write_barrier. Boyut release: Sandbox lean 2495 -> 2506 KB (+11), full 4904 -> 4926 (+22);
+  wasm olculmedi (taban 1319). gcbench (-O1 selftest.exe, TickCount 15.6 ms cozunurluk, ardisik olmayan olcum): taban min 203 /
+  medyan 219 ms; sonra min 218 / medyan 250 ms (ara olcumde min 187 de gorulduk -> gurultu sinyalden buyuk). A/B YAPILAMADI:
+  HEAD tabani kurulamiyor (Par86-95 + corelib duzeltmeleri commit'lenmemis, Program.cs onlara bagli). SIRADA: commit sonrasi
+  `git worktree` ile taban, iki ikili donusumlu 10'ar kosu; >%5 ise `gc_trace_object` tek birlesik dal (struct kutu ofseti tabloya
+  onceden eklenir; trace/refmap tek test) — tek kaynak bozulmaz. Sicak yol kazanci kesin: ref yazimi out-of-line cagri -> inline bayrak.
+- vmint: `vm_host_struct_refs` SILINDI, VmT.refs/nrefs -> `refmap` (ayni format, `vm_refs_pack`), host ata refmap'i yerel class'a
+  eklenir, barrier makrolari. Derleniyor; UCTAN UCA DOGRULANAMADI: AOT_MODULES=1 interp yolu ONCEDEN kirik (`host'ta tip yok: __Canon`;
+  AOT_CANON=0'da `Span<int>$ctor` yok). Yan duzeltme: `IsEmittableArray` InternedArrays Context'ler arasi statik -> baska ctx'in eleman
+  tipi icin dizi descriptor'u emit etmiyor (interp_host.c derlenir hale geldi).
+- YAN BULGU (dokunulmadi): `T[]` `IEnumerable<T>` olarak gecince InvalidCast (dizi descriptor'unda itable yok, DIGITOYENGINE_itable).
+- TARTISMA (karar bekliyor): canon'un emitter'a yayilmis 58 dali da ayni hastalik -> IL seviyesinde LOWERING gecisi (`LdDict`,
+  runtime-tipli Box/IsInst/NewArray op'lari); CTranspiler ve vmint aptal kalir, cift yazilan semantikler (checked aritmetik, conv,
+  constrained) tek yere iner. RefMap bu isin zemini.
+
+## AOT PARITE SUITE (2026-10-15, selftest case 86-95, ~3.500 kontrol; SADECE TEST + RAPOR, duzeltme yok)
+- YONTEM: tests/dotnet-selftest/Cases/Par*.cs + Par.cs kiti. Her kontrol `case*1000+k<TAB>deger` satiri basar; harness (ParseResults)
+  bunlari ayri case sayar -> .NET baseline ile AOT degeri yan yana. Beklenen deger HARDCODE YOK, olcut .NET. Her kontrol kendi
+  lambda'sinda (`Q(() => ...)`, tests/wrap_parj.py ile otomatik sarildi) -> eksik API yalniz o kontrolu dusurur (AOT stub metot bazli).
+  Kosu: `AOT_DEBUG=1 aotcompiler.exe`. Eski 84 case: regresyon yok (82 PASS). Par96 (async/iterator) YAZILDI ama .NET'te adim 11'de
+  (Task.Yield tek thread'de bitmez) takiliyor -> CaseCount=95, kapali. 97-105 yazilmadi.
+- SONUC: 346 satir -> 114 PASS; fail adimlardaki 3.493 kontrol: 1.186 esit, 1.733 STUB (desteklenmeyen yuzey), 574 GERCEK FARK.
+- A) SURECI/DERLEMEYI OLDURENLER (testte bayrakla atlatildi, Par.Killers / Arm / yorum):
+  1. `int.MinValue / -1`, `% -1` -> C idiv trap, exit 0xC0000095 (.NET: OverflowException). 2. cctor'lar program basinda EAGER kosar;
+  cctor exception'i TypeInitializationException'a sarilmadan ABORT (exit 134). 3. `Exception.Source/HelpLink/Data/GetBaseException`
+  override -> "override edilecek virtual yok", AOT derlemesi tumden durur. 4. `IEnumerable<(int,string)>` -> emitter
+  `ValueTuple<int,__Canon>` tipini emit etmiyor, generated.c DERLENMEZ. 5. `(Span<int>)int[]` -> `Span_1_Int__op_Implicit` LINK hatasi.
+- B) DOGRULANMIS SEMANTIK FARKLAR (deger): IL `not` -> `!` (86018: ~x hepsi 0); `div.un` isaretli bolme (86012); `long & 0xFFFFFFFFL`
+  -> -8 (86017); `(int)0xFFFFFFFFu == -1` False (86026); float->int NaN/inf/aralik disi: .NET 0/doyurma vs AOT INT_MIN/0/garbage
+  (87010/14/18/19, 88026 BitConverter); `-0.0` ToString "-0" vs .NET "0" (88004/88017); sonsuz sembolu "∞" vs "Infinity" (20+ kontrol);
+  Math.Round(x, digits) ve MidpointRounding farklari (88010: 2.5->3); Max/Min NaN yayilimi yok (88017: NaN->1); FORMAT: D3/X8/F2/E/N/P/C
+  bicimleri ve hizalamayla birlikte format yok sayiliyor, B (binary) yok, custom "0.00"/"#,##0"/"00-00" yok, enum {0:D}/{0:X} ad
+  donuyor, Flags ToString "R, X" yerine sayi (89002-89019, 90022/23); string: ToUpper/ToLower yalniz ASCII (91010), CompareTo/Compare
+  isaret buyuklugu (-97 vs -1, 91013), interning farklari (91016/91020), ReadOnlySpan<char> ToString tip adi donuyor (91003/91019/91025);
+  EnumEqualityComparer yok, enum hash negatif (93013); ilkel dizi cast'leri (int[]<->uint[], enum[]<->int[]) CLR'de gecerli AOT'de
+  InvalidCast (94014); exception MESAJLARI jenerik (InvalidCast/KeyNotFound/ArgumentOutOfRange parametre adi yok, 95010); finally'de
+  yakalanan exception orijinali eziyor (95005.5); ArrayTypeMismatch firlamiyor (95010.23); IList sabit boyut -> InvalidCast.
+  Exception TIPI farklari (118): ArgumentOutOfRange->IndexOutOfRange (26), ArgumentNull->NullReference (22), ArgumentNull/Argument->
+  InvalidCast (9), Argument/Format/Overflow->IOException (10!), OutOfMemory/NotSupported -> deger donuyor.
+- C) DESTEKLENMEYEN YUZEY (stub, obj/selftest-c/diag.txt): conv.ovf.* TUM varyantlar (71; checked kullanan metot stub), exception
+  FILTER `when` (37), Int/Byte/Long/Bool/SByte.Parse, Convert.To*, Array.IndexOf/Sort/LastIndexOf/Clone/GetValue/CreateInstance,
+  CultureInfo, StringBuilder ctor/Append/Insert overload'lari, Decimal, AggregateException/SystemException/ArgumentOutOfRange tipleri,
+  Enum.Parse/IsDefined/CompareTo, cok boyutlu dizi, Index/Range, Queue/Stack/LinkedList enumerator'lari, Math.Abs/Round/DivRem/Clamp
+  overload'lari, Buffer.BlockCopy, IComparable/ICloneable/IConvertible, Exception.Data, ArgumentException.ParamName, Delegate.Method,
+  String.Empty alani, String.Join overload'lari, ArraySegment, SortedDictionary. 131x "FieldDefinitionHandle not present": desteklenmeyen
+  tipli closure alani atlaninca sonraki ldfld frontend'i dusuruyor (kaskad).
+- DUZELTME FAZI A (2026-10-15, 1 deneme, AOT_DEBUG=1, suite 114/346 sabit, eski 82 PASS korundu, cokme/link hatasi yok):
+  * A1 YAPILDI: runtime kind 7 `DIGITOYENGINE_EX_OVERFLOW` + `OverflowException : ArithmeticException` (DivideByZero da ArithmeticException'a
+    bagli; .NET hiyerarsisi). Emitter `DivCheck(a,b)`: isaretli int/long'da `DIGITOYENGINE_SDIVCHECK_AT(a,d,MIN,ln)` -> d==0 DivideByZero,
+    d==-1&&a==MIN Overflow (vmrt.h). vmint OP_Div/OP_Mod ayni. 86006/86007 PASS, Par.Killers=true.
+  * A3 YAPILDI: corelib Exception'a virtual `Source/HelpLink/Data/GetBaseException` (alanlar innerException'dan SONRA eklendi; corelib.c
+    DigitoyEngineException layout kopyasi onek olarak gecerli). Override artik derleniyor. Kalan B: Data varsayilani null (.NET bos
+    ListDictionary), Dictionary<K,V> non-generic IDictionary'yi uygulamiyor, ic ice tip adi `Demo95.App95/X` (.NET `+`).
+  * A5 YAPILDI: CilFrontend op_Implicit: `(Span<T>)null` (ldnull, Object tipli) -> bos span intrinsic'i (extern'e normal cagri link
+    hatasi veriyordu).
+  * A2 YAPILMADI (tasarim): cctor eager+abort; lazy init tum statik erisimlere kapi ister -> ayri karar.
+  * A4 YAPILMADI -> SONRA BAKILACAK (KARAR 2026-10-15): `Items<(int,string)>` -> canon `ValueTuple<int,__Canon>` struct tipi generated.c'de
+    bildirilmiyor. Tetikleyici: generic METOT + "ref alanli generic struct" argumani (generic TIP orneklemesi ve corelib ici
+    KeyValuePair<int,__Canon> yolu CALISIYOR). Build-time clang hatasi (sessiz runtime hatasi degil). Kullanici notu: "struct icindeki
+    ref" ozel durumu yamayla kurtarilmis gorunuyor; canon modelinin bu kismi IL2CPP (generic sharing: value-type arg -> tam ozellesme,
+    ref -> paylasim; struct icinde ref olunca TAM ozellesme) ve NativeAOT (__Canon yalniz ref tipler; struct<ref> her zaman exact
+    orneklenir, canon'a girmez) ile karsilastirilarak yeniden ele alinacak. Testte tuple generic IEnumerable'dan gecirilmeden
+    (TupItems) yazili; acilinca generated.c derlenmez.
+  * Par.HugeAlloc=false: int.MaxValue boyutlu tahsisler (OOM abort riski) ayri bayrakta.
+- DUZELTME FAZI B (2026-10-15, 2 deneme + 1 regresyon kosusu, AOT_DEBUG=1; gercek fark 574 -> 317, eski 82 PASS korundu, Sandbox AOT
+  exe derlendi ve calisti):
+  * KOK NEDEN: IL yiginda int32/uint32 ayrimi yok; Roslyn int<->uint icin conv emit etmez, uint32'ye sigan long sabitlerini
+    `ldc.i4 bits; conv.u8` olarak yazar. Frontend kaynak-tip tahminiyle Int+UInt'i LONG'a terfi ediyordu -> `(uint)-8/2u` isaretli,
+    `(int)0xFFFFFFFFu == -1` False, `0xFFFFFFFFL` maskesi -1, `3037000499L*3037000499L` yanlis.
+  * Primitive.PromoteNumeric + vmint vm_promote: Int/UInt karisimi -> 32-bit (Int), Long degil. Isaret bilgisi OPCODE'dan: frontend
+    `div.un/rem.un` -> UnBin (iki operand uint/ulong'a Conv), `shr.un` -> UnShr (sol operand unsigned), `conv.u8` 32-bit kaynakta once
+    uint (sifir-genisletme), `conv.r.un` once unsigned.
+  * CTranspiler: IL `not` = BITWISE `~` (eski `!`; vmint OP_Not de), shift sayaci `& 31/63` (C UB -> .NET maskesi), kayan->tamsayi
+    `DIGITOYENGINE_f2i/f2u/f2l/f2ul` DOYURMA (NaN->0, inf->Min/Max; kucuk tipler int32 uzerinden; vmint vm_conv ayni), NaN sabitleri
+    .NET bit deseniyle (`DIGITOYENGINE_nan_d/f` 0xFFF8.../0xFFC00000; clang 0.0/0.0'i pozitif NaN'a katliyordu).
+  * corelib.c: double.ToString sonsuz "Infinity"/"-Infinity" (eski "∞"); Math.Max/Min (double/float) NaN yayar, Max(-0,+0)=+0,
+    Min=-0 (fmax/fmin NaN'i yok sayiyordu); MathF.Round rintf (banker's; roundf half-away idi). Math.cs: Sign(NaN) ArithmeticException,
+    Clamp(min>max) ArgumentException (C# govde; C Sign silindi).
+- DUZELTME FAZI C-1 (2026-10-15, 3 deneme, AOT_DEBUG=1; gercek fark 317 -> 231, EXCEPTION farki 197 -> 39; eski 82 PASS, Sandbox AOT
+  exe calisti):
+  * RUNTIME KIND'LAR 8..13 (vmrt.h `DIGITOYENGINE_EX_ARGOOR/ARGNULL/ARG/FORMAT/NOTSUP/INVOP`, diziler 8->16 `DIGITOYENGINE_EX_KINDS`,
+    WellKnown.ExceptionKinds, Context[16]) + `DIGITOYENGINE_throw_kind(kind, msg)`: corelib C govdeleri artik dogru .NET tipiyle
+    firlatir. corelib.c: Substring -> ArgumentOutOfRange (eski IndexOutOfRange); IndexOf/Replace/StartsWith/EndsWith/Contains(null) ->
+    ArgumentNull (eski NullReference); Convert.ToInt32(str,base): gecersiz taban Argument, rakam yok Format, tasma Overflow, bos string
+    ArgumentOutOfRange, '-' taban!=10 Argument, null -> 0, "0x" oneki (eski hepsi IOException/NRE); String.Replace/Split -> Argument/
+    ArgumentOutOfRange.
+  * corelib Exception.cs: `ArgumentOutOfRangeException` (ParamName/ActualValue), `ArgumentException.ParamName` + (msg,paramName) ctor,
+    `ArgumentNullException(paramName,msg)`, parametresiz `InvalidOperationException`, mesajli IOException/NotSupported/NotImplemented;
+    `Exception.Data` varsayilani bos `Dictionary<object,object>` (.NET gibi null degil).
+  * Collections.cs: List indexer/RemoveAt/Insert -> ArgumentOutOfRange; AddRange/Find/FindIndex(null) -> ArgumentNull; List ve HashSet
+    `version` + enumerator MoveNext InvalidOperationException (.NET: Add/Insert/RemoveAt/Clear; HashSet yalniz basarili Add);
+    List.Remove/IndexOf null-guvenli Equals; Dictionary null anahtar -> ArgumentNull, duplicate Add -> ArgumentException("...Key: k");
+    HashSet null eleman IZINLI (hash 0; .NET gibi); non-generic IList.Add/Insert/indexer yanlis tip -> Argument, null -> ArgumentNull;
+    Dictionary<K,V> artik `System.Collections.IDictionary` uygular (DictionaryEntryEnumerator; Exception.Data ve eski API'ler icin).
+  * String.cs: Concat/Join(null) ArgumentNull, Join(start,count) / PadLeft/PadRight(negatif) / IndexOf(char,start[,count]) sinirlari
+    ArgumentOutOfRange. Text.cs: GetString/GetBytes null ArgumentNull, GetString(index,count) ArgumentOutOfRange.
+  * KALAN (not): Enum.ToObject/IsDefined yanlis tip -> Argument (AOT InvalidCast); `(int)(object)E.A` / `(E)(object)1` unbox (runtime
+    alias denkligi var, emitter yolu InvalidCast veriyor -> ayri inceleme); string -> IEnumerable<char>/ICloneable/IComparable cast'leri;
+    ilkel dizi cast'leri int[]<->uint[], enum[]<->int[] (CLR gecerli); array IList.Add NotSupported yerine 1 donuyor; dev tahsis OOM;
+    `new int[(long)int.MaxValue+1]` Overflow yerine -1 (SESSIZ); AsSpan(start>len) ve List.BinarySearch(index,count) sinir kontrolu yok;
+    exception MESAJ paritesi (InvalidCast "Unable to cast X to Y", KeyNotFound "'k'", ArgumentOutOfRange "Actual value was", ToString
+    "Type: msg ---> inner" bicimi; ic ice tip adi `/` vs `+`).
+  * FIKIR (kullanici, 2026-10-15): editor hot-reload derlemesine PARALEL "CoreLib dogrulama derlemesi" (NoStdLib + Digitoy.CoreLib.dll,
+    yalniz tanilar) + CIL frontend tanilari (checked/filter/cok boyutlu dizi) -> AOT uyumsuzlugu edit zamaninda; C sinifini (stub yuzeyi)
+    tumden onler. A/B sinifini (davranis farki) onlemez; onun araci bu parite suite'i. AYRI IS.
+  * FAZ B KALAN (bu faz disi): `checked`/conv.ovf desteklenmiyor (C sinifi); runtime `0.0/0.0` NaN isaret biti (clang -O1 inline katlama);
+    format motoru (D3/X8/F2/E/N/P/C, hizalama+format, custom bicimler, Flags ToString), string ToUpper non-ASCII, exception mesaj/tip
+    paritesi (ArgumentOutOfRange->IndexOutOfRange, ArgumentNull->NullReference, ->IOException).
+- SIRADA (karar kullanicinin): duzeltme A->B->C; Par96 Task.Yield/Wait kontrollerini cikar; 97-105 (LINQ, generics/variance, delegate,
+  struct/boxing, pattern/record, unsafe/span, init sirasi, DateTime/Random, comparer/uri); AOT_MODULES=1 interp kosusu (ikinci faz).
+
 ## .NET 10 UPGRADE (2026-10-15, tum projeler net10.0; SDK 10.0.203, runtime 10.0.7)
 - KARAR: 16 csproj `net9.0 -> net10.0` (UnityCheck netstandard2.1 kaldi, Unity icin). Hardcode cikti yollari da guncellendi:
   editor/GameCode.cs (uretilen csproj TFM), editor/IdeFiles.cs, aotcompiler/source/Program.cs, tools/MsdfPort/Program.cs,

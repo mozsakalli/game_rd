@@ -55,31 +55,25 @@ namespace DigitoyEngine.Language
             sharedUnit.H.Append("void vmint_enter_delegate(GCHeader *closure, DeSlot *a, DeSlot *r);\n");
             sharedUnit.H.Append($"extern MethodInfo {MiscMethodsSym}[];\n");
 
-            // yerlesimler (+ header deger bagimliliklari: degerle gomulen struct alanlari)
+            // yerlesimler (+ header deger bagimliliklari: degerle gomulen struct alanlari) + GC refmap tablosu (yerlesim basina bir)
+            RefMap.Reset();
             foreach (var p in ctx.AllPrimitives)
             {
                 if (!HasLayout(p) || p.IsDelegate || !TrimPlan.IsTypeLive(p)) continue;
                 var u = UnitOf(p);
-                if (p.IsSharedExact) { u.ValueDeps.Add(StructTag(p)); continue; } // CANON: yerlesim canon biriminde; exact header onu include eder
+                if (p.IsSharedExact) { u.ValueDeps.Add(StructTag(p)); continue; } // CANON: yerlesim + refmap canon biriminde; exact header onu include eder
                 u.H.Append(EmitStruct(p));
+                u.H.Append(EmitRefMapDecl(p));
+                u.C.Append(EmitRefMapDef(p));
                 foreach (var f in Hierarchy.AllFields(p))
                     if (f.Type.Type == PrimitiveType.Model && f.Type.IsStruct && HasUnit(f.Type) && f.Type != p)
                         u.ValueDeps.Add(StructTag(f.Type));
-                if (p.IsCanonForm)
+                if (p.IsCanonForm && p.StaticFields.Count > 0)
                 {
-                    // canon: dis baglantili trace fn (exact descriptor'lar kullanir) + statik alan blogu TIPI (exact basina instance)
-                    var tr = EmitCanonTrace(p);
-                    if (tr.Length > 0)
-                    {
-                        u.H.Append(p.IsStruct ? $"void trace_inline_{StructTag(p)}(void* e);\n" : $"void trace_{StructTag(p)}(GCHeader* o);\n");
-                        u.C.Append(tr);
-                    }
-                    if (p.StaticFields.Count > 0)
-                    {
-                        u.H.Append($"struct {StaticsStructTag(p)} {{\n");
-                        foreach (var f in p.StaticFields) u.H.Append("    " + FieldDecl(f) + "\n");
-                        u.H.Append("};\n");
-                    }
+                    // canon: statik alan blogu TIPI (exact basina instance)
+                    u.H.Append($"struct {StaticsStructTag(p)} {{\n");
+                    foreach (var f in p.StaticFields) u.H.Append("    " + FieldDecl(f) + "\n");
+                    u.H.Append("};\n");
                 }
             }
             // statik alanlar: tanim sahibinin .c'sinde, extern header'da (C sifir-init). CANON: exact ornek tek blok (Type.statics)

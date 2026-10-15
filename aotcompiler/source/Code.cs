@@ -84,22 +84,45 @@ namespace DigitoyEngine.Language
         Rethrow,  // handler icinde: bekleyen exception'i trace'ini KORUYARAK yeniden firlatir (C# `throw;`)
         TryUnwind, // erken cikis (return/break/continue) icin: Slot=1 en icteki olmak uzere o bolgeye KADAR runtime try zincirini geri sarar (derleme yigini DEGISMEZ - dallanma yolu)
         Yield,    // SADECE IteratorLowering oncesi var olabilir (pop deger -> frame.current, resume noktasi); VM/CTranspiler'a ASLA ulasmaz
+        // ---- CANON LOWERING (Lower.cs, docs/engine-notes.md): T'ye bagli bilgi YIGINDAN gelir; emitter/interp "canon" bilmez ----
+        // Sozlesme: gizli operandlar tuketici op'un HEMEN ONCESINDE (bitisik) push edilir, yiginin tepesindedir:
+        //   [..., degerler, T]  (Rt op'lari)   [recv?, delegateT, fn] (DelegateNewRt)   [..., args, ifaceT?, dict?] (Call/CallVirtual)
+        LdType,      // PrimitiveRef: statik descriptor adresi (const Type*) push
+        LdDictSlot,  // Slot: mevcut sozlukten slot; Value=(DictSlotKind): TypeHandle -> Type*, TypeDict/MethodDict -> dict, FnPtr -> fn
+        LdDictSelf,  // mevcut metodun kendi sozlugu (dict) push — ayni sozlugu paylasan cagri
+        LdDictConst, // Code=exact hedef: onun derleme-zamani sozluk sembolu push (exact cagiran -> sozluklu callee)
+        LdFnPtr,     // Code: fonksiyon isaretcisi (instantiating stub / dogrudan sembol) push
+        NewRt,            // pop T; T descriptor'uyla tahsis (PrimitiveRef: yerlesim/C tipi)
+        NewArrayRt,       // pop T (T[] descriptor'u), pop boyutlar; tahsis
+        BoxRt,            // pop T, pop deger (struct); T kutusu
+        UnboxRt,          // pop T, pop obj; exact unbox
+        UnboxOrDefaultRt, // pop T, pop obj; tip tutarsa deger, tutmazsa 0
+        IsTypeRt,         // pop T, pop obj; runtime is (class/iface/dizi ayrimi runtime'da)
+        AsTypeRt,         // pop T, pop obj; runtime as
+        CastRt,           // pop T, pop obj; runtime cast (uymazsa InvalidCast) / deger tipi -> unbox
+        TypeOfRt,         // pop T; System.Type wrapper
+        GetStaticRt,      // pop T; T'nin statik blogundan Field oku
+        SetStaticRt,      // pop T, pop deger; T'nin statik bloguna yaz
+        AddrStaticRt,     // pop T; statik alanin adresi
+        ExIsRt,           // pop T; bekleyen exception T'ye uyuyor mu
+        ExBindRt,         // pop T; bekleyen exception'i T olarak bagla
+        DelegateNewRt,    // pop fn, pop delegateT, (pop recv); delegate nesnesi
     }
     public class Op
     {
         public OpType Type;
-        public int Slot; // index/newarray op'larinda rank (0 = eski IR, rank 1)
+        public int Slot; // index/newarray op'larinda rank (0 = eski IR, rank 1); LdDictSlot: slot indeksi
         public int Line; // kaynak satiri (1-tabanli, 0 = yok); DIGITOYENGINE_LINE/stack trace icin
         public PrimitiveField Field;
         public object Value;
         public Code Code;
         public Primitive PrimitiveRef; // New icin: olusturulacak model tipi
         public List<Primitive> TypeArguments = new List<Primitive>(); // New/Call generic ise somutlastirma argumanlari (canon govdede MARKER'li acik bicim; Resolver temizlemez)
-        public Primitive OpenRef; // canon govde: PrimitiveRef'in marker'li ACIK bicimi (Resolver somutlamadan once saklar); dict slot anahtari
-        public int DictSlot = -1; // canon govde: bu op'un sozluk slotu (-1 = exact bilgi gerekmiyor; -2 = cagrilan ayni sozlugu paylasir -> kendi __dict)
-        public int DictSlotFn = -1; // DelegateNew: ctx'li hedef icin FnPtr slotu (instantiating stub); DictSlot delegate tipinin TypeHandle'i
-        public int DictSlotIface = -1; // CallVirtual (iface): canon iceren iface tipinin exact descriptor slotu (itable anahtari)
+        public Primitive OpenRef; // canon govde: PrimitiveRef'in marker'li ACIK bicimi (Resolver somutlamadan once saklar); Lower.cs sozluk slot anahtari
         public Label Label; // Label op'unda bu op'un kimligi, Br/Brtrue/Brfalse'de hedef
+
+        // Lower.cs'in urettigi gizli operand push'u mu (Trim/vmint: tuketiciyi bulmak icin atlanir)
+        public bool IsHiddenOperand => Type == OpType.LdType || Type == OpType.LdDictSlot || Type == OpType.LdDictSelf || Type == OpType.LdDictConst || Type == OpType.LdFnPtr;
 
         public override string ToString() => $"Op(Type={Type}, Slot={Slot}, Field={(Field != null ? Field.Owner.Name + "$" + Field.Name : "null")}, Value={Value}, Code={(Code != null ? Code.EncodeName() : "null")}, PrimitiveRef={(PrimitiveRef != null ? PrimitiveRef.Name : "null")})";
     }
@@ -149,9 +172,10 @@ namespace DigitoyEngine.Language
         public bool IsSharedExact => Canonical != null && Canonical != this;
         public Code Shared => Canonical ?? this;
         // canon kod: gizli `__dict` parametresi alir mi (K6): static metot, struct uyesi, canon generic metot. Class instance metodu this'ten bulur.
-        public bool IsCanonCode => (Owner != null && Owner.IsCanonForm) || (MethodTypeArguments != null && MethodTypeArguments.Contains(Primitive.Canon));
-        public bool NeedsDictParam => IsCanonCode && !IsExternal && NativeBody == null && (IsStatic || (Owner != null && Owner.IsStruct) || (MethodTypeArguments != null && MethodTypeArguments.Contains(Primitive.Canon)));
-        public bool HasMethodDict => MethodTypeArguments != null && MethodTypeArguments.Contains(Primitive.Canon); // sozluk sahibi metot (yoksa Owner)
+        // Metot argumaninda __Canon OZYINELEMELI aranir (struct icinde ref: Items<ValueTuple<int,__Canon>>) — tip tarafi (IsCanonForm) ile ayni kapi.
+        public bool HasMethodDict => Canon.ContainsCanon(MethodTypeArguments); // sozluk sahibi metot (yoksa Owner)
+        public bool IsCanonCode => (Owner != null && Owner.IsCanonForm) || HasMethodDict;
+        public bool NeedsDictParam => IsCanonCode && !IsExternal && NativeBody == null && (IsStatic || (Owner != null && Owner.IsStruct) || HasMethodDict);
         public ushort CilAttributes; // System.Reflection.MethodAttributes
         public List<PrimitiveAttribute> Attributes = new List<PrimitiveAttribute>(); // custom attribute'lar (reflection tablosu)
 

@@ -90,6 +90,28 @@ enum
     OP_Rethrow,
     OP_TryUnwind,
     OP_Yield,
+    // CANON LOWERING (Lower.cs; Code.cs OpType ile ayni sira): gizli operandlar + Rt op'lari. Yalniz statik olanlar (LdType/LdFnPtr,
+    // iface cagrisinin tip operandi) interp'te uygulanir; sozluk gerektirenler modul canon destegiyle gelir (sonraki is).
+    OP_LdType,
+    OP_LdDictSlot,
+    OP_LdDictSelf,
+    OP_LdDictConst,
+    OP_LdFnPtr,
+    OP_NewRt,
+    OP_NewArrayRt,
+    OP_BoxRt,
+    OP_UnboxRt,
+    OP_UnboxOrDefaultRt,
+    OP_IsTypeRt,
+    OP_AsTypeRt,
+    OP_CastRt,
+    OP_TypeOfRt,
+    OP_GetStaticRt,
+    OP_SetStaticRt,
+    OP_AddrStaticRt,
+    OP_ExIsRt,
+    OP_ExBindRt,
+    OP_DelegateNewRt,
     OP__COUNT
 };
 enum
@@ -210,9 +232,8 @@ struct VmT
     int nenum;
     VmEnumMember *enums;
     VmLocalType *ltype; // yerel descriptor
-    int nrefs;
-    int *refs;         // GC referans offset'leri (class: header dahil, yerel atalar dahil; struct: 0-tabanli)
-    TraceFn hostTrace; // en yakin host atanin trace'i (class)
+    const unsigned short *refmap; // GC referans ofsetleri, vmrt.h Type.refmap formati ([0]=n; class: header dahil, yerel atalar + host ata; struct: 0-tabanli)
+    TraceFn hostTrace;            // en yakin host atanin runtime trace fn'i (varsa; uretilen tipler refmap tasir, trace degil)
     VmT *ptrType;      // *this (cache)
     VmT *arrOf;        // this[] (cache)
     VmT *nullValue;
@@ -801,7 +822,23 @@ static void vm_field_size(LoadCtx *L, VmT *t, int *size, int *align)
     if (*size == 0)
         *size = *align = 1;
 }
-// struct/class referans offset'lerini toplar (nested struct dahil)
+// struct/class referans offset'lerini toplar (nested struct dahil). Ic struct'in haritasi (yerel ya da host) refmap formatindan okunur.
+static void vm_refs_push(int **refs, int *n, int *cap, int off)
+{
+    if (*n == *cap)
+    {
+        *cap = *cap ? *cap * 2 : 8;
+        *refs = (int *)realloc(*refs, *cap * sizeof(int));
+    }
+    (*refs)[(*n)++] = off;
+}
+static void vm_refs_push_map(int **refs, int *n, int *cap, int base, const unsigned short *map)
+{
+    if (!map)
+        return;
+    for (int k = 1; k <= map[0]; k++)
+        vm_refs_push(refs, n, cap, base + map[k]);
+}
 static void vm_collect_refs(LoadCtx *L, VmT *t, int base, int **refs, int *n, int *cap)
 {
     for (int i = 0; i < t->nfields; i++)
@@ -810,51 +847,28 @@ static void vm_collect_refs(LoadCtx *L, VmT *t, int base, int **refs, int *n, in
         if (f->isStatic)
             continue;
         if (f->type->tag == 'o')
-        {
-            if (*n == *cap)
-            {
-                *cap = *cap ? *cap * 2 : 8;
-                *refs = (int *)realloc(*refs, *cap * sizeof(int));
-            }
-            (*refs)[(*n)++] = base + f->offset;
-        }
+            vm_refs_push(refs, n, cap, base + f->offset);
         else if (f->type->tag == 'v')
         {
             vm_resolve_type(L, f->type);
-            for (int k = 0; k < f->type->nrefs; k++)
-            {
-                if (*n == *cap)
-                {
-                    *cap = *cap ? *cap * 2 : 8;
-                    *refs = (int *)realloc(*refs, *cap * sizeof(int));
-                }
-                (*refs)[(*n)++] = base + f->offset + f->type->refs[k];
-            }
+            vm_refs_push_map(refs, n, cap, base + f->offset, f->type->refmap);
         }
     }
 }
-// host struct descriptor'undan referans offset'leri (tag 'o' alanlar + ic struct'lar); yalniz bildirilen alanlar (struct'ta kalitim yok)
-static void vm_host_struct_refs(const Type *e, int base, int **refs, int *n, int *cap)
+// int listesi -> refmap tablosu ([0]=n). n==0 -> 0.
+static const unsigned short *vm_refs_pack(int *refs, int n)
 {
-    if (!e)
-        return;
-    for (int i = 0; i < e->nmembers; i++)
+    if (n == 0)
     {
-        const DigitoyEngineMember *f = &e->members[i];
-        if (f->kind != DIGITOYENGINE_MEMBER_FIELD || f->isStatic)
-            continue;
-        if (f->tag == 'o')
-        {
-            if (*n == *cap)
-            {
-                *cap = *cap ? *cap * 2 : 8;
-                *refs = (int *)realloc(*refs, *cap * sizeof(int));
-            }
-            (*refs)[(*n)++] = base + f->offset;
-        }
-        else if (f->tag == 'v' && f->valueType)
-            vm_host_struct_refs(f->valueType, base + f->offset, refs, n, cap);
+        free(refs);
+        return 0;
     }
+    unsigned short *m = (unsigned short *)vm_zalloc((n + 1) * sizeof(unsigned short));
+    m[0] = (unsigned short)n;
+    for (int i = 0; i < n; i++)
+        m[i + 1] = (unsigned short)refs[i];
+    free(refs);
+    return m;
 }
 static void vm_trace_local(GCHeader *o);
 static void vm_finalize_local(GCHeader *o);
@@ -905,11 +919,7 @@ static void vm_resolve_type(LoadCtx *L, VmT *t)
         {
             t->size = e->size - (int)sizeof(GCHeader);
             t->align = 8;
-            int n = 0, cap = 0;
-            int *refs = 0;
-            vm_host_struct_refs(e, 0, &refs, &n, &cap);
-            t->refs = refs;
-            t->nrefs = n;
+            t->refmap = e->refmap; // host struct: tek kaynak descriptor tablosu (R1)
         } // kutu descriptor'u: header + struct
         else
         {
@@ -997,7 +1007,7 @@ static void vm_resolve_type(LoadCtx *L, VmT *t)
         }
         if (t->kind == TK_DELEGATE)
             t->objSize = (int)sizeof(VmDelegate);
-        // referans offset'leri: yerel atalar + kendi; en yakin host ata trace'i
+        // referans offset'leri: en yakin host atanin refmap'i (duzlestirilmis) + runtime trace fn'i, yerel atalar, kendi
         int n = 0, cap = 0;
         int *refs = 0;
         if (t->kind == TK_CLASS)
@@ -1007,6 +1017,7 @@ static void vm_resolve_type(LoadCtx *L, VmT *t)
                 if (!a->isLocal)
                 {
                     t->hostTrace = a->type ? a->type->trace : 0;
+                    vm_refs_push_map(&refs, &n, &cap, 0, a->type ? a->type->refmap : 0);
                     break;
                 }
             }
@@ -1014,8 +1025,7 @@ static void vm_resolve_type(LoadCtx *L, VmT *t)
                 vm_collect_refs(L, a, 0, &refs, &n, &cap);
         }
         vm_collect_refs(L, t, 0, &refs, &n, &cap);
-        t->refs = refs;
-        t->nrefs = n;
+        t->refmap = vm_refs_pack(refs, n);
         // Nullable<T>: "System.Nullable`1<" + value alani
         if (t->kind == TK_STRUCT && !strncmp(t->name, "System.Nullable`1<", 18))
         {
@@ -1065,7 +1075,7 @@ static void vm_resolve_type(LoadCtx *L, VmT *t)
     t->resolving = 0;
     t->resolved = 1;
 }
-// host struct icin de ayni (hostTrace yok): struct kutusunun/dizisinin trace'i refs'e bakar
+// host struct icin de ayni (hostTrace yok): struct kutusunun/dizisinin trace'i refmap'e bakar
 static void vm_trace_local(GCHeader *o)
 {
     VmLocalType *lt = (VmLocalType *)o->type;
@@ -1073,10 +1083,9 @@ static void vm_trace_local(GCHeader *o)
     char *base = (char *)o + (t->kind == TK_STRUCT ? sizeof(GCHeader) : 0);
     if (t->hostTrace)
         t->hostTrace(o);
-    for (int i = 0; i < t->nrefs; i++)
-        gc_shade(*(GCHeader **)(base + t->refs[i]));
+    gc_trace_map(base, t->refmap);
 }
-// ref tasiyan struct elemanli dizi: eleman eleman refs
+// ref tasiyan struct elemanli dizi: eleman eleman refmap
 typedef struct VmArrT
 {
     Type type;
@@ -1088,11 +1097,7 @@ static void vm_trace_struct_array(GCHeader *o)
     VmArrT *at = (VmArrT *)a->gc.type;
     VmT *e = at->elem;
     for (int i = 0; i < a->len; i++)
-    {
-        char *base = (char *)a->data + (size_t)i * a->elemsize;
-        for (int k = 0; k < e->nrefs; k++)
-            gc_shade(*(GCHeader **)(base + e->refs[k]));
-    }
+        gc_trace_map((char *)a->data + (size_t)i * a->elemsize, e->refmap);
 }
 static const Type *vm_struct_array_type(VmT *elem)
 {
@@ -1779,8 +1784,7 @@ static void vm_statics_trace(void *f)
             if (fl->type->tag == 'o')
                 gc_shade(*(GCHeader **)fl->staddr);
             else if (fl->type->tag == 'v')
-                for (int j = 0; j < fl->type->nrefs; j++)
-                    gc_shade(*(GCHeader **)((char *)fl->staddr + fl->type->refs[j]));
+                gc_trace_map(fl->staddr, fl->type->refmap);
         }
     }
 }
@@ -2421,12 +2425,11 @@ static void vm_store(void *p, VmT *t, DeSlot s)
     case 'v':
         if (s.p != p)
             memmove(p, s.p, t->size);
-        for (int k = 0; k < t->nrefs; k++)
-            gc_write_barrier(0, *(GCHeader **)((char *)p + t->refs[k]));
+        DIGITOYENGINE_BARRIER_MAP(p, t->refmap);
         break;
     case 'o':
         *(void **)p = s.p;
-        gc_write_barrier(0, (GCHeader *)s.p);
+        DIGITOYENGINE_BARRIER_REF(p);
         break;
     default:
         *(void **)p = s.p;
@@ -2459,9 +2462,9 @@ static unsigned char vm_promote(unsigned char a, unsigned char b)
     if (au && bu)
         return 'u';
     if (au)
-        return vm_is_signed_small(b) ? 'l' : 'u';
+        return vm_is_signed_small(b) ? 'i' : 'u'; /* IL: int/uint karisimi 32-bit (Primitive.PromoteNumeric ile ayni) */
     if (bu)
-        return vm_is_signed_small(a) ? 'l' : 'u';
+        return vm_is_signed_small(a) ? 'i' : 'u';
     return 'i';
 }
 static long long vm_as_i64(DeSlot s, unsigned char g)
@@ -2502,7 +2505,7 @@ static double vm_as_f64(DeSlot s, unsigned char g)
         return (double)s.i;
     }
 }
-// C cast semantigi: kaynak tagdan hedef taga ((T)(v))
+// C cast semantigi: kaynak tagdan hedef taga ((T)(v)); kayan->tamsayi .NET doyurma (vmrt.h DIGITOYENGINE_f2*)
 static DeSlot vm_conv(DeSlot s, unsigned char from, unsigned char to)
 {
     DeSlot r;
@@ -2511,31 +2514,31 @@ static DeSlot vm_conv(DeSlot s, unsigned char from, unsigned char to)
     switch (to)
     {
     case 'i':
-        r.i = ff ? (cil_int)vm_as_f64(s, from) : (cil_int)vm_as_i64(s, from);
+        r.i = ff ? DIGITOYENGINE_f2i(vm_as_f64(s, from)) : (cil_int)vm_as_i64(s, from);
         break;
     case 'u':
-        r.u = ff ? (cil_uint)vm_as_f64(s, from) : (cil_uint)vm_as_i64(s, from);
+        r.u = ff ? DIGITOYENGINE_f2u(vm_as_f64(s, from)) : (cil_uint)vm_as_i64(s, from);
         break;
     case 'l':
-        r.l = ff ? (cil_long)vm_as_f64(s, from) : vm_as_i64(s, from);
+        r.l = ff ? DIGITOYENGINE_f2l(vm_as_f64(s, from)) : vm_as_i64(s, from);
         break;
     case 'q':
-        r.q = ff ? (cil_ulong)vm_as_f64(s, from) : (cil_ulong)vm_as_i64(s, from);
+        r.q = ff ? DIGITOYENGINE_f2ul(vm_as_f64(s, from)) : (cil_ulong)vm_as_i64(s, from);
         break;
     case 'h':
-        r.i = (cil_short)(ff ? (cil_int)vm_as_f64(s, from) : (cil_int)vm_as_i64(s, from));
+        r.i = (cil_short)(ff ? DIGITOYENGINE_f2i(vm_as_f64(s, from)) : (cil_int)vm_as_i64(s, from));
         break;
     case 'H':
-        r.u = (cil_ushort)(ff ? (cil_int)vm_as_f64(s, from) : (cil_int)vm_as_i64(s, from));
+        r.u = (cil_ushort)(ff ? DIGITOYENGINE_f2i(vm_as_f64(s, from)) : (cil_int)vm_as_i64(s, from));
         break;
     case 'b':
-        r.i = (cil_byte)(ff ? (cil_int)vm_as_f64(s, from) : (cil_int)vm_as_i64(s, from));
+        r.i = (cil_byte)(ff ? DIGITOYENGINE_f2i(vm_as_f64(s, from)) : (cil_int)vm_as_i64(s, from));
         break;
     case 'z':
-        r.i = (cil_sbyte)(ff ? (cil_int)vm_as_f64(s, from) : (cil_int)vm_as_i64(s, from));
+        r.i = (cil_sbyte)(ff ? DIGITOYENGINE_f2i(vm_as_f64(s, from)) : (cil_int)vm_as_i64(s, from));
         break;
     case 'c':
-        r.i = (cil_char)(ff ? (cil_int)vm_as_f64(s, from) : (cil_int)vm_as_i64(s, from));
+        r.i = (cil_char)(ff ? DIGITOYENGINE_f2i(vm_as_f64(s, from)) : (cil_int)vm_as_i64(s, from));
         break;
     case 'B':
         r.i = ff ? (vm_as_f64(s, from) != 0) : (int)vm_as_i64(s, from);
@@ -3464,7 +3467,7 @@ static void vm_exec_frame(VmMethod *m, DeSlot *args, DeSlot *ret)
             VmT *et = op->prim;
             int isref = et->tag == 'o';
             int es = vm_elemsize(et);
-            VmArray *a = (et->tag == 'v' && et->nrefs > 0) ? vmarray_new_rank_t(rank, dims, (unsigned short)es, vm_struct_array_type(et)) : vmarray_new_rank(rank, dims, (unsigned short)es, isref);
+            VmArray *a = (et->tag == 'v' && et->refmap) ? vmarray_new_rank_t(rank, dims, (unsigned short)es, vm_struct_array_type(et)) : vmarray_new_rank(rank, dims, (unsigned short)es, isref);
             PUSH(S_p(a), vm_array_of(m->mod, et, rank));
             break;
         }
@@ -3566,6 +3569,41 @@ static void vm_exec_frame(VmMethod *m, DeSlot *args, DeSlot *ret)
             PUSH(S_p(digitoyengine_type_wrapper(op->prim->type)), vm_prim_type(F));
             break;
         }
+        // ---- CANON LOWERING gizli operandlari: statik olanlar ham isaretci olarak push edilir ----
+        case OP_LdType:
+        {
+            if (!op->prim || !op->prim->type)
+                vm_fail("LdType: descriptor'suz tip");
+            PUSH(S_p((void *)op->prim->type), vm_scalar_t('p'));
+            break;
+        }
+        case OP_LdFnPtr:
+        {
+            VmMethod *m = op->code;
+            const void *fn = (m->fn) ? m->fn : (m->mi ? m->mi->fn : 0);
+            PUSH(S_p((void *)fn), vm_scalar_t('p'));
+            break;
+        }
+        case OP_LdDictSlot:
+        case OP_LdDictSelf:
+        case OP_LdDictConst:
+        case OP_NewRt:
+        case OP_NewArrayRt:
+        case OP_BoxRt:
+        case OP_UnboxRt:
+        case OP_UnboxOrDefaultRt:
+        case OP_IsTypeRt:
+        case OP_AsTypeRt:
+        case OP_CastRt:
+        case OP_TypeOfRt:
+        case OP_GetStaticRt:
+        case OP_SetStaticRt:
+        case OP_AddrStaticRt:
+        case OP_ExIsRt:
+        case OP_ExBindRt:
+        case OP_DelegateNewRt:
+            vm_fail("canon sozluk op'u: modul canon destegi henuz yok (docs/engine-notes.md CANON LOWERING P4)");
+            break;
         case OP_Box:
         {
             VmVal v = POP();
@@ -3803,6 +3841,12 @@ static void vm_exec_frame(VmMethod *m, DeSlot *args, DeSlot *ret)
             int n = c->nargs;
             if (n > 64)
                 vm_fail("arguman > 64");
+            // Lower: iface cagrisinda itable anahtari (iface Type*) gizli operand olarak tepededir; interp dispatch'i kendi
+            // metot kaydindan (decl->owner) yapar -> operand yalniz dusurulur.
+            if (c->owner && c->owner->kind == TK_IFACE)
+                (void)POP();
+            else if (c->owner && c->owner->kind == TK_EXTERN && c->owner->type && (c->owner->type->flags & DIGITOYENGINE_TYPE_INTERFACE))
+                (void)POP();
             VmVal *recv = &F->st[F->sp - n];
             if (vm_is_ptr(recv->t) && recv->t->elem)
             {
@@ -4092,8 +4136,17 @@ static void vm_exec_frame(VmMethod *m, DeSlot *args, DeSlot *ret)
             if (gb != 'f' && gb != 'd')
             {
                 LINE();
-                if (vm_as_i64(b.v, gb) == 0)
+                long long bv = vm_as_i64(b.v, gb);
+                if (bv == 0)
                     DIGITOYENGINE_throw_div();
+                /* isaretli MIN / -1: .NET OverflowException (C'de trap/UB) */
+                if (bv == -1 && (gb == 'i' || gb == 'l'))
+                {
+                    unsigned char ga = a.t->tag;
+                    long long av = vm_as_i64(a.v, ga);
+                    if ((gb == 'i' && ga == 'i' && av == (long long)(-2147483647 - 1)) || (gb == 'l' && ga == 'l' && av == (-9223372036854775807LL - 1)))
+                        DIGITOYENGINE_throw_overflow();
+                }
             }
             unsigned char g;
             DeSlot r = vm_numbin(op->op, a.v, a.t->tag, b.v, gb, &g);
@@ -4155,8 +4208,18 @@ static void vm_exec_frame(VmMethod *m, DeSlot *args, DeSlot *ret)
         }
         case OP_Not:
         {
+            /* IL not = BITWISE tersleme (C# ~x); mantiksal degil. 64-bit tag'lar genisligini korur, digerleri int32. */
             VmVal a = POP();
-            PUSH(S_i((vm_is_numeric(a.t) ? vm_as_i64(a.v, a.t->tag) == 0 : a.v.p == 0) ? 1 : 0), vm_scalar_t('i'));
+            unsigned char g = a.t->tag == 'V' ? 'i' : a.t->tag;
+            DeSlot r;
+            r.l = 0;
+            switch (g)
+            {
+            case 'l': r.l = ~a.v.l; PUSH(r, vm_scalar_t('l')); break;
+            case 'q': r.q = ~a.v.q; PUSH(r, vm_scalar_t('q')); break;
+            case 'u': r.u = ~a.v.u; PUSH(r, vm_scalar_t('u')); break;
+            default: r.i = ~(cil_int)vm_as_i64(a.v, g); PUSH(r, vm_scalar_t('i')); break;
+            }
             break;
         }
         case OP_Yield:

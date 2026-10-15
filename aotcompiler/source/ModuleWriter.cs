@@ -406,6 +406,7 @@ namespace DigitoyEngine.Language
                 case ushort us: b.Write((byte)12); b.Write(us); break;
                 case sbyte sb: b.Write((byte)13); b.Write(sb); break;
                 case Primitive tp: b.Write((byte)14); b.Write(w.Type(tp)); break; // attribute typeof(X) argumani
+                case DictSlotKind k: b.Write((byte)1); b.Write((int)k); break; // Lower: LdDictSlot turu (int olarak)
                 default: throw new Exception("ModuleWriter: desteklenmeyen literal tipi: " + v.GetType().Name);
             }
         }

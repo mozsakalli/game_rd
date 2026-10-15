@@ -16,12 +16,9 @@ namespace DigitoyEngine.Language
         {
             public string Expr;
             public Primitive Type;
-            // Pointer degerleri icin: isaret edilen bellegin sahibi heap nesnesi (C ifadesi; GCHeader*'a
-            // cast edilebilir). AddrField(class)/AddrIndex kurar, pointer uzerinden AddrField tasir.
-            // null = stack/static/bilinmeyen (ref parametre) -> iç yazimda barrier sahibi yok.
-            public string Owner;
+            public bool IsConst; // Lower gizli operandi (descriptor adresi / sozluk / fn isaretcisi): yan etkisiz sabit, spill edilmez
             public CVal(string expr, Primitive type) { Expr = expr; Type = type; }
-            public CVal(string expr, Primitive type, string owner) { Expr = expr; Type = type; Owner = owner; }
+            public static CVal Const(string expr, Primitive type) => new CVal(expr, type) { IsConst = true };
         }
 
         // string literal havuzu (interning): ayni metin = ayni _strpool_<hash> (GC_IMMORTAL, GC hic dokunmaz).
@@ -165,6 +162,8 @@ namespace DigitoyEngine.Language
             var e = arr.ElementType;
             if (e == null || e.IsGenericParameter || HasOpenTypeArgs(e) || e.Type == PrimitiveType.Pointer || e.Type == PrimitiveType.FixedArray || e.Type == PrimitiveType.Void) return false;
             if (e.Type == PrimitiveType.Model && e != Primitive.Object && e != Primitive.String && e != Primitive.ValueType && (!IsEmittableModel(e) || !TrimPlan.IsTypeLive(e))) return false;
+            // InternedArrays Context'ler arasi statik: bu programa ait olmayan eleman tipi (selftest -> interp host) emit edilmez
+            if (e.Type == PrimitiveType.Model && !(EmitCtx.TryGetPrimitive(e.Name, out var own) && own == e)) return false;
             return ExportTypeSym(e) != "0";
         }
         static bool IsReflectedArray(Primitive arr) => arr != null && arr.Type == PrimitiveType.Array && reflectedArrays.ContainsKey(CName(arr.Name));
@@ -378,6 +377,9 @@ namespace DigitoyEngine.Language
             if (t == Primitive.String) return "VmString*"; // runtime string (struct uretilmez)
             if (t == Primitive.ValueType) return "VmObject*"; // boxed value type runtime koku
             if (t.IsCanon) return "VmObject*"; // CANON: ref-tip temsilcisi (runtime koku gibi; ->gc.type erisimi icin VmObject)
+            if (t == Primitive.TypeHandle) return "const Type*";          // Lower: yigindaki descriptor
+            if (t == Primitive.DictHandle) return "const void *const *";  // Lower: yigindaki sozluk
+            if (t == Primitive.FnPtrHandle) return "const void*";         // Lower: yigindaki fn isaretcisi
             switch (TypeShape.Of(t))
             {
                 case Shape.Delegate: return "VmDelegate*";                       // runtime delegate (struct uretilmez)
@@ -428,59 +430,21 @@ namespace DigitoyEngine.Language
         // CANON: paylasimli exact kabuk (List<string>.Add) govdesizdir, kodu canon'da (K8).
         static bool IsEmittableCode(Code c) => c.GenericParameters.Count == 0 && !c.IsSharedExact && !(c.Owner != null && (c.Owner.IsInterface || c.Owner.IsGeneric || HasOpenTypeArgs(c.Owner))) && TrimPlan.IsCodeLive(c);
 
-        // ---- CANON yardimcilari (K6/K7/K10) ----
-        // Fonksiyon isaretcisi olarak materyalize edilen hedef: exact kabuk -> canon fn ya da (ctx gerekiyorsa) instantiating stub.
-        static string FnPtrSym(Code c) => c.IsSharedExact ? (c.Shared.NeedsDictParam ? StubSym(c) : CSym(c.Shared)) : CSym(c);
-        static string StubSym(Code exact) => "de_inst_" + CSym(exact);
-        static readonly HashSet<Code> neededStubs = new HashSet<Code>();
-        static string TypeDictSym(Primitive exact) => CName(exact.Name) + "_dict";
-        static string MethodDictSym(Code exact) => "mdict_" + CSym(exact);
-        // exact kabugun (tip uyesi ya da generic metot ornegi) kendi sozluk sembolu: canon metot dict'i ya da exact tipin dict'i
-        static string DictSymOf(Code exact) => exact.Shared.HasMethodDict ? MethodDictSym(exact) : TypeDictSym(exact.Owner);
-        static string StaticsStructTag(Primitive canon) => StructTag(canon) + "_statics";
-        static string StaticsSym(Primitive exact) => CName(exact.Name) + "_statics";
-        static string DictSlotType(string dict, int slot) => $"DIGITOYENGINE_DICT_TYPE({dict}, {slot})";
-        // emisyon sirasinda isleniyor olan fonksiyonun sozluk ifadesi (__dict yerel/param) ve kullanim bayragi
-        static bool curDictUsed;
-        static string Dict() { curDictUsed = true; return "__dict"; }
-        // Cagrida gizli sozluk argumani: -2 kendi sozlugu, >=0 slot, aksi (exact cagiran) exact hedefin sembolu
-        static string DictArgFor(Op op, Code callee)
+        // ---- CANON LOWERING: T'ye bagli bilgi yigindan gelir (Lower.cs). Asagidaki yardimcilar "T verildi mi" ile calisir; op/sozluk bilmez. ----
+        // is/as/cast testi: T (runtime descriptor) verilmisse DIGITOYENGINE_is_any (iface/dizi/class ayrimi runtime), aksi statik
+        static string TypeTestT(string T, Primitive target, string typeExpr, string objExpr) =>
+            T != null ? $"DIGITOYENGINE_is_any((GCHeader*){objExpr}, {T})" : TypeTest(target, typeExpr, objExpr);
+        // kutudan deger: T verilmisse exact descriptor'la runtime unbox (canon struct hedefi), aksi statik
+        static string UnboxValueT(string T, Primitive type, string objExpr)
         {
-            if (op.DictSlot == -2) return Dict();
-            if (op.DictSlot >= 0) return $"DIGITOYENGINE_DICT_DICT({Dict()}, {op.DictSlot})";
-            if (!callee.IsSharedExact) throw new Exception($"canon cagri hedefine exact sozluk yok: {callee.EncodeName()}");
-            return DictSymOf(callee);
-        }
-        // Tip descriptor adresi: canon govdede sozlukten, aksi halde sembol
-        static string TypeAddr(Op op, Primitive t) => op.DictSlot >= 0 ? DictSlotType(Dict(), op.DictSlot) : $"&{TypeSym(t)}";
-        // Statik alan lvalue'su: canon govdede exact Type.statics blogu uzerinden (K10), aksi halde dogrudan sembol
-        static string StaticRef(Op op) => op.DictSlot >= 0
-            ? $"((struct {StaticsStructTag(op.Field.Owner)}*){DictSlotType(Dict(), op.DictSlot)}->statics)->{CName(op.Field.Name)}"
-            : StaticSym(op.Field);
-        // is/as testi: canon govdede hedef sozlukten (iface/dizi/class ayrimi runtime: DIGITOYENGINE_is_any), aksi halde statik
-        static string TypeTestOp(Op op, string typeExpr, string objExpr) =>
-            op.DictSlot >= 0 ? $"DIGITOYENGINE_is_any((GCHeader*){objExpr}, {DictSlotType(Dict(), op.DictSlot)})" : TypeTest(op.PrimitiveRef, typeExpr, objExpr);
-        // kutudan deger: canon struct hedefi (KVP<__Canon,int>) exact descriptor'u sozlukten alir
-        static string UnboxValueOp(Op op, Primitive type, string objExpr)
-        {
-            if (op.DictSlot < 0) return UnboxValue(type, objExpr);
+            if (T == null) return UnboxValue(type, objExpr);
             string ct = TypeShape.IsStructModel(type) ? $"struct {StructTag(type)}" : ScalarCType(type);
-            return $"(*({ct}*)digitoyengine_unbox((GCHeader*)({objExpr}), {DictSlotType(Dict(), op.DictSlot)}))";
+            return $"(*({ct}*)digitoyengine_unbox((GCHeader*)({objExpr}), {T}))";
         }
-        // Paylasimli exact tipin alanini okuma/yazma/adresi: C struct canon'un (alan tipi orn. GCHeader*), exact tip daha ozel -> acik cast (K9)
-        static string CanonFieldCType(PrimitiveField f)
-        {
-            var cf = Hierarchy.AllFields(f.Owner.Canonical).FirstOrDefault(x => x.Name == f.Name) ?? throw new Exception($"canon alani yok: {f.Owner.Name}.{f.Name}");
-            return CType(cf.Type);
-        }
-        static bool FieldNeedsCast(PrimitiveField f) => f.Owner != null && f.Owner.IsSharedExact && TypeShape.IsGcRef(f.Type) && CanonFieldCType(f) != CType(f.Type);
-        static string FieldCast(PrimitiveField f, string expr) => FieldNeedsCast(f) ? $"(({CType(f.Type)})({expr}))" : expr;
-        static string FieldStoreCast(PrimitiveField f, string expr) => FieldNeedsCast(f) ? $"(({CanonFieldCType(f)})({expr}))" : expr;
-        static string FieldAddrCast(PrimitiveField f, string expr) => FieldNeedsCast(f) ? $"(({CType(f.Type)}*)({expr}))" : expr;
-        // Canon govdede `where T : Component` alicisi T (VmObject*) uzerinden alan erisimi: alanin sahibine cast (kisit tipi IL'de alan sahibidir)
-        static CVal CanonInst(CVal inst, PrimitiveField f) =>
-            inst.Type != null && inst.Type.IsCanon && f.Owner != null && TypeShape.IsClassModel(f.Owner) ? new CVal($"(({CType(f.Owner)})({inst.Expr}))", f.Owner, inst.Owner) : inst;
-
+        // Statik alan lvalue'su: T verilmisse exact Type.statics blogu uzerinden (K10), aksi dogrudan sembol
+        static string StaticRefT(string T, PrimitiveField f) => T != null
+            ? $"((struct {StaticsStructTag(f.Owner)}*){T}->statics)->{CName(f.Name)}"
+            : StaticSym(f);
         // TranspileProgram / TranspileFiles: CTranspiler.Units.cs (birim tabanli emisyon)
 
         static string StaticSym(PrimitiveField f)
@@ -537,30 +501,10 @@ namespace DigitoyEngine.Language
                 genericArgs = cn + "_generic_args";
                 genericArgCount = type.TypeArguments.Count.ToString();
             }
-            // Kutu yerlesimi: [GCHeader][struct]. Struct icinde referans varsa trace fn (GC kutunun
-            // icindeki nesneleri gormeli), atomic=0; yoksa atomic=1.
-            var paths = new List<string>();
-            foreach (var field in Hierarchy.AllFields(type))
-                CollectGcRefPaths(field.Type, "p->" + CName(field.Name), paths);
-            string traceFn = "0", traceInline = "0";
+            // Kutu yerlesimi: [GCHeader][struct]. GC tarama = Type.refmap (payload ofsetleri; kutu trace'i header'i atlar),
+            // ref yoksa atomic=1. CANON: paylasimli exact struct canon'un tablosunu gosterir (RefMapSym -> StructTag).
+            var refmap = RefMap.Of(type);
             var st = StructTag(type);
-            if (paths.Count > 0)
-            {
-                // Inline tracer asil (dizi elemani / ic ice struct): payload adresi alir; kutu trace'i header'i atlayip onu cagirir.
-                // CANON: paylasimli exact struct canon'un trace_inline'ini kullanir (canon biriminde dis baglantili).
-                traceInline = $"trace_inline_{st}";
-                if (type.IsSharedExact) sb.Append($"void {traceInline}(void* e);\n");
-                else
-                {
-                    sb.Append($"static void {traceInline}(void* e) {{\n");
-                    sb.Append($"    struct {st}* p = (struct {st}*)e;\n");
-                    foreach (var path in paths)
-                        sb.Append($"    gc_shade((GCHeader*){path});\n");
-                    sb.Append("}\n");
-                }
-                traceFn = $"trace_box_{cn}";
-                sb.Append($"static void {traceFn}(GCHeader* o) {{ {traceInline}((char*)o + sizeof(GCHeader)); }}\n");
-            }
             // Kutu vtable'i (Object slot sozlesmesi: 0=GetHashCode 1=Equals 2=ToString): struct override'i varsa kutuyu acan
             // thunk, yoksa ValueType varsayilani (payload memcmp/hash; ToString = tip adi). `((object)s).Equals(x)` ve
             // constrained fallback (kutula + callvirt) buradan dispatch eder.
@@ -585,17 +529,15 @@ namespace DigitoyEngine.Language
                     : $"(const void*)&{CName(Primitive.Object.VTable[i].EncodeName())}");
             }
             sb.Append($"static const void* const {cn}_vtable[{vt.Count}] = {{ {string.Join(", ", vt)} }};\n");
-            sb.Append($"Type {cn}_type = {{ {traceFn}, 0, sizeof(GCHeader) + sizeof(struct {st}), {(paths.Count > 0 ? 0 : 1)}, &vmvaluetype_type, {TypeNameRef(type)}, {cn}_vtable, {vt.Count}, 0, 0, 0, 0, {(HasReflectionMembers(type) ? cn + "_members" : "0")}, {ReflectionMemberCount(type)}, {genericArgs}, {genericArgCount}{TypeMetaTail(type)}{(traceInline != "0" ? $", .trace_inline = {traceInline}" : "")} }};\n");
+            sb.Append($"Type {cn}_type = {{ 0, 0, sizeof(GCHeader) + sizeof(struct {st}), {(refmap.IsEmpty ? 1 : 0)}, &vmvaluetype_type, {TypeNameRef(type)}, {cn}_vtable, {vt.Count}, 0, 0, 0, 0, {(HasReflectionMembers(type) ? cn + "_members" : "0")}, {ReflectionMemberCount(type)}, {genericArgs}, {genericArgCount}{TypeMetaTail(type)}{(refmap.IsEmpty ? "" : $", .refmap = {RefMapSym(type)}")} }};\n");
             return sb.ToString();
         }
 
-        // T[] descriptor'u: kimlik + tahsis tipi. Trace ortak (digitoyengine_trace_array), atomic yalniz ref'siz deger elemanda.
+        // T[] descriptor'u: kimlik + tahsis tipi. Trace ortak (digitoyengine_trace_array: eleman refmap'i), atomic yalniz ref'siz deger elemanda.
         static string EmitArrayType(Primitive array)
         {
             var elem = array.ElementType;
-            var paths = new List<string>();
-            if (!TypeShape.IsGcRef(elem)) CollectGcRefPaths(elem, "e", paths);
-            int atomic = !TypeShape.IsGcRef(elem) && paths.Count == 0 ? 1 : 0;
+            int atomic = !TypeShape.IsGcRef(elem) && RefMap.Of(elem).IsEmpty ? 1 : 0;
             return $"Type {TypeSym(array)} = {{ digitoyengine_trace_array, finalize_vmarray, sizeof(VmArray), {atomic}, {ArrayBaseSym()}, &{strPool[array.Display]}, vmobject_vtable, 3, 0, 0, 0, .hash = {Fnv64(array.Name)}ull, .flags = DIGITOYENGINE_TYPE_ARRAY, .elem_type = {ExportTypeSym(elem)}, .rank = {Math.Max(1, array.ArrayRank)} }};\n";
         }
 
@@ -656,22 +598,32 @@ namespace DigitoyEngine.Language
 
         static string WithPostCallRemember(string call, Primitive ret, CVal[] values) => call; // tek artimli GC: remembered set yok, cagri sonrasi is yok
 
-        // Write barrier ifadeleri: owner (GCHeader*) ve yazilan slot'un icindeki TUM referans yollari
-        // (duz ref/dizi alani: tek yol; struct alani: icindeki ref alanlar). Ref icermeyen tip: bos.
-        // AOT_NOBARRIER=1: bariyer emisyonu kapali (yalniz Demo51'in hatayi yakaladigini kanitlamak icin).
+        // WRITE BARRIER (vmrt.h R3/R4): heap slotuna yazimdan SONRA slot adresi verilir; icerigi GC okur. Ref slot -> BARRIER_REF,
+        // ref tasiyan struct slot -> BARRIER_MAP(refmap). Ref icermeyen tip: bos. Sahip (owner) hicbir zaman sezilmez.
+        // AOT_NOBARRIER=1: bariyer emisyonu kapali (yalniz Demo51/Demo97'nin hatayi yakaladigini kanitlamak icin).
         static readonly bool NoBarrier = Environment.GetEnvironmentVariable("AOT_NOBARRIER") == "1";
 
-        static string WriteBarrier(string ownerExpr, string slotExpr, Primitive slotType)
+        static string Barrier(string slotExpr, Primitive slotType)
         {
-            if (NoBarrier) return "";
-            var paths = new List<string>();
-            CollectGcRefPaths(slotType, slotExpr, paths);
-            if (paths.Count == 0) return "";
-            var sb = new StringBuilder();
-            foreach (var p in paths)
-                sb.Append($" gc_write_barrier((GCHeader*){ownerExpr}, (GCHeader*){p});");
-            return sb.ToString();
+            if (NoBarrier || slotType == null) return "";
+            if (TypeShape.IsGcRef(slotType)) return $" DIGITOYENGINE_BARRIER_REF(&({slotExpr}));";
+            if (TypeShape.IsStructModel(slotType) && !RefMap.Of(slotType).IsEmpty) return $" DIGITOYENGINE_BARRIER_MAP(&({slotExpr}), {RefMapSym(slotType)});";
+            return "";
         }
+
+        // GC refmap tablosu sembolu: yerlesim basina bir tablo; paylasimli exact canon'unkini kullanir (StructTag ayni).
+        static string RefMapSym(Primitive t) => StructTag(t) + "_refmap";
+
+        // Tablo tanimi: { n, offsetof(struct T, a.b.c)... } — ofsetleri C derleyicisi hesaplar (padding), tek kaynak RefMap.
+        static string EmitRefMapDef(Primitive t)
+        {
+            var map = RefMap.Of(t);
+            if (map.IsEmpty) return "";
+            var st = StructTag(t);
+            var offs = map.Paths.Select(path => $"offsetof(struct {st}, {string.Join(".", path.Select(f => CName(f.Name)))})");
+            return $"_Static_assert(sizeof(struct {st}) <= 0xFFFF, \"refmap: struct too large\");\nconst unsigned short {RefMapSym(t)}[] = {{ {map.Count}, {string.Join(", ", offs)} }};\n";
+        }
+        static string EmitRefMapDecl(Primitive t) => RefMap.Of(t).IsEmpty ? "" : $"extern const unsigned short {RefMapSym(t)}[];\n";
 
         // Kullanici struct kutulama: deger gecici'ye alinir, payload kopyalanir (statement-expression).
         static string BoxStruct(Primitive st, string expr)
@@ -742,26 +694,24 @@ namespace DigitoyEngine.Language
             : target.IsInterface ? $"DIGITOYENGINE_implements({typeExpr}, &{TypeSym(target)})"
                                  : $"DIGITOYENGINE_is({typeExpr}, &{TypeSym(BoxedTypeOf(target))})"; // Nullable<T> kutusu = T kutusu
 
-        // digitoyengine_init: (1) class-ref static'leri GC koku olarak kaydet, (2) cctor'lari kayit sirasiyla kos.
+        // digitoyengine_init: (1) ref tasiyan static'leri GC kok tablosuna kaydet (adres + refmap; R2), (2) cctor'lari kayit sirasiyla kos.
         // Host main'i baska bir sey yapmadan ONCE cagirmali.
         static string EmitInit(Context ctx)
         {
             var sb = new StringBuilder();
-            var refStatics = new List<string>();
+            var roots = new List<string>();
             foreach (var p in ctx.AllPrimitives)
                 if (IsEmittableModel(p))
                     foreach (var f in p.StaticFields)
-                        CollectGcRefPaths(f.Type, StaticSym(f), refStatics);
-            if (refStatics.Count > 0)
-            {
-                sb.Append("static void digitoyengine_statics_trace(void* _) {\n");
-                foreach (var path in refStatics)
-                    sb.Append($"    gc_shade((GCHeader*){path});\n");
-                sb.Append("}\n");
-            }
+                    {
+                        if (TypeShape.IsGcRef(f.Type)) roots.Add($"{{ (void*)&{StaticSym(f)}, 0 }}");
+                        else if (TypeShape.IsStructModel(f.Type) && !RefMap.Of(f.Type).IsEmpty) roots.Add($"{{ (void*)&{StaticSym(f)}, {RefMapSym(f.Type)} }}");
+                    }
+            if (roots.Count > 0)
+                sb.Append($"static const GcStaticRoot digitoyengine_static_roots[{roots.Count}] = {{\n    {string.Join(",\n    ", roots)}\n}};\n");
             sb.Append("void digitoyengine_init(void) {\n");
-            if (refStatics.Count > 0)
-                sb.Append("    gc_add_frame_root((void*)1, digitoyengine_statics_trace);\n");
+            if (roots.Count > 0)
+                sb.Append($"    gc_add_static_roots(digitoyengine_static_roots, {roots.Count});\n");
             // object/string sanal methodlari: runtime'daki yazilabilir vtable dizilerine impl adresleri
             if (Primitive.Object.VTable.Count > 3 || Primitive.String.VTable.Count > 3)
                 throw new Exception("vmobject/vmstring vtable[3] tasti: vmrt.h dizilerini corelib VTable ile buyut");
@@ -897,23 +847,9 @@ namespace DigitoyEngine.Language
             return sb.ToString();
         }
 
-        // sadece skaler/FixedArray alanli struct'lar "atomic" (GC hic taramaz, trace yok).
-        // Model-pointer alani olanlar icin trace fonksiyonu her pointer alani gc_shade eder.
-        // Root kaydi (add_root/frame_root) BILINCLI OLARAK YOK: GC yalniz oyun dongusundeki
-        // guvenli noktada (hicbir transpile edilmis cagri C stack'inde degilken) tetikleniyor,
-        // o an local'ler zaten olu; sadece kalici/root'tan ulasilan nesneler canli sayiliyor.
-        // GC'ye gorunen alanlar: dogrudan class/array referanslari ve struct icindeki tum referans yolları.
-        static void CollectGcRefPaths(Primitive type, string path, List<string> paths)
-        {
-            if (TypeShape.IsGcRef(type))
-            {
-                paths.Add(path);
-                return;
-            }
-            if (!TypeShape.IsStructModel(type)) return;
-            foreach (var field in Hierarchy.AllFields(type))
-                CollectGcRefPaths(field.Type, path + "." + CName(field.Name), paths);
-        }
+        // GC yerlesim bilgisi: RefMap.cs (tek kaynak). Root kaydi (add_root/frame_root) BILINCLI OLARAK YOK: GC yalniz oyun
+        // dongusundeki guvenli noktada (hicbir transpile edilmis cagri C stack'inde degilken) tetikleniyor, o an local'ler
+        // zaten olu; sadece kalici/root'tan ulasilan nesneler canli sayiliyor.
 
         // finalizer bildiren en yakin tip (self dahil zincir); ~X yoksa null
         static Primitive FindFinalizerDeclarer(Context ctx, Primitive model)
@@ -934,17 +870,8 @@ namespace DigitoyEngine.Language
             // karsilastirmasi) hem is/as hedefi olarak kullanilir.
             if (model.IsInterface)
                 return $"Type {cn}_type = {{ 0, 0, 0, 1, 0, &{strPool[model.Display]}, 0, 0, 0, 0, 0{TypeMetaTail(model)} }};\n";
-            var pointerPaths = new List<string>();
-            foreach (var field in Hierarchy.AllFields(model))
-                CollectGcRefPaths(field.Type, "p->" + CName(field.Name), pointerPaths);
+            var refmap = RefMap.Of(model); // GC tarama: Type.refmap (nesne basindan ofsetler); CANON: exact canon'un tablosunu gosterir
             var sb = new StringBuilder();
-            string traceFn = "0";
-            if (pointerPaths.Count > 0)
-            {
-                traceFn = $"trace_{st}";
-                if (model.IsSharedExact) sb.Append($"void {traceFn}(GCHeader* o);\n"); // CANON: trace fn canon biriminde (yerlesim ayni)
-                else sb.Append(EmitTraceFn(traceFn, st, pointerPaths, true));
-            }
             string vtable = "0", nvtable = "0";
             if (model.VTable.Count > 0)
             {
@@ -971,7 +898,7 @@ namespace DigitoyEngine.Language
                 itables = cn + "_itables";
                 nitables = allIfaces.Count.ToString();
             }
-            int atomic = pointerPaths.Count == 0 ? 1 : 0;
+            int atomic = refmap.IsEmpty ? 1 : 0;
             // finalizer zinciri: C# semantigi - turemisin ~'si once, sonra base'inki (erken return dahil,
             // cunku zincir methodun DISINDA thunk'ta). Bildirmeyen tip en yakin atanin thunk'ini kullanir.
             string finFn = "0";
@@ -998,49 +925,8 @@ namespace DigitoyEngine.Language
                 genericArgs = cn + "_generic_args";
                 genericArgCount = model.TypeArguments.Count.ToString();
             }
-            sb.Append($"Type {cn}_type = {{ {traceFn}, {finFn}, sizeof(struct {st}), {atomic}, {baseType}, {TypeNameRef(model)}, {vtable}, {nvtable}, {itables}, {nitables}, 0, 0, {members}, {ReflectionMemberCount(model)}, {genericArgs}, {genericArgCount}{TypeMetaTail(model)} }};\n");
+            sb.Append($"Type {cn}_type = {{ 0, {finFn}, sizeof(struct {st}), {atomic}, {baseType}, {TypeNameRef(model)}, {vtable}, {nvtable}, {itables}, {nitables}, 0, 0, {members}, {ReflectionMemberCount(model)}, {genericArgs}, {genericArgCount}{TypeMetaTail(model)}{(refmap.IsEmpty ? "" : $", .refmap = {RefMapSym(model)}")} }};\n");
             return sb.ToString();
-        }
-
-        static string EmitTraceFn(string name, string st, List<string> paths, bool isStatic)
-        {
-            var sb = new StringBuilder();
-            sb.Append($"{(isStatic ? "static " : "")}void {name}(GCHeader* o) {{\n");
-            sb.Append($"    struct {st}* p = (struct {st}*)o;\n");
-            foreach (var path in paths) sb.Append($"    gc_shade((GCHeader*){path});\n");
-            sb.Append("}\n");
-            return sb.ToString();
-        }
-
-        // CANON ornegi: descriptor yok; yerlesimi paylasan exact'ler icin dis baglantili trace fn (class) / trace_inline (struct).
-        static string EmitCanonTrace(Primitive canon)
-        {
-            var st = StructTag(canon);
-            var paths = new List<string>();
-            foreach (var field in Hierarchy.AllFields(canon))
-                CollectGcRefPaths(field.Type, "p->" + CName(field.Name), paths);
-            if (paths.Count == 0) return "";
-            if (canon.IsStruct)
-            {
-                var sb = new StringBuilder();
-                sb.Append($"void trace_inline_{st}(void* e) {{\n    struct {st}* p = (struct {st}*)e;\n");
-                foreach (var path in paths) sb.Append($"    gc_shade((GCHeader*){path});\n");
-                sb.Append("}\n");
-                return sb.ToString();
-            }
-            return EmitTraceFn($"trace_{st}", st, paths, false);
-        }
-
-        // vtable girisi: sozluk sentinel'i -> zincirde o canon'a karsilik gelen exact tipin sozlugu; aksi halde fn/stub
-        static string VSlotRef(Primitive model, Code m)
-        {
-            if (Context.IsDictSentinel(m))
-            {
-                for (var t = model; t != null; t = t.Parent)
-                    if (t.Canonical == m.Owner) return $"(const void*){TypeDictSym(t)}";
-                throw new Exception($"sozluk sentinel'inin exact sahibi yok: {model.Name} <- {m.Owner.Name}");
-            }
-            return VSlotRefOf(m);
         }
 
         // Reflection uyeleri: tum bildirilen alanlar (backing field'lar dahil; .NET GetFields(NonPublic) gibi) + property'ler.
@@ -1105,66 +991,6 @@ namespace DigitoyEngine.Language
             if (dictParam) pars = "const void *const *__dict" + (code.Arguments.Count > 0 ? ", " + pars : ""); // CANON K6: gizli sozluk ilk parametre
             if (pars.Length == 0) pars = "void";
             return $"{CType(code.ReturnType)} {sym}({pars})";
-        }
-
-        // CANON K7: instantiating stub — exact imzali, sozlugu yukleyip canon fn'e atlar. Fonksiyon isaretcisi istenen her yerde
-        // (vtable/itable, delegate, MethodInfo.fn) bu kullanilir; dogrudan cagri sozlugu inline gecer.
-        static string EmitStub(Code exact)
-        {
-            var k = exact.Shared;
-            var an = CArgNames(exact, new HashSet<string>());
-            var args = new List<string> { DictSymOf(exact) };
-            for (int i = 0; i < an.Length; i++) // exact imza -> canon imza (VmString* -> VmObject*): acik cast
-                args.Add(CType(k.Arguments[i].Type) != CType(exact.Arguments[i].Type) ? $"({ParamCType(k.Arguments[i])})({an[i]})" : an[i]);
-            var call = $"{CSym(k)}({string.Join(", ", args)})";
-            bool isVoid = exact.ReturnType == null || exact.ReturnType == Primitive.Void;
-            if (!isVoid && CType(k.ReturnType) != CType(exact.ReturnType)) call = $"({CType(exact.ReturnType)}){call}";
-            return $"{Prototype(exact, StubSym(exact), false)} {{ {(isVoid ? "" : "return ")}{call}; }}\n";
-        }
-        // Stub talebi: sahibin birimine tanim (.c on-bolumu) + prototip (header); bir kez
-        static void RequestStub(Code exact)
-        {
-            if (!exact.IsSharedExact || !exact.Shared.NeedsDictParam) return;
-            if (!neededStubs.Add(exact)) return;
-            var u = UnitOf(exact.Owner);
-            u.H.Append(Prototype(exact, StubSym(exact), false) + ";\n");
-            u.Pre.Append(EmitStub(exact));
-        }
-        static string VSlotRefOf(Code m)
-        {
-            if (!IsEmittableCode(m.Shared)) return "0";
-            RequestStub(m);
-            return $"(const void*)&{FnPtrSym(m)}";
-        }
-        // Exact ornegin sozluk dizisi: layout slot sirasiyla hedef adresleri (bos layout -> tek 0; cagrilan yine isaretci bekler)
-        static string EmitDict(Context ctx, object exact, string sym)
-        {
-            var rows = new List<string>();
-            if (ctx.TryGetDictInstance(exact, out var d))
-                foreach (var t in d.Targets)
-                {
-                    if (t is Primitive p)
-                    {
-                        var slot = d.Layout.Slots[rows.Count];
-                        rows.Add(slot.Kind == DictSlotKind.TypeDict ? $"(const void*){TypeDictSym(p)}" : $"(const void*){ExportTypeSymStrict(p)}");
-                    }
-                    else
-                    {
-                        var c = (Code)t;
-                        var slot = d.Layout.Slots[rows.Count];
-                        if (slot.Kind == DictSlotKind.FnPtr) { RequestStub(c); rows.Add($"(const void*)&{FnPtrSym(c)}"); }
-                        else rows.Add($"(const void*){MethodDictSym(c)}");
-                    }
-                }
-            if (rows.Count == 0) rows.Add("0");
-            return $"const void *const {sym}[{rows.Count}] = {{ {string.Join(", ", rows)} }};\n";
-        }
-        // Sozluk hedefi exact tip descriptor'u: diziler dahil her hedefin sembolu olmali (0 = analiz hatasi, link degil runtime patlar)
-        static string ExportTypeSymStrict(Primitive p)
-        {
-            var s = ExportTypeSym(p);
-            if (s == "0") throw new Exception($"canon sozluk hedefinin descriptor'u yok: {p.Name}");
-            return s;
         }
 
         // ref/out parametre -> C pointer (CIL managed pointer karsiligi); GetArg pointer'i,
@@ -1251,14 +1077,14 @@ namespace DigitoyEngine.Language
             {
                 if (float.IsPositiveInfinity(f)) return new CVal("(1.0f / 0.0f)", Primitive.Float);
                 if (float.IsNegativeInfinity(f)) return new CVal("(-1.0f / 0.0f)", Primitive.Float);
-                if (float.IsNaN(f)) return new CVal("(0.0f / 0.0f)", Primitive.Float);
+                if (float.IsNaN(f)) return new CVal("DIGITOYENGINE_nan_f()", Primitive.Float); // .NET NaN bit deseni 0xFFC00000 (clang 0.0f/0.0f -> 0x7FC00000)
                 return new CVal(FloatLiteralText(f.ToString("R")) + "f", Primitive.Float);
             }
             if (value is double d)
             {
                 if (double.IsPositiveInfinity(d)) return new CVal("(1.0 / 0.0)", Primitive.Double);
                 if (double.IsNegativeInfinity(d)) return new CVal("(-1.0 / 0.0)", Primitive.Double);
-                if (double.IsNaN(d)) return new CVal("(0.0 / 0.0)", Primitive.Double);
+                if (double.IsNaN(d)) return new CVal("DIGITOYENGINE_nan_d()", Primitive.Double); // .NET double.NaN = 0xFFF8000000000000
                 return new CVal(FloatLiteralText(d.ToString("R")), Primitive.Double);
             }
             if (value is bool b) return new CVal(b ? "1" : "0", Primitive.Bool);
@@ -1356,6 +1182,8 @@ namespace DigitoyEngine.Language
             int tempCounter = 0;
             CVal Pop() { var v = stack[stack.Count - 1]; stack.RemoveAt(stack.Count - 1); return v; }
             void Push(CVal v) => stack.Add(v);
+            // CANON LOWERING: Rt op'u tip descriptor'unu yiginin tepesinden alir; statik op'ta null (sembol)
+            string HiddenType(Op o2, OpType rt) => o2.Type == rt ? Pop().Expr : null;
             // dallanma oncesi bekleyen ifadeleri C temp'ine dok: jump hedefinde her iki yol AYNI
             // temp adlarini gorur (ternary/kisa-devre degerleri alici beklerken emit edilebilir).
             // Alt-stack once hesaplanir = C# soldan-saga degerlendirme sirasiyla da tutarli.
@@ -1364,13 +1192,14 @@ namespace DigitoyEngine.Language
                 for (int si = 0; si < stack.Count; si++)
                 {
                     var ex = stack[si].Expr;
-                    if (ex.StartsWith("__s") || LiteralExpr(ex)) continue; // spill'li ya da saf sabit: tasima gereksiz
+                    if (ex.StartsWith("__s") || stack[si].IsConst || LiteralExpr(ex)) continue; // spill'li, sabit operand ya da saf sabit: tasima gereksiz
                     var t = $"__s{tempCounter++}";
                     sb.Append($"    {CType(stack[si].Type)} {t} = {ex};\n");
-                    stack[si] = new CVal(t, stack[si].Type, stack[si].Owner); // sahip bilgisi spill'de korunur
+                    stack[si] = new CVal(t, stack[si].Type);
                 }
             }
-            // yan etkisiz/degismez ifade: sayi, char, string havuzu adresi (IDENT DEGIL - mutasyon bayatligi riski)
+            // yan etkisiz/degismez ifade: sayi, char, string havuzu adresi (IDENT DEGIL - mutasyon bayatligi riski); Lower'in gizli
+            // operandlari CVal.IsConst ile isaretlidir (regex degil: kullanici alani `X_s_dict` gibi adlarla karisir)
             bool LiteralExpr(string e2) =>
                 System.Text.RegularExpressions.Regex.IsMatch(e2, @"^-?[0-9][0-9uUlL.xa-fA-F]*f?$") ||
                 System.Text.RegularExpressions.Regex.IsMatch(e2, @"^'.'$") ||
@@ -1403,13 +1232,21 @@ namespace DigitoyEngine.Language
                 }
                 return MaterializeArg(coerced, decl);
             }
-            // tam sayi bolme/mod: bolen sifir denetimi (C#: DivideByZeroException; float'ta yok)
-            CVal DivCheck(CVal b, Op op)
+            // tam sayi bolme/mod: bolen sifir denetimi (C#: DivideByZeroException; float'ta yok); isaretli int/long'da
+            // ayrica MIN/-1 -> OverflowException (C idiv trap'i sureci oldururdu)
+            CVal DivCheck(CVal a, CVal b, Op op)
             {
                 if (b.Type != null && (b.Type.Type == PrimitiveType.Float || b.Type.Type == PrimitiveType.Double)) return b;
                 var t = $"__t{tempCounter++}";
                 sb.Append($"    {CType(b.Type ?? Primitive.Int)} {t} = {b.Expr};\n");
-                sb.Append($"    DIGITOYENGINE_DIVCHECK_AT({t}, {op.Line});\n");
+                var bt = b.Type?.Type ?? PrimitiveType.Int;
+                var at = a.Type?.Type ?? PrimitiveType.Int;
+                if (bt == PrimitiveType.Long && at == PrimitiveType.Long)
+                    sb.Append($"    DIGITOYENGINE_SDIVCHECK_AT({a.Expr}, {t}, (-9223372036854775807LL - 1), {op.Line});\n");
+                else if (bt == PrimitiveType.Int && (at == PrimitiveType.Int || at == PrimitiveType.Short || at == PrimitiveType.SByte || at == PrimitiveType.Byte || at == PrimitiveType.UShort || at == PrimitiveType.Char))
+                    sb.Append($"    DIGITOYENGINE_SDIVCHECK_AT({a.Expr}, {t}, (-2147483647 - 1), {op.Line});\n");
+                else
+                    sb.Append($"    DIGITOYENGINE_DIVCHECK_AT({t}, {op.Line});\n");
                 return new CVal(t, b.Type);
             }
             CVal MaterializeVal(CVal v) // sira garantisi: sol operand denetim statement'indan once degerlensin
@@ -1475,7 +1312,7 @@ namespace DigitoyEngine.Language
                 if (jumpTargets.Contains(i))
                 {
                     foreach (var pv in stack) // bekleyenler yalniz spill temp'i ya da saf sabit olabilir (SpillStack sozlesmesi)
-                        if (!pv.Expr.StartsWith("__s") && !LiteralExpr(pv.Expr))
+                        if (!pv.Expr.StartsWith("__s") && !pv.IsConst && !LiteralExpr(pv.Expr))
                             throw new Exception($"{code.EncodeName()}: jump hedefinde spill edilmemis ifade var (well-formed olmayan Op dizisi)");
                     sb.Append($"L{i}: ;\n"); // handler girisinde otomatik push YOK: ExIs/ExBind okur (DIGITOYENGINE_ex_* globalleri)
                     publishedLine = 0;
@@ -1521,17 +1358,15 @@ namespace DigitoyEngine.Language
                             if (inst.Type.Type == PrimitiveType.Pointer)
                             {
                                 var pt = $"__p{tempCounter++}";
-                                var barrier = WriteBarrier(inst.Owner ?? "0", $"{pt}->{CName(op.Field.Name)}", op.Field.Type);
+                                var barrier = Barrier($"{pt}->{CName(op.Field.Name)}", op.Field.Type);
                                 sb.Append($"    {{ {CType(inst.Type)} {pt} = {inst.Expr}; {pt}->{CName(op.Field.Name)} = {FieldStoreCast(op.Field, Coerce(v, op.Field.Type))};{barrier} }}\n");
                             }
-                            else if (inst.Type.IsStruct)
+                            else if (inst.Type.IsStruct) // local/arg struct degeri (C stack): barrier yok (R4)
                                 sb.Append($"    {inst.Expr}.{CName(op.Field.Name)} = {FieldStoreCast(op.Field, Coerce(v, op.Field.Type))};\n");
                             else
                             {
                                 var t = $"__o{tempCounter++}";
-                                // Kusakli GC write barrier: eski nesneye genc referans yazisi remembered set'e
-                                // (gc_write_barrier: obj tenured && val genc -> gc_remember). Yalniz referans tasiyan alanlar.
-                                var barrier = WriteBarrier(t, $"{t}->{CName(op.Field.Name)}", op.Field.Type);
+                                var barrier = Barrier($"{t}->{CName(op.Field.Name)}", op.Field.Type);
                                 sb.Append($"    {{ {CType(inst.Type)} {t} = {inst.Expr}; DIGITOYENGINE_NULLCHECK_AT({t}, {op.Line}); {t}->{CName(op.Field.Name)} = {FieldStoreCast(op.Field, Coerce(v, op.Field.Type))};{barrier} }}\n");
                             }
                             break;
@@ -1542,14 +1377,14 @@ namespace DigitoyEngine.Language
                             bool fixedBuf = op.Field.Type.Type == PrimitiveType.FixedArray; // fixed buffer: adres = dizi datasi (float*), decay
                             var resType = Primitive.PointerOf(fixedBuf ? op.Field.Type.ElementType : op.Field.Type);
                             if (inst.Type.Type == PrimitiveType.Pointer)
-                                Push(new CVal(fixedBuf ? $"(({inst.Expr})->{CName(op.Field.Name)})" : FieldAddrCast(op.Field, $"(&(({inst.Expr})->{CName(op.Field.Name)}))"), resType, inst.Owner));
-                            else // class alici: null check + adres; sahip temp'i ic yazimlarin barrier'i icin tasinir
+                                Push(new CVal(fixedBuf ? $"(({inst.Expr})->{CName(op.Field.Name)})" : FieldAddrCast(op.Field, $"(&(({inst.Expr})->{CName(op.Field.Name)}))"), resType));
+                            else // class alici: null check + adres (alici temp'e: bir kez degerlenir)
                             {
                                 SpillStack(); // alici simdi degerlenir: bekleyen ifadeler once (sira korunur)
                                 var t = $"__o{tempCounter++}";
                                 sb.Append($"    {CType(inst.Type)} {t} = {inst.Expr}; DIGITOYENGINE_NULLCHECK_AT({t}, {op.Line});\n");
                                 var access = fixedBuf ? $"{t}->{CName(op.Field.Name)}" : FieldAddrCast(op.Field, $"(&({t}->{CName(op.Field.Name)}))");
-                                Push(new CVal(access, resType, t));
+                                Push(new CVal(access, resType));
                             }
                             break;
                         }
@@ -1562,12 +1397,12 @@ namespace DigitoyEngine.Language
                             var elem = arr.Type.ElementType;
                             if (arr.Type.Type == PrimitiveType.Array)
                             {
-                                // dizi sahibi temp'e (ic yazimlarin barrier'i icin), indeksleme statement-expression'da
+                                // dizi temp'e (bir kez degerlenir), indeksleme statement-expression'da
                                 SpillStack();
                                 var ao = $"__o{tempCounter++}";
                                 sb.Append($"    {CType(arr.Type)} {ao} = {arr.Expr};\n");
                                 var a = $"__a{tempCounter++}";
-                                Push(new CVal($"(({{ {ArrayIndexSetup(new CVal(ao, arr.Type), indices, a, op.Line)}&((({CType(elem)}*){a}->data)[{a}off]); }}))", Primitive.PointerOf(elem), ao));
+                                Push(new CVal($"(({{ {ArrayIndexSetup(new CVal(ao, arr.Type), indices, a, op.Line)}&((({CType(elem)}*){a}->data)[{a}off]); }}))", Primitive.PointerOf(elem)));
                             }
                             else // FixedArray
                             {
@@ -1595,7 +1430,22 @@ namespace DigitoyEngine.Language
                                 Push(new CVal($"(&({array.Expr}[0]))", Primitive.PointerOf(element)));
                             break;
                         }
-                    case OpType.AddrStatic: Push(new CVal($"(&{StaticRef(op)})", Primitive.PointerOf(op.Field.Type))); break;
+                    case OpType.AddrStatic: case OpType.AddrStaticRt:
+                        { var T = HiddenType(op, OpType.AddrStaticRt); Push(new CVal($"(&{StaticRefT(T, op.Field)})", Primitive.PointerOf(op.Field.Type))); break; }
+
+                    // ---- CANON LOWERING gizli operandlari (Lower.cs): sabit ifadeler, LiteralExpr spill etmez ----
+                    case OpType.LdType: Push(CVal.Const($"&{TypeSym(op.PrimitiveRef)}", Primitive.TypeHandle)); break;
+                    case OpType.LdDictSlot:
+                        switch ((DictSlotKind)op.Value)
+                        {
+                            case DictSlotKind.TypeHandle: Push(CVal.Const(DictSlotType(Dict(), op.Slot), Primitive.TypeHandle)); break;
+                            case DictSlotKind.FnPtr: Push(CVal.Const($"DIGITOYENGINE_DICT_FN({Dict()}, {op.Slot})", Primitive.FnPtrHandle)); break;
+                            default: Push(CVal.Const($"DIGITOYENGINE_DICT_DICT({Dict()}, {op.Slot})", Primitive.DictHandle)); break;
+                        }
+                        break;
+                    case OpType.LdDictSelf: Push(CVal.Const(Dict(), Primitive.DictHandle)); break;
+                    case OpType.LdDictConst: Push(CVal.Const(DictSymOf(op.Code), Primitive.DictHandle)); break;
+                    case OpType.LdFnPtr: RequestStub(op.Code); Push(CVal.Const($"(const void*)&{FnPtrSym(op.Code)}", Primitive.FnPtrHandle)); break;
 
                     case OpType.GetIndex:
                         {
@@ -1631,7 +1481,7 @@ namespace DigitoyEngine.Language
                             {
                                 var a = $"__a{tempCounter++}";
                                 var slot = $"(({CType(arr.Type.ElementType)}*){a}->data)[{a}off]";
-                                var barrier = WriteBarrier(a, slot, arr.Type.ElementType);
+                                var barrier = Barrier(slot, arr.Type.ElementType);
                                 sb.Append($"    {{ {ArrayIndexSetup(arr, indices, a, op.Line)}{slot} = {Coerce(v, arr.Type.ElementType)};{barrier} }}\n");
                             }
                             else if (arr.Type.Type == PrimitiveType.FixedArray)
@@ -1644,9 +1494,10 @@ namespace DigitoyEngine.Language
                             break;
                         }
 
-                    case OpType.NewArray:
+                    case OpType.NewArray: case OpType.NewArrayRt:
                         {
                             EmitLine(op); // negatif boyut: runtime firlatir
+                            var T = HiddenType(op, OpType.NewArrayRt);
                             int rank = op.Slot > 0 ? op.Slot : 1;
                             var dims = new List<CVal>();
                             for (int ii = 0; ii < rank; ii++) dims.Insert(0, Pop());
@@ -1655,9 +1506,9 @@ namespace DigitoyEngine.Language
                             var dn = $"__dims{tempCounter++}";
                             var arrType = Primitive.ArrayOf(elem, rank);
                             // Kanonik T[] descriptor'u = tahsis tipi (gc.type == typeof(T[])); descriptor'suz eleman (jagged/pointer,
-                            // kirpilmis tip): runtime ref/atomic tahsis tipleri + elem 0 (bilinmiyor).
-                            string allocType = op.DictSlot >= 0 ? DictSlotType(Dict(), op.DictSlot) : IsReflectedArray(arrType) ? $"&{TypeSym(arrType)}" : (isref == 1 ? "&vmarray_ref_type" : "&vmarray_val_type");
-                            string elemType = op.DictSlot >= 0 ? $"{allocType}->elem_type" : ExportTypeSym(elem); // CANON: exact T[] descriptor sozlukten (K4)
+                            // kirpilmis tip): runtime ref/atomic tahsis tipleri + elem 0 (bilinmiyor). T verilmisse exact T[] descriptor'u odur.
+                            string allocType = T ?? (IsReflectedArray(arrType) ? $"&{TypeSym(arrType)}" : (isref == 1 ? "&vmarray_ref_type" : "&vmarray_val_type"));
+                            string elemType = T != null ? $"{allocType}->elem_type" : ExportTypeSym(elem);
                             string alloc = $"vmarray_new_rank_te({rank}, {dn}, sizeof({CType(elem)}), {allocType}, {elemType})";
                             Push(new CVal($"(({{ int {dn}[{rank}] = {{ {string.Join(", ", dims.Select(d => d.Expr))} }}; {alloc}; }}))", arrType));
                             break;
@@ -1682,13 +1533,29 @@ namespace DigitoyEngine.Language
                         break;
 
                     case OpType.Conv:
-                        { var v = Pop(); Push(new CVal($"(({CType(op.PrimitiveRef)})({v.Expr}))", op.PrimitiveRef)); break; }
-                    case OpType.IsType:
                         {
+                            var v = Pop();
+                            var tt = op.PrimitiveRef;
+                            var vt = v.Type?.Type ?? PrimitiveType.Int;
+                            // kayan nokta -> tam sayi: .NET doyurma semantigi (NaN->0, +inf->Max, -inf->Min, aralik disi->sinir);
+                            // C cast'i UB (x64'te 0x80000000 "integer indefinite"). Kucuk tipler int32 uzerinden kesilir (.NET gibi).
+                            if (vt is PrimitiveType.Float or PrimitiveType.Double && tt.Type is PrimitiveType.Int or PrimitiveType.UInt or PrimitiveType.Long or PrimitiveType.ULong
+                                or PrimitiveType.Byte or PrimitiveType.SByte or PrimitiveType.Short or PrimitiveType.UShort or PrimitiveType.Char)
+                            {
+                                string satFn = tt.Type switch { PrimitiveType.Long => "DIGITOYENGINE_f2l", PrimitiveType.ULong => "DIGITOYENGINE_f2ul", PrimitiveType.UInt => "DIGITOYENGINE_f2u", _ => "DIGITOYENGINE_f2i" };
+                                Push(new CVal($"(({CType(tt)}){satFn}((double)({v.Expr})))", tt));
+                                break;
+                            }
+                            Push(new CVal($"(({CType(tt)})({v.Expr}))", tt));
+                            break;
+                        }
+                    case OpType.IsType: case OpType.IsTypeRt:
+                        {
+                            var T = HiddenType(op, OpType.IsTypeRt);
                             var o = Pop(); // alici iki kez gecer (null test + tip zinciri) -> temp
                             var t = $"__t{tempCounter++}";
                             sb.Append($"    {CType(o.Type)} {t} = {o.Expr};\n");
-                            Push(new CVal($"(({t} && {TypeTestOp(op, $"{t}->gc.type", t)}) ? 1 : 0)", Primitive.Int));
+                            Push(new CVal($"(({t} && {TypeTestT(T, op.PrimitiveRef, $"{t}->gc.type", t)}) ? 1 : 0)", Primitive.Int));
                             break;
                         }
                     case OpType.IsValueType:
@@ -1701,8 +1568,9 @@ namespace DigitoyEngine.Language
                             Push(new CVal($"((void)({value.Expr}), {(isValueType ? 1 : 0)})", Primitive.Bool));
                             break;
                         }
-                    case OpType.AsType:
+                    case OpType.AsType: case OpType.AsTypeRt:
                         {
+                            var T = HiddenType(op, OpType.AsTypeRt);
                             var o = Pop();
                             if (o.Type.IsGenericParameter)
                                 throw new Exception($"AsType somutlastirilmamis tip parametresi: {o.Type.Name}");
@@ -1721,30 +1589,30 @@ namespace DigitoyEngine.Language
                             if (targetIsValueType)
                             {
                                 // CIL isinst deger-tip: boxed referans tip tutarsa aynen (null test/unbox.any devaminda), yoksa null
-                                Push(new CVal($"(({t} && {TypeTestOp(op, $"{t}->gc.type", t)}) ? (VmObject*){t} : (VmObject*)0)", Primitive.Object));
+                                Push(new CVal($"(({t} && {TypeTestT(T, op.PrimitiveRef, $"{t}->gc.type", t)}) ? (VmObject*){t} : (VmObject*)0)", Primitive.Object));
                                 break;
                             }
-                            Push(new CVal($"(({t} && {TypeTestOp(op, $"{t}->gc.type", t)}) ? ({CType(op.PrimitiveRef)})(void*){t} : 0)", op.PrimitiveRef));
+                            Push(new CVal($"(({t} && {TypeTestT(T, op.PrimitiveRef, $"{t}->gc.type", t)}) ? ({CType(op.PrimitiveRef)})(void*){t} : 0)", op.PrimitiveRef));
                             break;
                         }
-                    case OpType.CastClass:
+                    case OpType.CastClass: case OpType.CastRt:
                         {
                             EmitLine(op); // unbox / cast_fail firlatabilir
+                            var T = HiddenType(op, OpType.CastRt);
                             // Generic sablonda `(T)obj` = unbox.any !T -> frontend T'yi referans sayip CastClass uretir; T deger
                             // tipine somutlasinca (int/enum/struct) bu bir UNBOX'tir (pointer->int cast degil).
                             if (TypeShape.IsValueLike(op.PrimitiveRef))
                             {
                                 var ov = Pop();
-                                Push(new CVal(UnboxValueOp(op, op.PrimitiveRef, ov.Expr), op.PrimitiveRef));
+                                Push(new CVal(UnboxValueT(T, op.PrimitiveRef, ov.Expr), op.PrimitiveRef));
                                 break;
                             }
                             var o = Pop();
                             var t = $"__t{tempCounter++}";
                             sb.Append($"    {CType(o.Type)} {t} = {o.Expr};\n");
-                            if (op.DictSlot >= 0) // CANON: hedef exact tip sozlukten; iface/dizi/class ayrimini runtime yapar
+                            if (T != null) // runtime hedef: iface/dizi/class ayrimini runtime yapar
                             {
-                                var ta = DictSlotType(Dict(), op.DictSlot);
-                                Push(new CVal($"(({CType(op.PrimitiveRef)})((!{t} || DIGITOYENGINE_is_any((GCHeader*){t}, {ta})) ? (void*){t} : (DIGITOYENGINE_cast_fail({t}->gc.type, {ta}), (void*)0)))", op.PrimitiveRef));
+                                Push(new CVal($"(({CType(op.PrimitiveRef)})((!{t} || DIGITOYENGINE_is_any((GCHeader*){t}, {T})) ? (void*){t} : (DIGITOYENGINE_cast_fail({t}->gc.type, {T}), (void*)0)))", op.PrimitiveRef));
                                 break;
                             }
                             if (op.PrimitiveRef.Type == PrimitiveType.Array)
@@ -1767,23 +1635,25 @@ namespace DigitoyEngine.Language
                             Push(new CVal(zx, zt));
                             break;
                         }
-                    case OpType.TypeOf:
+                    case OpType.TypeOf: case OpType.TypeOfRt:
                         {
+                            var T = HiddenType(op, OpType.TypeOfRt) ?? $"&{TypeSym(op.PrimitiveRef)}";
                             EmitCtx.TryGetPrimitive("System.Type", out var st);
-                            Push(new CVal($"(({CType(st)})digitoyengine_type_wrapper({TypeAddr(op, op.PrimitiveRef)}))", st));
+                            Push(new CVal($"(({CType(st)})digitoyengine_type_wrapper({T}))", st));
                             break;
                         }
-                    case OpType.Box:
+                    case OpType.Box: case OpType.BoxRt:
                         {
+                            var T = HiddenType(op, OpType.BoxRt);
                             var v = Pop();
                             var sourceType = op.PrimitiveRef;
                             string bx;
                             if (!TypeShape.IsGcRef(sourceType))
                             {
-                                if (op.DictSlot >= 0) // CANON: canon struct kutusu exact descriptor'la (K4)
+                                if (T != null) // runtime descriptor: canon struct kutusu exact descriptor'la (K4)
                                 {
                                     var tag = StructTag(sourceType);
-                                    Push(new CVal($"({{ struct {tag} __bx = {v.Expr}; (VmObject*)digitoyengine_box_struct({DictSlotType(Dict(), op.DictSlot)}, &__bx, (int)sizeof(struct {tag})); }})", Primitive.Object));
+                                    Push(new CVal($"({{ struct {tag} __bx = {v.Expr}; (VmObject*)digitoyengine_box_struct({T}, &__bx, (int)sizeof(struct {tag})); }})", Primitive.Object));
                                     break;
                                 }
                                 Push(new CVal(BoxValue(sourceType, v.Expr), Primitive.Object)); // tek kapi: enum/skaler/struct/Nullable
@@ -1803,22 +1673,24 @@ namespace DigitoyEngine.Language
                             Push(new CVal(bx, Primitive.Object));
                             break;
                         }
-                    case OpType.Unbox:
+                    case OpType.Unbox: case OpType.UnboxRt:
                         {
                             EmitLine(op);
+                            var T = HiddenType(op, OpType.UnboxRt);
                             var o = Pop();
                             var ut = op.PrimitiveRef;
-                            Push(new CVal(UnboxValueOp(op, ut, o.Expr), ut));
+                            Push(new CVal(UnboxValueT(T, ut, o.Expr), ut));
                             break;
                         }
-                    case OpType.UnboxOrDefault:
+                    case OpType.UnboxOrDefault: case OpType.UnboxOrDefaultRt:
                         {
+                            var T = HiddenType(op, OpType.UnboxOrDefaultRt);
                             var o = Pop(); // alici iki kez gecer -> temp (IsType deseni)
                             var t = $"__t{tempCounter++}";
                             sb.Append($"    {CType(o.Type)} {t} = {o.Expr};\n");
                             var ut = op.PrimitiveRef;
                             var zero = TypeShape.IsStructModel(ut) ? $"(struct {StructTag(ut)}){{0}}" : $"({ScalarCType(ut)})0";
-                            Push(new CVal($"(({t} && {t}->gc.type == {(op.DictSlot >= 0 ? DictSlotType(Dict(), op.DictSlot) : "&" + TypeSym(BoxedTypeOf(ut)))}) ? {UnboxValueOp(op, ut, t)} : {zero})", ut));
+                            Push(new CVal($"(({t} && {t}->gc.type == {(T ?? "&" + TypeSym(BoxedTypeOf(ut)))}) ? {UnboxValueT(T, ut, t)} : {zero})", ut));
                             break;
                         }
                     case OpType.NullableWrap:
@@ -1877,15 +1749,15 @@ namespace DigitoyEngine.Language
                             }
                             break;
                         }
-                    case OpType.DelegateNew:
+                    case OpType.DelegateNew: case OpType.DelegateNewRt:
                         {
                             EmitLine(op);
                             var dt = op.PrimitiveRef;
                             var m = op.Code;
-                            // CANON K7: ctx isteyen hedef -> instantiating stub (canon govdede sozlukten, exact'ten sembol); delegate tipi sozlukten olabilir
-                            var dta = TypeAddr(op, dt);
-                            string sfn = op.DictSlotFn >= 0 ? $"DIGITOYENGINE_DICT_FN({Dict()}, {op.DictSlotFn})" : null;
-                            if (sfn == null) { RequestStub(m); sfn = $"(const void*)&{FnPtrSym(m)}"; }
+                            // Lower: delegate tipi + fn isaretcisi yigindan ([dt][fn]); statik op: sembol + (stub) fn
+                            string dta, sfn;
+                            if (op.Type == OpType.DelegateNewRt) { sfn = Pop().Expr; dta = Pop().Expr; }
+                            else { dta = $"&{TypeSym(dt)}"; RequestStub(m); sfn = $"(const void*)&{FnPtrSym(m)}"; }
                             if (m.IsStatic)
                             {
                                 Push(new CVal($"digitoyengine_delegate_new({dta}, {sfn}, 0)", dt));
@@ -1951,8 +1823,9 @@ namespace DigitoyEngine.Language
                             if (dt.DelegateReturn != Primitive.Void) Push(new CVal(result, dt.DelegateReturn));
                             break;
                         }
-                    case OpType.New:
+                    case OpType.New: case OpType.NewRt:
                         {
+                            var T = HiddenType(op, OpType.NewRt);
                             if (op.PrimitiveRef == Primitive.Object) // runtime koku: New_ fonksiyonu uretilmez
                             {
                                 Push(new CVal("((VmObject*)gc_alloc(&vmobject_type))", Primitive.Object));
@@ -1960,9 +1833,9 @@ namespace DigitoyEngine.Language
                             }
                             var cn = CName(op.PrimitiveRef.Name);
                             // IsStruct: heap yok, sifirlanmis C99 compound literal (deger tipi, kopyalanarak akar)
-                            // CANON: exact tahsis tipi sozlukten (K4); ctor canon fn (class instance -> sozluk this'ten)
+                            // T verilmisse exact tahsis tipi odur (K4); ctor canon fn (class instance -> sozluk this'ten)
                             var expr = op.PrimitiveRef.IsStruct ? $"(struct {StructTag(op.PrimitiveRef)}){{0}}"
-                                : op.DictSlot >= 0 ? $"((struct {StructTag(op.PrimitiveRef)}*)gc_alloc({DictSlotType(Dict(), op.DictSlot)}))" : $"New_{cn}()";
+                                : T != null ? $"((struct {StructTag(op.PrimitiveRef)}*)gc_alloc({T}))" : $"New_{cn}()";
                             Push(new CVal(expr, op.PrimitiveRef));
                             break;
                         }
@@ -1973,8 +1846,8 @@ namespace DigitoyEngine.Language
                             // null literal (Void tipli "0"): C'de void degisken olmaz; referans olarak tasi
                             var dupType = top.Type == Primitive.Void ? Primitive.Object : top.Type;
                             sb.Append($"    {CType(dupType)} {t} = {top.Expr};\n");
-                            Push(new CVal(t, dupType, top.Owner));
-                            Push(new CVal(t, dupType, top.Owner));
+                            Push(new CVal(t, dupType));
+                            Push(new CVal(t, dupType));
                             break;
                         }
                     case OpType.Push: Push(Literal(op.Value)); break;
@@ -1995,6 +1868,9 @@ namespace DigitoyEngine.Language
                     case OpType.Call:
                         {
                             EmitLine(op);
+                            var callee = op.Code.Shared;
+                            // Lower: gizli sozluk argumani yiginin tepesinde (callee ABI: NeedsDictParam)
+                            string dictArg = callee.NeedsDictParam ? Pop().Expr : null;
                             var values = new CVal[op.Code.Arguments.Count];
                             for (int a = values.Length - 1; a >= 0; a--) values[a] = Pop();
                             SpillStack(); // cagri yan etkileri: alt-stack okumalari once degerlensin
@@ -2002,11 +1878,10 @@ namespace DigitoyEngine.Language
                             for (int a = 0; a < args.Length; a++) // C# soldan-saga arguman sirasi (C'de belirsiz!)
                                 args[a] = MaterializeCallArg(values[a], op.Code.Arguments[a]);
                             // CANON K6: hedef canon fn; ctx isterse sozluk ilk arguman. Exact->canon imza farki (VmString* vs GCHeader*): acik cast
-                            var callee = op.Code.Shared;
                             if (callee != op.Code)
                                 for (int a = 0; a < args.Length; a++)
                                     if (CType(callee.Arguments[a].Type) != CType(op.Code.Arguments[a].Type)) args[a] = $"(({ParamCType(callee.Arguments[a])})({args[a]}))";
-                            var argList = callee.NeedsDictParam ? new[] { DictArgFor(op, op.Code) }.Concat(args) : args;
+                            var argList = dictArg != null ? new[] { dictArg }.Concat(args) : args;
                             var callText = $"{CSym(callee)}({string.Join(", ", argList)})";
                             if (callee != op.Code && op.Code.ReturnType != Primitive.Void && CType(callee.ReturnType) != CType(op.Code.ReturnType))
                                 callText = $"(({CType(op.Code.ReturnType)}){callText})";
@@ -2019,6 +1894,11 @@ namespace DigitoyEngine.Language
                     case OpType.CallVirtual:
                         {
                             EmitLine(op);
+                            // Lower: gizli operandlar once pop edilir ([..., args, ifaceT?, dict?]); callee ABI: NeedsDictParam
+                            var vcallee = op.Code.Shared;
+                            bool vdict = VirtualCallTakesDict(op.Code);
+                            string vDictArg = vdict ? Pop().Expr : null;
+                            string ifaceAddr = op.Code.Owner.IsInterface ? Pop().Expr : null;
                             // constrained esdegeri: klonlanmis generic'te receiver DEGER tipi olabilir.
                             // GetHashCode/Equals boxing'siz inline; digerleri (ToString) box'lanip normal dispatch.
                             var vArgc = op.Code.Arguments.Count;
@@ -2077,26 +1957,23 @@ namespace DigitoyEngine.Language
                             for (int a = 1; a < args.Length; a++)
                                 args[a] = MaterializeArg(args[a], op.Code.Arguments[a]);
                             // CANON: sanal hedef canon fn (vtable girisi); generic sanal metot canon ornegi ctx ister -> sozluk ilk arguman;
-                            // iface tipi canon iceriyorsa exact iface descriptor'u sozlukten (DictSlotIface)
+                            // iface itable anahtari (ifaceAddr) ve sozluk yukarida cozuldu (Lower: yigindan).
                             // Exact GVM slotunun (Pair<string>) girisleri STUB'dir (ctx'siz); yalniz canon slot (Pair<__Canon>) girisleri sozluk alir.
-                            var vcallee = op.Code.Shared;
-                            bool vdict = !op.Code.IsSharedExact && vcallee.NeedsDictParam;
                             var sigArgs = op.Code.Arguments.Select(a => (a.IsRef || a.IsOut) ? CType(a.Type) + "*" : CType(a.Type));
                             if (vdict) sigArgs = new[] { "const void *const *" }.Concat(sigArgs);
                             var fnSig = $"{CType(op.Code.ReturnType)}(*)({string.Join(", ", sigArgs)})";
-                            var ifaceAddr = op.DictSlotIface >= 0 ? DictSlotType(Dict(), op.DictSlotIface) : $"&{CName(op.Code.Owner.Name)}_type";
                             var table = op.Code.Owner.IsInterface
                                 ? $"DIGITOYENGINE_itable({recv}->gc.type, {ifaceAddr})"
                                 : $"{recv}->gc.type->vtable";
-                            var vargs = vdict ? new[] { DictArgFor(op, op.Code) }.Concat(args) : args;
+                            var vargs = vdict ? new[] { vDictArg }.Concat(args) : args;
                             var call = WithPostCallRemember($"(({fnSig}){table}[{op.Slot}])({string.Join(", ", vargs)})", op.Code.ReturnType, vvals);
                             if (op.Code.ReturnType != Primitive.Void) Push(new CVal(call, op.Code.ReturnType));
                             else sb.Append($"    {call};\n");
                             break;
                         }
 
-                    case OpType.GetStatic: Push(new CVal(StaticRef(op), op.Field.Type)); break;
-                    case OpType.SetStatic: { SpillStack(); var v = Pop(); var sref = StaticRef(op); sb.Append($"    {sref} = {Coerce(v, op.Field.Type)};{WriteBarrier("0", sref, op.Field.Type)}\n"); break; }
+                    case OpType.GetStatic: case OpType.GetStaticRt: { var T = HiddenType(op, OpType.GetStaticRt); Push(new CVal(StaticRefT(T, op.Field), op.Field.Type)); break; }
+                    case OpType.SetStatic: case OpType.SetStaticRt: { var T = HiddenType(op, OpType.SetStaticRt); SpillStack(); var v = Pop(); var sref = StaticRefT(T, op.Field); sb.Append($"    {sref} = {Coerce(v, op.Field.Type)};{Barrier(sref, op.Field.Type)}\n"); break; }
 
                     case OpType.Label: break;
                     case OpType.Br: SpillStack(); sb.Append($"    goto L{op.Slot};\n"); break;
@@ -2126,17 +2003,19 @@ namespace DigitoyEngine.Language
                             sb.Append($"    DIGITOYENGINE_throw(DIGITOYENGINE_EX_USER, (GCHeader*)({v.Expr}));\n");
                             break;
                         }
-                    case OpType.ExIs:
+                    case OpType.ExIs: case OpType.ExIsRt:
                         {
+                            var T = HiddenType(op, OpType.ExIsRt);
                             var e = $"__e{tempCounter++}";
-                            Push(new CVal($"(({{ GCHeader* {e} = DIGITOYENGINE_ex_current(); ({e} && {TypeTestOp(op, $"{e}->type", e)}) ? 1 : 0; }}))", Primitive.Int));
+                            Push(new CVal($"(({{ GCHeader* {e} = DIGITOYENGINE_ex_current(); ({e} && {TypeTestT(T, op.PrimitiveRef, $"{e}->type", e)}) ? 1 : 0; }}))", Primitive.Int));
                             break;
                         }
-                    case OpType.ExBind:
+                    case OpType.ExBind: case OpType.ExBindRt:
                         {
+                            var T = HiddenType(op, OpType.ExBindRt);
                             var e = $"__ex{tempCounter++}";
                             sb.Append($"    GCHeader* {e}h = DIGITOYENGINE_ex_current();\n");
-                            sb.Append($"    if (!{e}h || !{TypeTestOp(op, $"{e}h->type", e + "h")}) DIGITOYENGINE_rethrow();\n"); // uymayan tip: dis try'a devret
+                            sb.Append($"    if (!{e}h || !{TypeTestT(T, op.PrimitiveRef, $"{e}h->type", e + "h")}) DIGITOYENGINE_rethrow();\n"); // uymayan tip: dis try'a devret
                             sb.Append($"    {CType(op.PrimitiveRef)} {e} = ({CType(op.PrimitiveRef)})(void*){e}h;\n");
                             // Exception turevi: ILK firlatma trace'i gomulu tampona (ExceptionTrace struct: mi[24]/line[24]);
                             // yeniden firlatma (throw ex / Task fault) orijini SILMEZ. Roslyn fixed buffer = tek alanli
@@ -2196,11 +2075,11 @@ namespace DigitoyEngine.Language
                             if (op.PrimitiveRef != null && et != op.PrimitiveRef) // IL tipi isaretcinin statik tipinden farkli/tipsiz: IL tipiyle yaz
                             {
                                 et = op.PrimitiveRef;
-                                sb.Append($"    {{ {CType(et)}* {pt} = ({CType(et)}*)({p.Expr}); *({pt}) = {Coerce(v, et)};{WriteBarrier("0", $"(*{pt})", et)} }}\n");
+                                sb.Append($"    {{ {CType(et)}* {pt} = ({CType(et)}*)({p.Expr}); *({pt}) = {Coerce(v, et)};{Barrier($"*{pt}", et)} }}\n");
                                 break;
                             }
-                            // ic isaretci yazimi: sahip biliniyorsa write barrier (struct alani/elemani icindeki ref'ler dahil)
-                            var barrier = et != null ? WriteBarrier(p.Owner ?? "0", $"(*{pt})", et) : "";
+                            // isaretci uzerinden yazim (alan/eleman adresi, ref parametre, struct this): hedef heap olabilir -> barrier (R4)
+                            var barrier = et != null ? Barrier($"*{pt}", et) : "";
                             sb.Append($"    {{ {CType(p.Type)} {pt} = {p.Expr}; *({pt}) = {(p.Type?.Type == PrimitiveType.Pointer ? Coerce(v, p.Type.ElementType) : v.Expr)};{barrier} }}\n");
                             break;
                         }
@@ -2208,8 +2087,8 @@ namespace DigitoyEngine.Language
                     case OpType.Add: { var b = Pop(); var a = Pop(); Push(NumBin("+", a, b)); break; }
                     case OpType.Sub: { var b = Pop(); var a = Pop(); Push(NumBin("-", a, b)); break; }
                     case OpType.Mul: { var b = Pop(); var a = Pop(); Push(NumBin("*", a, b)); break; }
-                    case OpType.Div: { var b = Pop(); var a = Pop(); a = MaterializeVal(a); Push(NumBin("/", a, DivCheck(b, op))); break; }
-                    case OpType.Mod: { var b = Pop(); var a = Pop(); a = MaterializeVal(a); Push(NumBin("%", a, DivCheck(b, op))); break; }
+                    case OpType.Div: { var b = Pop(); var a = Pop(); a = MaterializeVal(a); Push(NumBin("/", a, DivCheck(a, b, op))); break; }
+                    case OpType.Mod: { var b = Pop(); var a = Pop(); a = MaterializeVal(a); Push(NumBin("%", a, DivCheck(a, b, op))); break; }
                     case OpType.Neg:
                         {
                             var a = Pop();
@@ -2220,24 +2099,17 @@ namespace DigitoyEngine.Language
                     case OpType.And: { var b = Pop(); var a = Pop(); Push(NumBin("&", a, b)); break; }
                     case OpType.Or: { var b = Pop(); var a = Pop(); Push(NumBin("|", a, b)); break; }
                     case OpType.Xor: { var b = Pop(); var a = Pop(); Push(NumBin("^", a, b)); break; }
-                    case OpType.Shl: { var b = Pop(); var a = Pop(); Push(new CVal($"((({ScalarCType(a.Type ?? Primitive.Int)})({a.Expr})) << ({b.Expr}))", a.Type ?? Primitive.Int)); break; }
-                    case OpType.Shr: { var b = Pop(); var a = Pop(); Push(new CVal($"((({ScalarCType(a.Type ?? Primitive.Int)})({a.Expr})) >> ({b.Expr}))", a.Type ?? Primitive.Int)); break; }
-                    case OpType.Not: { var a = Pop(); Push(new CVal($"(!({a.Expr}))", Primitive.Int)); break; }
+                    case OpType.Shl: { var b = Pop(); var a = Pop(); var st = a.Type ?? Primitive.Int; bool w = st.Type is PrimitiveType.Long or PrimitiveType.ULong; Push(new CVal($"((({ScalarCType(st)})({a.Expr})) << (({b.Expr}) & {(w ? 63 : 31)}))", st)); break; }
+                    case OpType.Shr: { var b = Pop(); var a = Pop(); var st = a.Type ?? Primitive.Int; bool w = st.Type is PrimitiveType.Long or PrimitiveType.ULong; Push(new CVal($"((({ScalarCType(st)})({a.Expr})) >> (({b.Expr}) & {(w ? 63 : 31)}))", st)); break; }
+                    // IL `not` = BITWISE tersleme (C# ~x); eski emisyon mantiksal `!` idi (~5 -> 0). Kucuk tipler int'e terfi eder (IL yigin).
+                    case OpType.Not: { var a = Pop(); var nt = a.Type ?? Primitive.Int; if (nt.Type is PrimitiveType.Byte or PrimitiveType.SByte or PrimitiveType.Short or PrimitiveType.UShort or PrimitiveType.Char or PrimitiveType.Bool) nt = Primitive.Int; Push(new CVal($"(({ScalarCType(nt)})(~(({ScalarCType(nt)})({a.Expr}))))", nt)); break; }
 
                     default: throw new NotImplementedException($"CTranspiler icin henuz desteklenmeyen opcode: {op.Type}");
                 }
             }
             sb.Append("}\n");
-            // CANON K5: class instance metodu sozlugu this'in exact tipinden alir (vtable'daki sentinel slot; tureyen tipte de dogru)
-            string dictDecl = "";
-            if (curDictUsed && !code.NeedsDictParam)
-            {
-                int k = code.Owner.VTable.IndexOf(EmitCtx.DictSentinel(code.Owner));
-                if (k < 0) throw new Exception($"canon govde sozluk istiyor ama sahibinin dict slotu yok: {code.EncodeName()}");
-                dictDecl = $"    const void *const *__dict = (const void *const *){an[0]}->gc.type->vtable[{k}];\n";
-            }
-            else if (curDictUsed) dictDecl = "";
-            sb.Replace(DictPlaceholder, dictDecl);
+            // CANON K5: sozluk kaynagi (gizli param ya da this'in exact tipi) — CTranspiler.Canon.cs
+            sb.Replace(DictPlaceholder, curDictUsed ? DictPrologue(code, an) : "");
 
             // sarmalayici: asil adla, push + impl cagrisi + pop (impl'deki throw'lar RtTry.sp
             // restore'uyla zaten dogru unwind eder; deger cikisi tek noktadan). Trace kaydi = tek meta tablosundaki MethodInfo.

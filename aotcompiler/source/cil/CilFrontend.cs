@@ -1683,6 +1683,43 @@ namespace DigitoyEngine.Cil
                 if (b?.Type == PrimitiveType.Pointer) { Push(b); return; }
                 Push(Primitive.PromoteNumeric(a, b));
             }
+            // div.un / rem.un: IL yigin tipi isaretsizligi tasimaz; iki operandi genislige gore uint/ulong'a cevirip isle
+            // (kaynak-tip tahmini `(uint)-8 / 2u`'yu isaretli boluyordu). Kayan noktada .un yok.
+            void UnBin(OpType t)
+            {
+                if (stack.Count >= 2 && IsIntegral(stack[stack.Count - 2]) && IsIntegral(stack[stack.Count - 1]))
+                {
+                    var a = stack[stack.Count - 2]; var b = stack[stack.Count - 1];
+                    bool wide = a.Type is PrimitiveType.Long or PrimitiveType.ULong || b.Type is PrimitiveType.Long or PrimitiveType.ULong;
+                    var ut = wide ? Primitive.ULong : Primitive.UInt;
+                    if (a != ut || b != ut)
+                    {
+                        int tmp = NewLocal(b);
+                        EmitOp(new Op { Type = OpType.SetLocal, Slot = tmp }); Pop();
+                        EmitConv(ut);
+                        EmitOp(new Op { Type = OpType.GetLocal, Slot = tmp }); Push(b);
+                        EmitConv(ut);
+                    }
+                }
+                Emit(t); Bin();
+            }
+            // shr.un: sol operand isaretsiz (mantiksal kaydirma); sag operand (sayac) int kalir
+            void UnShr()
+            {
+                if (stack.Count >= 2 && IsIntegral(stack[stack.Count - 2]))
+                {
+                    var a = stack[stack.Count - 2]; var b = stack[stack.Count - 1];
+                    var ut = a.Type is PrimitiveType.Long or PrimitiveType.ULong ? Primitive.ULong : Primitive.UInt;
+                    if (a != ut)
+                    {
+                        int tmp = NewLocal(b);
+                        EmitOp(new Op { Type = OpType.SetLocal, Slot = tmp }); Pop();
+                        EmitConv(ut);
+                        EmitOp(new Op { Type = OpType.GetLocal, Slot = tmp }); Push(b);
+                    }
+                }
+                Emit(OpType.Shr); Pop();
+            }
 
             int Exec(ILOpCode op, byte[] il, int p, int at)
             {
@@ -1862,13 +1899,16 @@ namespace DigitoyEngine.Cil
                     case ILOpCode.Add: case ILOpCode.Add_ovf: case ILOpCode.Add_ovf_un: Emit(OpType.Add); Bin(); return p;
                     case ILOpCode.Sub: case ILOpCode.Sub_ovf: case ILOpCode.Sub_ovf_un: Emit(OpType.Sub); Bin(); return p;
                     case ILOpCode.Mul: case ILOpCode.Mul_ovf: case ILOpCode.Mul_ovf_un: Emit(OpType.Mul); Bin(); return p;
-                    case ILOpCode.Div: case ILOpCode.Div_un: Emit(OpType.Div); Bin(); return p;
-                    case ILOpCode.Rem: case ILOpCode.Rem_un: Emit(OpType.Mod); Bin(); return p;
+                    case ILOpCode.Div: Emit(OpType.Div); Bin(); return p;
+                    case ILOpCode.Div_un: UnBin(OpType.Div); return p;
+                    case ILOpCode.Rem: Emit(OpType.Mod); Bin(); return p;
+                    case ILOpCode.Rem_un: UnBin(OpType.Mod); return p;
                     case ILOpCode.And: Emit(OpType.And); Bin(); return p;
                     case ILOpCode.Or: Emit(OpType.Or); Bin(); return p;
                     case ILOpCode.Xor: Emit(OpType.Xor); Bin(); return p;
                     case ILOpCode.Shl: Emit(OpType.Shl); Pop(); return p; // sonuc = sol operandin tipi (sim: pop shift miktari)
-                    case ILOpCode.Shr: case ILOpCode.Shr_un: Emit(OpType.Shr); Pop(); return p;
+                    case ILOpCode.Shr: Emit(OpType.Shr); Pop(); return p;
+                    case ILOpCode.Shr_un: UnShr(); return p;
                     case ILOpCode.Neg: Emit(OpType.Neg); return p;
                     case ILOpCode.Not: Emit(OpType.Not); return p;
 
@@ -1934,9 +1974,18 @@ namespace DigitoyEngine.Cil
                     case ILOpCode.Conv_u1: return Conv(Primitive.Byte, p);
                     case ILOpCode.Conv_u2: return Conv(Primitive.UShort, p);
                     case ILOpCode.Conv_u4: return Conv(Primitive.UInt, p);
-                    case ILOpCode.Conv_u8: return Conv(Primitive.ULong, p);
+                    // conv.u8: 32-bit kaynak ISARETSIZ yorumlanip SIFIR-genisletilir (Roslyn uint32'ye sigan long sabitlerini
+                    // `ldc.i4 bits; conv.u8` emit eder: 0xFFFFFFFFL, 3037000499L). C cast'i isaret genisletirdi -> once uint.
+                    case ILOpCode.Conv_u8:
+                        if (Top != null && Top.Type is PrimitiveType.Int or PrimitiveType.Short or PrimitiveType.SByte or PrimitiveType.Byte or PrimitiveType.UShort or PrimitiveType.Char or PrimitiveType.Bool) Conv(Primitive.UInt, p);
+                        return Conv(Primitive.ULong, p);
+                    // conv.r.un: kaynak isaretsiz yorumlanir (uint/ulong -> double); 32-bit isaretli izleniyorsa once uint
+                    case ILOpCode.Conv_r_un:
+                        if (Top != null && Top.Type is PrimitiveType.Int or PrimitiveType.Short or PrimitiveType.SByte) Conv(Primitive.UInt, p);
+                        else if (Top != null && Top.Type == PrimitiveType.Long) Conv(Primitive.ULong, p);
+                        return Conv(Primitive.Double, p);
                     case ILOpCode.Conv_r4: return Conv(Primitive.Float, p);
-                    case ILOpCode.Conv_r8: case ILOpCode.Conv_r_un: return Conv(Primitive.Double, p);
+                    case ILOpCode.Conv_r8: return Conv(Primitive.Double, p);
                     // native int (IntPtr): unsafe pointer aritmetigi byte-tabanli; sabit indeksi oldugu gibi birak
                     // (IL zaten *sizeof ile carpar; NumBin pointer+int byte aritmetigi yapar).
                     case ILOpCode.Conv_i: case ILOpCode.Conv_u: return p;
@@ -2574,6 +2623,13 @@ namespace DigitoyEngine.Cil
                                 {
                                     int ta = SpillLocal(arg);
                                     EmitMakeSpan(owner, () => PushArrayDataLong(ta, T, -1), () => PushArrayLen(ta, T));
+                                    return true;
+                                }
+                                if (arg == Primitive.Object && ps.Length == 1 && ps[0].Type == PrimitiveType.Array)
+                                {
+                                    // `(Span<T>)null`: ldnull tipsiz -> .NET bos span dondurur (extern'e normal cagri link hatasi verirdi)
+                                    Emit(OpType.Pop); Pop();
+                                    EmitMakeSpan(owner, () => { EmitOp(new Op { Type = OpType.Push, Value = 0L }); Push(Primitive.Long); }, () => { EmitOp(new Op { Type = OpType.Push, Value = 0 }); Push(Primitive.Int); });
                                     return true;
                                 }
                                 if (IsSpanTemplate(arg)) // Span<T> -> ReadOnlySpan<T> (operator Span<T> uzerinde tanimli): ayni yerlesim, yeniden yorumla

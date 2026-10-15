@@ -28,7 +28,6 @@ typedef struct DigitoyEngineMember DigitoyEngineMember;
 struct VmString; // runtime adlari (Type.name/MethodInfo.name) UTF-16 VmString'e isaret eder
 struct VmArray;
 typedef void (*TraceFn)(GCHeader *);
-typedef void (*TraceInlineFn)(void *payload); // struct descriptor'u: inline (kutusuz) yerlesimdeki ref'leri shade eder
 typedef void (*FrameTrace)(void *);
 typedef void (*FinalizeFn)(GCHeader *);
 typedef int (*EnumParseFn)(struct VmString *value, int *result);
@@ -104,9 +103,11 @@ struct Type
     unsigned char nattrs;
     unsigned int cilattrs;   // CIL TypeAttributes (System.Reflection.TypeAttributes)
     const Type *generic_def; // kapali generic ornek: acik tanim descriptor'u (typeof(List<>)); yoksa 0
-    // ---- dizi = birinci sinif tip: T[] descriptor'u hem KIMLIK hem TAHSIS tipidir (gc.type == typeof(T[])). Trace tek
-    // jenerik fonksiyon (digitoyengine_trace_array): eleman ref -> hepsini shade; struct -> elem_type->trace_inline; atomik -> yok.
-    TraceInlineFn trace_inline; // struct descriptor'u: ref tasiyan struct'ta dolu (dizi/inline eleman tarama); yoksa 0
+    // ---- GC REFMAP (docs/engine-notes.md R1/R2): yerlesimdeki GC referanslarinin TEK verisi. [0] = sayi, sonra ofsetler
+    // (class: nesne basindan, GCHeader dahil; struct: struct basindan). Uretilen tipler trace fn TASIMAZ: isaretleme, dizi
+    // elemani, kutu, write barrier ve vmint hep bu tabloyu okur (gc_trace_map). trace yalniz runtime ic tipleri icin (dizi/string/
+    // closure/modul yerel tipleri). Paylasimli exact (List<string>) canon'un tablosunu gosterir (yerlesim ayni). yoksa 0 (= atomik).
+    const unsigned short *refmap;
     // ---- CANON GENERICS (docs/engine-notes.md): paylasimli exact ornek (List<string>) ----
     void *statics;                // bu exact orneklemenin statik alan blogu (struct X_statics*); canon kod sozlukten gelen Type uzerinden okur
     const void *const *dict;      // derleme zamani sabit sozluk: slot -> Type* / dict / stub fn (ayni isaretci vtable'daki dict slotunda da durur)
@@ -363,14 +364,23 @@ extern RtTry *DIGITOYENGINE_try_top;
 #define DIGITOYENGINE_EX_CAST 4
 #define DIGITOYENGINE_EX_USER 5
 #define DIGITOYENGINE_EX_IO 6
+#define DIGITOYENGINE_EX_OVERFLOW 7
+// corelib C govdelerinin dogru .NET tipiyle firlatmasi icin (eski: hepsi IOException/IndexOutOfRange idi)
+#define DIGITOYENGINE_EX_ARGOOR 8      /* ArgumentOutOfRangeException */
+#define DIGITOYENGINE_EX_ARGNULL 9     /* ArgumentNullException */
+#define DIGITOYENGINE_EX_ARG 10        /* ArgumentException */
+#define DIGITOYENGINE_EX_FORMAT 11     /* FormatException */
+#define DIGITOYENGINE_EX_NOTSUP 12     /* NotSupportedException */
+#define DIGITOYENGINE_EX_INVOP 13      /* InvalidOperationException */
+#define DIGITOYENGINE_EX_KINDS 16
 extern int DIGITOYENGINE_ex_kind;
 extern GCHeader *DIGITOYENGINE_ex_obj; // user throw nesnesi (catch bind'e kadar; arada gc_alloc yok -> guvenli)
 extern char DIGITOYENGINE_ex_msg[160];
 // runtime hatalari (null/bounds/div/cast): firlatma alloc'suz (kind + mesaj); exception NESNESI ilk catch'te
 // TAZE uretilir (DIGITOYENGINE_ex_current -> kind tipi + ctor; digitoyengine_init doldurur). Singleton yok:
 // ayni nesnenin yeniden kullanimi izi eziyor, orijinal firlatma noktasini kaybettiriyordu.
-extern const Type *DIGITOYENGINE_ex_kind_type[8];
-extern void (*DIGITOYENGINE_ex_kind_ctor[8])(GCHeader *);
+extern const Type *DIGITOYENGINE_ex_kind_type[DIGITOYENGINE_EX_KINDS];
+extern void (*DIGITOYENGINE_ex_kind_ctor[DIGITOYENGINE_EX_KINDS])(GCHeader *);
 GCHeader *DIGITOYENGINE_ex_current(void); // aktif exception nesnesi (gerekirse kind'dan uretir ve DIGITOYENGINE_ex_obj'a baglar)
 // AOT stub (cevrilemeyen govde) ilk cagrida: NotImplementedException(mesaj). Tip/ctor init'te baglanir; yoksa mesajli abort.
 extern const Type *DIGITOYENGINE_notimpl_type;
@@ -387,6 +397,8 @@ DIGITOYENGINE_NORETURN void DIGITOYENGINE_rethrow(void);
 DIGITOYENGINE_NORETURN void DIGITOYENGINE_throw_null(void);
 DIGITOYENGINE_NORETURN void DIGITOYENGINE_throw_bounds(int i, int n);
 DIGITOYENGINE_NORETURN void DIGITOYENGINE_throw_div(void);
+DIGITOYENGINE_NORETURN void DIGITOYENGINE_throw_overflow(void);                        // OverflowException (MIN/-1, checked)
+DIGITOYENGINE_NORETURN void DIGITOYENGINE_throw_kind(int kind, const char *msg);          // runtime kind'li exception (corelib C govdeleri)
 DIGITOYENGINE_NORETURN void DIGITOYENGINE_stack_overflow(void);                        // shadow-stack asildi (max ozyineleme)
 DIGITOYENGINE_NORETURN void DIGITOYENGINE_cast_fail(const Type *from, const Type *to); // InvalidCast (adlar Type'tan)
 DIGITOYENGINE_NORETURN void DIGITOYENGINE_throw_io(const char *msg);                   // IOError (v1: yakalanamaz, mesajli abort)
@@ -404,12 +416,37 @@ DIGITOYENGINE_NORETURN void DIGITOYENGINE_throw_io(const char *msg);            
 // Uretilen kodun sicak-yol varyantlari: satir yalniz firlatma dalinda yazilir (sicak yolda store yok).
 #define DIGITOYENGINE_BOUNDS_AT(i, n, ln) ((void)(DIGITOYENGINE_UNLIKELY((unsigned)(i) >= (unsigned)(n)) && (DIGITOYENGINE_SETLINE(ln), DIGITOYENGINE_throw_bounds((i), (n)), 0)))
 #define DIGITOYENGINE_DIVCHECK_AT(d, ln) ((void)(DIGITOYENGINE_UNLIKELY((d) == 0) && (DIGITOYENGINE_SETLINE(ln), DIGITOYENGINE_throw_div(), 0)))
+// Isaretli bolme: d==0 -> DivideByZero; a==MIN && d==-1 -> .NET OverflowException (C'de idiv trap/UB: surec olurdu, 0xC0000095).
+#define DIGITOYENGINE_SDIVCHECK_AT(a, d, mn, ln) ((void)((DIGITOYENGINE_UNLIKELY((d) == 0) && (DIGITOYENGINE_SETLINE(ln), DIGITOYENGINE_throw_div(), 0)) || (DIGITOYENGINE_UNLIKELY((d) == -1 && (a) == (mn)) && (DIGITOYENGINE_SETLINE(ln), DIGITOYENGINE_throw_overflow(), 0))))
+// Kayan nokta -> tam sayi: .NET (Core 3.0+) DOYURMA semantigi; C cast'i aralik disinda UB. NaN -> 0.
+static inline cil_int DIGITOYENGINE_f2i(double v) { if (v != v) return 0; if (v >= 2147483647.0) return 2147483647; if (v <= -2147483648.0) return (-2147483647 - 1); return (cil_int)v; }
+static inline cil_uint DIGITOYENGINE_f2u(double v) { if (v != v || v <= 0.0) return 0u; if (v >= 4294967295.0) return 4294967295u; return (cil_uint)v; }
+static inline cil_long DIGITOYENGINE_f2l(double v) { if (v != v) return 0; if (v >= 9223372036854775807.0) return 9223372036854775807LL; if (v <= -9223372036854775808.0) return (-9223372036854775807LL - 1); return (cil_long)v; }
+static inline cil_ulong DIGITOYENGINE_f2ul(double v) { if (v != v || v <= 0.0) return 0ull; if (v >= 18446744073709551615.0) return 18446744073709551615ull; return (cil_ulong)v; }
+// .NET NaN sabitleri: isaret biti SET (x86 "default NaN"); clang 0.0/0.0 sabitini pozitif NaN'a katlar -> BitConverter farki
+static inline double DIGITOYENGINE_nan_d(void) { union { unsigned long long u; double d; } x; x.u = 0xFFF8000000000000ull; return x.d; }
+static inline float DIGITOYENGINE_nan_f(void) { union { unsigned int u; float f; } x; x.u = 0xFFC00000u; return x.f; }
 // Null: HER platformda explicit (MMU/VEH'e birakilmaz) -> NRE satiri sembol dosyasiz kesin. Olcum: maliyet sifir
 // (alinmayan dal; asil pahali olan satir STORE'uydu, o firlatma dalina tasindi). VEH/signal yolu yalniz emniyet agi.
 #define DIGITOYENGINE_NULLCHECK_AT(o, ln) ((void)(DIGITOYENGINE_UNLIKELY((o) == 0) && (DIGITOYENGINE_SETLINE(ln), DIGITOYENGINE_throw_null(), 0)))
 void *gc_alloc(const Type *t);
 void gc_shade(GCHeader *o);
-void gc_write_barrier(GCHeader *obj, GCHeader *val); // tri-color: MARK fazinda val grilenir (obj yok sayilir)
+// ---- GC REFMAP tuketicileri (R2) ----
+void gc_trace_map(const void *base, const unsigned short *map); // base + map[k] slotlarindaki ref'leri shade eder (map 0 -> is yok)
+extern int gc_marking;                                            // MARK fazi bayragi (barrier'in tek testi; sicak yolda inline)
+// WRITE BARRIER SOZLESMESI (R3): uretilen kod heap'e her ref/struct yaziminda SLOT ADRESINI verir; sahip (owner) hicbir zaman
+// derleyicide sezilmez. Bugun tri-color insertion barrier (yazilan referanslar grilenir); kusakli/card-mark GC gelirse slot adresi
+// zaten elde -> yalniz runtime degisir. Kural R4: local/arg struct'a yazim barrier'siz; alan/eleman/statik/pointer hedef barrier'li.
+#define DIGITOYENGINE_BARRIER_REF(slot) ((void)(DIGITOYENGINE_UNLIKELY(gc_marking) && (gc_shade(*(GCHeader **)(slot)), 0)))
+#define DIGITOYENGINE_BARRIER_MAP(slot, map) ((void)(DIGITOYENGINE_UNLIKELY(gc_marking) && (gc_trace_map((slot), (map)), 0)))
+void gc_write_barrier(GCHeader *obj, GCHeader *val); // el yazimi C (corelib.c/vmint.c) icin: MARK fazinda val grilenir (obj yok sayilir)
+// Statik kokler: uretilen tablo (adres + refmap; map 0 -> adres tek ref slotu). Dongu basinda hepsi taranir.
+typedef struct GcStaticRoot
+{
+    void *addr;
+    const unsigned short *map;
+} GcStaticRoot;
+void gc_add_static_roots(const GcStaticRoot *roots, int n);
 int gc_hashcode(GCHeader *o);                        // type->hashcode varsa onu, yoksa header'daki stabil idhash
 void gc_add_root(GCHeader *o);
 void gc_remove_root(GCHeader *o);

@@ -34,20 +34,19 @@ namespace DigitoyEngine.Language
                 if (!more && ctx.AllCodes.All(done.Contains)) break;
             }
             AssignVirtualSlots(ctx);
+            Lower.LowerRest(ctx); // CANON LOWERING asama 2: canon olmayan govdelerin sabit gizli operandlari (emitter/interp canon bilmez)
         }
 
-        // ---- CANON SOZLUKLERI (Canon.cs): canon govdelerdeki T'ye bagli op'lar slot ister; her exact ornek slotlari cozer ----
-        static readonly HashSet<Code> dictScanned = new HashSet<Code>();
+        // ---- CANON SOZLUKLERI (Canon.cs): canon govdelerdeki T'ye bagli op'lar slot ister (Lower.cs); her exact ornek slotlari cozer ----
 
         static bool ProcessDictionaries(Context ctx, HashSet<Code> resolved)
         {
             bool changed = false;
             foreach (var code in ctx.AllCodes.ToList())
             {
-                if (!code.IsCanonCode || code.IsSharedExact || !resolved.Contains(code) || !dictScanned.Add(code)) continue;
+                if (!code.IsCanonCode || code.IsSharedExact || !resolved.Contains(code)) continue;
                 var layout = ctx.LayoutOf(Context.DictOwnerOf(code));
-                foreach (var op in code.Operations)
-                    if (RequestSlots(ctx, code, layout, op)) changed = true;
+                if (Lower.LowerCanonCode(ctx, code, layout)) changed = true;
             }
             // exact ornekler: eksik slotlar tamamlanir (layout buyudukce / yeni exact geldikce; append-only)
             foreach (var exact in ctx.SharedExactOrder.ToList())
@@ -61,78 +60,6 @@ namespace DigitoyEngine.Language
                 if (ResolveDict(ctx, exact, layout, typeArgs, exact.MethodTypeArguments)) changed = true;
             }
             return changed;
-        }
-
-        // Slot anahtari her zaman ACIK bicimdir (marker'li). Cozulmus tip __Canon iceriyorsa ama acik bicim yoksa frontend/Resolver hatasi.
-        static bool RequestSlots(Context ctx, Code code, DictLayout layout, Op op)
-        {
-            bool added = false, a;
-            switch (op.Type)
-            {
-                case OpType.TypeOf: case OpType.Box: case OpType.Unbox: case OpType.UnboxOrDefault: case OpType.CastClass:
-                case OpType.AsType: case OpType.IsType: case OpType.ExIs: case OpType.ExBind: case OpType.New: case OpType.NullableWrap:
-                    if (Canon.ContainsCanon(op.PrimitiveRef))
-                    {
-                        if (op.PrimitiveRef == Primitive.Canon && (op.Type == OpType.Box || op.Type == OpType.NullableWrap)) break; // ref kutulama no-op
-                        var open = op.OpenRef ?? throw new System.Exception($"canon govdede acik bicim yok: {code.EncodeName()} {op}");
-                        op.DictSlot = layout.Request(DictSlotKind.TypeHandle, open, out a).Index; added |= a;
-                    }
-                    break;
-                case OpType.NewArray:
-                    if (Canon.ContainsCanon(op.PrimitiveRef))
-                    {
-                        var open = op.OpenRef ?? throw new System.Exception($"canon govdede acik bicim yok: {code.EncodeName()} {op}");
-                        op.DictSlot = layout.Request(DictSlotKind.TypeHandle, Primitive.ArrayOf(open, op.Slot > 0 ? op.Slot : 1), out a).Index; added |= a;
-                    }
-                    break;
-                case OpType.GetStatic: case OpType.SetStatic: case OpType.AddrStatic:
-                    if (op.Field != null && Canon.ContainsCanon(op.Field.Owner))
-                    {
-                        var def = op.Field.Owner.Definition;
-                        var open = ctx.Apply(def, op.TypeArguments.GetRange(0, def.GenericParameters.Count));
-                        op.DictSlot = layout.Request(DictSlotKind.TypeHandle, open, out a).Index; added |= a;
-                    }
-                    break;
-                case OpType.Call: case OpType.CallVirtual:
-                    {
-                        var cc = op.Code.Shared;
-                        if (op.Type == OpType.CallVirtual && op.Code.Owner != null && op.Code.Owner.IsInterface && Canon.ContainsCanon(op.Code.Owner))
-                        {
-                            var idef = op.Code.Owner.Definition;
-                            var iopen = ctx.Apply(idef, op.TypeArguments.GetRange(0, idef.GenericParameters.Count));
-                            op.DictSlotIface = layout.Request(DictSlotKind.TypeHandle, iopen, out a).Index; added |= a;
-                        }
-                        if (!cc.NeedsDictParam) break;
-                        if (op.Type == OpType.CallVirtual && op.Code.IsSharedExact) break; // exact GVM slotu: girisler stub (ctx'siz)
-                        var calleeOwner = Context.DictOwnerOf(cc);
-                        if (calleeOwner == layout.Owner) { op.DictSlot = -2; break; } // ayni sozluk: kendi __dict
-                        if (cc.HasMethodDict)
-                            op.DictSlot = layout.Request(DictSlotKind.MethodDict, GenericInstantiator.RootTemplate(op.Code), new List<Primitive>(op.TypeArguments), out a).Index;
-                        else
-                        {
-                            var def = cc.Owner.Definition;
-                            var open = ctx.Apply(def, op.TypeArguments.GetRange(0, def.GenericParameters.Count));
-                            op.DictSlot = layout.Request(DictSlotKind.TypeDict, open, out a).Index;
-                        }
-                        added |= a;
-                        break;
-                    }
-                case OpType.DelegateNew:
-                    {
-                        if (Canon.ContainsCanon(op.PrimitiveRef))
-                        {
-                            var open = op.OpenRef ?? throw new System.Exception($"canon govdede acik delegate tipi yok: {code.EncodeName()} {op}");
-                            op.DictSlot = layout.Request(DictSlotKind.TypeHandle, open, out a).Index; added |= a;
-                        }
-                        var cc = op.Code.Shared;
-                        if (cc.NeedsDictParam)
-                        {
-                            op.DictSlotFn = layout.Request(DictSlotKind.FnPtr, GenericInstantiator.RootTemplate(op.Code), new List<Primitive>(op.TypeArguments), out a).Index; added |= a;
-                        }
-                        break;
-                    }
-            }
-            return added;
         }
 
         // Exact ornegin sozlugunu layout'a gore tamamlar (append-only: yalniz eksik slotlar). Hedef tipler/metotlar burada ORNEKLENIR.

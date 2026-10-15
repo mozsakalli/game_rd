@@ -20,7 +20,14 @@ namespace DigitoyEngine.Language
             Namespace + ".DivideByZeroException",
             Namespace + ".InvalidCastException",
             null,
-            Namespace + ".IOException"
+            Namespace + ".IOException",
+            Namespace + ".OverflowException",
+            Namespace + ".ArgumentOutOfRangeException",
+            Namespace + ".ArgumentNullException",
+            Namespace + ".ArgumentException",
+            Namespace + ".FormatException",
+            Namespace + ".NotSupportedException",
+            Namespace + ".InvalidOperationException"
         };
 
         // corelib'te bu FQ adla bildirilen class YENI tip yaratmaz, runtime tipine baglanir

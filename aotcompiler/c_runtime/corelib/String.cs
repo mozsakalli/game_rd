@@ -1,4 +1,4 @@
-﻿// corelib: System.String (degismez UTF-16). Bu bildirim YENI tip yaratmaz - uyeler runtime
+// corelib: System.String (degismez UTF-16). Bu bildirim YENI tip yaratmaz - uyeler runtime
 // tipine (Primitive.String / C: VmString+vmstring_type; VM: .NET string degeri) baglanir.
 // YUZEY C# UYUMLU tutulur: C# API'sinde olmayan uye EKLENMEZ (kacak yok).
 // extern = govde c_runtime/corelib.c'de (C, mangled adla) + source/Intrinsics.cs'te (VM).
@@ -91,21 +91,22 @@ namespace System
         public static string Concat(string a, string b, string c, string d) { return Concat(Concat(a, b, c), d, ""); }
         public static string Concat(string[] values)
         {
+            if (values == null) throw new ArgumentNullException("values");
             string r = "";
             for (int i = 0; i < values.Length; i++) r = Concat(r, values[i], "");
             return r;
         }
         public static string Join(string separator, string[] values)
         {
-            if (values == null) throw new NullReferenceException();
+            if (values == null) throw new ArgumentNullException("values");
             string r = "";
             for (int i = 0; i < values.Length; i++) { if (i > 0) r = Concat(r, separator, ""); r = Concat(r, values[i], ""); }
             return r;
         }
         public static string Join(string separator, string[] values, int startIndex, int count)
         {
-            if (values == null) throw new NullReferenceException();
-            if (startIndex < 0 || count < 0 || startIndex + count > values.Length) throw new IndexOutOfRangeException();
+            if (values == null) throw new ArgumentNullException("values");
+            if (startIndex < 0 || count < 0 || startIndex + count > values.Length) throw new ArgumentOutOfRangeException("startIndex");
             string r = "";
             for (int i = 0; i < count; i++) { if (i > 0) r = Concat(r, separator, ""); r = Concat(r, values[startIndex + i], ""); }
             return r;
@@ -113,6 +114,7 @@ namespace System
         public string PadLeft(int totalWidth) { return PadLeft(totalWidth, ' '); }
         public string PadLeft(int totalWidth, char paddingChar)
         {
+            if (totalWidth < 0) throw new ArgumentOutOfRangeException("totalWidth", "Non-negative number required.");
             string r = this;
             for (int i = Length; i < totalWidth; i++) r = "" + paddingChar + r;
             return r;
@@ -120,6 +122,7 @@ namespace System
         public string PadRight(int totalWidth) { return PadRight(totalWidth, ' '); }
         public string PadRight(int totalWidth, char paddingChar)
         {
+            if (totalWidth < 0) throw new ArgumentOutOfRangeException("totalWidth", "Non-negative number required.");
             string r = this;
             for (int i = Length; i < totalWidth; i++) r = r + paddingChar;
             return r;
@@ -155,13 +158,15 @@ namespace System
         public int IndexOf(char value) { return IndexOf(value, 0); }
         public int IndexOf(char value, int startIndex)
         {
+            if ((uint)startIndex > (uint)Length) throw new ArgumentOutOfRangeException("startIndex", "Index was out of range. Must be non-negative and less than the size of the collection.");
             for (int i = startIndex; i < Length; i++) if (this[i] == value) return i;
             return -1;
         }
         public int IndexOf(char value, int startIndex, int count)
         {
+            if ((uint)startIndex > (uint)Length) throw new ArgumentOutOfRangeException("startIndex", "Index was out of range. Must be non-negative and less than the size of the collection.");
+            if (count < 0 || startIndex > Length - count) throw new ArgumentOutOfRangeException("count", "Count must be positive and count must refer to a location within the string/array/collection.");
             int end = startIndex + count;
-            if (end > Length) end = Length;
             for (int i = startIndex; i < end; i++) if (this[i] == value) return i;
             return -1;
         }

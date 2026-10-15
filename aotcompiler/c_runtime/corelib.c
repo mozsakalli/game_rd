@@ -153,19 +153,24 @@ double System_Math_Abs_Double(double value)
     return fabs(value);
 }
 
+// .NET Math.Max/Min: NaN YAYILIR (fmax/fmin NaN'i yok sayar); esitlikte +0 > -0 (Max(-0.0, 0.0) = 0.0, Min = -0.0)
 float System_Math_Max_Float_Float(float x, float y)
 {
-    return fmaxf(x, y);
+    if (x != x) return x; if (y != y) return y;
+    if (x == y) return signbit(x) ? y : x;
+    return x > y ? x : y;
 }
 
 float System_MathF_Min_Float_Float(float x, float y)
 {
-    return fminf(x, y);
+    if (x != x) return x; if (y != y) return y;
+    if (x == y) return signbit(x) ? x : y;
+    return x < y ? x : y;
 }
 
 float System_MathF_Max_Float_Float(float x, float y)
 {
-    return fmaxf(x, y);
+    return System_Math_Max_Float_Float(x, y);
 }
 
 float System_MathF_Abs_Float(float value) { return fabsf(value); }
@@ -176,26 +181,25 @@ float System_MathF_Cos_Float(float value) { return cosf(value); }
 float System_MathF_Exp_Float(float value) { return expf(value); }
 float System_MathF_Floor_Float(float value) { return floorf(value); }
 float System_MathF_Pow_Float_Float(float x, float y) { return powf(x, y); }
-float System_MathF_Round_Float(float value) { return roundf(value); }
+float System_MathF_Round_Float(float value) { return rintf(value); } /* .NET: ToEven (banker's); roundf half-away-from-zero idi */
 float System_MathF_Sin_Float(float value) { return sinf(value); }
 float System_MathF_Sqrt_Float(float value) { return sqrtf(value); }
 float System_MathF_Tan_Float(float value) { return tanf(value); }
 
 double System_Math_Max_Double_Double(double x, double y)
 {
-    return fmax(x, y);
+    if (x != x) return x; if (y != y) return y;
+    if (x == y) return signbit(x) ? y : x;
+    return x > y ? x : y;
 }
 
-int System_Math_Sign_Double(double value)
-{
-    return (value > 0.0) - (value < 0.0);
-}
 
 int System_Convert_ToInt32_System_String_Int(VmString *value, int from_base)
 {
-    DIGITOYENGINE_NULLCHECK(value);
     if (from_base != 2 && from_base != 8 && from_base != 10 && from_base != 16)
-        DIGITOYENGINE_throw_io("Convert.ToInt32 invalid base");
+        DIGITOYENGINE_throw_kind(DIGITOYENGINE_EX_ARG, "Invalid Base.");
+    if (!value)
+        return 0; /* .NET: null -> 0 */
     unsigned int result = 0;
     int at = 0, negative = 0;
     if (from_base == 10 && value->length > 0 && (value->data[0] == '+' || value->data[0] == '-'))
@@ -203,23 +207,32 @@ int System_Convert_ToInt32_System_String_Int(VmString *value, int from_base)
         negative = value->data[0] == '-';
         at++;
     }
+    /* .NET: taban 16'da "0x"/"0X" oneki kabul */
+    if (from_base == 16 && value->length >= 2 && value->data[0] == '0' && (value->data[1] == 'x' || value->data[1] == 'X'))
+        at += 2;
+    if (value->length == 0)
+        DIGITOYENGINE_throw_kind(DIGITOYENGINE_EX_ARGOOR, "Index was out of range. Must be non-negative and less than the size of the collection."); /* .NET: bos string */
+    if (from_base != 10 && value->length > 0 && value->data[0] == '-')
+        DIGITOYENGINE_throw_kind(DIGITOYENGINE_EX_ARG, "String cannot contain a minus sign if the base is not 10.");
     if (at == value->length)
-        DIGITOYENGINE_throw_io("Convert.ToInt32 invalid value");
+        DIGITOYENGINE_throw_kind(DIGITOYENGINE_EX_FORMAT, "Could not find any recognizable digits.");
     for (; at < value->length; at++)
     {
         unsigned short ch = value->data[at];
         unsigned int digit = ch >= '0' && ch <= '9' ? ch - '0' : ch >= 'a' && ch <= 'f' ? ch - 'a' + 10
                                                              : ch >= 'A' && ch <= 'F'   ? ch - 'A' + 10
                                                                                         : 255;
-        if (digit >= (unsigned int)from_base || result > (UINT_MAX - digit) / (unsigned int)from_base)
-            DIGITOYENGINE_throw_io("Convert.ToInt32 invalid value");
+        if (digit >= (unsigned int)from_base)
+            DIGITOYENGINE_throw_kind(DIGITOYENGINE_EX_FORMAT, "Could not find any recognizable digits.");
+        if (result > (UINT_MAX - digit) / (unsigned int)from_base)
+            DIGITOYENGINE_throw_overflow();
         result = result * (unsigned int)from_base + digit;
     }
     if (from_base == 10)
     {
         unsigned int limit = negative ? (unsigned int)INT_MAX + 1u : (unsigned int)INT_MAX;
         if (result > limit)
-            DIGITOYENGINE_throw_io("Convert.ToInt32 overflow");
+            DIGITOYENGINE_throw_overflow();
         return negative ? (result == (unsigned int)INT_MAX + 1u ? INT_MIN : -(int)result) : (int)result;
     }
     return (int)result;
@@ -228,7 +241,7 @@ int System_Convert_ToInt32_System_String_Int(VmString *value, int from_base)
 unsigned int System_Convert_ToUInt32_Int(int value)
 {
     if (value < 0)
-        DIGITOYENGINE_throw_io("Convert.ToUInt32 overflow");
+        DIGITOYENGINE_throw_overflow();
     return (unsigned int)value;
 }
 
@@ -571,7 +584,7 @@ static void sb_double(double v, int isFloat)
     }
     if (isinf(v))
     {
-        sb_ch(0x221E); /* dotnet: "∞" */
+        sb_ascii("Infinity"); /* dotnet (InvariantGlobalization): "Infinity" / "-Infinity" */
         return;
     }
     if (v == 0)
@@ -837,7 +850,7 @@ VmString *System_String_Substring_Int(VmString *a0, int a1)
     DIGITOYENGINE_NULLCHECK(a0);
     int n = a0->length;
     if ((unsigned)a1 > (unsigned)n)
-        DIGITOYENGINE_throw_bounds(a1, n);
+        DIGITOYENGINE_throw_kind(DIGITOYENGINE_EX_ARGOOR, "startIndex cannot be larger than length of string.");
     int len = n - a1;
     VmString *r = vmstring_alloc(len);
     if (len)
@@ -849,9 +862,9 @@ VmString *System_String_Substring_Int_Int(VmString *a0, int a1, int a2)
     DIGITOYENGINE_NULLCHECK(a0);
     int n = a0->length;
     if ((unsigned)a1 > (unsigned)n)
-        DIGITOYENGINE_throw_bounds(a1, n);
+        DIGITOYENGINE_throw_kind(DIGITOYENGINE_EX_ARGOOR, "startIndex cannot be larger than length of string.");
     if (a2 < 0 || a1 + a2 > n)
-        DIGITOYENGINE_throw_bounds(a1 + a2, n);
+        DIGITOYENGINE_throw_kind(DIGITOYENGINE_EX_ARGOOR, "Index and length must refer to a location within the string.");
     VmString *r = vmstring_alloc(a2);
     if (a2)
         memcpy((void *)r->data, a0->data + a1, (size_t)a2 * 2);
@@ -1000,10 +1013,10 @@ static int digitoyengine_indexof(VmString *s, VmString *t, int from)
 VmString *System_String_Replace_System_String_System_String(VmString *a0, VmString *a1, VmString *a2)
 {
     DIGITOYENGINE_NULLCHECK(a0);
-    DIGITOYENGINE_NULLCHECK(a1);
+    if (!a1) DIGITOYENGINE_throw_kind(DIGITOYENGINE_EX_ARGNULL, "Value cannot be null.");
     int n = a0->length, old_len = a1->length, new_len = a2 ? a2->length : 0;
     if (old_len == 0)
-        DIGITOYENGINE_throw_io("String.Replace oldValue cannot be empty");
+        DIGITOYENGINE_throw_kind(DIGITOYENGINE_EX_ARG, "String cannot be of zero length.");
     int count = 0;
     for (int at = 0; (at = digitoyengine_indexof(a0, a1, at)) >= 0; at += old_len)
         count++;
@@ -1047,9 +1060,9 @@ static VmArray *digitoyengine_split(VmString *value, const unsigned short *separ
 {
     DIGITOYENGINE_NULLCHECK(value);
     if (separator_length <= 0)
-        DIGITOYENGINE_throw_io("String.Split separator cannot be empty");
+        DIGITOYENGINE_throw_kind(DIGITOYENGINE_EX_ARG, "Separator cannot be empty.");
     if (count < 0)
-        DIGITOYENGINE_throw_io("String.Split count cannot be negative");
+        DIGITOYENGINE_throw_kind(DIGITOYENGINE_EX_ARGOOR, "Count cannot be less than zero.");
     if (count == 0)
         return vmarray_new_e(0, &vmstring_type);
     int matches = 0, at = 0;
@@ -1095,26 +1108,27 @@ VmArray *System_String_Split_Char(VmString *a0, cil_char a1)
 int System_String_IndexOf_System_String(VmString *a0, VmString *a1)
 {
     DIGITOYENGINE_NULLCHECK(a0);
-    DIGITOYENGINE_NULLCHECK(a1);
+    if (!a1) DIGITOYENGINE_throw_kind(DIGITOYENGINE_EX_ARGNULL, "Value cannot be null.");
     return digitoyengine_indexof(a0, a1, 0);
 }
 int System_String_IndexOf_System_String_Int(VmString *a0, VmString *a1, int a2)
 {
     DIGITOYENGINE_NULLCHECK(a0);
-    DIGITOYENGINE_NULLCHECK(a1);
+    if (!a1) DIGITOYENGINE_throw_kind(DIGITOYENGINE_EX_ARGNULL, "Value cannot be null.");
+    if ((unsigned)a2 > (unsigned)a0->length) DIGITOYENGINE_throw_kind(DIGITOYENGINE_EX_ARGOOR, "Index was out of range. Must be non-negative and less than the size of the collection.");
     return digitoyengine_indexof(a0, a1, a2);
 }
 int System_String_IndexOf_System_String_System_StringComparison(VmString *a0, VmString *a1, int a2)
 {
     (void)a2;
     DIGITOYENGINE_NULLCHECK(a0);
-    DIGITOYENGINE_NULLCHECK(a1);
+    if (!a1) DIGITOYENGINE_throw_kind(DIGITOYENGINE_EX_ARGNULL, "Value cannot be null.");
     return digitoyengine_indexof(a0, a1, 0);
 }
 int System_String_Contains_System_String(VmString *a0, VmString *a1)
 {
     DIGITOYENGINE_NULLCHECK(a0);
-    DIGITOYENGINE_NULLCHECK(a1);
+    if (!a1) DIGITOYENGINE_throw_kind(DIGITOYENGINE_EX_ARGNULL, "Value cannot be null.");
     return digitoyengine_indexof(a0, a1, 0) >= 0;
 }
 int System_String_Contains_Char(VmString *a0, cil_char a1)
@@ -1128,7 +1142,7 @@ int System_String_Contains_Char(VmString *a0, cil_char a1)
 int System_String_StartsWith_System_String(VmString *a0, VmString *a1)
 {
     DIGITOYENGINE_NULLCHECK(a0);
-    DIGITOYENGINE_NULLCHECK(a1);
+    if (!a1) DIGITOYENGINE_throw_kind(DIGITOYENGINE_EX_ARGNULL, "Value cannot be null.");
     if (a1->length > a0->length)
         return 0;
     return a1->length == 0 || memcmp(a0->data, a1->data, (size_t)a1->length * sizeof(unsigned short)) == 0;
@@ -1146,7 +1160,7 @@ int System_String_StartsWith_Char(VmString *a0, cil_char a1)
 int System_String_EndsWith_System_String(VmString *a0, VmString *a1)
 {
     DIGITOYENGINE_NULLCHECK(a0);
-    DIGITOYENGINE_NULLCHECK(a1);
+    if (!a1) DIGITOYENGINE_throw_kind(DIGITOYENGINE_EX_ARGNULL, "Value cannot be null.");
     if (a1->length > a0->length)
         return 0;
     return a1->length == 0 || memcmp(a0->data + a0->length - a1->length, a1->data, (size_t)a1->length * sizeof(unsigned short)) == 0;

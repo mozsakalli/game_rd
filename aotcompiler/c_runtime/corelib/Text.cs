@@ -7,9 +7,15 @@ namespace System.Text
         public static Encoding utf8 = new Encoding();
         public static Encoding UTF8 { get { return utf8; } }
 
-        public string GetString(byte[] bytes) { return Utf8Decode(bytes, 0, bytes.Length); }
-        public string GetString(byte[] bytes, int index, int count) { return Utf8Decode(bytes, index, count); }
-        public byte[] GetBytes(string value) { return Utf8Encode(value); }
+        public string GetString(byte[] bytes) { if (bytes == null) throw new ArgumentNullException("bytes"); return Utf8Decode(bytes, 0, bytes.Length); }
+        public string GetString(byte[] bytes, int index, int count)
+        {
+            if (bytes == null) throw new ArgumentNullException("bytes");
+            if (index < 0 || count < 0) throw new ArgumentOutOfRangeException(index < 0 ? "index" : "count", "Non-negative number required.");
+            if (bytes.Length - index < count) throw new ArgumentOutOfRangeException("bytes", "Index and count must refer to a location within the buffer.");
+            return Utf8Decode(bytes, index, count);
+        }
+        public byte[] GetBytes(string value) { if (value == null) throw new ArgumentNullException("s"); return Utf8Encode(value); }
 
         public static extern string Utf8Decode(byte[] bytes, int index, int count);
         public static extern byte[] Utf8Encode(string value);

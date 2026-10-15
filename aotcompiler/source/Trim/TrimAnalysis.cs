@@ -104,12 +104,15 @@ namespace DigitoyEngine.Language.Trim
                 foreach (var a in c.Attributes) AttrRoot(roots, a);
                 if (HasAttr(c.Attributes, "Preserve") && c.Owner != null) roots.AddReflection(c.Owner, MemberKinds.Methods | MemberKinds.Ctors);
                 List<Primitive> lastTypeOf = null;
-                foreach (var op in c.Operations)
+                var ops = c.Operations;
+                for (int oi = 0; oi < ops.Count; oi++)
                 {
-                    if (op.Type == OpType.TypeOf && op.PrimitiveRef != null && op.PrimitiveRef.Type == PrimitiveType.Model)
+                    var op = ops[oi];
+                    if ((op.Type == OpType.TypeOf || op.Type == OpType.TypeOfRt) && op.PrimitiveRef != null && op.PrimitiveRef.Type == PrimitiveType.Model)
                     {
                         // CANON: typeof(T) canon govdede -> her exact orneklemenin sozluk hedefi (GetSystem<LayoutSystem> gibi) kok olur
-                        lastTypeOf = op.DictSlot >= 0 ? ExactTargets(ctx, c, op.DictSlot).ToList() : new List<Primitive> { op.PrimitiveRef };
+                        int slot = op.Type == OpType.TypeOfRt ? Lower.HiddenSlot(ops, oi, DictSlotKind.TypeHandle) : -1;
+                        lastTypeOf = slot >= 0 ? ExactTargets(ctx, c, slot).ToList() : new List<Primitive> { op.PrimitiveRef };
                         foreach (var tp in lastTypeOf) roots.AddReflection(tp, MemberKinds.Name);
                     }
                     // typeof(X) ... Activator.CreateInstance(Type): `new T()` klonu da bu sekle duser -> X'in ctor kaydi gerekir
@@ -369,23 +372,28 @@ namespace DigitoyEngine.Language.Trim
                         throw new Exception($"[DevOnly] {c.Owner?.Name}.{c.DisplayName ?? c.Name}: Task<T> donusu desteklenmiyor (void/Task/default kullan)");
                     continue;
                 }
-                foreach (var op in c.Operations)
+                var ops = c.Operations;
+                for (int oi = 0; oi < ops.Count; oi++)
                 {
+                    var op = ops[oi];
                     if (op.PrimitiveRef != null) MarkType(op.PrimitiveRef, r);
                     if (op.Field?.Owner != null)
                     {
                         MarkType(op.Field.Owner, r);
                         if (op.Field.IsStatic) Touch(op.Field.Owner, c); // statik alan erisimi = tip dokunuldu
                     }
-                    if ((op.Type == OpType.New || op.Type == OpType.Box) && op.PrimitiveRef != null) Instantiate(op.PrimitiveRef);
-                    if ((op.Type == OpType.New || op.Type == OpType.Box) && op.DictSlot >= 0) dictOps.Add((c, op.DictSlot, false));
-                    if (op.Type == OpType.DelegateNew && op.DictSlotFn >= 0) dictOps.Add((c, op.DictSlotFn, true));
-                    if (op.Type == OpType.New && op.PrimitiveRef != null) Touch(op.PrimitiveRef, c);
+                    bool isNew = op.Type == OpType.New || op.Type == OpType.NewRt, isBox = op.Type == OpType.Box || op.Type == OpType.BoxRt;
+                    bool isDelNew = op.Type == OpType.DelegateNew || op.Type == OpType.DelegateNewRt;
+                    if ((isNew || isBox) && op.PrimitiveRef != null) Instantiate(op.PrimitiveRef);
+                    // CANON LOWERING: sozluk kenari = tuketicinin bitisik LdDictSlot operandi (New/Box: TypeHandle; DelegateNew: FnPtr)
+                    if (op.Type == OpType.NewRt || op.Type == OpType.BoxRt) { int s = Lower.HiddenSlot(ops, oi, DictSlotKind.TypeHandle); if (s >= 0) dictOps.Add((c, s, false)); }
+                    if (op.Type == OpType.DelegateNewRt) { int s = Lower.HiddenSlot(ops, oi, DictSlotKind.FnPtr); if (s >= 0) dictOps.Add((c, s, true)); }
+                    if (isNew && op.PrimitiveRef != null) Touch(op.PrimitiveRef, c);
                     if (op.Code == null) continue;
                     Visit(op.Code, c);
                     Touch(op.Code.Owner, c); // uye cagrisi = tip dokunuldu (.NET: static metot/ctor girisi cctor tetikler)
-                    if (op.Type == OpType.New && op.Code.Owner != null) Instantiate(op.Code.Owner); // ctor cagrisi = ornekleme
-                    if (op.Type == OpType.CallVirtual || (op.Type == OpType.DelegateNew && (op.Code.IsVirtual || op.Code.IsOverride)))
+                    if (isNew && op.Code.Owner != null) Instantiate(op.Code.Owner); // ctor cagrisi = ornekleme
+                    if (op.Type == OpType.CallVirtual || (isDelNew && (op.Code.IsVirtual || op.Code.IsOverride)))
                         VisitVirtual(op.Code, c);
                 }
             }

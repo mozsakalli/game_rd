@@ -137,8 +137,10 @@ namespace System.Collections.Generic
         {
             public List<T> list;
             public int index;
+            public int version;
             public bool MoveNext()
             {
+                if (version != list.version) { throw new InvalidOperationException("Collection was modified; enumeration operation may not execute."); }
                 int next = index + 1;
                 if (next >= list.size) { return false; }
                 index = next;
@@ -149,6 +151,7 @@ namespace System.Collections.Generic
         }
         public T[] items;
         public int size;
+        public int version; // .NET: enumeration sirasinda Add/Insert/RemoveAt/Clear -> InvalidOperationException
         public List() { items = new T[4]; size = 0; }
         public List(int capacity) { items = new T[capacity < 4 ? 4 : capacity]; size = 0; }
         public int Count { get { return size; } }
@@ -156,38 +159,40 @@ namespace System.Collections.Generic
         {
             get
             {
-                if ((uint)index >= (uint)size) { throw new IndexOutOfRangeException(); }
+                if ((uint)index >= (uint)size) { throw new ArgumentOutOfRangeException("index", "Index was out of range. Must be non-negative and less than the size of the collection."); }
                 return items[index];
             }
             set
             {
-                if ((uint)index >= (uint)size) { throw new IndexOutOfRangeException(); }
+                if ((uint)index >= (uint)size) { throw new ArgumentOutOfRangeException("index", "Index was out of range. Must be non-negative and less than the size of the collection."); }
                 items[index] = value;
             }
         }
         public void Add(T item)
         {
+            version++;
             if (size == items.Length) { Grow(); }
             items[size] = item;
             size++;
         }
         public void AddRange(List<T> collection)
         {
+            if (collection == null) { throw new ArgumentNullException("collection"); }
             int count = collection.size;
             for (int i = 0; i < count; i++) { Add(collection.items[i]); }
         }
-        public List<T>.Enumerator GetEnumerator() { return new List<T>.Enumerator { list = this, index = -1 }; }
+        public List<T>.Enumerator GetEnumerator() { return new List<T>.Enumerator { list = this, index = -1, version = version }; }
         IEnumerator<T> IEnumerable<T>.GetEnumerator() { return new ListInterfaceEnumerator<T>(GetEnumerator()); }
         System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() { return new ListInterfaceEnumerator<T>(GetEnumerator()); } // koleksiyon baslaticisi (new List<T>{...}) bunu ister
         // ---- System.Collections.IList (non-generic; reflection tabanli serializer boxing ile erisir) ----
-        object System.Collections.IList.this[int index] { get { return this[index]; } set { this[index] = (T)value; } }
+        object System.Collections.IList.this[int index] { get { return this[index]; } set { if (value == null && default(T) != null) throw new ArgumentNullException("value"); if (!(value is T) && value != null) throw new ArgumentException("The value is not of the collection element type and cannot be used in this generic collection.", "value"); this[index] = (T)value; } }
         bool System.Collections.IList.IsFixedSize { get { return false; } }
         bool System.Collections.IList.IsReadOnly { get { return false; } }
-        int System.Collections.IList.Add(object value) { Add((T)value); return size - 1; }
+        int System.Collections.IList.Add(object value) { if (value == null && default(T) != null) throw new ArgumentNullException("value"); if (!(value is T) && value != null) throw new ArgumentException("The value is not of the collection element type and cannot be used in this generic collection.", "value"); Add((T)value); return size - 1; }
         void System.Collections.IList.Clear() { Clear(); }
         bool System.Collections.IList.Contains(object value) { return value is T && Contains((T)value); }
         int System.Collections.IList.IndexOf(object value) { return value is T ? IndexOf((T)value) : -1; }
-        void System.Collections.IList.Insert(int index, object value) { Insert(index, (T)value); }
+        void System.Collections.IList.Insert(int index, object value) { if (value == null && default(T) != null) throw new ArgumentNullException("value"); if (!(value is T) && value != null) throw new ArgumentException("The value is not of the collection element type and cannot be used in this generic collection.", "value"); Insert(index, (T)value); }
         void System.Collections.IList.Remove(object value) { if (value is T) Remove((T)value); }
         void System.Collections.IList.RemoveAt(int index) { RemoveAt(index); }
         int System.Collections.ICollection.Count { get { return size; } }
@@ -202,12 +207,14 @@ namespace System.Collections.Generic
         }
         public void Clear()
         {
+            version++;
             for (int i = 0; i < size; i++) { items[i] = default(T); } // ref'leri birak (GC)
             size = 0;
         }
         public void RemoveAt(int index)
         {
-            if ((uint)index >= (uint)size) { throw new IndexOutOfRangeException(); }
+            if ((uint)index >= (uint)size) { throw new ArgumentOutOfRangeException("index", "Index was out of range. Must be non-negative and less than the size of the collection."); }
+            version++;
             for (int i = index; i < size - 1; i++) { items[i] = items[i + 1]; }
             size--;
             items[size] = default(T);
@@ -216,7 +223,7 @@ namespace System.Collections.Generic
         {
             for (int index = 0; index < size; index++)
             {
-                if (!items[index].Equals(item)) continue;
+                if (items[index] == null ? item != null : !items[index].Equals(item)) continue;
                 RemoveAt(index);
                 return true;
             }
@@ -224,7 +231,8 @@ namespace System.Collections.Generic
         }
         public void Insert(int index, T item)
         {
-            if ((uint)index > (uint)size) { throw new IndexOutOfRangeException(); }
+            if ((uint)index > (uint)size) { throw new ArgumentOutOfRangeException("index", "Index must be within the bounds of the List."); }
+            version++;
             if (size == items.Length) { Grow(); }
             for (int move = size; move > index; move--) { items[move] = items[move - 1]; }
             items[index] = item;
@@ -248,7 +256,7 @@ namespace System.Collections.Generic
         {
             for (int i = 0; i < size; i++)
             {
-                if (items[i].Equals(item)) { return i; } // T struct olabilir: null karsilastirmasi yok (Contains ile ayni sozlesme)
+                if (items[i] == null ? item == null : items[i].Equals(item)) { return i; }
             }
             return -1;
         }
@@ -258,6 +266,7 @@ namespace System.Collections.Generic
         }
         public T Find(Predicate<T> match)
         {
+            if (match == null) { throw new ArgumentNullException("match"); }
             for (int i = 0; i < size; i++)
             {
                 if (match(items[i])) { return items[i]; }
@@ -266,6 +275,7 @@ namespace System.Collections.Generic
         }
         public int FindIndex(Predicate<T> match)
         {
+            if (match == null) { throw new ArgumentNullException("match"); }
             for (int i = 0; i < size; i++) { if (match(items[i])) { return i; } }
             return -1;
         }
@@ -323,8 +333,10 @@ namespace System.Collections.Generic
         {
             public HashSet<T> set;
             public int index;
+            public int version;
             public bool MoveNext()
             {
+                if (version != set.version) { throw new InvalidOperationException("Collection was modified; enumeration operation may not execute."); }
                 while (++index < set.size)
                     if (set.hashes[index] >= 0) return true;
                 return false;
@@ -332,6 +344,7 @@ namespace System.Collections.Generic
             public T Current { get { return set.items[index]; } }
             public void Dispose() { }
         }
+        public int version;
         public int[] buckets; // 1-tabanli slot, 0 = bos
         public int[] hashes;  // -1 = silinmis slot
         public int[] nexts;
@@ -352,11 +365,11 @@ namespace System.Collections.Generic
         public HashSet(IEqualityComparer<T> comparer) : this() { this.comparer = comparer; }
         public HashSet(int capacity, IEqualityComparer<T> comparer) : this() { this.comparer = comparer; }
 
-        int HashOf(T item) { return (comparer == null ? item.GetHashCode() : comparer.GetHashCode(item)) & 0x7FFFFFFF; }
-        bool Eq(T stored, T item) { return comparer == null ? stored.Equals(item) : comparer.Equals(stored, item); }
+        int HashOf(T item) { if (item == null) { return 0; } return (comparer == null ? item.GetHashCode() : comparer.GetHashCode(item)) & 0x7FFFFFFF; } // .NET HashSet null elemana izin verir
+        bool Eq(T stored, T item) { return comparer == null ? (stored == null ? item == null : stored.Equals(item)) : comparer.Equals(stored, item); }
 
         public int Count { get { return count; } }
-        public HashSet<T>.Enumerator GetEnumerator() { return new HashSet<T>.Enumerator { set = this, index = -1 }; }
+        public HashSet<T>.Enumerator GetEnumerator() { return new HashSet<T>.Enumerator { set = this, index = -1, version = version }; }
         IEnumerator<T> IEnumerable<T>.GetEnumerator() { return new HashSetInterfaceEnumerator<T>(GetEnumerator()); }
         System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() { return new HashSetInterfaceEnumerator<T>(GetEnumerator()); }
 
@@ -377,6 +390,7 @@ namespace System.Collections.Generic
         public bool Add(T item)
         {
             if (Find(item) >= 0) return false;
+            version++; // .NET: basarili Add enumerator'u gecersiz kilar (Remove/Clear kilmaz, .NET Core 3.0+)
             if (size == items.Length) { Grow(); }
             int hash = HashOf(item);
             int bucket = hash & (buckets.Length - 1);
@@ -488,8 +502,51 @@ namespace System.Collections.Generic
         public void Dispose() { }
     }
 
-    public class Dictionary<K, V> : IDictionary<K, V>, IReadOnlyDictionary<K, V>, System.Collections.IEnumerable
+    public class DictionaryEntryEnumerator<K, V> : System.Collections.IDictionaryEnumerator, System.Collections.IEnumerator
     {
+        public Dictionary<K, V>.Enumerator enumerator;
+        public DictionaryEntryEnumerator(Dictionary<K, V>.Enumerator enumerator) { this.enumerator = enumerator; }
+        public bool MoveNext() { return enumerator.MoveNext(); }
+        public object Current { get { var kv = enumerator.Current; return new System.Collections.DictionaryEntry(kv.Key, kv.Value); } }
+        public System.Collections.DictionaryEntry Entry { get { var kv = enumerator.Current; return new System.Collections.DictionaryEntry(kv.Key, kv.Value); } }
+        public object Key { get { return enumerator.Current.Key; } }
+        public object Value { get { return enumerator.Current.Value; } }
+        public void Reset() { }
+    }
+
+    public class Dictionary<K, V> : IDictionary<K, V>, IReadOnlyDictionary<K, V>, System.Collections.IEnumerable, System.Collections.IDictionary
+    {
+        // ---- System.Collections.IDictionary (non-generic; .NET: Dictionary<K,V> bunu uygular — Exception.Data, eski API'ler) ----
+        object System.Collections.IDictionary.this[object key]
+        {
+            get { if (key == null) { throw new ArgumentNullException("key"); } if (key is K) { V v; if (TryGetValue((K)key, out v)) return v; } return null; }
+            set
+            {
+                if (key == null) { throw new ArgumentNullException("key"); }
+                if (!(key is K)) { throw new ArgumentException("The value is not of the collection key type.", "key"); }
+                if (value == null && default(V) != null) { throw new ArgumentNullException("value"); } if (!(value is V) && value != null) { throw new ArgumentException("The value is not of the collection value type.", "value"); }
+                this[(K)key] = (V)value;
+            }
+        }
+        System.Collections.ICollection System.Collections.IDictionary.Keys { get { return Keys; } }
+        System.Collections.ICollection System.Collections.IDictionary.Values { get { return Values; } }
+        bool System.Collections.IDictionary.IsReadOnly { get { return false; } }
+        bool System.Collections.IDictionary.IsFixedSize { get { return false; } }
+        bool System.Collections.IDictionary.Contains(object key) { if (key == null) { throw new ArgumentNullException("key"); } return key is K && ContainsKey((K)key); }
+        void System.Collections.IDictionary.Add(object key, object value)
+        {
+            if (key == null) { throw new ArgumentNullException("key"); }
+            if (!(key is K)) { throw new ArgumentException("The value is not of the collection key type.", "key"); }
+            if (value == null && default(V) != null) { throw new ArgumentNullException("value"); } if (!(value is V) && value != null) { throw new ArgumentException("The value is not of the collection value type.", "value"); }
+            Add((K)key, (V)value);
+        }
+        void System.Collections.IDictionary.Clear() { Clear(); }
+        void System.Collections.IDictionary.Remove(object key) { if (key == null) { throw new ArgumentNullException("key"); } if (key is K) Remove((K)key); }
+        System.Collections.IDictionaryEnumerator System.Collections.IDictionary.GetEnumerator() { return new DictionaryEntryEnumerator<K, V>(GetEnumerator()); }
+        int System.Collections.ICollection.Count { get { return size; } }
+        bool System.Collections.ICollection.IsSynchronized { get { return false; } }
+        object System.Collections.ICollection.SyncRoot { get { return this; } }
+        void System.Collections.ICollection.CopyTo(Array array, int index) { for (int i = 0; i < size; i++) array.SetValue(new KeyValuePair<K, V>(keys[i], values[i]), index + i); }
         public struct Enumerator
         {
             public Dictionary<K, V> dictionary;
@@ -557,7 +614,7 @@ namespace System.Collections.Generic
             values = new V[8];
             size = 0;
         }
-        int HashOf(K key) { return (comparer == null ? key.GetHashCode() : comparer.GetHashCode(key)) & 0x7FFFFFFF; }
+        int HashOf(K key) { if (key == null) { throw new ArgumentNullException("key"); } return (comparer == null ? key.GetHashCode() : comparer.GetHashCode(key)) & 0x7FFFFFFF; }
         bool Eq(K stored, K key) { return comparer == null ? stored.Equals(key) : comparer.Equals(stored, key); }
         public int Count { get { return size; } }
         public Dictionary<K, V>.KeyCollection Keys { get { return new Dictionary<K, V>.KeyCollection { dictionary = this }; } }
@@ -625,7 +682,7 @@ namespace System.Collections.Generic
         }
         public void Add(K key, V value)
         {
-            if (ContainsKey(key)) { throw new Exception("An item with the same key has already been added."); }
+            if (ContainsKey(key)) { throw new ArgumentException("An item with the same key has already been added. Key: " + key); }
             this[key] = value;
         }
         public bool TryGetValue(K key, out V value)

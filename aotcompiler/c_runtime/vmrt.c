@@ -100,8 +100,35 @@ enum
     GCM_SWEEP
 };
 static int gcm_phase = GCM_IDLE;
+int gc_marking = 0; // == (gcm_phase == GCM_MARK); barrier makrolarinin tek testi
 static GCHeader **gcm_pp = 0;
 void gc_shade(GCHeader *o);
+// ---- GC REFMAP (vmrt.h Type.refmap): tek tarayici. Uretilen tiplerin trace fn'i YOK, tablo var. ----
+void gc_trace_map(const void *base, const unsigned short *map)
+{
+    if (!map)
+        return;
+    const char *p = (const char *)base;
+    int n = map[0];
+    for (int k = 1; k <= n; k++)
+        gc_shade(*(GCHeader **)(p + map[k]));
+}
+// Bir nesnenin icindeki referanslar: runtime trace fn (dizi/string/closure/modul) ve/veya refmap (kutu: payload header'dan sonra).
+static void gc_trace_object(GCHeader *o)
+{
+    const Type *t = o->type;
+    if (t->trace)
+        t->trace(o);
+    if (t->refmap)
+        gc_trace_map((t->flags & DIGITOYENGINE_TYPE_STRUCT) ? (const void *)((const char *)o + sizeof(GCHeader)) : (const void *)o, t->refmap);
+}
+static const GcStaticRoot *gc_static_roots = 0;
+static int gc_static_roots_n = 0;
+void gc_add_static_roots(const GcStaticRoot *roots, int n)
+{
+    gc_static_roots = roots;
+    gc_static_roots_n = n;
+}
 void gc_add_root(GCHeader *o)
 {
     if (!o)
@@ -228,11 +255,11 @@ static void gc_verify_all(void)
     for (int i = 0; i < gc_roots_n; i++)
         gc_verify_check(gc_roots[i]);
     for (GCHeader *o = gc_objects; o; o = o->next)
-        if (o->type->trace)
+        if (o->type->trace || o->type->refmap)
         {
             gc_verify_owner = o;
             gc_verify_slot = 0;
-            o->type->trace(o);
+            gc_trace_object(o);
         }
     gc_verify_mode = 0;
     gc_freed_n = 0;
@@ -250,7 +277,7 @@ void gc_shade(GCHeader *o)
     if (!o || o->age == GC_IMMORTAL || o->version == gc_version)
         return; // immortal (static const): isaretleme, izleme, sweep YOK
     o->version = gc_version;
-    if (o->type->atomic || !o->type->trace)
+    if (o->type->atomic || (!o->type->trace && !o->type->refmap))
         return;
     if (gc_gray_n == gc_gray_cap)
     {
@@ -283,6 +310,14 @@ static void gc_mark_roots(void)
 {
     for (int i = 0; i < gc_roots_n; i++)
         gc_shade(gc_roots[i]);
+    for (int i = 0; i < gc_static_roots_n; i++)
+    {
+        const GcStaticRoot *r = &gc_static_roots[i];
+        if (r->map)
+            gc_trace_map(r->addr, r->map);
+        else
+            gc_shade(*(GCHeader **)r->addr);
+    }
     for (int i = 0; i < gc_frame_n; i++)
         gc_ftraces[i](gc_frames[i]);
 }
@@ -292,6 +327,7 @@ static void gc_major_start(void)
     gc_gray_n = 0;
     gc_mark_roots();
     gcm_phase = GCM_MARK;
+    gc_marking = 1;
 }
 // Bir dilim is: donus 1 = dongu suruyor, 0 = dongu bitti/idle.
 int gc_major_step(int budget)
@@ -303,14 +339,11 @@ int gc_major_step(int budget)
         return 1;
     case GCM_MARK:
         while (budget-- > 0 && gc_gray_n > 0)
-        {
-            GCHeader *o = gc_gray[--gc_gray_n];
-            if (o->type->trace)
-                o->type->trace(o);
-        }
+            gc_trace_object(gc_gray[--gc_gray_n]);
         if (gc_gray_n == 0)
         {
             gcm_phase = GCM_SWEEP;
+            gc_marking = 0;
             gcm_pp = &gc_objects;
         }
         return 1;
@@ -508,7 +541,7 @@ static void trace_vmarray(GCHeader *h)
     for (int i = 0; i < a->len; i++)
         gc_shade(e[i]);
 }
-// Tek jenerik dizi trace'i (T[] descriptor'lari): eleman turune gore ref shade / struct inline trace / hicbir sey.
+// Tek jenerik dizi trace'i (T[] descriptor'lari): eleman turune gore ref shade / struct refmap / hicbir sey.
 // elem bilinmiyorsa (modul interp) ref dizisi varsayilir (eski vmarray_ref_type davranisi).
 void digitoyengine_trace_array(GCHeader *h)
 {
@@ -521,11 +554,11 @@ void digitoyengine_trace_array(GCHeader *h)
         trace_vmarray(h);
         return;
     }
-    if (e->trace_inline)
+    if (e->refmap)
     {
         char *p = (char *)a->data;
         for (int i = 0; i < a->len; i++, p += a->elemsize)
-            e->trace_inline(p);
+            gc_trace_map(p, e->refmap);
     }
 }
 Type vmarray_ref_type = {trace_vmarray, finalize_vmarray, sizeof(VmArray), 0, .vtable = vmobject_vtable, .nvtable = 3}; /* base: digitoyengine_array_init (System.Array) */
@@ -1821,8 +1854,8 @@ GCHeader *DIGITOYENGINE_ex_obj = 0;
 char DIGITOYENGINE_ex_msg[160];
 RtFrame DIGITOYENGINE_ex_trace[DIGITOYENGINE_STACK_MAX];
 int DIGITOYENGINE_ex_trace_n = 0;
-const Type *DIGITOYENGINE_ex_kind_type[8];
-void (*DIGITOYENGINE_ex_kind_ctor[8])(GCHeader *);
+const Type *DIGITOYENGINE_ex_kind_type[DIGITOYENGINE_EX_KINDS];
+void (*DIGITOYENGINE_ex_kind_ctor[DIGITOYENGINE_EX_KINDS])(GCHeader *);
 const Type *DIGITOYENGINE_notimpl_type = 0;
 void (*DIGITOYENGINE_exception_ctor_msg)(GCHeader *, VmString *) = 0;
 GCHeader *DIGITOYENGINE_ex_current(void)
@@ -1830,7 +1863,7 @@ GCHeader *DIGITOYENGINE_ex_current(void)
     if (DIGITOYENGINE_ex_obj)
         return DIGITOYENGINE_ex_obj;
     int k = DIGITOYENGINE_ex_kind;
-    if (k <= 0 || k >= 8 || !DIGITOYENGINE_ex_kind_type[k])
+    if (k <= 0 || k >= DIGITOYENGINE_EX_KINDS || !DIGITOYENGINE_ex_kind_type[k])
         return 0;
     GCHeader *o = (GCHeader *)gc_alloc(DIGITOYENGINE_ex_kind_type[k]);
     DIGITOYENGINE_ex_obj = o; // ctor/bind sirasinda GC calismaz (safepoint yok); ayni handler zincirinde ayni nesne
@@ -1988,6 +2021,18 @@ void DIGITOYENGINE_throw_div(void)
 {
     snprintf(DIGITOYENGINE_ex_msg, sizeof(DIGITOYENGINE_ex_msg), "DivideByZero");
     DIGITOYENGINE_throw(DIGITOYENGINE_EX_DIV, 0);
+}
+void DIGITOYENGINE_throw_overflow(void)
+{
+    snprintf(DIGITOYENGINE_ex_msg, sizeof(DIGITOYENGINE_ex_msg), "Overflow");
+    DIGITOYENGINE_throw(DIGITOYENGINE_EX_OVERFLOW, 0);
+}
+void DIGITOYENGINE_throw_kind(int kind, const char *msg)
+{
+    if (kind <= 0 || kind >= DIGITOYENGINE_EX_KINDS || !DIGITOYENGINE_ex_kind_type[kind])
+        DIGITOYENGINE_throw_io(msg); /* corelib'de bu tip yok: en azindan mesajli */
+    snprintf(DIGITOYENGINE_ex_msg, sizeof(DIGITOYENGINE_ex_msg), "%s", msg ? msg : "");
+    DIGITOYENGINE_throw(kind, 0);
 }
 // .NET StackOverflowException gibi: yakalanamaz, sureci sonlandirir (unwind guvenli degil).
 void DIGITOYENGINE_stack_overflow(void)
