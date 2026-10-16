@@ -1091,7 +1091,8 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
     // draw'a merge olur. Hic sayfa yoksa lazy fallback dokusu.
     UiAtlas PiecesAtlas(out Material mat)
     {
-        var f = font;
+        // Metin ya da acik font adi yoksa fontu one alma: ikonlu kutu sprite sayfasiyla tek draw kalsin.
+        var f = !string.IsNullOrEmpty(text) || !string.IsNullOrEmpty(font) ? Font : null;
         if (f?.Page != null && f.Page.HasPieces)
         {
             mat = f.Material.ForBlend(BlendMode).ForEffects(Effects);

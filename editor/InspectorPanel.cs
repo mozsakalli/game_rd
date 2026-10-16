@@ -314,7 +314,10 @@ public sealed partial class InspectorPanel : EditorWindow
             if (isAsset)
             {
                 string tn = ObjectSerializer.TypeNameOf(path);
-                var t = App.AssetTypes.Find(x => x.Name == tn);
+                // [CreateAssetMenu] tipleri + katalogdaki her [Asset] tipi (konvansiyonla yasayan FontTable gibi
+                // menusuz asset'ler de jenerik inspector'da duzenlenir).
+                var t = App.AssetTypes.Find(x => x.Name == tn)
+                    ?? (App.Catalog?.Find(tn) is { IsAsset: true } ce ? ce.Type : null);
                 if (t != null)
                 {
                     // [Asset] veri nesnesi: AssetDatabase'in CANLI instance'i duzenlenir (Play'deki component'ler

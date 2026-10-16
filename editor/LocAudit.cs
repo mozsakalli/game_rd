@@ -112,12 +112,13 @@ public static class LocAudit
 
     public sealed class GlyphGap
     {
-        public string Font;                       // asset yolu
+        public string Font;                       // tablo adi (Fonts.asset) ya da asset yolu
         public readonly SortedSet<int> Codepoints = new();
         public readonly HashSet<string> Keys = new(StringComparer.Ordinal);
     }
 
-    // Projedeki her font icin tablo hucrelerinde gecen ama fontta olmayan codepoint'ler (kontrol karakterleri haric).
+    // Kapsamdan gorunen tablo fontlari (Fonts.asset; yoksa projedeki her .ttf/.otf) icin tablo hucrelerinde gecen
+    // ama fontta olmayan codepoint'ler (kontrol karakterleri haric).
     public static List<GlyphGap> GlyphCheck(string scope)
     {
         var res = new List<GlyphGap>();
@@ -125,16 +126,29 @@ public static class LocAudit
         var assets = App.Assets;
         if (table == null || assets == null) return res;
         var fonts = new List<(string Key, HashSet<int> Set)>();
-        foreach (var kv in assets.AllAssets)
+        var visible = new List<(string Name, Font Font)>();
+        FontTableStore.Visible(scope, visible);
+        foreach (var (name, f) in visible)
         {
-            string k = kv.Key;
-            if (!(k.EndsWith(".ttf", StringComparison.OrdinalIgnoreCase) || k.EndsWith(".otf", StringComparison.OrdinalIgnoreCase)))
-                continue;
-            if (assets.LoadAsset(k, typeof(Font)) is not Font f || f.Glyphs == null || f.Glyphs.Length == 0)
+            if (f.Glyphs == null || f.Glyphs.Length == 0)
                 continue;
             var set = new HashSet<int>();
             foreach (var g in f.Glyphs) set.Add(g.Codepoint);
-            fonts.Add((k, set));
+            fonts.Add((name, set));
+        }
+        if (fonts.Count == 0)
+        {
+            foreach (var kv in assets.AllAssets)
+            {
+                string k = kv.Key;
+                if (!(k.EndsWith(".ttf", StringComparison.OrdinalIgnoreCase) || k.EndsWith(".otf", StringComparison.OrdinalIgnoreCase)))
+                    continue;
+                if (assets.LoadAsset(k, typeof(Font)) is not Font f || f.Glyphs == null || f.Glyphs.Length == 0)
+                    continue;
+                var set = new HashSet<int>();
+                foreach (var g in f.Glyphs) set.Add(g.Codepoint);
+                fonts.Add((k, set));
+            }
         }
         if (fonts.Count == 0) return res;
         foreach (var (fk, set) in fonts)

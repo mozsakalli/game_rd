@@ -33,6 +33,7 @@ public static class SerializedType
         public FieldSchema ShowIf;
         public string[] ShowIfScalars;
         public bool Hidden;            // [HideInInspector]: serilesir, inspector cizmez (editor)
+        public bool FontName;          // [FontName]: string alan = FontTable adi (editor combo / rpc format)
 
         // CEKIRDEK boxed erisimciler + kuruculuar: serializer/clone IC YOLLARI yalniz
         // bunlari kullanir (Info'ya asla dokunmaz). Editorde FieldInfo'dan sarilir;
@@ -89,6 +90,7 @@ public static class SerializedType
         foreach (var f in schema)
         {
             f.Hidden = f.Info.GetCustomAttribute<HideInInspectorAttribute>() != null;
+            f.FontName = f.Kind == Kind.String && f.Info.GetCustomAttribute<FontNameAttribute>() != null;
             var attr = f.Info.GetCustomAttribute<ShowIfAttribute>();
             if (attr == null)
                 continue;

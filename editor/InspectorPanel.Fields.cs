@@ -166,11 +166,75 @@ public sealed partial class InspectorPanel
         DocNode edited = (current ?? CreateDefaultFieldNode(field)).Clone();
         bool changed = false;
         Action deferredCommit = () => scene.SetProp(go, component, field, current, edited);
+        if (field.FontName)
+        {
+            DrawFieldLabel(new Rect(12, y, LabelW, 18), field.Name);
+            float valueX = 12 + LabelW;
+            string next = DrawFontNameCombo(new Rect(valueX, y, Math.Max(20, right - valueX), 18), edited.Scalar ?? "", path);
+            y += RowH;
+            if (next != null)
+            {
+                edited.Scalar = next;
+                scene.SetProp(go, component, field, current, edited);
+            }
+            return;
+        }
         DrawDocValue(field.Name, field.Kind, field.FieldType, field.ElementKind,
             field.ElementType, field.Nested, edited, path, 0, ref y, right, 0,
             deferredCommit, ref changed);
         if (changed)
             scene.SetProp(go, component, field, current, edited);
+    }
+
+    // [FontName] alani: FontTable adlarinin combosu ("(default)" = ""), tanimsiz ad listeye isaretli eklenir.
+    // Font asset'i uzerine birakilinca HOST tablosuna kaydedilir (tablo yoksa yaratilir) ve secilir.
+    // Degisiklik yoksa null, aksi halde yeni ad doner. Doc modu ve canli mod (ObjectDrawer) ayni ciziciyi kullanir.
+    // key: alan yolu — birakma frame sonunda uygulanir, sonucu bir sonraki frame'de yalniz o alan tuketir.
+    static readonly List<string> _fontNames = new();
+    static string[] _fontItems = Array.Empty<string>();
+    static string _pendingFontDropKey, _pendingFontDropName;
+
+    internal static string DrawFontNameCombo(in Rect rect, string current, string key)
+    {
+        current ??= "";
+        FontTableStore.Names(_fontNames);
+        int known = _fontNames.IndexOf(current);
+        int n = _fontNames.Count + 1 + (current.Length > 0 && known < 0 ? 1 : 0);
+        if (_fontItems.Length != n)
+            _fontItems = new string[n];
+        _fontItems[0] = "(default)";
+        for (int i = 0; i < _fontNames.Count; i++)
+            _fontItems[i + 1] = _fontNames[i];
+        int index = current.Length == 0 ? 0 : known >= 0 ? known + 1 : n - 1;
+        if (current.Length > 0 && known < 0)
+            _fontItems[n - 1] = current + " (?)";
+
+        Event ev = Event.Current;
+        bool acceptable = DragDrop.Active && DragDrop.Kind == DragDrop.Payload.Asset
+            && App.Assets != null && App.Assets.IsAssignable(DragDrop.AssetPath, typeof(Font));
+        bool hover = acceptable && rect.Contains(ev.MousePosition);
+        if (hover && ev.Type == EventType.Repaint)
+        {
+            string path = DragDrop.AssetPath;
+            DragDrop.RegisterTarget(() =>
+            {
+                _pendingFontDropName = FontTableStore.Register(path);
+                _pendingFontDropKey = _pendingFontDropName != null ? key : null;
+            });
+        }
+        if (acceptable && ev.Type == EventType.Repaint)
+            GuiRenderer.DrawRect(new Rect(rect.x - 2, rect.y - 1, rect.width + 4, rect.height + 2),
+                hover ? new Color(70, 135, 85, 255) : new Color(52, 74, 58, 255), 0);
+        string result = null;
+        int next = Gui.ComboBox(rect, index, _fontItems);
+        if (next != index && next >= 0 && next <= _fontNames.Count)
+            result = next == 0 ? "" : _fontNames[next - 1];
+        if (_pendingFontDropKey == key)
+        {
+            result = _pendingFontDropName;
+            _pendingFontDropKey = _pendingFontDropName = null;
+        }
+        return result;
     }
 
     void DrawDocValue(string label, SerializedType.Kind kind, Type valueType,
@@ -468,7 +532,12 @@ public sealed partial class InspectorPanel
             return false;
         if (f.ShowIf == null)
             return true;
-        var sibling = FindProp(cd, f.ShowIf) ?? CreateDefaultFieldNode(f.ShowIf);
+        var sibling = FindProp(cd, f.ShowIf);
+        // Loc bagli string (text@loc dolu): metin doc'ta yazilmaz, tabloda dolu sayilir.
+        if (sibling == null && f.ShowIfScalars == null && f.ShowIf.Kind == SerializedType.Kind.String
+            && !string.IsNullOrEmpty(EditorScene.LocKeyOf(cd, f.ShowIf.Name)))
+            return true;
+        sibling ??= CreateDefaultFieldNode(f.ShowIf);
         return SerializedType.ShowIfMatch(f, sibling.Scalar ?? "");
     }
 

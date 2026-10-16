@@ -26,7 +26,7 @@ public sealed partial class InspectorPanel
     readonly List<(string Key, string Text)> _locSuggest = new();
     string _locKeyPath, _locKeyText; // key satiri duzenleme tamponu (Rename'e kadar doc'a yazilmaz)
 
-    static bool IsLocCandidate(SerializedType.FieldSchema f) => f.Kind == SerializedType.Kind.String;
+    static bool IsLocCandidate(SerializedType.FieldSchema f) => f.Kind == SerializedType.Kind.String && !f.FontName;
 
     // Alanin altina gelen ek satir sayisi (olcum + cizim).
     int LocExtraRows(EditorScene es, SceneDoc.CompDoc cd, SerializedType.FieldSchema f, string path)

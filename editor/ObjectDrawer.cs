@@ -116,6 +116,17 @@ public sealed class ObjectDrawer
         if (field.Kind == SerializedType.Kind.List)
             _listMeasureSchemas[path] = field;
         bool fieldChanged = false;
+        if (field.FontName)
+        {
+            float labelX = 12 + indent * 12;
+            InspectorPanel.DrawFieldLabel(new Rect(labelX, y, Math.Max(20, LabelW - indent * 12), 18), field.Name);
+            float valueX = 12 + LabelW;
+            string next = InspectorPanel.DrawFontNameCombo(new Rect(valueX, y, Math.Max(20, right - valueX), 18),
+                value as string ?? "", path);
+            y += RowH;
+            if (next != null) { field.Set(owner, next); changed = true; }
+            return;
+        }
         DrawValue(field.Name, field.Kind, field.FieldType, field.ElementType,
             field.Nested, field, value, v => field.Set(owner, v), path,
             indent, ref y, right, 0, ref fieldChanged, deferredCommit);

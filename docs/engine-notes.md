@@ -1,5 +1,47 @@
 # DigitoyEngine R&D (game_rd)
 
+## FONT KAYIT DEFTERİ — `Fonts.asset`, component font = AD (2026-10-17, catalogtest 14 PASS, RPC + pak doğrulandı)
+- KARAR (kullanıcı): font isteyen hiçbir component Font asset'ine DOĞRUDAN referans vermez; proje genelinde tek
+  kayıt defteri `Assets/Fonts.asset` ([FontTable](../engine/managed/FontTable.cs): `Entries[{Name, Font}]` +
+  `DefaultFont`), modül için opsiyonel `Assets/Modules/<ad>/Fonts.asset` — host'u MİRAS alır, aynı ad varsa EZER.
+  Oyunlarda sabit bir font seti kullanılır; yetmezse tabloya bir satır eklenir. Rich text `<font=ad>` de bu adları
+  kullanacak (isim tabanlı asset referansı bağımlılık takibini kırardı; tablo = tek bağımlılık noktası).
+- MODEL: `LayoutBox.font` / `TextSprite.FontName` = `[FontName] string` (`""` = varsayılan); `[FontName]` attribute
+  (Attributes.cs) → `FieldSchema.FontName` (editör). Çözüm `Fonts.Resolve(ad)`: modül tabloları (son yüklenen önce)
+  → host → `UiPieces.DefaultFont` (tablo yoksa; tanımsız ad varsayılana düşer, metin kaybolmaz). Component çözümü
+  `(ad, Fonts.Version, AssetDatabase.ObjectVersion)` ile cache'ler — sıcak yolda sözlük yok; çözüm değişince
+  LayoutBox `MarkDirty` (bayrak). Tablolar `SceneDoc.Spawn`/`SceneBinary.Spawn`'da `Fonts.Load(locScope, assets)`
+  ile yüklenir (anahtar `Fonts.TableKeyFor(LocTable)`; Localization kapsam kalıbının aynısı).
+- PAK: `BakeScene` host + kapsam `Fonts.asset`'i sahnenin bağımlılığı yapar → tablodaki fontlar pak'a girer,
+  tabloda olmayan font KIRPILIR (yuzbirextra: Primary+Bold girdi, Light strip). `LocAudit.GlyphCheck` artık
+  tablodan görünen fontlara bakar (tablo yoksa eski "projedeki her ttf" taraması).
+- EDİTÖR: [FontTableStore](../editor/FontTableStore.cs) (LocTableStore paritesi: `Get(scope, create)`, `Register(yol)`
+  → host tablosuna dosya adıyla ekler, ilk giriş varsayılan olur). Inspector `[FontName]` alanı combo
+  (`InspectorPanel.DrawFontNameCombo`: "(default)" + adlar; tanımsız ad `"x (?)"` olarak listede; Font asset'i
+  üzerine bırakılınca `Register` + seçim; doc modu + ObjectDrawer canlı modu aynı çizici; loc toggle'ı VERİLMEZ).
+  `Fonts.asset` jenerik asset inspector'ında düzenlenir (InspectorPanel artık katalogdaki her `[Asset]` tipini
+  açar, yalnız `[CreateAssetMenu]` değil). RPC: `fonts.list`, `fonts.register(path, name?, makeDefault?)`;
+  `comp.schema` `format: fontName`; `rpc.guide` scene bölümünde kural.
+- LAYOUTBOX INSPECTOR: metin stili alanları `[ShowIf(nameof(text))]` (eski: `font` doluysa). Loc bağlı metin doc'ta
+  yazılmadığından `DocVisible` `text@loc` dolu ise kardeşi "dolu" sayar. `PiecesAtlas` font sayfasını yalnız metin
+  ya da açık font adı varken öne alır (ikonlu kutu sprite sayfasıyla tek draw kalır).
+- **KURAL — ESKİ DOC GÖÇÜ YOK (kullanıcı, 2026-10-17):** mevcut sahnelerdeki `font: <guid>` değerleri dönüştürülmez,
+  koda doc düzeltme/göç yolu SIZMAZ. Şu an tam oyun yazılmıyor; projeler eksik bulmak için prova. Eski değer
+  Inspector'da `"<guid> (?)"` görünür ve varsayılan fonta düşer; kullanıcı oyun kodu ilerleyince göçü ayrıca ister.
+- SIRADA: rich text (İş 2) — `b i u color size link font=ad`, LayoutBox'a alan eklenmeden; `<b>` = SDF weight.
+
+## METİN BOYUTU = EM (TMP fontSize ile 1:1) — Font.EmSize (2026-10-17)
+- Belirti: Unity'de 48 olan metin bizde ~60'ta eşleşiyordu; oran fonta göre değişiyordu (Primary 1.20, Bold/Light
+  1.139, Regular 1.117). Neden: bake `stbtt_ScaleForPixelHeight(sdfSize)` → `SdfSize` **satır kutusu**
+  (ascent−descent) px'tir, em değil; `textSize / SdfSize` metni em'e göre %12–20 küçük gösteriyordu.
+- FIX (bitmap/native/shader dokunulmadı): [Font](../engine/managed/Font.cs) `EmSize` (1 em'in SDF px'i) +
+  `EmPx => EmSize > 0 ? EmSize : SdfSize`; [FontImporter](../editor/FontImporter.cs) TTF `head.unitsPerEm` okur
+  (C#, `ReadUnitsPerEm`), `EmSize = unitsPerEm * metrics[3]` (px/birim ölçeği); Version 16→17 (otomatik reimport).
+  LayoutBox.Text / TextSprite ölçeği `size / font.EmPx`. Eski asset (EmSize=0) reimport'a kadar eski davranış.
+- Kural: `textSize`/`Size` **em** cinsindendir; `SdfSize` yalnız bake çözünürlüğü (spread/pad hesapları), boyut
+  değil. Editör GUI fontu (GuiFont, `de_font_*`) bilerek dokunulmadı — UI boyutları ona göre ayarlı.
+- Doğrulama: yuzbirextra Login (Digitoy-Bold) kullanıcı görsel kontrol — Unity ile eşleşti.
+
 ## EDİTÖR PLAY — SceneLoader REPLACE SONRASI BOŞ EKRAN (2026-10-16, B5 ölçümü)
 - Rapor "LoadAsync YAML sahneyi instantiate etmiyor, Root=null" idi. ÖLÇÜLDÜ (iz + geçici RPC, iki deneme): motor
   tarafı DOĞRU — parent'lı ve parent'sız yolda Root dolu, GO'lar doğuyor. Gerçek bug editörde: replace yolunda

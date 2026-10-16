@@ -28,7 +28,8 @@ public sealed class Font : ISpriteSource
     public float Descent;
     public float LineHeight;
     public float KernScale;
-    public float SdfSize;
+    public float SdfSize;    // bake satir kutusu (ascent-descent) SDF px — stbtt_ScaleForPixelHeight tanimi
+    public float EmSize;     // 1 em'in SDF px karsiligi (unitsPerEm * olcek); 0 = eski asset (SdfSize kullanilir)
     public Glyph[] Glyphs = Array.Empty<Glyph>();
     public byte[] Kern = Array.Empty<byte>(); // int16 LE, Glyphs.Length^2 (Blob)
 
@@ -41,6 +42,10 @@ public sealed class Font : ISpriteSource
     [NonSerialized] Glyph[] _builtFor;         // tablolar hangi Glyphs dizisi icin kuruldu (reload algisi)
 
     public int GlyphCount => Glyphs.Length;
+
+    // Metin boyutu (textSize/Size) em cinsindendir (TMP fontSize ile 1:1): quad olcegi = size / EmPx.
+    // Bake satir kutusu em'den ~%12-20 buyuk oldugu icin SdfSize'a bolmek metni kucuk gosteriyordu.
+    public float EmPx => EmSize > 0 ? EmSize : SdfSize;
 
     void EnsureTables()
     {

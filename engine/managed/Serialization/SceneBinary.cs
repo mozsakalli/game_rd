@@ -140,6 +140,7 @@ public static unsafe class SceneBinary
 
         int locStr = r.I32();
         var locTable = Localize.Table(locStr >= 0 ? strs[locStr] : null, assets);
+        Fonts.Load(locStr >= 0 ? strs[locStr] : null, assets);
         int nObj = r.I32();
         var byId = new Dictionary<int, GameObject>();
         var compsById = new Dictionary<int, Component[]>();

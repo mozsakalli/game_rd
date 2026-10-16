@@ -324,6 +324,11 @@ static class AssetPackBuilder
             // Kapsam ceviri tablosu varsa sahnenin bagimliligi (pak'a girer, Spawn'dan once hazir olur).
             if (doc.LocTable != null && assets.Exists(doc.LocTable) && !assetRefs.Contains(doc.LocTable))
                 assetRefs.Add(doc.LocTable);
+            // Font kayit defteri: host + kapsam tablosu sahnenin bagimliligi (listeledigi fontlar pak'a girer,
+            // component'ler fonta dogrudan referans vermez).
+            foreach (var fk in new[] { Fonts.TableFile, Fonts.TableKeyFor(doc.LocTable) })
+                if (assets.Exists(fk) && !assetRefs.Contains(fk))
+                    assetRefs.Add(fk);
             return SceneBinary.Bake(doc, catalog, m => EditorLog.Warning($"{m} ({key})"), assetRefs);
         }
         catch (Exception e)

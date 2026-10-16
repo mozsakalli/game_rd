@@ -14,10 +14,30 @@ public enum TextAlign { Left, Center, Right }
 [AddComponentMenu("Rendering/Text Sprite")]
 public sealed unsafe class TextSprite : Renderer
 {
-    public Font Font;
+    // Font bir AD'dir (FontTable; "" = varsayilan). Cozum cache'li (LayoutBox.Font ile ayni kural).
+    [FontName] public string FontName = "";
     public string Text = "";
     public float Size = 32f;
     public TextAlign Align = TextAlign.Center;
+
+    Font _rf;
+    string _rfName;
+    int _rfVer = -1, _rfObjVer = -1;
+
+    public Font Font
+    {
+        get
+        {
+            if (_rfVer != Fonts.Version || _rfObjVer != AssetDatabase.ObjectVersion || !ReferenceEquals(_rfName, FontName))
+            {
+                _rf = Fonts.Resolve(FontName);
+                _rfName = FontName;
+                _rfVer = Fonts.Version;
+                _rfObjVer = AssetDatabase.ObjectVersion;
+            }
+            return _rf;
+        }
+    }
 
     // Parametreli ceviri (LayoutBox.Format paritesi): bagli sablon args ile yazilir; kod key bilmez.
     public void Format(params object[] args) => Localize.Format(this, nameof(Text), args);
@@ -101,7 +121,7 @@ public sealed unsafe class TextSprite : Renderer
         }
         var mat = Font.Material.ForBlend(BlendMode).ForEffects(Effects);
         int layer = _effectiveOrder;
-        float scale = Font.SdfSize > 0 ? Size / Font.SdfSize : 1f;
+        float scale = Font.SdfSize > 0 ? Size / Font.EmPx : 1f;
         float halfH = _bounds.y * 0.5f;
         float halfW = _bounds.x * 0.5f;
 
@@ -194,7 +214,7 @@ public sealed unsafe class TextSprite : Renderer
     {
         var font = Font;
         string text = Text;
-        float scale = font.SdfSize > 0 ? Size / font.SdfSize : 1f;
+        float scale = font.SdfSize > 0 ? Size / font.EmPx : 1f;
 
         // Satir olcumleri (blok genisligi = en genis satir).
         int lineCount = 1;

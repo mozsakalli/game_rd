@@ -98,6 +98,14 @@ public sealed class ShowIfAttribute : Attribute
     }
 }
 
+// String alan = FontTable'daki bir font ADI ("" = varsayilan). Component Font asset'ine dogrudan
+// referans vermez (bagimlilik tablodan yurur); inspector tanimli adlarin combosunu cizer, loc
+// togglesi vermez; comp.schema 'format: fontName'. Cozum: Fonts.Resolve(ad).
+[AttributeUsage(AttributeTargets.Field)]
+public sealed class FontNameAttribute : Attribute
+{
+}
+
 // Unity [HideInInspector] karsiligi: alan serilesir ama jenerik inspector/ObjectDrawer
 // cizmez — sahibi ozel UI ile cizer (PlayerSettings sahne listesi gibi).
 [AttributeUsage(AttributeTargets.Field)]

@@ -37,6 +37,7 @@ static class RpcCommands
         r.Add("scene", Lines(
             "GO = id + parent + pos/rot/scale + components. Kok parent=0. Ayni parent'ta liste sirasi = cizim sirasi (sonraki ustte); SortingOrder onde gelir",
             "UI primitifi = LayoutBox: kutu (fill/border/radius/shadow) + metin (font,text,textSize,textAlign,textAlignV,textFill) + yerlesim. fitScreen=true → ekrani kaplar (arka plan)",
+            "FONT = AD, asset degil: LayoutBox.font / TextSprite.FontName Assets/Fonts.asset'teki bir adi tutar ('' = varsayilan). Adlar fonts.list; yeni font fonts.register(path, name?) ile tabloya girer (host; modul Modules/<ad>/Fonts.asset host'u miras alir, ayni ad ezer). Pak'a yalniz tablodaki fontlar girer",
             "LayoutBox konum: anchorMin/anchorMax/pivot (0..1, parent'a gore; '0.5 0.5' = ortala) + anchoredPos (mantiksal px ofset) + width/height. layout=Vertical|Horizontal cocuklari dizer (spacing, padding, alignChildren, justifyChildren)",
             "Flex cocuk alanlari (COCUKTA): grow, shrink, margin (l t r b), minWidth/maxWidth/minHeight/maxHeight, alignSelf=Auto|Start|Center|End|Stretch (flex icinde anchor DEGIL alignSelf=Stretch genisletir). Kaydirmali liste: kutuda overflowY=Scroll + ayni GO'ya ScrollView component'i (jest+atalet); scrollOffset animatable",
             "TextSprite = serbest metin, SpriteRenderer = gorsel (Sprite asset), ParticleSystem, MovieClip = doc'ta koreografi (intro/loop), CameraComponent opsiyonel (yoksa piksel-ortho fallback)",
@@ -387,7 +388,9 @@ static class RpcCommands
             var leafType = f.Kind == SerializedType.Kind.List ? f.ElementType : f.FieldType;
             if (leaf == SerializedType.Kind.Enum && leafType != null)
                 fd.Add("values", DocNode.Scal(string.Join(" ", Enum.GetNames(leafType))));
-            string format = RefFormat(leaf, leafType);
+            string format = f.FontName
+                ? "fontName: Assets/Fonts.asset'teki ad (fonts.list); \"\" = varsayilan. Font asset'i dogrudan verilmez (fonts.register ile tabloya ekle)"
+                : RefFormat(leaf, leafType);
             if (format != null)
                 fd.Add("format", DocNode.Scal(format));
             if (f.Kind != SerializedType.Kind.List && f.Kind != SerializedType.Kind.Object)

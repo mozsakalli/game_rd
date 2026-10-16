@@ -66,7 +66,7 @@ public sealed class SvgGlyph
 //             sayfasina tasir, runtime (gruba alinmamis font) buradan baglar. Standalone.
 //   report  : Editor-only metin (eksik codepoint'ler, custom glyph'ler, uyarilar, doluluk) — Inspector onizlemesi okur.
 // Pak'a ttf girmez, runtime bake yok.
-[AssetImporter(".ttf", ".otf", Version = 16, Settings = typeof(FontImportSettings))]
+[AssetImporter(".ttf", ".otf", Version = 17, Settings = typeof(FontImportSettings))]
 public sealed unsafe partial class FontImporter : AssetImporter
 {
     const int SheetMaxSize = 4096;
@@ -115,7 +115,7 @@ public sealed unsafe partial class FontImporter : AssetImporter
         }
         try
         {
-            Bake(ctx, settings, font, msdf, sdfSize, codepoints);
+            Bake(ctx, settings, font, msdf, sdfSize, codepoints, ReadUnitsPerEm(ttf));
         }
         finally
         {
@@ -124,7 +124,36 @@ public sealed unsafe partial class FontImporter : AssetImporter
         }
     }
 
-    void Bake(ImportContext ctx, FontImportSettings settings, IntPtr font, IntPtr msdf, float sdfSize, List<int> codepoints)
+    // 'head' tablosundan unitsPerEm (ofset 18, uint16 BE). stb'nin bake olcegi satir kutusuna (ascent-descent)
+    // gore; em'i bilmek icin tek eksik bu. Bulunamazsa 0 (Font.EmSize=0 -> SdfSize'a dusulur).
+    static int ReadUnitsPerEm(byte[] ttf)
+    {
+        static uint U32(byte[] b, int o) => (uint)(b[o] << 24 | b[o + 1] << 16 | b[o + 2] << 8 | b[o + 3]);
+        static ushort U16(byte[] b, int o) => (ushort)(b[o] << 8 | b[o + 1]);
+        if (ttf.Length < 12)
+            return 0;
+        int off = 0;
+        if (U32(ttf, 0) == 0x74746366) // 'ttcf': koleksiyonun ilk fontu (stbtt_InitFont offset 0 ile ayni)
+        {
+            off = (int)U32(ttf, 12);
+            if (off < 0 || off + 12 > ttf.Length)
+                return 0;
+        }
+        int numTables = U16(ttf, off + 4);
+        for (int i = 0; i < numTables; i++)
+        {
+            int rec = off + 12 + i * 16;
+            if (rec + 16 > ttf.Length)
+                return 0;
+            if (U32(ttf, rec) != 0x68656164) // 'head'
+                continue;
+            int tab = (int)U32(ttf, rec + 8);
+            return tab >= 0 && tab + 20 <= ttf.Length ? U16(ttf, tab + 18) : 0;
+        }
+        return 0;
+    }
+
+    void Bake(ImportContext ctx, FontImportSettings settings, IntPtr font, IntPtr msdf, float sdfSize, List<int> codepoints, int unitsPerEm)
     {
         float* metrics = stackalloc float[5];
         if (Sokol.SdfFontMetrics(font, sdfSize, metrics) == 0)
@@ -374,6 +403,7 @@ public sealed unsafe partial class FontImporter : AssetImporter
             LineHeight = metrics[2],
             KernScale = metrics[3],
             SdfSize = metrics[4],
+            EmSize = unitsPerEm * metrics[3], // metrics[3] = px/font-birimi olcegi
             Glyphs = glyphs,
             Kern = kernBytes,
         };

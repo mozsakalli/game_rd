@@ -181,6 +181,7 @@ public sealed partial class SceneDoc
         var byId = liveMap ?? new Dictionary<int, GameObject>();
         byId.Clear();
         var locTable = Localize.Table(LocTable, assets);
+        Fonts.Load(LocTable, assets); // font adlari cozulmeden once host + kapsam tablolari
         // Referanslar TUM nesneler dogduktan sonra cozulur (ileri referans serbest).
         // Liste/ic-ice nesne icindeki referanslar da ayni kuyruga girer (closure set).
         var deferred = new List<(SerializedType.Kind kind, string val, Action<object> set)>();

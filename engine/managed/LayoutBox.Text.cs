@@ -12,25 +12,51 @@ namespace DigitoyEngine;
 public sealed unsafe partial class LayoutBox
 {
     // --- serilesen metin verisi ---
-    [SerializeField] Font font;
-    [SerializeField, ShowIf(nameof(font))] string text = "";
-    [SerializeField, ShowIf(nameof(font))] float textSize = 32f;
-    [SerializeField, ShowIf(nameof(font))] TextAlign textAlign = TextAlign.Left;
-    [SerializeField, ShowIf(nameof(font))] LayoutAlign textAlignV = LayoutAlign.Start;
-    [SerializeField, ShowIf(nameof(font))] bool textWrap = true;
-    [SerializeField, ShowIf(nameof(font))] bool textEllipsis = true;
-    [SerializeField, ShowIf(nameof(font))] float textWeight;
-    [SerializeField, ShowIf(nameof(font))] float textSkew;
-    [SerializeField, ShowIf(nameof(font))] float textSpacing;
-    [SerializeField, ShowIf(nameof(font))] Gradient textFill = new(Color.White);
-    [SerializeField, ShowIf(nameof(font))] float textOutlineWidth;
-    [SerializeField, ShowIf(nameof(font))] Gradient textOutline = new(Color.Black);
-    [SerializeField, ShowIf(nameof(font))] Color textShadowColor;
-    [SerializeField, ShowIf(nameof(font))] Vec2 textShadowOffset = new(0, 4);
-    [SerializeField, ShowIf(nameof(font))] float textShadowBlur = 8f;
+    // Font bir AD'dir (FontTable; "" = varsayilan): asset referansi tasinmaz, bagimlilik tablodan yurur.
+    // Metin stili alanlari metin girilince gorunur (loc bagli metin de "dolu" sayilir — editor DocVisible).
+    [SerializeField, FontName] string font = "";
+    [SerializeField] string text = "";
+    [SerializeField, ShowIf(nameof(text))] float textSize = 32f;
+    [SerializeField, ShowIf(nameof(text))] TextAlign textAlign = TextAlign.Left;
+    [SerializeField, ShowIf(nameof(text))] LayoutAlign textAlignV = LayoutAlign.Start;
+    [SerializeField, ShowIf(nameof(text))] bool textWrap = true;
+    [SerializeField, ShowIf(nameof(text))] bool textEllipsis = true;
+    [SerializeField, ShowIf(nameof(text))] float textWeight;
+    [SerializeField, ShowIf(nameof(text))] float textSkew;
+    [SerializeField, ShowIf(nameof(text))] float textSpacing;
+    [SerializeField, ShowIf(nameof(text))] Gradient textFill = new(Color.White);
+    [SerializeField, ShowIf(nameof(text))] float textOutlineWidth;
+    [SerializeField, ShowIf(nameof(text))] Gradient textOutline = new(Color.Black);
+    [SerializeField, ShowIf(nameof(text))] Color textShadowColor;
+    [SerializeField, ShowIf(nameof(text))] Vec2 textShadowOffset = new(0, 4);
+    [SerializeField, ShowIf(nameof(text))] float textShadowBlur = 8f;
+
+    // Ad -> Font cozumu (Fonts.Resolve) cache'li: tablo surumu / asset surumu / ad degisince yenilenir.
+    // Sicak yolda sozluk taramasi yok; cozum degisirse yerlesim kendiliginden kirlenir (_tbFont kiyasi).
+    Font _rf;
+    string _rfName;
+    int _rfVer = -1, _rfObjVer = -1;
+
+    public Font Font
+    {
+        get
+        {
+            if (_rfVer != Fonts.Version || _rfObjVer != AssetDatabase.ObjectVersion || !ReferenceEquals(_rfName, font))
+            {
+                var f = Fonts.Resolve(font);
+                if (_rfVer >= 0 && !ReferenceEquals(f, _rf))
+                    MarkDirty(); // tablo/ad degisti: olcum + yerlesim yeniden (bayrak; frame ortasinda guvenli)
+                _rf = f;
+                _rfName = font;
+                _rfVer = Fonts.Version;
+                _rfObjVer = AssetDatabase.ObjectVersion;
+            }
+            return _rf;
+        }
+    }
 
     // Yerlesimi etkileyenler kirletir; stil alanlari duz assignment (cache yok).
-    public Font Font { get => font; set { if (!ReferenceEquals(font, value)) { font = value; MarkDirty(); } } }
+    public string FontName { get => font; set { value ??= ""; if (font != value) { font = value; MarkDirty(); } } }
     public string Text { get => text; set { value ??= ""; if (text != value) { text = value; MarkDirty(); } } }
     // Parametreli ceviri: bagli sablon ("{0} coins") args ile yazilir, dil degisince ayni args'la yeniden.
     // Kod key bilmez. Bagli degilse mevcut Text sablon sayilir (tek seferlik). Bkz. Localize.
@@ -59,9 +85,18 @@ public sealed unsafe partial class LayoutBox
 
     const float TextSdfSpread = 21f; // shim font bake sabiti (TextSprite ile ayni)
 
-    bool HasText => font != null && font.SdfSize > 0 && textSize > 0 && !string.IsNullOrEmpty(text);
+    bool HasText
+    {
+        get
+        {
+            if (textSize <= 0 || string.IsNullOrEmpty(text))
+                return false;
+            var f = Font;
+            return f != null && f.SdfSize > 0;
+        }
+    }
 
-    float TextScale => textSize / font.SdfSize;
+    float TextScale => textSize / Font.EmPx;
 
     // Sabit px spacing'in SDF-px karsiligi (kalem uzayi; quad kurulurken *scale
     // ile geri carpilir -> net etki advance*scale + textSpacing).
@@ -118,7 +153,7 @@ public sealed unsafe partial class LayoutBox
         int n = 0, pos = 0;
         while (NextLine(ref pos, wrapW, out _, out _, out _, out _, out _))
             n++;
-        return n * font.LineHeight * scale + padTop + padBottom;
+        return n * Font.LineHeight * scale + padTop + padBottom;
     }
 
     // --- satir kirici (greedy word wrap; olcum + kurulum ayni yolu kullanir) ---
@@ -132,6 +167,7 @@ public sealed unsafe partial class LayoutBox
     bool NextLine(ref int pos, float availW, out int start, out int end, out float w, out float inkL, out float inkR)
     {
         string s = text;
+        var font = Font; // cozumlu font (alan 'font' = ad)
         int len = s.Length;
         start = pos;
         end = pos;
@@ -197,6 +233,7 @@ public sealed unsafe partial class LayoutBox
     int FitCount(int st, int en, float maxW, out float w)
     {
         w = 0;
+        var font = Font;
         int prev = -1, n = 0;
         for (int i = st; i < en; i++)
         {
@@ -213,6 +250,7 @@ public sealed unsafe partial class LayoutBox
 
     void EnsureTextLayout(float availW, float availH)
     {
+        var font = Font;
         if (_tq != null && ReferenceEquals(_tbFont, font) && _tbBind == font.BindVersion && _tbText == text
             && _tbSize == textSize && _tbAlign == textAlign && _tbAlignV == textAlignV
             && _tbWrap == textWrap && _tbEllipsis == textEllipsis
@@ -235,6 +273,7 @@ public sealed unsafe partial class LayoutBox
 
     void BuildTextQuads(float availW, float availH)
     {
+        var font = Font;
         float scale = TextScale;
         // FP toleransi (SDF-px): Grow'da availW = TextPreferredW'nin *scale ile
         // buyutulmus olcumu; burada /scale ile geri donunce (ozellikle textSpacing'in
@@ -295,6 +334,7 @@ public sealed unsafe partial class LayoutBox
     // Glyph run'ini quad'lara doker; pen/prev SDF-px kalem durumu satir icinde surer.
     void EmitRun(ReadOnlySpan<char> s, float xs, float baseY, float scale, ref float pen, ref int prev)
     {
+        var font = Font;
         for (int i = 0; i < s.Length; i++)
         {
             int gi = font.GlyphIndex(s[i]);
@@ -355,7 +395,7 @@ public sealed unsafe partial class LayoutBox
             LayoutAlign.End => availH - _tbBlockH,
             _ => 0f,
         };
-        var mat = font.Material.ForBlend(BlendMode).ForEffects(Effects);
+        var mat = Font.Material.ForBlend(BlendMode).ForEffects(Effects);
         float scale = TextScale;
 
         // Italik shear (SADECE geometri; TextSprite paritesi): blok dikey merkezi
