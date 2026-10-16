@@ -26,4 +26,16 @@ namespace System
         public override int GetHashCode() { return hasValue ? value.GetHashCode() : 0; }
         public override string ToString() { return hasValue ? value.ToString() : ""; }
     }
+
+    // .NET statik yuzeyi (System.Nullable). GetUnderlyingType: T? -> T, degilse null. Saf C#: Type extern'leri
+    // (IsGenericType/GetGenericTypeDefinition/GetGenericArguments) uzerinden; C tarafina dokunmaz.
+    public static class Nullable
+    {
+        public static Type GetUnderlyingType(Type nullableType)
+        {
+            if (nullableType == null) throw new ArgumentNullException("nullableType");
+            if (!nullableType.IsGenericType || nullableType.IsGenericTypeDefinition) return null;
+            return nullableType.GetGenericTypeDefinition() == typeof(Nullable<>) ? nullableType.GetGenericArguments()[0] : null;
+        }
+    }
 }

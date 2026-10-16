@@ -29,6 +29,8 @@ namespace DigitoyEngine.Language
                     AssignLayout(p, doneLayout);
 
             var state = new BuildState { ctx = ctx };
+            overrideTarget.Clear(); // tanim -> hedef onbellegi bu kurulum icin (Code nesneleri ctx'e ait)
+            exactDecls = null;
             // on-kayitli runtime tipleri PrimitiveOrder'da yok (AllPrimitives gormez) -> acikca kur.
             BuildVTable(Primitive.Object, state);
             BuildVTable(Primitive.String, state);
@@ -38,11 +40,125 @@ namespace DigitoyEngine.Language
 
             foreach (var p in ctx.AllPrimitives.ToList())
                 if (p.Type == PrimitiveType.Model && !p.IsStruct && !p.IsInterface && !p.IsGeneric && p.GenericTemplate == null)
-                    BuildITables(ctx, p);
+                    BuildITables(ctx, p, state);
             return state.instantiated;
         }
 
         class BuildState { public Context ctx; public HashSet<Primitive> done = new HashSet<Primitive>(); public bool instantiated; }
+
+        // ---- ITABLE: TANIM DUZEYINDE impl eslesmesi ----
+        // Kalitim zincirindeki her ornek (p, Base<string>, ...) tanimina indirilir; iface ornekleri zincirdeki tanimin bildirdigi
+        // ACIK iface uygulamasiyla POZISYONEL eslenir (GenericInstantiator iface listesini sablondan sirayla kurar; miras iface'ler de
+        // oyle). Her iki taraf da ortak uzaya (en turemis tanim) harita zincirleriyle cozulur -> canon cokmesi (ISer<List<__Canon>> ->
+        // ISer<__Canon>) ve tip interning'e bagimlilik yok. GVM slotu (iface metodunun orneklemesi) icin sinifin generic metot sablonu
+        // ayni argumanlarla orneklenir (sinif GVM'inde adim 1 ile ayni mekanik).
+        sealed class IfaceSite
+        {
+            public Primitive Instance;                                   // p'nin AllInterfaces'indeki iface ornegi
+            public Primitive DefApp;                                     // onu bildiren tanimdaki acik uygulama (ya da iface'in kendisi)
+            public List<Dictionary<Primitive, Primitive>> Maps;          // p-tanim uzayina cozen harita zinciri (sinif zinciri + iface args)
+        }
+        sealed class ChainLink
+        {
+            public Primitive Instance, Def;
+            public List<Dictionary<Primitive, Primitive>> Maps;          // Def parametreleri -> p-tanim uzayi
+        }
+
+        static List<ChainLink> ClassChain(Primitive p)
+        {
+            var chain = new List<ChainLink>();
+            var maps = new List<Dictionary<Primitive, Primitive>>();
+            for (var t = p; t != null; t = t.Parent)
+            {
+                // ornegin tanimi; haritayi bir onceki tanimin PARENT uygulamasindan kur (p icin: kendi argumanlari degil, bos uzay)
+                var def = Signature.DefinitionOf(t) ?? t;
+                var link = new ChainLink { Instance = t, Def = def, Maps = new List<Dictionary<Primitive, Primitive>>(maps) };
+                chain.Add(link);
+                // bir sonraki halka: def.Parent acik uygulama (Base<List<T>>) -> parent tanimin parametreleri -> argumanlar
+                var pnode = def.Parent;
+                var pmap = new Dictionary<Primitive, Primitive>();
+                if (pnode != null)
+                {
+                    var pdef = Signature.DefinitionOf(pnode) ?? pnode;
+                    for (int i = 0; i < pdef.GenericParameters.Count && i < pnode.TypeArguments.Count; i++)
+                        pmap[pdef.GenericParameters[i]] = pnode.TypeArguments[i];
+                }
+                maps = new List<Dictionary<Primitive, Primitive>>(maps) { pmap };
+            }
+            return chain;
+        }
+
+        static void AddIfaceSites(Primitive inst, Primitive defApp, List<Dictionary<Primitive, Primitive>> maps, List<IfaceSite> sites)
+        {
+            if (sites.Any(s => s.Instance == inst)) return; // AllInterfaces tekrarsiz: ilk bildirim kazanir
+            var idef = Signature.DefinitionOf(defApp) ?? defApp;
+            var imap = new Dictionary<Primitive, Primitive>();
+            for (int i = 0; i < idef.GenericParameters.Count && i < defApp.TypeArguments.Count; i++)
+                imap[idef.GenericParameters[i]] = defApp.TypeArguments[i];
+            var imaps = new List<Dictionary<Primitive, Primitive>>(maps) { imap };
+            sites.Add(new IfaceSite { Instance = inst, DefApp = defApp, Maps = imaps });
+            // miras iface'ler: ornegin listesi tanimin listesiyle pozisyonel
+            for (int j = 0; j < inst.Interfaces.Count && j < idef.Interfaces.Count; j++)
+                AddIfaceSites(inst.Interfaces[j], idef.Interfaces[j], imaps, sites);
+        }
+
+        static void BuildITables(Context ctx, Primitive p, BuildState st)
+        {
+            p.ITables.Clear();
+            var chain = ClassChain(p);
+            var sites = new List<IfaceSite>();
+            foreach (var link in chain)
+                for (int k = 0; k < link.Instance.Interfaces.Count && k < link.Def.Interfaces.Count; k++)
+                    AddIfaceSites(link.Instance.Interfaces[k], link.Def.Interfaces[k], link.Maps, sites);
+            foreach (var iface in AllInterfaces(p))
+            {
+                var site = sites.FirstOrDefault(s => s.Instance == iface)
+                    ?? new IfaceSite { Instance = iface, DefApp = iface, Maps = new List<Dictionary<Primitive, Primitive>>() };
+                var table = new List<Code>();
+                foreach (var im in iface.VTable)
+                    table.Add(FindImpl(ctx, p, chain, site, im, st)
+                        ?? throw new System.Exception($"{p.Name}, {iface.Name}.{im.DisplayName ?? im.Name} methodunu implement etmiyor"));
+                p.ITables[iface] = table;
+            }
+        }
+
+        // Iface slotu icin impl: once acik impl (bu iface icin), sonra ortuk (ayni imza); en tureyenden yukari. Impl parent'tan
+        // geliyorsa ve tureyen bunu override ettiyse vtable'daki guncel hedef alinir (sanal zincir korunur).
+        static Code FindImpl(Context ctx, Primitive cls, List<ChainLink> chain, IfaceSite site, Code im, BuildState st)
+        {
+            var imRoot = GenericInstantiator.RootTemplate(im); // iface TANIM metodu (GVM ise sablon)
+            for (int pass = 0; pass < 2; pass++) // 0: acik impl, 1: ortuk
+                foreach (var link in chain)
+                    foreach (var m in ctx.MembersOf(link.Def).ToList())
+                    {
+                        if (m.IsStatic || m.MethodTypeArguments != null) continue;
+                        if (pass == 0)
+                        {
+                            if (m.ExplicitInterface == null) continue;
+                            if (!Signature.TypeEquals2(m.ExplicitInterface, link.Maps, link.Maps.Count - 1, site.DefApp, site.Maps, site.Maps.Count - 2, null, null)) continue;
+                        }
+                        else if (m.ExplicitInterface != null) continue;
+                        if (!Signature.MatchesUnder2(m, link.Maps, imRoot, site.Maps)) continue;
+                        return Realize(ctx, cls, link, m, im, st);
+                    }
+            return null;
+        }
+
+        // Tanim uyesini p'nin zincirindeki ornege indir; GVM ise iface slotunun argumanlariyla ornekle; sonra devirtualize.
+        static Code Realize(Context ctx, Primitive cls, ChainLink link, Code defMember, Code im, BuildState st)
+        {
+            var member = link.Instance == link.Def ? defMember : GenericInstantiator.MemberOf(ctx, link.Instance, defMember);
+            if (im.MethodTypeArguments != null)
+            {
+                if (!ctx.TryGetInstance(member.Owner, GenericInstantiator.RootTemplate(member), im.MethodTypeArguments, out var inst))
+                {
+                    inst = GenericInstantiator.InstantiateCode(ctx, member, im.MethodTypeArguments);
+                    st.instantiated = true;
+                }
+                member = inst;
+            }
+            return Devirtualize(cls, member);
+        }
 
         // class'in implement ettigi iface'ler DUZLESTIRILMIS (parent zinciri dahil, tekrarsiz) - C itables ile ayni kural
         public static List<Primitive> AllInterfaces(Primitive p)
@@ -58,35 +174,6 @@ namespace DigitoyEngine.Language
                 foreach (var i in t.Interfaces)
                     Add(i);
             return result;
-        }
-
-        static void BuildITables(Context ctx, Primitive p)
-        {
-            p.ITables.Clear();
-            foreach (var iface in AllInterfaces(p))
-            {
-                var table = new List<Code>();
-                foreach (var im in iface.VTable)
-                    table.Add(FindImpl(ctx, p, iface, im)
-                        ?? throw new System.Exception($"{p.Name}, {iface.Name}.{im.DisplayName ?? im.Name} methodunu implement etmiyor"));
-                p.ITables[iface] = table;
-            }
-        }
-
-        // Interface slotu icin impl: once acik impl (bu iface icin), sonra ortuk (public, ayni imza); en tureyenden yukari.
-        // Impl parent'tan geliyorsa ve tureyen bunu override ettiyse vtable'daki guncel hedef alinir (sanal zincir korunur).
-        static Code FindImpl(Context ctx, Primitive cls, Primitive iface, Code interfaceMethod)
-        {
-            for (var t = cls; t != null; t = t.Parent)
-            {
-                foreach (var m in ctx.MembersOf(t))
-                    if (m.ExplicitInterface == iface && Signature.Matches(m, interfaceMethod))
-                        return Devirtualize(cls, m);
-                foreach (var m in ctx.MembersOf(t))
-                    if (m.ExplicitInterface == null && !m.IsStatic && Signature.Matches(m, interfaceMethod))
-                        return Devirtualize(cls, m);
-            }
-            return null;
         }
 
         // m sanal ve cls'in vtable'inda ezilmisse ezen hedef
@@ -172,7 +259,10 @@ namespace DigitoyEngine.Language
                 }
                 if (m.IsOverride)
                 {
-                    int slot = SlotOf(p.VTable, m);
+                    // Override slotu TANIM duzeyinde cozulur (OverrideTargetOf: sablon hiyerarsisinde ikameli imza) ve slot koku
+                    // (SlotRoot) ile vtable'da bulunur: canon/exact/generic-disi tum ornekler ayni yol; tip interning'e ya da
+                    // canon cokmesine (Serializer<List<__Canon>> -> Serializer<__Canon>) bagimlilik yok.
+                    int slot = SlotOf(st.ctx, p.VTable, m);
                     if (slot < 0)
                     {
                         var par = p.Parent;
@@ -189,12 +279,89 @@ namespace DigitoyEngine.Language
 
         // Override hedefi: vtable'da (parent sirasiyla) AD + IMZA eslesen ILK slot (.NET: ayni imzali birden fazla slot
         // varsa -- Base<int>.Foo(T)/Foo(int) -- ilk slot; C# bunu CS0462 ile reddeder, IL duzeyinde ilk kazanir).
-        public static int SlotOf(List<Code> vtable, Code method)
+        // ---- TANIM DUZEYINDE OVERRIDE COZUMU (CoreCLR MethodTableBuilder modeli) ----
+        // Override'in hedefi, IL sahibi tanim (RootTemplate) uzerinde, sahibin SABLON parent zincirinde ikameli imzayla bir kez
+        // bulunur ve onbelleklenir. Slot kimligi = zincirin kokundeki `virtual` tanim (SlotRoot). Orneklerde (exact/canon) slot,
+        // vtable girisinin kok tanimi ayni SlotRoot'a cikan giristir. Tip esitligi yalniz nesne grafi (Signature.TypeEqualsUnder).
+
+        static readonly Dictionary<Code, Code> overrideTarget = new Dictionary<Code, Code>();
+
+        // Vtable'da `method`'un (override ornegi ya da tanimi) ezecegi slot; -1 = yok. GVM ornekleri/explicit girisler atlanir.
+        public static int SlotOf(Context ctx, List<Code> vtable, Code method)
         {
+            var root = SlotRoot(ctx, GenericInstantiator.RootTemplate(method));
+            if (root == null) return -1;
             for (int i = 0; i < vtable.Count; i++)
-                if (vtable[i].MethodTypeArguments == null && vtable[i].ExplicitInterface == null && Signature.Matches(vtable[i], method))
-                    return i;
+            {
+                var v = vtable[i];
+                if (v.MethodTypeArguments != null || v.ExplicitInterface != null) continue;
+                if (SlotRoot(ctx, GenericInstantiator.RootTemplate(v)) == root) return i;
+            }
             return -1;
+        }
+
+        // Tanimin slot koku: override zinciri boyunca ilk `virtual` (newslot) tanim; sanal degilse null.
+        static Code SlotRoot(Context ctx, Code def)
+        {
+            for (int guard = 0; def != null && guard < 64; guard++)
+            {
+                if (!def.IsOverride) return def.IsVirtual ? def : null;
+                def = OverrideTargetOf(ctx, def);
+            }
+            return null;
+        }
+        // Herhangi bir kod (ornek/kabuk/tanim) icin slot koku (emitter: GVM dispatcher).
+        public static Code SlotRootOf(Context ctx, Code code) => SlotRoot(ctx, GenericInstantiator.RootTemplate(code));
+
+        // Slot kokunun (GVM) verilen EXACT metot argumanlariyla bildirilen tum exact orneklemeleri (Base.M<X>, Derived.M<X>, IFoo.M<X>...):
+        // sozlugu olan (HasMethodDict canon'lu) kabuklar. Dispatcher gelen sozlugu bunlarin sembolleriyle karsilastirir. Yapisal: kok
+        // nesnesi + arguman referans esitligi.
+        static Dictionary<Code, List<Code>> exactDecls;
+        public static IEnumerable<Code> ExactDeclarationsOf(Context ctx, Code root, List<Primitive> args)
+        {
+            if (exactDecls == null)
+            {
+                exactDecls = new Dictionary<Code, List<Code>>();
+                foreach (var c in ctx.AllCodes)
+                {
+                    if (c.MethodTypeArguments == null || Canon.ContainsCanon(c.MethodTypeArguments) || !c.IsSharedExact || !c.Shared.HasMethodDict) continue;
+                    var r = SlotRootOf(ctx, c);
+                    if (r == null) continue;
+                    if (!exactDecls.TryGetValue(r, out var l)) exactDecls[r] = l = new List<Code>();
+                    l.Add(c);
+                }
+            }
+            if (!exactDecls.TryGetValue(root, out var list)) yield break;
+            foreach (var d in list)
+                if (SameArgs(d.MethodTypeArguments, args)) yield return d;
+        }
+
+        // Override TANIMININ hedefi: sahibinin parent zincirinde (tanim duzeyinde, bilesik ikame) ad + ikameli imza eslesen
+        // ilk sanal/override uye (.NET: parent sirasiyla ilk slot). Yoksa null.
+        static Code OverrideTargetOf(Context ctx, Code def)
+        {
+            if (overrideTarget.TryGetValue(def, out var cached)) return cached;
+            Code found = null;
+            var maps = new List<Dictionary<Primitive, Primitive>>(); // kalitim zinciri ikame haritalari (dis -> ic)
+            var node = def.Owner.Parent; // RootTemplate uyesi: sahibi TANIM (sablon ya da generic-disi tip)
+            for (int guard = 0; node != null && found == null && guard < 64; guard++)
+            {
+                var defn = Signature.DefinitionOf(node) ?? node;
+                var pmap = new Dictionary<Primitive, Primitive>();
+                if (defn != node) // uygulama dugumu/ornek: tanimin parametreleri -> argumanlar (bir ust haritayla cozulur)
+                    for (int i = 0; i < defn.GenericParameters.Count && i < node.TypeArguments.Count; i++)
+                        pmap[defn.GenericParameters[i]] = node.TypeArguments[i];
+                maps.Add(pmap);
+                foreach (var v in ctx.MembersOf(defn))
+                {
+                    if (v.IsStatic || !(v.IsVirtual || v.IsOverride) || v.GenericParameters.Count > 0
+                        || v.MethodTypeArguments != null || v.ExplicitInterface != null) continue;
+                    if (Signature.MatchesUnder(def, v, maps)) { found = v; break; }
+                }
+                node = defn.Parent;
+            }
+            overrideTarget[def] = found;
+            return found;
         }
 
         // generic metot orneklemesi (Pair<string>) icin slot: ayni argumanlarla ve kabuk imzasi eslesen slot

@@ -154,6 +154,13 @@ namespace System.Collections.Generic
         public int version; // .NET: enumeration sirasinda Add/Insert/RemoveAt/Clear -> InvalidOperationException
         public List() { items = new T[4]; size = 0; }
         public List(int capacity) { items = new T[capacity < 4 ? 4 : capacity]; size = 0; }
+        public List(IEnumerable<T> collection)
+        {
+            if (collection == null) throw new ArgumentNullException("collection");
+            if (collection is T[] arr) { items = new T[arr.Length < 4 ? 4 : arr.Length]; for (int i = 0; i < arr.Length; i++) items[i] = arr[i]; size = arr.Length; return; }
+            items = new T[4]; size = 0;
+            foreach (var x in collection) Add(x);
+        }
         public int Count { get { return size; } }
         public T this[int index]
         {
@@ -467,6 +474,7 @@ namespace System.Collections.Generic
         public KeyValuePair(K key, V value) { this.key = key; this.value = value; }
         public K Key { get { return key; } }
         public V Value { get { return value; } }
+        public void Deconstruct(out K key, out V value) { key = this.key; value = this.value; } // foreach (var (k, v) in dict)
     }
 
     public class DictionaryKeyInterfaceEnumerator<K, V> : IEnumerator<K>, System.Collections.IEnumerator, System.IDisposable
@@ -691,6 +699,13 @@ namespace System.Collections.Generic
             if (i >= 0) { value = values[i]; return true; }
             value = default(V);
             return false;
+        }
+        public bool Remove(K key, out V value)
+        {
+            int i = Find(key);
+            if (i < 0) { value = default(V); return false; }
+            value = values[i];
+            return Remove(key);
         }
         public V this[K key]
         {

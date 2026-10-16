@@ -23,6 +23,7 @@ namespace DigitoyEngine.Build
         public bool NoStdLib;                                      // corelib / AOT: framework referansi yok
         public bool Optimize;
         public string PdbPath;                                     // portable PDB'ye gomulecek yol (null = AssemblyName.pdb)
+        public byte[] PublicKey;                                   // facade: PublicSign ile kimlik anahtari (imza yok, yalniz identity)
     }
 
     public sealed class RoslynResult
@@ -85,14 +86,16 @@ namespace DigitoyEngine.Build
                     ["CS0414"] = ReportDiagnostic.Suppress, ["CS0108"] = ReportDiagnostic.Suppress, ["CS0660"] = ReportDiagnostic.Suppress,
                     ["CS0661"] = ReportDiagnostic.Suppress,
                 };
-                var comp = CSharpCompilation.Create(b.AssemblyName, trees, refs,
-                    new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary,
+                var options = new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary,
                         allowUnsafe: true,
                         nullableContextOptions: NullableContextOptions.Disable,
                         optimizationLevel: b.Optimize ? OptimizationLevel.Release : OptimizationLevel.Debug,
                         deterministic: true,
                         concurrentBuild: true,
-                        specificDiagnosticOptions: noWarn));
+                        specificDiagnosticOptions: noWarn);
+                if (b.PublicKey != null)
+                    options = options.WithPublicSign(true).WithCryptoPublicKey(System.Collections.Immutable.ImmutableArray.Create(b.PublicKey));
+                var comp = CSharpCompilation.Create(b.AssemblyName, trees, refs, options);
 
                 using var peMs = new MemoryStream();
                 using var pdbMs = new MemoryStream();

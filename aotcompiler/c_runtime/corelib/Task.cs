@@ -32,8 +32,22 @@ namespace System.Threading.Tasks
 
         // Hepsi bitince tamamlanir. Biri hata verdiyse ilk hata ile fault; yalniz iptal varsa iptal.
         public static Task WhenAll(Task[] tasks) { return new WhenAllState(tasks).Source.Task; }
+        public static Task WhenAll(IEnumerable<Task> tasks) { return WhenAll(ToArray(tasks)); }
+        public static Task<T[]> WhenAll<T>(Task<T>[] tasks) { return new WhenAllState<T>(tasks).Source.Task; }
+        public static Task<T[]> WhenAll<T>(IEnumerable<Task<T>> tasks) { return WhenAll(ToArray(tasks)); }
         // Ilk biten task'i (hata/iptal dahil) sonuc olarak verir.
         public static Task<Task> WhenAny(Task[] tasks) { return new WhenAnyState(tasks).Source.Task; }
+        public static Task<Task> WhenAny(IEnumerable<Task> tasks) { return WhenAny(ToArray(tasks)); }
+        public static Task<Task<T>> WhenAny<T>(Task<T>[] tasks) { return new WhenAnyState<T>(tasks).Source.Task; }
+        public static Task<Task<T>> WhenAny<T>(IEnumerable<Task<T>> tasks) { return WhenAny(ToArray(tasks)); }
+        static TTask[] ToArray<TTask>(IEnumerable<TTask> tasks)
+        {
+            if (tasks == null) throw new ArgumentNullException("tasks");
+            if (tasks is TTask[] arr) return arr;
+            var list = new List<TTask>();
+            foreach (var t in tasks) list.Add(t);
+            return list.ToArray();
+        }
 
         public System.Runtime.CompilerServices.TaskAwaiter GetAwaiter()
         {
@@ -160,6 +174,53 @@ namespace System.Threading.Tasks
     {
         readonly WhenAnyState owner; readonly Task task;
         public WhenAnyOne(WhenAnyState owner, Task task) { this.owner = owner; this.task = task; }
+        public void Arm() { task.ContinueWith(Done); }
+        void Done() { owner.Source.TrySetResult(task); }
+    }
+
+    // Generic karsiliklar (Task<T>[] -> T[] / Task<T>); lambda yerine acik siniflar (ayni gerekce).
+    internal sealed class WhenAllState<T>
+    {
+        public readonly TaskCompletionSource<T[]> Source;
+        readonly Task<T>[] tasks;
+        int remaining;
+        public WhenAllState(Task<T>[] tasks)
+        {
+            Source = new TaskCompletionSource<T[]>();
+            this.tasks = tasks;
+            remaining = tasks.Length;
+            if (remaining == 0) { Source.TrySetResult(new T[0]); return; }
+            for (int i = 0; i < tasks.Length; i++) tasks[i].ContinueWith(OneDone);
+        }
+        void OneDone()
+        {
+            if (--remaining != 0) return;
+            Exception firstFault = null; bool anyCanceled = false;
+            for (int i = 0; i < tasks.Length; i++)
+            {
+                if (tasks[i].IsFaulted && firstFault == null) firstFault = tasks[i].fault;
+                if (tasks[i].IsCanceled) anyCanceled = true;
+            }
+            if (firstFault != null) { Source.TrySetException(firstFault); return; }
+            if (anyCanceled) { Source.TrySetCanceled(); return; }
+            var results = new T[tasks.Length];
+            for (int i = 0; i < tasks.Length; i++) results[i] = tasks[i].result;
+            Source.TrySetResult(results);
+        }
+    }
+    internal sealed class WhenAnyState<T>
+    {
+        public readonly TaskCompletionSource<Task<T>> Source;
+        public WhenAnyState(Task<T>[] tasks)
+        {
+            Source = new TaskCompletionSource<Task<T>>();
+            for (int i = 0; i < tasks.Length; i++) new WhenAnyOne<T>(this, tasks[i]).Arm();
+        }
+    }
+    internal sealed class WhenAnyOne<T>
+    {
+        readonly WhenAnyState<T> owner; readonly Task<T> task;
+        public WhenAnyOne(WhenAnyState<T> owner, Task<T> task) { this.owner = owner; this.task = task; }
         public void Arm() { task.ContinueWith(Done); }
         void Done() { owner.Source.TrySetResult(task); }
     }

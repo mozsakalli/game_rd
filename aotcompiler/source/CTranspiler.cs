@@ -416,6 +416,9 @@ namespace DigitoyEngine.Language
         // DESCRIPTOR TRIM (lean): olu tipin (TrimPlan.IsTypeLive) descriptor'u/meta'si uretilmez — Common.dll gibi referanssiz
         // plugin'lerin binlerce generic orneklemesi yalniz veri olarak bile ~700 KB tasiyordu. Tip canliligi TrimAnalysis.MarkType.
         static bool IsEmittableModel(Primitive p) => HasLayout(p) && !p.IsCanonForm && TrimPlan.IsTypeLive(p);
+        // Statik alan deposu olan tip: emit edilen modeller + runtime-tanimli String (descriptor'suz ama `string.Empty` gibi corelib
+        // statigi tasir; cctor'u IsEmittableCode uzerinden zaten emit edilir).
+        static bool HasStaticStorage(Primitive p) => IsEmittableModel(p) || (p == Primitive.String && TrimPlan.IsTypeLive(p));
         static bool HasLayout(Primitive p) => p.Type == PrimitiveType.Model && p.GenericTemplate == null && p.GenericParameters.Count == 0 && !HasOpenTypeArgs(p) && p != Primitive.Object && p != Primitive.String && p != Primitive.ValueType && p.Name != WellKnown.ValueType && !p.IsCanon; // corelib ValueType.cs = runtime vmvaluetype_type
         // Acik tip argumanli ornek (Task<T>, T = generic METHOD parametresi): generic method sablonunun
         // govdesinden sizar; somut cagri ayrica monomorfize edilir. Emit edilmez.
@@ -700,8 +703,8 @@ namespace DigitoyEngine.Language
         {
             var sb = new StringBuilder();
             var roots = new List<string>();
-            foreach (var p in ctx.AllPrimitives)
-                if (IsEmittableModel(p))
+            foreach (var p in ctx.AllPrimitives.Concat(new[] { Primitive.String })) // String AllPrimitives'te yok (runtime tipi)
+                if (HasStaticStorage(p))
                     foreach (var f in p.StaticFields)
                     {
                         if (TypeShape.IsGcRef(f.Type)) roots.Add($"{{ (void*)&{StaticSym(f)}, 0 }}");
@@ -876,7 +879,8 @@ namespace DigitoyEngine.Language
             if (model.VTable.Count > 0)
             {
                 sb.Append($"static const void* const {cn}_vtable[] = {{ ");
-                sb.Append(string.Join(", ", model.VTable.Select(m => VSlotRef(model, m))));
+                // GVM canon slotu (<__Canon>): dispatcher (CTranspiler.Canon GvmSlotRef); diger slotlar fn/stub/sozluk sentinel'i
+                sb.Append(string.Join(", ", model.VTable.Select((m, i) => IsCanonGvmSlot(m) ? GvmSlotRef(model, null, model.VTable, model.VTable, i) : VSlotRef(model, m))));
                 sb.Append(" };\n");
                 vtable = cn + "_vtable";
                 nvtable = model.VTable.Count.ToString();
@@ -889,7 +893,8 @@ namespace DigitoyEngine.Language
                 foreach (var iface in allIfaces)
                 {
                     sb.Append($"static const void* const {cn}_it_{CName(iface.Name)}[] = {{ ");
-                    sb.Append(string.Join(", ", model.ITables[iface].Select(VSlotRefOf)));
+                    var itab = model.ITables[iface];
+                    sb.Append(string.Join(", ", itab.Select((m, i) => IsCanonGvmSlot(iface.VTable[i]) ? GvmSlotRef(model, iface, iface.VTable, itab, i) : VSlotRefOf(m))));
                     sb.Append(" };\n");
                 }
                 sb.Append($"static const IfaceImpl {cn}_itables[] = {{ ");
@@ -1886,6 +1891,7 @@ namespace DigitoyEngine.Language
                             if (callee != op.Code && op.Code.ReturnType != Primitive.Void && CType(callee.ReturnType) != CType(op.Code.ReturnType))
                                 callText = $"(({CType(op.Code.ReturnType)}){callText})";
                             var call = WithPostCallRemember(callText, op.Code.ReturnType, values);
+                            NoteValueUse(op.Code.ReturnType); // struct donus: sonucu atilsa bile C tam tip ister
                             if (op.Code.ReturnType != Primitive.Void) Push(new CVal(call, op.Code.ReturnType));
                             else sb.Append($"    {call};\n");
                             break;
@@ -1967,6 +1973,7 @@ namespace DigitoyEngine.Language
                                 : $"{recv}->gc.type->vtable";
                             var vargs = vdict ? new[] { vDictArg }.Concat(args) : args;
                             var call = WithPostCallRemember($"(({fnSig}){table}[{op.Slot}])({string.Join(", ", vargs)})", op.Code.ReturnType, vvals);
+                            NoteValueUse(op.Code.ReturnType);
                             if (op.Code.ReturnType != Primitive.Void) Push(new CVal(call, op.Code.ReturnType));
                             else sb.Append($"    {call};\n");
                             break;

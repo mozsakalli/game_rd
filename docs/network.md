@@ -90,7 +90,8 @@ public sealed class WebSocket : IDisposable {
 Her ikisi de yalnız `NativeAsync.Await/Listen` kullanır; kendi poll'u yok.
 
 ## Kapsam dışı (bilinçli)
-Cert pinning, proxy/cookie yönetimi, HTTP server, UDP/raw socket. **JSON** corelib'de yok → ayrı iş (küçük reader/writer).
+Cert pinning, proxy/cookie yönetimi, HTTP server, UDP/raw socket. **JSON**: `engine/managed/Serialization/Json.cs`
+(`Json.Parse` → `JsonNode`, `JsonWriter` UTF-8, `Json.FromJson<T>/ToJson` reflection binder, `[JsonField]`) — engine-notes "JSON" bölümü.
 
 ## Fazlar
 | Faz | İş | Kabul |

@@ -1,6 +1,6 @@
 // corelib: CancellationToken / CancellationTokenSource (.NET alt kumesi). ANA THREAD modeli: kilit yok,
-// Cancel icindeki callback'ler senkron ve .NET gibi kayit sirasinin tersine (LIFO) kosar. CancelAfter /
-// CreateLinkedTokenSource YOK (saat motorun isi: DigitoyEngine.Wait). Iptal edilmis token'a Register -> callback hemen kosar.
+// Cancel icindeki callback'ler senkron ve .NET gibi kayit sirasinin tersine (LIFO) kosar. CancelAfter YOK
+// (saat motorun isi: DigitoyEngine.Wait); CreateLinkedTokenSource var (saatsiz, Register ile). Iptal edilmis token'a Register -> callback hemen kosar.
 using System.Collections.Generic;
 
 namespace System.Threading
@@ -28,7 +28,40 @@ namespace System.Threading
                 list[i].Action();
         }
 
-        public void Dispose() { disposed = true; callbacks = null; }
+        public void Dispose()
+        {
+            disposed = true; callbacks = null;
+            if (linkedRegistrations != null)
+            {
+                for (int i = 0; i < linkedRegistrations.Count; i++) linkedRegistrations[i].Dispose();
+                linkedRegistrations = null;
+            }
+        }
+
+        // Bagli kaynak: kaynaklardan biri iptal olunca bu da iptal olur (saat yok; Register ile). Dispose bagi koparir.
+        public static CancellationTokenSource CreateLinkedTokenSource(CancellationToken token1, CancellationToken token2)
+        {
+            var linked = new CancellationTokenSource();
+            linked.Link(token1);
+            linked.Link(token2);
+            return linked;
+        }
+        public static CancellationTokenSource CreateLinkedTokenSource(CancellationToken token) { return CreateLinkedTokenSource(token, CancellationToken.None); }
+        public static CancellationTokenSource CreateLinkedTokenSource(params CancellationToken[] tokens)
+        {
+            if (tokens == null) throw new ArgumentNullException("tokens");
+            var linked = new CancellationTokenSource();
+            for (int i = 0; i < tokens.Length; i++) linked.Link(tokens[i]);
+            return linked;
+        }
+        void Link(CancellationToken token)
+        {
+            if (!token.CanBeCanceled) return;
+            var reg = token.Register(Cancel);
+            if (linkedRegistrations == null) linkedRegistrations = new List<CancellationTokenRegistration>();
+            linkedRegistrations.Add(reg);
+        }
+        List<CancellationTokenRegistration> linkedRegistrations;
 
         internal int Add(Action action)
         {
@@ -73,6 +106,18 @@ namespace System.Threading
             if (callback == null || source == null) return new CancellationTokenRegistration(null, 0);
             if (source.canceled) { callback(); return new CancellationTokenRegistration(null, 0); }
             return new CancellationTokenRegistration(source, source.Add(callback));
+        }
+        public CancellationTokenRegistration Register(Action<object> callback, object state)
+        {
+            if (callback == null) return new CancellationTokenRegistration(null, 0);
+            return Register(new StateCallback(callback, state).Run);
+        }
+        // Lambda yerine acik sinif (generic/closure sekli frontend'de kisitli).
+        sealed class StateCallback
+        {
+            readonly Action<object> callback; readonly object state;
+            public StateCallback(Action<object> callback, object state) { this.callback = callback; this.state = state; }
+            public void Run() { callback(state); }
         }
 
         public bool Equals(CancellationToken other) { return source == other.source; }

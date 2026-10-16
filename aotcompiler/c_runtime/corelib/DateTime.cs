@@ -113,5 +113,103 @@ namespace System
         public static bool operator >(DateTime a, DateTime b) { return a._ticks > b._ticks; }
         public static bool operator <=(DateTime a, DateTime b) { return a._ticks <= b._ticks; }
         public static bool operator >=(DateTime a, DateTime b) { return a._ticks >= b._ticks; }
+
+        public override bool Equals(object other) { return other is DateTime d && d._ticks == _ticks; }
+        public override int GetHashCode() { return (int)_ticks ^ (int)(_ticks >> 32); }
+        public override string ToString() { return ToString("yyyy-MM-dd HH:mm:ss"); } // kultur yok: sabit ISO benzeri bicim
+
+        // Ozel bicim alt kumesi (kultur yok): yyyy yy MM M dd d HH H mm m ss s fff ff f, tek/cift tirnak literal, '\' kacis.
+        // Standart tek harfli bicimler ("d","T"...) YOK -> FormatException.
+        public string ToString(string format)
+        {
+            if (format == null || format.Length == 0) return ToString();
+            if (format.Length == 1) throw new FormatException("Standard DateTime format strings are not supported in corelib: '" + format + "'.");
+            var sb = new Text.StringBuilder();
+            int i = 0, n = format.Length;
+            while (i < n)
+            {
+                char c = format[i];
+                if (c == '\'' || c == '"')
+                {
+                    int j = i + 1;
+                    while (j < n && format[j] != c) { sb.Append(format[j]); j++; }
+                    i = j + 1; continue;
+                }
+                if (c == '\\' && i + 1 < n) { sb.Append(format[i + 1]); i += 2; continue; }
+                int run = 1;
+                while (i + run < n && format[i + run] == c) run++;
+                switch (c)
+                {
+                    case 'y': AppendPadded(sb, run >= 4 ? Year : Year % 100, run >= 4 ? 4 : 2); break;
+                    case 'M': AppendPadded(sb, Month, run >= 2 ? 2 : 1); break;
+                    case 'd': AppendPadded(sb, Day, run >= 2 ? 2 : 1); break;
+                    case 'H': AppendPadded(sb, Hour, run >= 2 ? 2 : 1); break;
+                    case 'h': { int h = Hour % 12; if (h == 0) h = 12; AppendPadded(sb, h, run >= 2 ? 2 : 1); break; }
+                    case 'm': AppendPadded(sb, Minute, run >= 2 ? 2 : 1); break;
+                    case 's': AppendPadded(sb, Second, run >= 2 ? 2 : 1); break;
+                    case 'f':
+                    {
+                        int digits = run > 7 ? 7 : run;
+                        long frac = _ticks % TimeSpan.TicksPerSecond; // 7 basamak
+                        for (int k = 7; k > digits; k--) frac /= 10;
+                        AppendPadded(sb, (int)frac, digits);
+                        break;
+                    }
+                    case 't': sb.Append(Hour < 12 ? "AM" : "PM"); break;
+                    default: for (int k = 0; k < run; k++) sb.Append(c); break;
+                }
+                i += run;
+            }
+            return sb.ToString();
+        }
+        static void AppendPadded(Text.StringBuilder sb, int value, int width)
+        {
+            string s = value.ToString();
+            for (int k = s.Length; k < width; k++) sb.Append('0');
+            sb.Append(s);
+        }
+    }
+
+    // UTC'ye sabitlenmis DateTime (Offset her zaman sifir: corelib'de saat dilimi yok). Unix zaman damgasi yuzeyi icin.
+    public struct DateTimeOffset
+    {
+        const long UnixEpochTicks = 621355968000000000;
+        readonly DateTime _utc;
+        public DateTimeOffset(DateTime dateTime) { _utc = dateTime; }
+        public DateTimeOffset(long ticks, TimeSpan offset) { _utc = new DateTime(ticks - offset.Ticks); }
+
+        public static DateTimeOffset UtcNow { get { return new DateTimeOffset(DateTime.UtcNow); } }
+        public static DateTimeOffset Now { get { return UtcNow; } }
+        public static readonly DateTimeOffset MinValue = new DateTimeOffset(DateTime.MinValue);
+        public static readonly DateTimeOffset UnixEpoch = new DateTimeOffset(DateTime.UnixEpoch);
+
+        public DateTime UtcDateTime { get { return _utc; } }
+        public DateTime DateTime { get { return _utc; } }
+        public TimeSpan Offset { get { return TimeSpan.Zero; } }
+        public long Ticks { get { return _utc.Ticks; } }
+        public long UtcTicks { get { return _utc.Ticks; } }
+
+        public long ToUnixTimeSeconds() { return (_utc.Ticks - UnixEpochTicks) / TimeSpan.TicksPerSecond; }
+        public long ToUnixTimeMilliseconds() { return (_utc.Ticks - UnixEpochTicks) / TimeSpan.TicksPerMillisecond; }
+        public static DateTimeOffset FromUnixTimeSeconds(long seconds) { return new DateTimeOffset(new DateTime(UnixEpochTicks + seconds * TimeSpan.TicksPerSecond)); }
+        public static DateTimeOffset FromUnixTimeMilliseconds(long ms) { return new DateTimeOffset(new DateTime(UnixEpochTicks + ms * TimeSpan.TicksPerMillisecond)); }
+
+        public DateTimeOffset AddSeconds(double v) { return new DateTimeOffset(_utc.AddSeconds(v)); }
+        public DateTimeOffset AddMilliseconds(double v) { return new DateTimeOffset(_utc.AddMilliseconds(v)); }
+        public DateTimeOffset Add(TimeSpan v) { return new DateTimeOffset(_utc.Add(v)); }
+
+        public static TimeSpan operator -(DateTimeOffset a, DateTimeOffset b) { return a._utc - b._utc; }
+        public static DateTimeOffset operator +(DateTimeOffset a, TimeSpan b) { return new DateTimeOffset(a._utc + b); }
+        public static DateTimeOffset operator -(DateTimeOffset a, TimeSpan b) { return new DateTimeOffset(a._utc - b); }
+        public static bool operator ==(DateTimeOffset a, DateTimeOffset b) { return a._utc == b._utc; }
+        public static bool operator !=(DateTimeOffset a, DateTimeOffset b) { return a._utc != b._utc; }
+        public static bool operator <(DateTimeOffset a, DateTimeOffset b) { return a._utc < b._utc; }
+        public static bool operator >(DateTimeOffset a, DateTimeOffset b) { return a._utc > b._utc; }
+        public static bool operator <=(DateTimeOffset a, DateTimeOffset b) { return a._utc <= b._utc; }
+        public static bool operator >=(DateTimeOffset a, DateTimeOffset b) { return a._utc >= b._utc; }
+        public override bool Equals(object other) { return other is DateTimeOffset d && d._utc == _utc; }
+        public override int GetHashCode() { return _utc.GetHashCode(); }
+        public override string ToString() { return _utc.ToString() + " +00:00"; }
+        public string ToString(string format) { return _utc.ToString(format); }
     }
 }

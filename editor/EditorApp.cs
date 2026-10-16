@@ -129,6 +129,9 @@ public unsafe class App
         PlayerPrefs.SetRoot(_project.LibraryPath); // oyun PlayerPrefs'i proje-yerel (Library/prefs.dat; git'e girmez)
         AssetDatabase.LogWarning = EditorLog.Warning;
         PixelEffect.LogError = EditorLog.Error; // fx derleme hatalari Console paneline
+        Debug.OnInfo = EditorLog.Info;          // oyun kodunun Debug.Log* cagrilari Console paneline (stdout'a EditorLog akitir)
+        Debug.OnWarning = EditorLog.Warning;
+        Debug.OnError = EditorLog.Error;
         _gameCode = new GameCode();
         try { GameCode.WriteIdeProject(_project); } // IDE csproj (proje koku), derlemeden bagimsiz
         catch (Exception e) { EditorLog.Warning("[gamecode] IDE csproj yazilamadi: " + e.Message); }
@@ -146,6 +149,7 @@ public unsafe class App
         PointerTests.Run(_catalog);
         RenderGroupTests.Run(_catalog);
         PlayerPrefsTests.Run(projectPath);
+        JsonTests.Run(_catalog);
         AsyncQueueTests.Run();
         NetTests.Run();
         ProgressTests.Run(_catalog);
@@ -569,6 +573,16 @@ public unsafe class App
     static EditorScene _stashedScene;
     internal static bool InPrefabStage => _stashedScene != null;
     internal static string PrefabStagePath => InPrefabStage ? _editScene.Path : null;
+    // Stage'deyken bellekte bekleyen asil sahne (RPC dirty kontrolu icin); stage disinda null.
+    internal static EditorScene StashedScene => _stashedScene;
+
+    // Bellekteki tum kaydedilmemis duzenlemeleri "atildi" sayar (RPC force yolu: popup acilmadan
+    // stage kapanir / sahne degisir). Doc'a dokunmaz, yalnizca dirty bayragi duser.
+    internal static void DiscardAllChanges()
+    {
+        _editScene.DiscardChanges();
+        _stashedScene?.DiscardChanges();
+    }
 
     internal static void OpenPrefab(string path)
     {

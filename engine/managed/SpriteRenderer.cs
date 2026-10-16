@@ -124,10 +124,11 @@ public sealed unsafe class SpriteRenderer : Renderer
         {
             // Mantiksal quad OrigW x OrigH'yi temsil eder; kirpilmis parca once
             // yerel uzayda otelenip (trim ofseti) sonra parca boyutuna olceklenir.
+            // Dunya/yerel y ASAGI (Quad: local -y <-> doku ustu, kamera top=0): OffY ust boslugu +y yonunde oteler.
             float sx = Width * (spr.W / (float)spr.OrigW);
             float sy = Height * (spr.H / (float)spr.OrigH);
             float cx = Width * ((spr.OffX + spr.W * 0.5f) / spr.OrigW - 0.5f);
-            float cy = Height * (0.5f - (spr.OffY + spr.H * 0.5f) / spr.OrigH);
+            float cy = Height * ((spr.OffY + spr.H * 0.5f) / spr.OrigH - 0.5f);
             model.m[12] += model.m[0] * cx + model.m[4] * cy;
             model.m[13] += model.m[1] * cx + model.m[5] * cy;
             model.m[14] += model.m[2] * cx + model.m[6] * cy;

@@ -353,7 +353,7 @@ namespace DigitoyEngine.Language
                     continue;
                 }
                 string fn = hasBody ? $"(const void*)&{FnPtrSym(c)}" : "0";
-                RequestStub(c); // CANON: ctx isteyen exact kabuk -> stub tanimi + prototipi
+                if (hasBody) RequestStub(c); // CANON: ctx isteyen exact kabuk -> stub tanimi + prototipi (iface bildirimi govdesiz: stub yok)
                 string tramp = HasVirtualTramp(c) ? $"(const void*)&{VTrampSym(c)}" : "0";
                 var attrs = MemberAttrs(c.Owner, c.Attributes);
                 int nattrs = EmittableAttrs(attrs).Count;

@@ -101,4 +101,19 @@ namespace System.Runtime.CompilerServices
         { awaiter.OnCompleted(new StateMachineStep(stateMachine).Run); }
         public void AwaitUnsafeOnCompleted<TA, TSM>(ref TA awaiter, ref TSM stateMachine) where TA : ICriticalNotifyCompletion where TSM : IAsyncStateMachine
         { awaiter.UnsafeOnCompleted(new StateMachineStep(stateMachine).Run); }    }
+
+    // `async void` (ates-unut). .NET'te yakalanmayan istisna SynchronizationContext'e gider ve sureci dusurur; burada
+    // (oyun, tek thread) stderr'e yazilir ve yutulur — fırlatmak tamamlayan Task'in continuation dongusunu bozardi.
+    public struct AsyncVoidMethodBuilder
+    {
+        public static AsyncVoidMethodBuilder Create() { return new AsyncVoidMethodBuilder(); }
+        public void SetResult() { }
+        public void SetException(Exception cause) { Console.Error.WriteLine("Unhandled exception in async void method: " + cause); }
+        public void SetStateMachine(IAsyncStateMachine stateMachine) { }
+        public void Start<TSM>(ref TSM stateMachine) where TSM : IAsyncStateMachine { stateMachine.MoveNext(); }
+        public void AwaitOnCompleted<TA, TSM>(ref TA awaiter, ref TSM stateMachine) where TA : INotifyCompletion where TSM : IAsyncStateMachine
+        { awaiter.OnCompleted(new StateMachineStep(stateMachine).Run); }
+        public void AwaitUnsafeOnCompleted<TA, TSM>(ref TA awaiter, ref TSM stateMachine) where TA : ICriticalNotifyCompletion where TSM : IAsyncStateMachine
+        { awaiter.UnsafeOnCompleted(new StateMachineStep(stateMachine).Run); }
+    }
 }

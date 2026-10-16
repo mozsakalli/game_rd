@@ -156,6 +156,10 @@ public static unsafe class Sokol
     extern static void de_msdf_font_close(void* handle);
     public static void MsdfFontClose(IntPtr handle) => de_msdf_font_close((void*)handle);
 
+    [DllImport(Lib, EntryPoint = "de_msdf_font_has_glyph")]
+    extern static int de_msdf_font_has_glyph(void* handle, int codepoint);
+    public static bool MsdfFontHasGlyph(IntPtr handle, int codepoint) => de_msdf_font_has_glyph((void*)handle, codepoint) != 0;
+
     // MTSDF glyph: out5 = advance, xoff, yoff, w, h (de_sdf_font_glyph ile ayni kutu);
     // buffer'a w*h*4 RGBA bayti (rgb msdf, a sdf; satir 0 ustte). pixelDistScale ve pad
     // stbtt ile ayni anlam; angleThreshold kose esigi (radyan, 3.0 onerilir).
@@ -165,6 +169,16 @@ public static unsafe class Sokol
     public static int MsdfFontGlyph(IntPtr handle, int codepoint, float sdfSize, int pad, float pixelDistScale,
         double angleThreshold, byte* buffer, int bufferSize, float* out5)
         => de_msdf_font_glyph((void*)handle, codepoint, sdfSize, pad, pixelDistScale, angleThreshold, buffer, bufferSize, out5);
+
+    // SVG metni -> MTSDF ozel glyph (FontImporter customGlyphs; msdf_shim.cpp + nanosvg). viewBox yuksekligi*scale
+    // = 1 em (sdfSize px), baseline viewBox alt kenari, off* em; advanceEm < 0 = SVG genisligi.
+    // Donus 1 ok, 2 gorunur fill yok (bosluk), 0 hata. out5 = advance, xoff, yoff, w, h.
+    [DllImport(Lib, EntryPoint = "de_msdf_svg_glyph")]
+    extern static int de_msdf_svg_glyph(byte* svg, int svgLen, float sdfSize, float scale, float advanceEm,
+        float offXEm, float offYEm, int pad, float pixelDistScale, double angleThreshold, byte* buffer, int bufferSize, float* out5);
+    public static int MsdfSvgGlyph(byte* svg, int svgLen, float sdfSize, float scale, float advanceEm,
+        float offXEm, float offYEm, int pad, float pixelDistScale, double angleThreshold, byte* buffer, int bufferSize, float* out5)
+        => de_msdf_svg_glyph(svg, svgLen, sdfSize, scale, advanceEm, offXEm, offYEm, pad, pixelDistScale, angleThreshold, buffer, bufferSize, out5);
 
     // Piksel encoder (de_image_write.c, editor-only): kind 0 = PNG, 1 = JPG. flip: dosyaya satirlar ters
     // yazilir (yukleme flip'iyle bellek duzeni birebir doner). Donus yonetilen kopya; hata = null.

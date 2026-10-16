@@ -17,8 +17,17 @@ namespace System
         OrdinalIgnoreCase = 5
     }
 
+    [Flags]
+    public enum StringSplitOptions
+    {
+        None = 0,
+        RemoveEmptyEntries = 1,
+        TrimEntries = 2
+    }
+
     public class String
     {
+        public static readonly string Empty = ""; // .NET'te alan (ldsfld): gercek .NET'e karsi derlenmis DLL'ler alan olarak okur, const OLAMAZ
         public extern int Length { get; }
         [System.Runtime.CompilerServices.IndexerName("Chars")] // metadata adi get_Chars: C sembolu System_String_get_Chars_Int
         public extern char this[int index] { get; }
@@ -29,10 +38,63 @@ namespace System
         public extern string[] Split(string separator);
         public extern string[] Split(string separator, int count);
         public extern string[] Split(char separator);
+        public string[] Split(char separator, int count) { return Split("" + separator, count); }
+        public string[] Split(char separator, StringSplitOptions options) { return ApplySplitOptions(Split(separator), options); }
+        public string[] Split(string separator, StringSplitOptions options) { return ApplySplitOptions(Split(separator), options); }
+        public string[] Split(params char[] separators) { return Split(separators, StringSplitOptions.None); }
+        public string[] Split(char[] separators, StringSplitOptions options)
+        {
+            if (separators == null || separators.Length == 0) separators = new char[] { ' ', '\t', '\n', '\r' };
+            var parts = new Collections.Generic.List<string>();
+            int start = 0;
+            for (int i = 0; i < Length; i++)
+            {
+                char c = this[i]; bool hit = false;
+                for (int k = 0; k < separators.Length; k++) if (separators[k] == c) { hit = true; break; }
+                if (!hit) continue;
+                parts.Add(Substring(start, i - start));
+                start = i + 1;
+            }
+            parts.Add(Substring(start));
+            return ApplySplitOptions(parts.ToArray(), options);
+        }
+        static string[] ApplySplitOptions(string[] parts, StringSplitOptions options)
+        {
+            if (options == StringSplitOptions.None) return parts;
+            var list = new Collections.Generic.List<string>(parts.Length);
+            for (int i = 0; i < parts.Length; i++)
+            {
+                string p = parts[i];
+                if ((options & StringSplitOptions.TrimEntries) != 0) p = p.Trim();
+                if ((options & StringSplitOptions.RemoveEmptyEntries) != 0 && p.Length == 0) continue;
+                list.Add(p);
+            }
+            return list.ToArray();
+        }
         public extern string Trim();
+        public string TrimEnd() { return TrimEnd(' ', '\t', '\n', '\r'); }
+        public string TrimEnd(char trimChar) { int e = Length; while (e > 0 && this[e - 1] == trimChar) e--; return e == Length ? this : Substring(0, e); }
+        public string TrimEnd(params char[] trimChars)
+        {
+            if (trimChars == null || trimChars.Length == 0) return TrimEnd();
+            int e = Length;
+            while (e > 0 && IndexOfChar(trimChars, this[e - 1])) e--;
+            return e == Length ? this : Substring(0, e);
+        }
+        public string TrimStart() { return TrimStart(' ', '\t', '\n', '\r'); }
+        public string TrimStart(char trimChar) { int s = 0; while (s < Length && this[s] == trimChar) s++; return s == 0 ? this : Substring(s); }
+        public string TrimStart(params char[] trimChars)
+        {
+            if (trimChars == null || trimChars.Length == 0) return TrimStart();
+            int s = 0;
+            while (s < Length && IndexOfChar(trimChars, this[s])) s++;
+            return s == 0 ? this : Substring(s);
+        }
+        static bool IndexOfChar(char[] set, char c) { for (int i = 0; i < set.Length; i++) if (set[i] == c) return true; return false; }
         public extern string ToLower();
         public extern string ToLowerInvariant();
         public extern string ToUpper();
+        public string ToUpperInvariant() { return ToUpper(); } // kultur yok: ToUpper zaten invariant
         public extern char[] ToCharArray();
         public extern static bool IsNullOrEmpty(string value);
         public extern static bool IsNullOrWhiteSpace(string value);
@@ -102,6 +164,21 @@ namespace System
             string r = "";
             for (int i = 0; i < values.Length; i++) { if (i > 0) r = Concat(r, separator, ""); r = Concat(r, values[i], ""); }
             return r;
+        }
+        public static string Join(char separator, string[] values) { return Join("" + separator, values); }
+        public static string Join<T>(string separator, Collections.Generic.IEnumerable<T> values)
+        {
+            if (values == null) throw new ArgumentNullException("values");
+            var sb = new Text.StringBuilder(); bool first = true;
+            foreach (var v in values) { if (!first) sb.Append(separator); if (v != null) sb.Append(v.ToString()); first = false; }
+            return sb.ToString();
+        }
+        public static string Join(string separator, Collections.Generic.IEnumerable<string> values)
+        {
+            if (values == null) throw new ArgumentNullException("values");
+            var sb = new Text.StringBuilder(); bool first = true;
+            foreach (var v in values) { if (!first) sb.Append(separator); sb.Append(v); first = false; }
+            return sb.ToString();
         }
         public static string Join(string separator, string[] values, int startIndex, int count)
         {

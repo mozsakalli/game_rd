@@ -66,6 +66,12 @@ namespace System.Reflection
         public DefaultMemberAttribute(string memberName) { MemberName = memberName; }
         public string MemberName;
     }
+    // Facade assembly'leri (aotcompiler FacadeBuilder) kimlik surumunu bununla yazar; Roslyn degeri metadata'ya alir.
+    public sealed class AssemblyVersionAttribute : Attribute
+    {
+        public AssemblyVersionAttribute(string version) { Version = version; }
+        public string Version;
+    }
 }
 
 namespace System.Runtime.CompilerServices
@@ -88,5 +94,12 @@ namespace System.Runtime.CompilerServices
     public sealed class IteratorStateMachineAttribute : Attribute
     {
         public IteratorStateMachineAttribute(Type stateMachineType) { }
+    }
+    // Facade assembly'leri: `System.Runtime` vb. adli dll'ler corelib tiplerini bununla forward eder (ExportedType).
+    [AttributeUsage(AttributeTargets.Assembly, AllowMultiple = true)]
+    public sealed class TypeForwardedToAttribute : Attribute
+    {
+        public TypeForwardedToAttribute(Type destination) { Destination = destination; }
+        public Type Destination;
     }
 }

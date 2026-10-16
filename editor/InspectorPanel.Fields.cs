@@ -93,15 +93,7 @@ public sealed partial class InspectorPanel
     {
         if (_aIsMeta)
         {
-            // Importer ayarlari: meta'ya yaz, stamp degisir -> reimport, canli font
-            // yerinde tazelenir, bagimli atlas gruplari yeniden paketlenir.
-            string rel = RelAssetPath(_aPath);
-            if (rel == null)
-                return;
-            ImportPipeline.SaveSettings(rel, _aObj);
-            ImportPipeline.EnsureImported(rel);
-            App.Assets.InvalidateImported(rel);
-            AtlasSystem.RefreshAll();
+            _aDirty = true; // bekleyen model: Apply / secim degisimi / Play uygular
             return;
         }
         AssetWatcher.NoteSelfWrite(_aPath);
@@ -109,6 +101,30 @@ public sealed partial class InspectorPanel
         AssetDatabase.NoteObjectChanged(); // canli instance duzenlendi: referans tutanlar (LayoutBox.style) tazelensin
         if (AtlasSystem.IsAtlasGroupAsset(_aPath))
             AtlasSystem.RefreshAll(); // grup ayari degisti: hemen yeniden paketle
+    }
+
+    // Importer ayarlari: meta'ya yaz, stamp degisir -> reimport, canli font yerinde tazelenir,
+    // bagimli atlas gruplari yeniden paketlenir.
+    void ApplyAssetSettings()
+    {
+        _aDirty = false;
+        if (!_aIsMeta || _aPath == null || _aObj == null)
+            return;
+        string rel = RelAssetPath(_aPath);
+        if (rel == null)
+            return;
+        ImportPipeline.SaveSettings(rel, _aObj);
+        ImportPipeline.EnsureImported(rel);
+        App.Assets.InvalidateImported(rel);
+        AtlasSystem.RefreshAll();
+    }
+
+    // Bekleyen importer ayarlarini uygular (secim degisimi, Play baslangici). Dirty degilse no-op.
+    public static void FlushPendingSettings()
+    {
+        var p = _instance;
+        if (p != null && p._aDirty)
+            p.ApplyAssetSettings();
     }
 
     readonly Dictionary<string, char[]> _docStrBufs = new();

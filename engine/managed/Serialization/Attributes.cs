@@ -22,6 +22,16 @@ public sealed class FormerlySerializedAsAttribute : Attribute
     public FormerlySerializedAsAttribute(string oldName) => OldName = oldName;
 }
 
+// JSON alan adi override'i (Json.FromJson/ToJson): sunucu sozlesmesi snake_case/kisaltma iken C# alani okunur kalir.
+// Yalniz JSON yolunu etkiler; YAML/ikili serilestirme alan adini kullanmaya devam eder. core.upm JsonFieldAttribute ile ayni imza.
+[AttributeUsage(AttributeTargets.Field)]
+public sealed class JsonFieldAttribute : Attribute
+{
+    public readonly string Name;
+
+    public JsonFieldAttribute(string name) => Name = name;
+}
+
 // Tip yeniden adlandirma migrasyonu (FormerlySerializedAs'in tip duzeyi karsiligi).
 // Ayrica editor, typemap uzerinden tek-class dosya rename'lerini OTOMATIK yakalar;
 // bu attribute cok-class'li dosyalar / elle tasima icin guvence.

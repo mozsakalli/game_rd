@@ -369,21 +369,16 @@ SOKOL_API void de_sokol_destroy_buffer(unsigned int buffer)
 // GL context AKTIF olduktan sonra cagrilir; sokol GL fonksiyonlarini kendi yukler.
 // Sifirli desc => GL backend varsayilanlari (RGBA8 / DEPTH_STENCIL / sample 1).
 
-// Sokol logger: logger baglanmazsa validation hatalari SESSIZCE abort eder.
-// Her mesaj stderr'e (flush'li) + crash_native.log'a yazilir; panic'te bile iz kalir.
+// Sokol logger: logger baglanmazsa validation hatalari SESSIZCE abort eder (logger varsa abort YOK).
+// Mesajlar BASILMAZ (validation seli frame'i boguyordu: her satirda stderr flush + dosya ac/kapat);
+// yalnizca son ERROR (+GL info log'u) de_last_err'de tutulur, Shader derleme hatasi oradan okur.
 #include <stdio.h>
 static char de_last_err[2048]; // son ERROR + onu izleyen INFO detayi (GL compile log)
 static int de_last_err_pending;
 static void de_sokol_log(const char *tag, uint32_t level, uint32_t item_id,
                          const char *msg, uint32_t line, const char *file, void *user)
 {
-    (void)user;
-    const char *lvl = level == 0 ? "PANIC" : level == 1 ? "ERROR"
-                                         : level == 2   ? "WARN"
-                                                        : "INFO";
-    char buf[1024];
-    snprintf(buf, sizeof buf, "[sokol %s] %s (%u) %s:%u %s\n",
-             lvl, tag ? tag : "?", item_id, file ? file : "?", line, msg ? msg : "");
+    (void)user; (void)tag; (void)item_id; (void)line; (void)file;
     if (level <= 1)
     {
         snprintf(de_last_err, sizeof de_last_err, "%s", msg ? msg : "");
@@ -394,14 +389,6 @@ static void de_sokol_log(const char *tag, uint32_t level, uint32_t item_id,
         size_t len = strlen(de_last_err);
         snprintf(de_last_err + len, sizeof de_last_err - len, "\n%s", msg ? msg : "");
         de_last_err_pending = 0;
-    }
-    fputs(buf, stderr);
-    fflush(stderr);
-    FILE *f = fopen("crash_native.log", "a");
-    if (f)
-    {
-        fputs(buf, f);
-        fclose(f);
     }
 }
 

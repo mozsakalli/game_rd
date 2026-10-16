@@ -243,6 +243,10 @@ public sealed partial class InspectorPanel : EditorWindow
     // [Serializable] taramasindan (App.AssetTypes) gelir. ---
     string _aPath;
     bool _aIsMeta; // importer ayarlari (.meta "importer:" blogu) duzenleniyor
+    // Importer ayarlari BEKLEYEN model (Unity): degisiklikler bellekte birikir, Apply (ya da secim degisimi /
+    // Play) meta'ya yazip reimport eder. Her tusta ~1 s font pisirmesin. .asset nesneleri anindadir.
+    bool _aDirty;
+    static InspectorPanel _instance;
     int _aSeenChange = -1;
     AssetImporter _aPreview; // onizleme cizen importer (secim degisince HidePreview)
     string _aPreviewRel;
@@ -258,9 +262,11 @@ public sealed partial class InspectorPanel : EditorWindow
 
     bool DrawAssetInspector(in Rect vis)
     {
+        _instance = this;
         string path = Selection.AssetPath;
         if (path == null)
         {
+            FlushPendingSettings();
             HideAssetPreview();
             return false;
         }
@@ -273,9 +279,16 @@ public sealed partial class InspectorPanel : EditorWindow
             importer = rel != null ? ImportPipeline.ImporterFor(rel) : null;
             if (importer?.SettingsType == null)
             {
+                FlushPendingSettings();
                 HideAssetPreview();
                 return false;
             }
+        }
+        else
+        {
+            // Importer'li .asset (AtlasGroup): ayarlar YAML'dan duzenlenir, importer yalniz onizleme (uretilen sayfa) cizer.
+            rel = RelAssetPath(path);
+            importer = rel != null ? ImportPipeline.ImporterFor(rel) : null;
         }
         // Dosya diskte degistiyse (watcher) cache dusur: taze degerler gorunsun.
         if (_aSeenChange != AssetWatcher.AssetChangeVersion)
@@ -283,10 +296,16 @@ public sealed partial class InspectorPanel : EditorWindow
             _aSeenChange = AssetWatcher.AssetChangeVersion;
             if (_aPath != null && string.Equals(System.IO.Path.GetFullPath(_aPath),
                     AssetWatcher.LastChangedAsset, StringComparison.OrdinalIgnoreCase))
+            {
+                if (_aDirty)
+                    EditorLog.Warning($"[inspector] {System.IO.Path.GetFileName(_aPath)} changed on disk; pending import settings discarded");
+                _aDirty = false;
                 _aPath = null;
+            }
         }
         if (_aPath != path)
         {
+            FlushPendingSettings(); // onceki asset'in bekleyen ayarlari uygulanir (auto-apply)
             _aPath = path;
             _aIsMeta = !isAsset;
             _aDrawer.Unbind();
@@ -318,7 +337,7 @@ public sealed partial class InspectorPanel : EditorWindow
                 _aDrawer.Bind(ImportPipeline.LoadSettings(rel, importer));
             }
         }
-        float previewH = _aIsMeta && rel != null ? importer.Instance.PreviewHeight(rel) : 0f;
+        float previewH = importer != null && rel != null ? importer.Instance.PreviewHeight(rel) : 0f;
         float contentHeight = 4 + HeaderH + 6 + _aDrawer.Measure() + 8 + (previewH > 0 ? previewH + 8 : 0);
         _assetScroll = Gui.BeginScrollView(new Rect(0, 0, vis.width, vis.height), _assetScroll,
             new Rect(0, 0, vis.width - 20, contentHeight));
@@ -328,9 +347,22 @@ public sealed partial class InspectorPanel : EditorWindow
         float y = 4;
         DrawHeaderBar(y, 0, w + 12);
         if (Event.Current.Type == EventType.Repaint)
-            GuiRenderer.DrawTextIn(new Rect(8, y, w - 8, HeaderH),
-                System.IO.Path.GetFileName(path) + (_aIsMeta ? "  (" + Nicify(importer.Type.Name) + ")" : ""),
+            GuiRenderer.DrawTextIn(new Rect(8, y, w - 8 - (_aIsMeta ? 130 : 0), HeaderH),
+                System.IO.Path.GetFileName(path) + (_aIsMeta && _aDirty ? " *" : "") + (_aIsMeta ? "  (" + Nicify(importer.Type.Name) + ")" : ""),
                 HeaderFont, HeaderTextColor, false, 2);
+        if (_aIsMeta)
+        {
+            // Kontrol sayisi sabit: butonlar hep cizilir, dirty degilken tiklama etkisiz.
+            bool revert = Gui.Button(new Rect(w - 116, y + 3, 56, HeaderH - 6), "Revert");
+            bool apply = Gui.Button(new Rect(w - 56, y + 3, 56, HeaderH - 6), _aDirty ? "Apply" : "Applied");
+            if (_aDirty && revert)
+            {
+                _aDrawer.Bind(ImportPipeline.LoadSettings(rel, importer));
+                _aDirty = false;
+            }
+            else if (_aDirty && apply)
+                ApplyAssetSettings();
+        }
         y += HeaderH + 6;
         if (_aObj == null)
         {

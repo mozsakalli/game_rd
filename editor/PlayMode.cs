@@ -15,7 +15,32 @@ public enum HotReloadMode { Off, OnSave, Instant }
 static class PlayMode
 {
     public static PlayState State { get; private set; } = PlayState.Editing;
-    public static Scene PlayScene { get; private set; }
+
+    // Editorun cizdigi/simule ettigi OYUN sahnesi. Doc'tan dogan sahne (_spawned) oyun kodu tarafindan
+    // SceneLoader replace ile atilmis olabilir (Scene.Unload → Loaded'dan duser); o zaman oyunun yeni aktif
+    // sahnesi izlenir — aksi halde GameView bos (eski) sahneye bakar kalirdi. Edit live sahnesi asla oyun
+    // sahnesi sayilmaz (Unload sonrasi Scene.Active _loaded[0]'a, yani edit sahnesine dusebilir).
+    public static Scene PlayScene
+    {
+        get
+        {
+            if (_spawned == null)
+                return null;
+            if (IsLoaded(_spawned))
+                return _spawned;
+            var a = Scene.Active;
+            return a != null && a != App.EditScene.LiveScene && !a.ExternallyDriven ? a : null;
+        }
+    }
+    static Scene _spawned;
+
+    static bool IsLoaded(Scene s)
+    {
+        var l = Scene.Loaded;
+        for (int i = 0; i < l.Count; i++)
+            if (ReferenceEquals(l[i], s)) return true;
+        return false;
+    }
     public static bool Simulate => State == PlayState.Playing && PlayScene != null;
 
     public static HotReloadMode HotReload = HotReloadMode.OnSave;
@@ -33,6 +58,7 @@ static class PlayMode
         }
         if (State == PlayState.Playing)
             return;
+        InspectorPanel.FlushPendingSettings(); // bekleyen importer ayarlari oyuna taze girsin
         if (App.InPrefabStage)
         {
             EditorLog.Warning("[prefab] close the prefab stage (Back) before Play");
@@ -81,27 +107,30 @@ static class PlayMode
         // dt'sine biner → MovieClip/Tween ilk gorunur karede zaten N kare ilerlemis olur
         // ("fade 0'dan baslamiyor"). Ilk iki dt atilir; editor dt'si ayrica MaxDeltaTime ile sinirli.
         s.DiscardDeltaFrames = 2;
-        PlayScene = s;
+        _spawned = s;
         SpawnedDocVersion = App.EditScene.History.Version;
     }
 
     // Oyun sahnesinin dogdugu andaki doc surumu: farkliysa play sahnesi BAYAT (doc degisti, HR kosmadi).
+    // Oyun kodu kendi sahnesine gecmisse (replace) doc ile bagi kalmadi → bayat sayilmaz.
     public static int SpawnedDocVersion { get; private set; }
-    public static bool PlaySceneStale => PlayScene != null && App.EditScene.History.Version != SpawnedDocVersion;
+    public static bool PlaySceneStale => _spawned != null && IsLoaded(_spawned)
+        && App.EditScene.History.Version != SpawnedDocVersion;
 
     static void DestroyPlayScene()
     {
-        if (PlayScene == null)
+        if (_spawned == null)
             return;
-        Scene.Unload(PlayScene);
+        if (IsLoaded(_spawned))
+            Scene.Unload(_spawned);
         // Oyun kodunun SceneLoader ile yarattigi sahneler de (replace modu PlayScene'i atmis olabilir).
         for (int i = Scene.Loaded.Count - 1; i >= 0; i--)
         {
             var s = Scene.Loaded[i];
-            if (!s.ExternallyDriven)
+            if (!s.ExternallyDriven && s != App.EditScene.LiveScene)
                 Scene.Unload(s);
         }
-        PlayScene = null;
+        _spawned = null;
         Scene.SetActive(App.EditScene.LiveScene);
     }
 }

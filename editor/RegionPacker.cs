@@ -52,13 +52,57 @@ public sealed class PackedPage
     public byte[] EncodePng() => PngWriter.Encode(Pixels, Width, Height, flip: true);
 }
 
-// Ortak paketleyici (font sheet'i + atlas gruplari AYNI kodu kosar): shelf pack,
-// otomatik sayfa (maxSize asilinca yeni sayfa), Unit butunlugu (font bir sayfaya
-// sigmali), her sayfaya UiPieces bandi. v1: trim/rotate yok (faz 2).
+// Ortak paketleyici (font sheet'i + atlas gruplari AYNI kodu kosar): MaxRects (best short side fit,
+// rotasyon yok), SIKI dikdortgen sayfa (pow2 degil: dokular mip'siz + clamp, NPOT her hedefte calisir;
+// mip gerekirse upload'da sag/alt pad eklenir, bolge koordinatlari piksel oldugundan tablo bozulmaz),
+// otomatik sayfa (maxSize asilinca yeni sayfa), Unit butunlugu (font bir sayfaya sigmali), her sayfaya
+// UiPieces bandi. Rotate yok.
 public static class RegionPacker
 {
     const int MinSize = 128;
+    const int Align = 4; // sayfa W/H hizasi (sikistirilmis format bloklari icin)
     const int PiecesMargin = 4; // BakeDisc apron'u bandin disina 4px tasar
+
+    // TRIM: Color bolgelerin tamamen seffaf (alfa == 0) kenar bantlari sayfaya girmez; bolge kucultulur,
+    // OffX/OffY/OrigW/OrigH mantiksal boyutu korur (cizim ayni: Sprite tuketicileri ofsetle yerlestirir).
+    // Kaynak zaten trim tasiyorsa (font sayfasindan gelen bolge) birlesir (Off += bbox). SDF ASLA kirpilmaz:
+    // alfa = mesafe, her yerde sifirdan farkli; kirpmak alanin dis yumusamasini keser. Tamamen seffaf bolge
+    // -> 1x1 (paketleyici 0 boyutu atar, anahtar kaybolurdu). Yalniz RGBA (Channels == 4) kaynaklar.
+    // Donus: atilan piksel sayisi (log icin).
+    public static long TrimTransparent(IReadOnlyList<RegionSource> sources)
+    {
+        long saved = 0;
+        foreach (var s in sources)
+        {
+            if (s.Kind != RegionKind.Color || s.Channels != 4 || s.W <= 0 || s.H <= 0 || s.Pixels == null)
+                continue;
+            int x0 = s.W, y0 = s.H, x1 = -1, y1 = -1;
+            for (int y = 0; y < s.H; y++)
+            {
+                int row = ((s.SrcY + y) * s.Stride + s.SrcX) * 4 + 3;
+                for (int x = 0; x < s.W; x++)
+                {
+                    if (s.Pixels[row + x * 4] == 0)
+                        continue;
+                    if (x < x0) x0 = x;
+                    if (x > x1) x1 = x;
+                    if (y < y0) y0 = y;
+                    if (y > y1) y1 = y;
+                }
+            }
+            if (x1 < 0) { x0 = y0 = 0; x1 = y1 = 0; } // tamamen seffaf: 1x1 tut
+            int nw = x1 - x0 + 1, nh = y1 - y0 + 1;
+            if (nw == s.W && nh == s.H)
+                continue;
+            saved += (long)s.W * s.H - (long)nw * nh;
+            // Tampon satir 0 ALTTA (stbi flip): y0 = alt bosluk; OffY ise mantiksal UST bosluk (Sprite sozlesmesi).
+            int topGap = s.H - 1 - y1;
+            s.SrcX += x0; s.SrcY += y0;
+            s.OffX += x0; s.OffY += topGap;
+            s.W = nw; s.H = nh;
+        }
+        return saved;
+    }
 
     public static List<PackedPage> Pack(IReadOnlyList<RegionSource> sources, int maxSize, int channels,
         bool uiPieces, out string error)
@@ -95,18 +139,18 @@ public static class RegionPacker
         var current = new List<RegionSource>();
         if (pieces != null)
             current.Add(pieces);
-        int currentSize = 0;
+        Layout currentLayout = null;
         var errors = new StringBuilder();
 
         foreach (var unit in units)
         {
             var trial = new List<RegionSource>(current);
             trial.AddRange(unit);
-            int size = FitSize(trial, maxSize);
-            if (size > 0)
+            var layout = Fit(trial, maxSize);
+            if (layout != null)
             {
                 current = trial;
-                currentSize = size;
+                currentLayout = layout;
                 continue;
             }
             bool emptyPage = current.Count == (pieces != null ? 1 : 0);
@@ -116,13 +160,13 @@ public static class RegionPacker
                       .Append(" maxSize ").Append(maxSize).Append("'a sigmiyor; ");
                 continue;
             }
-            pages.Add(Render(current, currentSize, channels, pieces));
+            pages.Add(Render(current, currentLayout, channels, pieces));
             current = new List<RegionSource>();
             if (pieces != null)
                 current.Add(pieces);
             current.AddRange(unit);
-            currentSize = FitSize(current, maxSize);
-            if (currentSize <= 0)
+            currentLayout = Fit(current, maxSize);
+            if (currentLayout == null)
             {
                 errors.Append(unit[0].Name).Append(" maxSize ").Append(maxSize).Append("'a sigmiyor; ");
                 current.RemoveRange(pieces != null ? 1 : 0, unit.Count);
@@ -130,10 +174,9 @@ public static class RegionPacker
         }
         if (current.Count > (pieces != null ? 1 : 0))
         {
-            if (currentSize <= 0)
-                currentSize = FitSize(current, maxSize);
-            if (currentSize > 0)
-                pages.Add(Render(current, currentSize, channels, pieces));
+            currentLayout ??= Fit(current, maxSize);
+            if (currentLayout != null)
+                pages.Add(Render(current, currentLayout, channels, pieces));
         }
         if (errors.Length > 0)
             error = errors.ToString().TrimEnd(' ', ';');
@@ -148,14 +191,58 @@ public static class RegionPacker
         return h;
     }
 
-    // En kucuk kare pow2 boyut (<= maxSize) — sigmiyorsa 0.
-    static int FitSize(List<RegionSource> items, int maxSize)
+    sealed class Layout
+    {
+        public int W, H;
+        public int[] X, Y; // items indeksli sol-ust (pad dahil degil: bolgenin kendi koordinati)
+    }
+
+    static int AlignUp(int v) => (v + Align - 1) / Align * Align;
+
+    // En kucuk ALANLI sayfa (W,H <= maxSize): aday genisliklerde MaxRects kosulur, kullanilan yukseklik olculur.
+    // Esit alanda kareye yakin olan secilir. Sigmiyorsa null.
+    static Layout Fit(List<RegionSource> items, int maxSize)
     {
         var order = Order(items);
-        for (int size = MinSize; size <= maxSize; size *= 2)
-            if (TryPlace(items, order, size, null, null))
-                return size;
-        return 0;
+        long area = 0;
+        int maxW = 0, maxH = 0;
+        foreach (var s in items)
+        {
+            int w = s.W + s.Pad * 2, h = s.H + s.Pad * 2;
+            area += (long)w * h;
+            maxW = Math.Max(maxW, w);
+            maxH = Math.Max(maxH, h);
+        }
+        if (maxW > maxSize || maxH > maxSize)
+            return null;
+
+        Layout best = null;
+        int w0 = AlignUp(Math.Max(maxW, (int)Math.Ceiling(Math.Sqrt(area))));
+        w0 = Math.Max(w0, Align);
+        var px = new int[items.Count];
+        var py = new int[items.Count];
+        int prev = -1;
+        for (int k = 0; ; k++)
+        {
+            int W = Math.Min(maxSize, AlignUp((int)(w0 * (1.0 + 0.12 * k))));
+            if (W == prev)
+            {
+                if (W >= maxSize) break;
+                continue;
+            }
+            prev = W;
+            if (MaxRectsPlace(items, order, W, maxSize, px, py, out int usedH))
+            {
+                int H = Math.Max(Align, AlignUp(usedH));
+                long a = (long)W * H;
+                long ba = best == null ? long.MaxValue : (long)best.W * best.H;
+                if (a < ba || (a == ba && Math.Abs(W - H) < Math.Abs(best.W - best.H)))
+                    best = new Layout { W = W, H = H, X = (int[])px.Clone(), Y = (int[])py.Clone() };
+            }
+            if (W >= maxSize)
+                break;
+        }
+        return best;
     }
 
     static List<int> Order(List<RegionSource> items)
@@ -166,52 +253,104 @@ public static class RegionPacker
         order.Sort((a, b) =>
         {
             int c = (items[b].H + items[b].Pad * 2).CompareTo(items[a].H + items[a].Pad * 2);
+            if (c != 0) return c;
+            c = (items[b].W + items[b].Pad * 2).CompareTo(items[a].W + items[a].Pad * 2);
             return c != 0 ? c : string.CompareOrdinal(items[a].Name, items[b].Name);
         });
         return order;
     }
 
-    // Shelf pack: yukseklige gore sirali raflar. px/py null ise yalniz sigma testi.
-    static bool TryPlace(List<RegionSource> items, List<int> order, int size, int[] px, int[] py)
+    struct FreeRect { public int X, Y, W, H; }
+
+    // MaxRects (Jylanki) — Best Short Side Fit, rotasyon yok. Sira deterministik (order). Kutu W x maxH;
+    // tumunu yerlestirirse kullanilan yuksekligi doner. px/py bolge sol-ustu (pad icerde).
+    static bool MaxRectsPlace(List<RegionSource> items, List<int> order, int W, int maxH, int[] px, int[] py, out int usedH)
     {
-        int x = 0, y = 0, shelfH = 0;
+        usedH = 0;
+        var free = new List<FreeRect>(items.Count * 2) { new FreeRect { X = 0, Y = 0, W = W, H = maxH } };
         foreach (int i in order)
         {
             var s = items[i];
             int w = s.W + s.Pad * 2, h = s.H + s.Pad * 2;
-            if (w > size || h > size)
-                return false;
-            if (x + w > size)
+            int bestIdx = -1, bestShort = int.MaxValue, bestLong = int.MaxValue;
+            for (int f = 0; f < free.Count; f++)
             {
-                x = 0;
-                y += shelfH;
-                shelfH = 0;
+                var r = free[f];
+                if (r.W < w || r.H < h)
+                    continue;
+                int dw = r.W - w, dh = r.H - h;
+                int sh = Math.Min(dw, dh), lo = Math.Max(dw, dh);
+                // Esitlikte ust-sol tercih: kullanilan yukseklik duzgun buyur (sayfa alani kucuk kalir).
+                if (sh < bestShort || (sh == bestShort && (lo < bestLong || (lo == bestLong && (r.Y < free[bestIdx].Y || (r.Y == free[bestIdx].Y && r.X < free[bestIdx].X))))))
+                {
+                    bestIdx = f; bestShort = sh; bestLong = lo;
+                }
             }
-            if (y + h > size)
+            if (bestIdx < 0)
                 return false;
-            if (px != null)
+            var at = free[bestIdx];
+            int nx = at.X, ny = at.Y;
+            px[i] = nx + s.Pad;
+            py[i] = ny + s.Pad;
+            usedH = Math.Max(usedH, ny + h);
+
+            // Yerlesen kutuyla kesisen serbest dikdortgenleri bol (en fazla 4 parca); yeni parcalardan
+            // baskasinin icinde kalanlar atilir (eskiler zaten birbirine gore maksimal).
+            var next = new List<FreeRect>(free.Count + 4);
+            int keep = 0;
+            foreach (var r in free)
             {
-                px[i] = x + s.Pad;
-                py[i] = y + s.Pad;
+                if (nx >= r.X + r.W || nx + w <= r.X || ny >= r.Y + r.H || ny + h <= r.Y)
+                {
+                    next.Insert(keep++, r);
+                    continue;
+                }
+                if (nx > r.X) next.Add(new FreeRect { X = r.X, Y = r.Y, W = nx - r.X, H = r.H });
+                if (nx + w < r.X + r.W) next.Add(new FreeRect { X = nx + w, Y = r.Y, W = r.X + r.W - (nx + w), H = r.H });
+                if (ny > r.Y) next.Add(new FreeRect { X = r.X, Y = r.Y, W = r.W, H = ny - r.Y });
+                if (ny + h < r.Y + r.H) next.Add(new FreeRect { X = r.X, Y = ny + h, W = r.W, H = r.Y + r.H - (ny + h) });
             }
-            x += w;
-            shelfH = Math.Max(shelfH, h);
+            for (int a = keep; a < next.Count; a++)
+            {
+                bool drop = false;
+                for (int b = 0; b < next.Count && !drop; b++)
+                    if (b != a && Contains(next[b], next[a]) && (b < a || !Equal(next[a], next[b])))
+                        drop = true; // esitlerde kucuk indeksli kalir
+                if (drop)
+                {
+                    next.RemoveAt(a);
+                    a--;
+                }
+            }
+            for (int b = 0; b < keep; b++)
+                for (int a = keep; a < next.Count; a++)
+                    if (Contains(next[a], next[b]))
+                    {
+                        next.RemoveAt(b);
+                        b--; keep--;
+                        break;
+                    }
+            free = next;
         }
         return true;
     }
 
-    static PackedPage Render(List<RegionSource> items, int size, int channels, RegionSource pieces)
+    static bool Equal(in FreeRect a, in FreeRect b) => a.X == b.X && a.Y == b.Y && a.W == b.W && a.H == b.H;
+
+    static bool Contains(in FreeRect outer, in FreeRect inner)
+        => inner.X >= outer.X && inner.Y >= outer.Y
+           && inner.X + inner.W <= outer.X + outer.W && inner.Y + inner.H <= outer.Y + outer.H;
+
+    static PackedPage Render(List<RegionSource> items, Layout layout, int channels, RegionSource pieces)
     {
-        var order = Order(items);
-        var px = new int[items.Count];
-        var py = new int[items.Count];
-        TryPlace(items, order, size, px, py);
+        var px = layout.X;
+        var py = layout.Y;
         var page = new PackedPage
         {
-            Width = size,
-            Height = size,
+            Width = layout.W,
+            Height = layout.H,
             Channels = channels,
-            Pixels = new byte[size * size * channels],
+            Pixels = new byte[layout.W * layout.H * channels],
         };
         for (int i = 0; i < items.Count; i++)
         {

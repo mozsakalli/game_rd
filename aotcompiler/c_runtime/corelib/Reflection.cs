@@ -45,6 +45,13 @@ namespace System.Reflection
         public override string ToString() { return FullName; }
         public static extern Assembly GetExecutingAssembly();
         public Type GetType(string name) { return Type.GetType(name); }
+        public Type GetType(string name, bool throwOnError)
+        {
+            var t = Type.GetType(name);
+            if (t == null && throwOnError) throw new TypeLoadException("Could not load type '" + name + "'.");
+            return t;
+        }
+        public Type GetType(string name, bool throwOnError, bool ignoreCase) { return GetType(name, throwOnError); } // tip tablosu tam ad: ignoreCase yok sayilir
         public static bool operator ==(Assembly a, Assembly b) { return (object)a == (object)b; }
         public static bool operator !=(Assembly a, Assembly b) { return (object)a != (object)b; }
         public override bool Equals(object o) { return (object)this == o; }

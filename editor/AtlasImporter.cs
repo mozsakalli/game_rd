@@ -23,6 +23,7 @@ public class AtlasGroup
     public int padding = 2;
     public int maxSize = 2048;            // asilinca otomatik yeni sayfa
     public bool uiPieces = true;          // her sayfaya kutu/golge SDF parcalari (kutu + icerik tek draw)
+    public bool trim = true;              // Color bolgelerin seffaf kenarlari sayfaya girmez (mantiksal boyut korunur)
 }
 
 // AtlasGroup .asset -> atlas artifact'i: uyeler (png, font glyph'leri, UiPieces)
@@ -34,8 +35,8 @@ public class AtlasGroup
 // uye->grup kenari yazar. Pak build'inde ctx.IsLive filtresi uygulanir: sahne grafinin
 // erismedigi uye sayfaya girmez. Bolge ureticisi importer'lar (font, ileride spine)
 // "sprites" tablosu + PNG sayfalariyla katilir — bu importer baska format bilmez.
-[AssetImporter(".asset", AssetType = nameof(AtlasGroup), Version = 5)]
-public sealed class AtlasImporter : AssetImporter
+[AssetImporter(".asset", AssetType = nameof(AtlasGroup), Version = 7)]
+public sealed partial class AtlasImporter : AssetImporter
 {
     public const string TypeName = nameof(AtlasGroup);
 
@@ -69,6 +70,8 @@ public sealed class AtlasImporter : AssetImporter
         if (int.TryParse(fields.GetScalar("maxSize", null), out int ms)) g.maxSize = ms;
         string up = fields.GetScalar("uiPieces", null);
         if (up != null) g.uiPieces = up == "true";
+        string tr = fields.GetScalar("trim", null);
+        if (tr != null) g.trim = tr == "true";
         return g;
     }
 
@@ -179,6 +182,7 @@ public sealed class AtlasImporter : AssetImporter
         }
 
         const int channels = 4;
+        long trimmed = g.trim ? RegionPacker.TrimTransparent(sources) : 0; // tum kaynaklar (png, font sayfasi, svg...) ayni gecis
         List<PackedPage> pages;
         try
         {
@@ -228,7 +232,8 @@ public sealed class AtlasImporter : AssetImporter
 
         if (errors.Length > 0)
             EditorLog.Warning($"[atlas] {ctx.AssetPath}: {errors.ToString().TrimEnd(' ', ';')}");
-        EditorLog.Info($"[atlas] {ctx.AssetPath}: {data.Regions.Count} bolge, {pages.Count} sayfa ({members.Count} uye)");
+        EditorLog.Info($"[atlas] {ctx.AssetPath}: {data.Regions.Count} bolge, {pages.Count} sayfa ({members.Count} uye)" +
+            (trimmed > 0 ? $", trim {trimmed / 1024} Kpx atildi" : ""));
     }
 }
 
@@ -268,8 +273,10 @@ public static class AtlasSystem
             return;
         var groups = GroupAssets();
         var loaded = new List<string>(assets.LoadedAtlases);
+        // Yalniz ATLAS GRUBU tablolari: '#'li anahtar ("x.ttf#sprites") ureticinin OZ tablosudur, grup degil —
+        // ona dokunulmaz (bosaltilirsa glyph sprite'lari sayfasiz kalir, metin cizilmez).
         foreach (var key in loaded)
-            if (!groups.Contains(key))
+            if (key.IndexOf('#') < 0 && !groups.Contains(key))
                 assets.UnloadAtlas(key);
         foreach (var rel in groups)
         {

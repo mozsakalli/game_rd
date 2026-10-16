@@ -24,8 +24,13 @@
 // MSDFGEN_PUBLIC derleme satirindan bos tanimlanir (msdfgen-config.h yok).
 #include "msdfgen/msdfgen.h"
 
+// nanosvg parser'inin IMPLEMENTASYONU de_svg_compile.c'de (ayni editor DLL'i); burada yalniz
+// bildirimler (extern "C" guard'li). SVG -> ozel glyph yolu (de_msdf_svg_glyph) bunu kullanir.
+#include "nanosvg.h"
+
 #include <cstdlib>
 #include <cstring>
+#include <cmath>
 
 #if defined(_WIN32)
 #define DE_API extern "C" __declspec(dllexport)
@@ -69,6 +74,13 @@ DE_API void de_msdf_font_close(void *handle)
         return;
     free(f->ttf);
     free(f);
+}
+
+// Font bu codepoint icin gercek glyph tasiyor mu (0 = .notdef'e duser; importer raporu).
+DE_API int de_msdf_font_has_glyph(void *handle, int codepoint)
+{
+    de_msdf_font_t *f = (de_msdf_font_t *)handle;
+    return f && stbtt_FindGlyphIndex(&f->info, codepoint) != 0 ? 1 : 0;
 }
 
 // stbtt outline (font birimi, y-up) -> msdfgen Shape. Konturlar vmove ile baslar;
@@ -189,6 +201,108 @@ DE_API int de_msdf_font_glyph(void *handle, int codepoint, float sdfSize, int pa
     for (int y = 0; y < h; y++)
     {
         const float *src = bmp(0, h - 1 - y); // y-up -> y-down
+        unsigned char *dst = buffer + (size_t)y * (size_t)w * 4;
+        for (int i = 0; i < w * 4; i++)
+            dst[i] = msdfgen::pixelFloatToByte(src[i]);
+    }
+    out5[1] = (float)ix0;
+    out5[2] = (float)iy0;
+    out5[3] = (float)w;
+    out5[4] = (float)h;
+    return 1;
+}
+
+// ---------------------------------------------------------------------------
+// SVG -> ozel glyph (FontImporter customGlyphs). Yalniz FILL (stroke/gradient/opacity yok sayilir;
+// nonzero kurali: orientContours). nanosvg path'leri cubic Bezier dizisidir, msdfgen'e birebir girer.
+// Olcek: viewBox yuksekligi * scale = 1 em (= sdfSize px); baseline = viewBox alt kenari; offX/offY em
+// (y yukari). advanceEm < 0 -> SVG genisliginden. Kutu/deger uzayi de_msdf_font_glyph ile AYNI.
+// Donus: 1 ok (w*h*4 RGBA), 0 hata (parse/sigmadi), 2 = gorunur fill yok (bosluk; advance yine dolu).
+// out5: advance, xoff, yoff, w, h (px).
+// ---------------------------------------------------------------------------
+DE_API int de_msdf_svg_glyph(const char *svg, int svgLen, float sdfSize, float scale, float advanceEm,
+                             float offXEm, float offYEm, int pad, float pixelDistScale, double angleThreshold,
+                             unsigned char *buffer, int bufferSize, float *out5)
+{
+    if (!svg || svgLen <= 0 || sdfSize <= 0 || pixelDistScale <= 0 || pad < 0 || scale <= 0)
+        return 0;
+    out5[0] = out5[1] = out5[2] = out5[3] = out5[4] = 0;
+
+    char *copy = (char *)malloc((size_t)svgLen + 1); // nsvgParse girdiyi degistirir
+    if (!copy)
+        return 0;
+    memcpy(copy, svg, (size_t)svgLen);
+    copy[svgLen] = 0;
+    NSVGimage *img = nsvgParse(copy, "px", 96.0f);
+    free(copy);
+    if (!img)
+        return 0;
+    if (img->height <= 0 || img->width <= 0)
+    {
+        nsvgDelete(img);
+        return 0;
+    }
+
+    // svg birimi -> px: k; glyph uzayi y-up, baseline viewBox alt kenari.
+    double k = (double)sdfSize * (double)scale / (double)img->height;
+    double ox = (double)offXEm * sdfSize, oy = (double)offYEm * sdfSize;
+    auto map = [&](float x, float y) {
+        return msdfgen::Point2(x * k + ox, ((double)img->height - y) * k + oy);
+    };
+    out5[0] = advanceEm < 0 ? (float)(img->width * k) : advanceEm * sdfSize;
+
+    msdfgen::Shape shape;
+    for (NSVGshape *s = img->shapes; s; s = s->next)
+    {
+        if (!(s->flags & NSVG_FLAGS_VISIBLE) || s->fill.type == NSVG_PAINT_NONE)
+            continue;
+        for (NSVGpath *p = s->paths; p; p = p->next)
+        {
+            if (p->npts < 4)
+                continue;
+            msdfgen::Contour &c = shape.addContour();
+            msdfgen::Point2 start = map(p->pts[0], p->pts[1]);
+            msdfgen::Point2 cur = start;
+            for (int i = 0; i + 3 < p->npts; i += 3)
+            {
+                const float *q = &p->pts[i * 2];
+                msdfgen::Point2 c1 = map(q[2], q[3]), c2 = map(q[4], q[5]), to = map(q[6], q[7]);
+                if (!(cur == to) || !(c1 == cur) || !(c2 == to))
+                    c.addEdge(msdfgen::EdgeHolder(cur, c1, c2, to));
+                cur = to;
+            }
+            if (!(cur == start))
+                c.addEdge(msdfgen::EdgeHolder(cur, start));
+            if (c.edges.empty())
+                shape.contours.pop_back();
+        }
+    }
+    nsvgDelete(img);
+    if (shape.contours.empty())
+        return 2;
+
+    shape.normalize();
+    shape.orientContours();
+    msdfgen::Shape::Bounds b = shape.getBounds();
+    // stbtt kutusuyla ayni yuvarlama: ix0=floor(x0) iy0=floor(-y1) ix1=ceil(x1) iy1=ceil(-y0), y-down.
+    int ix0 = (int)floor(b.l) - pad, iy0 = (int)floor(-b.t) - pad;
+    int ix1 = (int)ceil(b.r) + pad, iy1 = (int)ceil(-b.b) + pad;
+    int w = ix1 - ix0, h = iy1 - iy0;
+    if (w <= 0 || h <= 0)
+        return 2;
+    if (w * h * 4 > bufferSize)
+        return 0;
+
+    msdfgen::edgeColoringSimple(shape, angleThreshold);
+    msdfgen::Projection projection(msdfgen::Vector2(1, 1), msdfgen::Vector2(-ix0, iy1));
+    msdfgen::Range range(255.0 / (double)pixelDistScale);
+    msdfgen::SDFTransformation xf(projection, msdfgen::DistanceMapping(range));
+    msdfgen::MSDFGeneratorConfig config(true);
+    msdfgen::Bitmap<float, 4> bmp(w, h);
+    msdfgen::generateMTSDF(bmp, shape, xf, config);
+    for (int y = 0; y < h; y++)
+    {
+        const float *src = bmp(0, h - 1 - y);
         unsigned char *dst = buffer + (size_t)y * (size_t)w * 4;
         for (int i = 0; i < w * 4; i++)
             dst[i] = msdfgen::pixelFloatToByte(src[i]);

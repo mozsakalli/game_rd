@@ -95,11 +95,14 @@ public static unsafe class GuiRenderer
             return;
         if (c.x != g.x || c.y != g.y || c.width != g.width || c.height != g.height)
         {
+            // Quad: sol kenar <-> u0, UST kenar <-> v1 (vertex uv.y=1 lokal -y'de). Ustten kirpilan kisim v1'den,
+            // alttan kirpilan v0'dan dusulur (eskiden v0 ust sayiliyordu -> scroll'da doku ters taraftan kesiliyordu).
             float du = (u1 - u0) / g.width, dv = (v1 - v0) / g.height;
             u0 += (c.x - g.x) * du;
-            v0 += (c.y - g.y) * dv;
             u1 = u0 + c.width * du;
-            v1 = v0 + c.height * dv;
+            float top = v1 - (c.y - g.y) * dv;
+            float bottom = v0 + (g.y + g.height - c.y - c.height) * dv;
+            v1 = top; v0 = bottom;
         }
 
         Mat4 model = default;
@@ -145,6 +148,17 @@ public static unsafe class GuiRenderer
 
     // Alpha-blend'li dokulu rect (saydam RT ortuleri: Duzenle modu kompoziti).
     static Material _texBlendMaterial;
+
+    // Cagiranin materyali + UV bolgesi (editor onizlemeleri: font glyph'i kendi MTSDF materyaliyle, atlas bolgesi).
+    // V yonu cagiranin sorumlulugu: CPU'dan yuklenen sayfalarda satir 0 ustte -> v0 = alt, v1 = ust (DrawText gibi).
+    public static void DrawRegion(in Rect localRect, Material material, Color color,
+        float u0, float v0, float u1, float v1, int layerOffset = 1)
+    {
+        if (Queue == null || material == null || material.MainTexture == null)
+            return;
+        EnsureResources();
+        DrawClipped(localRect, material, color, u0, v0, u1, v1, layerOffset);
+    }
 
     public static void DrawTextureBlended(in Rect localRect, Texture texture, int layerOffset = 1)
     {

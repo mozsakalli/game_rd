@@ -651,6 +651,18 @@ public sealed class AssetDatabase
 
     public IEnumerable<string> LoadedAtlases => _tables.Keys;
 
+    // Yuklu tablonun sayfalari + bolgeleri (editor onizlemesi: atlas sayfasini ve yerlesimi gostermek icin).
+    public bool TryGetSpriteTable(string tableKey, out IReadOnlyList<Texture> pages, out IReadOnlyList<SpriteTable.Region> regions)
+    {
+        if (tableKey != null && _tables.TryGetValue(ResolvePath(tableKey) ?? tableKey, out var lt))
+        {
+            pages = lt.Pages; regions = lt.Regions;
+            return true;
+        }
+        pages = null; regions = null;
+        return false;
+    }
+
     static string OwnerOf(string key)
     {
         int h = key.IndexOf('#');
@@ -788,7 +800,14 @@ public sealed class AssetDatabase
         if (_tables.ContainsKey(tk))
             return true;
         var bytes = ReadBlob(tk);
-        return SpriteTable.IsTable(bytes) && LoadSpriteTable(owner, tk);
+        if (!SpriteTable.IsTable(bytes))
+        {
+            // Editorde: artifact henuz uretilmemis olabilir (import kuyrugu); sprite'lar sayfasiz kalir,
+            // import bitince InvalidateImported tabloyu yukleyip yerinde baglar. Iz birakalim, kor kalmayalim.
+            LogWarning?.Invoke("[atlas] oz sprite tablosu yok/hazir degil: " + tk + (bytes == null ? " (artifact yok)" : " (tablo degil)"));
+            return false;
+        }
+        return LoadSpriteTable(owner, tk);
     }
 
     // Tum tablo artifact'lerini bulup yukler (acilis, loose/editor): ".asset" anahtarlarindan main'i tablo

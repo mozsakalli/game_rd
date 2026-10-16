@@ -4,7 +4,7 @@ namespace System
 {
     public static class BitConverter
     {
-        public static bool IsLittleEndian { get { return true; } }
+        public static readonly bool IsLittleEndian = true; // .NET'te ALAN (ldsfld): gercek .NET'e karsi derlenmis DLL alan okur
 
         public static int ToInt32(byte[] value, int startIndex)
         {

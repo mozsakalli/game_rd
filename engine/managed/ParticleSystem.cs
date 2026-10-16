@@ -1301,7 +1301,7 @@ public sealed unsafe class ParticleSystem : Renderer, IEditorPreview
                 F.Sx = s.W / (float)s.OrigW;
                 F.Sy = s.H / (float)s.OrigH;
                 F.Ox = (s.OffX + s.W * 0.5f) / s.OrigW - 0.5f;
-                F.Oy = 0.5f - (s.OffY + s.H * 0.5f) / s.OrigH;
+                F.Oy = (s.OffY + s.H * 0.5f) / s.OrigH - 0.5f; // y asagi (SpriteRenderer ile ayni isaret)
                 F.Aspect = s.OrigH / (float)s.OrigW;
             }
             else

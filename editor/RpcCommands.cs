@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
+using System.Text;
 using DigitoyEngine;
 using DigitoyEngine.Editor;
 
@@ -32,7 +33,7 @@ static class RpcCommands
             "3. TOPLU kur: scene.apply(objects) — GO + components + props + children tek istekte (tek undo, atomik). Kucuk rotus: prop.set/transform.set",
             "4. view.device(name) → sim.run(frames, describe=true) → METIN ozete bak (render.describe: rect/text/click; rect merkezi = input.tap koordinati) → input.tap(x,y) → tekrar describe. Gorsel ton/suphe: screenshot=true ya da render.screenshot (koordinat = region.x + px * toScreen)",
             "5. Hata donerse yol+sebep verir ve hicbir sey uygulanmaz; duzelt, tekrar gonder. scene.diff = son dump'tan beri ne degisti",
-            "6. scene.save YALNIZ kullanici isterse (her sey undo'lu kalir)"));
+            "6. scene.save YALNIZ kullanici isterse (her sey undo'lu kalir). scene.open/scene.new/prefab.open/project.open acik sahne kaydedilmemisse 'UNSAVED:' hatasi doner ve hicbir sey yapmaz: kullaniciya sor → scene.save (kaydet) ya da force=true (at). Korkutmadan once scene.tree'deki dirty alanina bakabilirsin"));
         r.Add("scene", Lines(
             "GO = id + parent + pos/rot/scale + components. Kok parent=0. Ayni parent'ta liste sirasi = cizim sirasi (sonraki ustte); SortingOrder onde gelir",
             "UI primitifi = LayoutBox: kutu (fill/border/radius/shadow) + metin (font,text,textSize,textAlign,textAlignV,textFill) + yerlesim. fitScreen=true → ekrani kaplar (arka plan)",
@@ -1261,7 +1262,7 @@ static class RpcCommands
         return null;
     }
 
-    [RpcCommand("scene.save", "Acik sahneyi diske yazar")]
+    [RpcCommand("scene.save", "Acik sahneyi (prefab stage'deyse prefab'i) diske yazar")]
     static DocNode Save(RpcContext ctx)
     {
         if (ctx.Scene.Path == null)
@@ -1270,12 +1271,49 @@ static class RpcCommands
         return null;
     }
 
-    [RpcCommand("scene.new", "Yeni bos sahne yaratir ve acar (yol Assets'e goreli, .scene)")]
-    static DocNode SceneNew(RpcContext ctx, string path)
+    // Acik sahneyi/stage'i yikacak komutlar icin kaydedilmemis degisiklik bekcisi. GUI'de popup
+    // sorulur; RPC'de popup = kilit. Bu yuzden tek roundtrip'te karar verilsin diye hata metni
+    // neyin dirty oldugunu ve iki cikis yolunu (scene.save | force=true) soyler. force=true →
+    // degisiklikler bellekte atilir (undo yigini da doc'la gider), komut popup'siz ilerler.
+    // stageOnly=true: yalniz prefab stage'in dirty olmasi engeldir (prefab.open: asil sahne
+    // stash'te korunur, kaybolmaz).
+    static void GuardUnsaved(bool force, bool stageOnly = false)
+    {
+        var edit = App.EditScene;
+        var stash = App.StashedScene;
+        bool stageDirty = App.InPrefabStage && edit.Dirty;
+        bool sceneDirty = App.InPrefabStage ? (stash?.Dirty ?? false) : edit.Dirty;
+        bool blocked = stageOnly ? stageDirty : (stageDirty || sceneDirty);
+        if (!blocked)
+            return;
+        if (force)
+        {
+            App.DiscardAllChanges();
+            return;
+        }
+        var sb = new StringBuilder("UNSAVED: ");
+        if (stageDirty)
+            sb.Append("prefab stage '").Append(Path.GetFileName(edit.Path)).Append("' kaydedilmemis");
+        if (stageDirty && sceneDirty && !stageOnly)
+            sb.Append(" ve ");
+        if (sceneDirty && !stageOnly)
+            sb.Append("sahne '").Append(stash != null ? Path.GetFileName(stash.Path) : Path.GetFileName(edit.Path) ?? "(untitled)").Append("' kaydedilmemis");
+        sb.Append(". Hicbir sey yapilmadi. Secenekler: ");
+        if (stageDirty)
+            sb.Append("prefab.close(save=true|false) ile stage'i kapat; ");
+        if (sceneDirty && !stageOnly)
+            sb.Append("scene.save ile kaydet (kullanici onayi olmadan kaydetme); ");
+        sb.Append("ya da ayni komutu force=true ile tekrar gonder (degisiklikler ATILIR, geri alinamaz)");
+        throw new RpcError(sb.ToString());
+    }
+
+    [RpcCommand("scene.new", "Yeni bos sahne yaratir ve acar (yol Assets'e goreli, .scene). Acik sahne kaydedilmemisse UNSAVED hatasi doner: scene.save ya da force=true (degisiklikler atilir)")]
+    static DocNode SceneNew(RpcContext ctx, string path, bool force = false)
     {
         string full = GuardAssetPath(path);
         if (File.Exists(full))
             throw new RpcError($"dosya zaten var: {path} (scene.open kullan)");
+        GuardUnsaved(force);
         Directory.CreateDirectory(Path.GetDirectoryName(full));
         App.OpenScene(full); // dosya yoksa bos doc acilir
         App.EditScene.Save(); // dosyayi yarat
@@ -1283,26 +1321,30 @@ static class RpcCommands
         return null;
     }
 
-    [RpcCommand("scene.open", "Sahne acar (yol Assets'e goreli)")]
-    static DocNode SceneOpen(RpcContext ctx, string path)
+    [RpcCommand("scene.open", "Sahne acar (yol Assets'e goreli). Acik sahne/prefab stage kaydedilmemisse UNSAVED hatasi doner: scene.save ya da force=true (degisiklikler atilir)")]
+    static DocNode SceneOpen(RpcContext ctx, string path, bool force = false)
     {
         string full = GuardAssetPath(path);
         if (!File.Exists(full))
             throw new RpcError($"sahne yok: {path}");
+        GuardUnsaved(force);
         App.OpenScene(full);
         _diffBaseline.Clear();
         return null;
     }
 
-    [RpcCommand("prefab.open", "Prefab'i duzenleme icin acar (prefab stage; acik sahne bellekte bekler). Yol Assets'e goreli")]
-    static DocNode PrefabOpen(RpcContext ctx, string path)
+    [RpcCommand("prefab.open", "Prefab'i duzenleme icin acar (prefab stage; acik sahne bellekte bekler, kaybolmaz). Yol Assets'e goreli. Baska bir prefab stage'i kaydedilmemisse UNSAVED hatasi doner: prefab.close(save) ya da force=true")]
+    static DocNode PrefabOpen(RpcContext ctx, string path, bool force = false)
     {
         string full = GuardAssetPath(path);
         if (!File.Exists(full))
             throw new RpcError($"prefab yok: {path}");
+        if (PlayMode.State != PlayState.Editing)
+            throw new RpcError("Play acik: once play.stop");
+        GuardUnsaved(force, stageOnly: true);
         App.OpenPrefab(full);
         if (!App.InPrefabStage)
-            throw new RpcError("prefab stage acilamadi (Play acik veya dirty stage bekliyor; Console'a bak)");
+            throw new RpcError("prefab stage acilamadi (Console'a bak)");
         _diffBaseline.Clear();
         return null;
     }
@@ -1848,12 +1890,13 @@ static class RpcCommands
         return r;
     }
 
-    [RpcCommand("project.open", "Baska bir projeyi acar: editor o yolla yeniden baslar, bu surec kapanir (RPC baglantisi kopar)")]
-    static DocNode ProjectOpen(string path)
+    [RpcCommand("project.open", "Baska bir projeyi acar: editor o yolla yeniden baslar, bu surec kapanir (RPC baglantisi kopar). Kaydedilmemis sahne/prefab varsa UNSAVED hatasi doner: scene.save ya da force=true (degisiklikler atilir)")]
+    static DocNode ProjectOpen(string path, bool force = false)
     {
         string full = Path.GetFullPath(path);
         if (!ProjectSwitcher.IsProjectRoot(full))
             throw new RpcError($"proje klasoru degil: {path}");
+        GuardUnsaved(force);
         ProjectSwitcher.Open(full);
         var r = DocNode.Map();
         r.Add("ok", DocNode.Scal("true"));

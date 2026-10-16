@@ -29,6 +29,14 @@ namespace DigitoyEngine.Language
         const string SharedKey = "gen_shared", MetaKey = "gen_meta";
 
         static bool HasUnit(Primitive p) => p != null && (HasLayout(p) || (p.IsEnum && typeIndex.ContainsKey(p)));
+        // Emisyonu suren fonksiyonun birimi (govde icindeki cagrilarin DEGER bagimliliklari icin: struct donusu C'de tam tip ister,
+        // sonucu atilan cagrida tipin adi metinde gecmez -> include metin taramasindan cikmaz; burada tip NESNESIYLE kaydedilir).
+        static CUnit curUnit;
+        static void NoteValueUse(Primitive t)
+        {
+            if (curUnit == null || t == null || !TypeShape.IsStructModel(t) || !HasUnit(t)) return;
+            if (UnitOf(t) != curUnit) curUnit.ValueDeps.Add(StructTag(t)); // exact header canon yerlesimini include eder (yukaridaki kural)
+        }
         static CUnit UnitOf(Primitive p)
         {
             if (!HasUnit(p)) return sharedUnit;
@@ -77,8 +85,9 @@ namespace DigitoyEngine.Language
                 }
             }
             // statik alanlar: tanim sahibinin .c'sinde, extern header'da (C sifir-init). CANON: exact ornek tek blok (Type.statics)
-            foreach (var p in ctx.AllPrimitives)
-                if (IsEmittableModel(p))
+            // String (runtime tipi; AllPrimitives'te YOK, HasLayout false) `string.Empty` tasir -> HasStaticStorage; birimi paylasimli (gen_misc).
+            foreach (var p in ctx.AllPrimitives.Concat(new[] { Primitive.String }))
+                if (HasStaticStorage(p))
                 {
                     if (p.IsSharedExact)
                     {
@@ -100,7 +109,7 @@ namespace DigitoyEngine.Language
                 if (IsEmittableModel(p) && p.IsSharedExact && !p.IsInterface && !p.IsDelegate)
                     UnitOf(p).H.Append($"extern const void *const {TypeDictSym(p)}[];\n");
             foreach (var c in ctx.SharedExactCodeOrder)
-                if (c.Shared.HasMethodDict && c.Owner != null && (IsEmittableModel(c.Owner) || c.Owner.IsCanonForm) && IsEmittableCode(c.Shared))
+                if (HasMethodDictSymbol(c))
                     UnitOfCode(c).H.Append($"extern const void *const {MethodDictSym(c)}[];\n");
             // prototipler (vtable/itable fonksiyon adresi icerir -> descriptor'lardan once)
             foreach (var c in ctx.AllCodes)
@@ -178,7 +187,9 @@ namespace DigitoyEngine.Language
             foreach (var c in ctx.AllCodes)
                 if (IsEmittableCode(c) && !c.IsExternal) // IsExternal: govdesi baska yerde (runtime/el yazimi C) -> sadece bildirim
                 {
-                    var sb = UnitOfCode(c).C;
+                    var unit = UnitOfCode(c);
+                    var sb = unit.C;
+                    curUnit = unit;
                     try { sb.Append(EmitFunction(c) + "\n"); }
                     catch (Exception ex)
                     {
@@ -192,6 +203,7 @@ namespace DigitoyEngine.Language
                         catch (Exception ex2) { throw new Exception($"EmitFunction {c.EncodeName()}: {ex2.Message}", ex2); }
                     }
                 }
+            curUnit = null;
             foreach (var p in ctx.AllPrimitives)
                 if (HasReflectionMembers(p))
                     UnitOf(p).C.Append(EmitReflectionMembers(p));
@@ -200,7 +212,7 @@ namespace DigitoyEngine.Language
                 if (IsEmittableModel(p) && p.IsSharedExact && !p.IsInterface && !p.IsDelegate)
                     UnitOf(p).C.Append(EmitDict(ctx, p, TypeDictSym(p)));
             foreach (var c in ctx.SharedExactCodeOrder)
-                if (c.Shared.HasMethodDict && c.Owner != null && (IsEmittableModel(c.Owner) || c.Owner.IsCanonForm) && IsEmittableCode(c.Shared))
+                if (HasMethodDictSymbol(c))
                     UnitOfCode(c).C.Append(EmitDict(ctx, c, MethodDictSym(c)));
             foreach (var c in ctx.Stubs) RequestStub(c);
             foreach (var p in ctx.AllPrimitives) // tip attribute tablolarinin tanimi (fonksiyonlardan sonra: ctor cagrilari)

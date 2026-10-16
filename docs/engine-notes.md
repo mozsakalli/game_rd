@@ -1,5 +1,245 @@
 # DigitoyEngine R&D (game_rd)
 
+## EDİTÖR PLAY — SceneLoader REPLACE SONRASI BOŞ EKRAN (2026-10-16, B5 ölçümü)
+- Rapor "LoadAsync YAML sahneyi instantiate etmiyor, Root=null" idi. ÖLÇÜLDÜ (iz + geçici RPC, iki deneme): motor
+  tarafı DOĞRU — parent'lı ve parent'sız yolda Root dolu, GO'lar doğuyor. Gerçek bug editörde: replace yolunda
+  `Scene.Create + SetActive + Unload(old)` çalışır ama `PlayMode.PlayScene` eski (boşalan) sahneyi tutmaya devam
+  ediyordu → GameView/sim/describe boş sahneye bakıyordu ("Root=null" izlenimi buradan).
+- FIX [PlayMode](../editor/PlayMode.cs): `PlayScene` getter — doc'tan doğan sahne (`_spawned`) hâlâ `Scene.Loaded`
+  içindeyse o; düştüyse (oyun kodu replace yaptı) `Scene.Active` (edit live değilse, ExternallyDriven değilse).
+  `PlaySceneStale` yalnız `_spawned` yaşıyorken anlamlı (oyun kendi sahnesine geçtiyse doc'la bağı yok → stale
+  değil, `sim.run` yeniden başlatmaz). `DestroyPlayScene` edit live sahnesini atlar.
+- Doğrulama: Play → `SceneLoader.LoadAsync("…/Lobby.scene")` → `render.describe` "LOBBY (placeholder)";
+  `play.stop` → tüm oyun sahneleri kapanır; yeni Play Login'den doğar.
+- B5'in kalan kısmı (SceneNav.GoTo API'si, geçiş efekti) ayrı iş; motorda eksik yok.
+
+## FONT SHEET "NOT BOUND" — KÖK NEDEN: AtlasSystem.RefreshAll (2026-10-16)
+- Belirti: tüm metinler kayboldu, FontImporter önizlemesi "(sheet not bound yet)"; artifact'ler sağlamdı.
+- Kök neden (stack trace ile ölçüldü, tahmin değil): [AtlasSystem.RefreshAll](../editor/AtlasImporter.cs) "yüklü
+  atlaslardan grup olmayanları boşalt" derken `LoadedAtlases` **fontların öz `x.ttf#sprites` tablolarını da**
+  döndürüyordu → `UnloadAtlas` glyph sprite'larını sayfasız bıraktı, geri yükleyen yok. Fix: `#` içeren anahtar
+  (üreticinin öz tablosu) atlanır; yalnız AtlasGroup `.asset` tabloları yönetilir.
+- Ayrıca `EnsureOwnTable` artık sessiz false yerine `[atlas] oz sprite tablosu yok/hazir degil` uyarısı basar.
+- sokol logger ([sokol_shim.c](../engine/native/sokol_shim.c) `de_sokol_log`): stderr + crash_native.log YAZMAZ
+  (validation seli frame'i boğuyordu; logger bağlı kaldığı için PANIC abort etmez); yalnız `de_last_err` tutulur
+  (Shader derleme hatası okur). Not: `VALIDATE_ABND_EXPECTED_VIEW_BINDING` = `TexView=0` ile textured pipeline'a
+  giden draw; sokol o draw'ı atlar — "çizim yok" belirtisinin GPU tarafı budur, kök neden asset bağlamadaydı.
+- ★ ÇALIŞMA KURALI (kullanıcı talimatı, 2026-10-16): **KODDAN TAHMİN YASAK.** Runtime davranış sorununda hipotez
+  kovalama yok: geçici iz/log koy → çalıştır → ölç → fix → izleri kaldır. En fazla 2 deneme; sonuç çıkmazsa dur,
+  raporla. (Bu olayda 2 yanlış hipotez — Debug yönlendirmesi, import yarışı — zaman yedi.)
+
+## RPC — KAYDEDİLMEMİŞ SAHNE BEKÇİSİ (2026-10-16)
+- `scene.open`/`scene.new`/`prefab.open`/`project.open` artık `force=false` parametresi alır. Açık sahne (prefab
+  stage'deyse stash'li sahne dahil) dirty ise `UNSAVED: ...` RpcError döner, hiçbir şey yapılmaz; metin neyin dirty
+  olduğunu ve iki çıkışı (`scene.save` / `force=true`) söyler → AI tek roundtrip'te karar verir, GUI popup'ı RPC'yi
+  kilitlemez. `force=true` = `App.DiscardAllChanges()` (yalnız dirty bayrağı düşer, doc'la birlikte undo da gider).
+- `prefab.open` yalnız **stage** dirty'sine takılır (asıl sahne stash'te korunur); Play açıkken açık hata verir.
+- Yardımcı: [GuardUnsaved](../editor/RpcCommands.cs), `App.StashedScene`, `App.DiscardAllChanges` ([EditorApp](../editor/EditorApp.cs)).
+
+## PAKETLEYİCİ — MAXRECTS + SIKI NPOT SAYFA (2026-10-16, Font v16 / Atlas v7)
+- [RegionPacker](../editor/RegionPacker.cs) shelf-pack + kare pow2 yerine **MaxRects (BSSF, rotasyonsuz)** ve en küçük
+  ALANLI dikdörtgen sayfa: aday genişlikler (√alan'dan maxSize'a %12 adım, 4'e hizalı) için paketlenir, kullanılan
+  yükseklik ölçülür, min alan (eşitlikte kareye yakın) seçilir. Sıra deterministik (H desc, W desc, ad).
+- **Pow2 ŞARTI YOK**: tüm dokular 1 mip + clamp-to-edge (RenderQueue sampler'ları) → NPOT WebGL1/GLES2 dahil her yerde
+  geçerli. Upload'da pow2'ye tamamlamak GPU belleğini boşa büyütür, yapılmaz. İleride mip/repeat gerekirse upload'da
+  SAĞ/ALT pad eklenir — bölge koordinatları piksel olduğundan tablo bozulmaz. W/H 4'e hizalı (sıkıştırılmış blok formatı).
+- Ölçüm (yuzbirextra): Primary font sheet 1024×1024 %20 → **872×368 %67**; AtlasGroup (3 font, 965 bölge) 2048² →
+  **1680×600 %67**. Kalan boşluk çoğunlukla glyph'lerin kendi 6px SDF pad'i + 1px GlyphPad.
+- Tüketiciler (SpriteTable.Page, AtlasImporter, preview) Width/Height'ı ayrı okur; kare varsayımı yoktu.
+
+## FONT IMPORT — EKSİK GLYPH ATLANIR, AYNI ŞEKİL TEK BÖLGE (2026-10-16, FontImporter v15)
+- Fontta olmayan codepoint (`MsdfFontHasGlyph` false; `' '` ve custom glyph muaf) bake ÖNCESİ charset'ten düşer:
+  `.notdef` kutusu pişmez, glyph tablosu/kern n×n/atlas küçülür; runtime `Font.GlyphIndex` zaten `'?'` fallback verir.
+  Rapor `missing=` aynen (Inspector "N skipped"), uyarı log'da. Kasten kutu isteyen U+FFFD'ye custom SVG glyph tanımlar.
+- Pişen piksel bufferı (w,h + RGBA) FNV-1a 64 ile hash'lenir, eşitse byte-byte doğrulanır; aynı şekil tek `RegionSource`
+  olur, diğer glyph'lerin `Sprite`'ı sahibinin bölge ADINA bağlanır (runtime/AtlasImporter ad çözer, değişiklik gerekmedi).
+  Metrikler (advance/offset/ink) glyph başına kalır. Rapor `shared=`; Inspector "K shared", seçili glyph `[shared region]`.
+  Gerçek fontta örnekler: Đ↔Ð, soft hyphen↔`-`, `‚`↔`,`, kimi fontta `O`↔`0`.
+- Space için atlasta yer ayrılmaz: shim `stbtt_IsGlyphEmpty` → w=h=0, importer bölge eklemez (yalnız advance).
+
+## JSON — DOM + YAZICI + REFLECTION BINDER (2026-10-16, `[json]` 49 PASS; digitoyclient B2 kapandı)
+- GEREKÇE: core.upm/Gin'de JSON yalnız soğuk yolda (bootstrap `GET /api/config/{g}/settings`, `ConfigResult.Json` remote
+  control, Inbox, BuildInfo, PlayerPrefs DTO'ları, Radio kanal listesi); wire protokolü Codec. JsonUtility/Newtonsoft yerine
+  bağımlılıksız, .NET + AOT corelib'de AYNI kod: [Json.cs](../engine/managed/Serialization/Json.cs) (release dahil, DE_EDITOR değil).
+- PARSER `Json.Parse(string) → JsonNode` (`Kind: Null/Bool/Number/String/Array/Object`; sayı hem `long` hem `double`
+  — `IsInteger`; obje = `List<KeyValuePair<string,JsonNode>>` sıra korunur, `node["key"]`/`node[i]`/`GetInt(key,def)`...).
+  Kaçışsız string tek `Substring`; kaçışlı string **UTF-8 scratch + `Encoding.UTF8.GetString`** (corelib'de `new string(char[])`
+  yok, StringBuilder `+=`). Paylaşılan `JsonNode.Null/True/False`. Yorum/hex/NaN/sondaki virgül/öncü sıfır → `JsonException("pos N: …")`.
+- WRITER `JsonWriter`: büyüyen `byte[]` UTF-8 (`ToArray()` → `Http.PostAsync` gövdesi, `ToString()` tek decode), virgül/ad durumunu
+  kendisi izler, `Reset()`. int/long kendi digit döngüsü; double/float tam sayıysa long, değilse `ToString()` + `','→'.'`
+  (corelib'de InvariantCulture overload'u yok); NaN/Inf → `null`.
+- BINDER `Json.FromJson<T>(json)` / `FromJson(json, Type)` / `FromNode` / `FromJsonOverwrite(json, obj)` / `ToJson(obj)` /
+  `ToJsonBytes` / `ToNode`. Kural = Unity'nin düzeltilmişi: public alan + `[SerializeField]`, `[NonSerialized]` hariç
+  (`Reflect.IsSerialized`), **`[JsonField("store_coin")]`** ad override (yalnız JSON; YAML/ikili dokunmaz), bilinmeyen alan skip,
+  eksik alan dokunulmaz (ctor varsayılanı), **JSON null → referans null** (JsonUtility boş nesne üretirdi — `"settings":null`
+  hack'i gereksiz), kök dizi/liste/skaler serbest. Tipler: int/long/float/double/bool/string/byte/short/enum(ad|sayı)/
+  **`T?`** (`Nullable.GetUnderlyingType` corelib'e eklendi — saf C#, Type extern'leri)/`T[]`/`List<T>`/`Dictionary<string,T>`/
+  iç içe sınıf+struct (struct kutusu geri yazılır)/`Vec2-3-4`+`Color` `[..]` dizisi/`JsonNode` alanı (ham alt ağaç).
+  Asset/GameObject/Component/abstract/object → `JsonException("type not supported")`.
+- CACHE: tip haritası `TypeCatalog.JsonMaps` (statik tip cache yasağı; `catalog` parametresi yoksa `Scene.Active.Catalog`,
+  o da yoksa geçici sözlük — her çağrı reflection). Özyineli tip güvenli (harita önce kaydedilir). Hata yolu string'i yalnız
+  hata anında kurulur; ısınmış parse+bind alloc ≈ DOM + hedef nesne (test eşiği 2.5 KB, stdout'a yazar).
+- SINIR / RİSK: enum ad çözümü `Enum.TryParse(Type, string, out object)` .NET sırası — corelib bildirimi `(string, Type, out)`
+  sırasında (selftest Par90 .NET sırasını kullanıyor; AOT build'de stub çıkarsa corelib imzası düzeltilir). Polimorfizm/
+  `[SerializeReference]`, pretty-print, `Dictionary<int,…>` yok. M (Common.dll) property tabanlı tiplere bind edilmez — oyun
+  tarafı alan sınıfı yazılır (GameSettings zaten öyle).
+- Editör `RpcHost` System.Text.Json kullanmaya devam eder; `JsonException` çakışması tam adla çözüldü.
+
+## FONT IMPORTER FAZ 1 — ÖZEL KERNING + SVG GLYPH + INSPECTOR ÖNİZLEME (2026-10-16, Sandbox arial.ttf ile doğrulandı)
+- AYARLAR ([FontImporter.cs](../editor/FontImporter.cs) `FontImportSettings`, Version 13): `useFontKerning` (TTF kern/GPOS),
+  `kerning: List<KernPair>{pair, value}` — pair `"AV"` ya da `"U+0041 U+0056"`, value **em‰** (1000 = 1 em; sdfSize'dan
+  bağımsız; px = v/1000·sdfSize → font-unit = px/KernScale → int16). Çift fontta varsa EZER, yoksa ekler. `customGlyphs:
+  List<SvgGlyph>{codepoint, svg, scale, advance, offsetX, offsetY}` — codepoint `"U+E001"`/tek karakter; svg Assets-göreli yol
+  (string; `CollectDependencies` → `DependsOn`, svg değişince font yeniden pişer); viewBox yüksekliği·scale = 1 em, baseline =
+  viewBox alt kenarı, offset em (y yukarı), advance<0 = SVG genişliği. Aynı codepoint TTF'de varsa SVG üstüne yazar.
+- GLYPH OVERRIDE (Version 14): `glyphOverrides: List<GlyphOverride>{codepoint, advance (em, −1 = dokunma), offsetX/Y (em
+  DELTA, y yukarı)}` — TTF ve SVG glyph'lerine bake sonrası, kerning öncesi uygulanır; `InkL/InkR` aynı delta ile kayar.
+  Raporda `overridden`; ızgarada yeşil çerçeve; metrik satırı px + em yazar (girilecek değer oradan okunur).
+- IMPORTER AYARLARI BEKLEYEN MODEL (Unity gibi; [InspectorPanel.cs](../editor/InspectorPanel.cs) `_aDirty`): `.meta` importer
+  formundaki değişiklik bellekte birikir (başlıkta `*`, **Revert/Apply**); Apply → meta yaz → reimport → canlı tazeleme.
+  **Auto-apply**: başka asset/GO seçimi, seçim temizleme, `PlayMode.Play()` (`InspectorPanel.FlushPendingSettings`). Dışarıdan
+  dosya değişirse bekleyen ayar düşer (uyarı). Yalnız importer ayarları — GO prop'ları ve `.asset` nesneleri eskisi gibi anında.
+  Butonlar hep çizilir (kontrol sayısı sabit), dirty değilken etkisiz.
+- NATİVE (editör-only [msdf_shim.cpp](../engine/native/msdf_shim.cpp)): `de_msdf_svg_glyph` nanosvg path'leri (cubic) →
+  msdfgen Shape → MTSDF, TTF yoluyla **aynı kutu/değer uzayı** (pad 6, pds 21; stbtt floor/ceil yuvarlaması taklit edilir).
+  Yalnız FILL, nonzero (`orientContours`); stroke/gradient/opacity yok sayılır — evenodd tasarımlar sınır. nanosvg
+  implementasyonu `de_svg_compile.c`'de, shim yalnız header (extern "C" guard'lı). `de_msdf_font_has_glyph` ile TTF'de
+  olmayan codepoint tespit edilir (eskiden sessizce .notdef kutusu pişiyordu; şimdi uyarı + raporda `missing`).
+- RAPOR: `report` artifact'i (ArtifactScope.Editor, `anahtar=değer` satırları: glyphs/sheet/fill/kernPairs/missing/custom/warn).
+  Pak'a girmez; Inspector önizlemesi okur. `loc.glyphCheck` ile aynı eksik listesi.
+- ÖNİZLEME ([FontImporter.Preview.cs](../editor/FontImporter.Preview.cs)): bilgi satırı · örnek metin alanı (canlı fontla,
+  kerning dahil, genişliğe sığmazsa otomatik küçülür) · tıklanan glyph metrikleri (adv/off/wh/ink, SDF px) · "Show sheet/grid"
+  · glyph ızgarası (eksik = kırmızı, custom = mavi, seçili = sarı çerçeve; tıklama Event ile, buton yok → kontrol sayısı sabit).
+  Glyph'ler `UiPieces.UiShader`'lı kendi `SortMode.Ui` materyaliyle çizilir (Font.Material Transparent sıralı — GUI katmanına
+  uymaz); V takası TextSprite ile aynı (`U0,V1,U1,V0`). `GuiRenderer.DrawRegion(rect, material, color, uv…)` yeni yardımcı.
+  `PreviewHeight` genişlik bilmez → son çizim genişliği saklanır (bir frame gecikme kabul).
+- TUZAK: Inspector ayar nesnesi seçimde bir kez yüklenir; .meta dışarıdan yazılıp `asset.reimport` çağrılınca form bayat kalır
+  (başka asset seçip geri gel). Reimport ≈1 s / 320 glyph @30 — bu yüzden bekleyen Apply modeli (yukarı bak).
+- SVG → PNG seçeneği GEREKMEDİ: font importer SVG kaynağını okur, VectorImporter/DVEC dokunulmadı; sahneden referanslanmayan
+  svg pak'a zaten girmez.
+- SONRAKİ (istenirse): svg alanı GUID'li asset ref + sürükle-bırak; kerning çiftini ızgaradan seçerek ekleme; eksikleri
+  loc tablolarından otomatik çekme.
+
+## GVM (GENERIC SANAL METOT) DİSPATCH — CoreCLR/IL2CPP modeli, statik; ITable tanım düzeyinde (2026-10-16, digitoyclient.exe İLK KEZ linklendi ve açıldı)
+- NEDEN: istemci `INetworkClient.SendRequestAsync<T>` (iface GVM). İki hata: (1) `Hierarchy.FindImpl` iface GVM'in her exact slotu için
+  sınıfta ad+param eşleşen İLK üyeyi (canon gövde `<__Canon>`) buluyordu → itable'ın 10 satırı aynı canon fn, dict'siz. (2) **Canon slot
+  ABI'si sınıf GVM'de de gizli hataydı:** canon gövdeden GVM sanal çağrısı BİLDİRİLEN exact metodun dict'ini (`mdict_D.M<X>`) gizli arg geçer,
+  slot girişi ise override'ın canon gövdesiydi — kendi `DictLayout`'uyla okuyordu (farklı layout = sessiz bozulma).
+- KARŞILAŞTIRMA: NativeAOT `GVMLookupForSlot` (tip, açık metot, instantiation)→hedef hashtable + çağrı yeri cache; IL2CPP
+  `Runtime::GetGenericVirtualMethod` hashtable + cache — her GVM çağrısı lookup öder. Bizde: **exact koddan çağrı → exact slot → impl stub**
+  (ek maliyet yok); yalnız canon gövdeden çağrı dispatcher'a düşer: n (instantiation sayısı) sabit işaretçi karşılaştırması, hash/tablo yok.
+- TASARIM ([CTranspiler.Canon.GvmSlotRef](../aotcompiler/source/CTranspiler.Canon.cs)): canon GVM slotunun (`MethodTypeArguments` canon içerir)
+  vtable/itable girişi tip başına üretilen `de_gvm_<Tip>[_<Iface>]_<slot>(dict, self, args…)`: gelen dict işaretçisini slot kökünün
+  (`Hierarchy.SlotRootOf`) her exact örneklemesinin `mdict_` sembolüyle karşılaştırır (`Hierarchy.ExactDeclarationsOf`: Base.M<X>/Derived.M<X>/
+  IFoo.M<X> — caller statik tipine göre hangisini geçerse geçsin tanınır; kendine özyinelemeli çağrı dahil), eşleşende o exact slotun impl
+  stub'ına (`FnPtrSym`) atlar; eşleşmezse `DIGITOYENGINE_throw_notimpl`. Kimlik = dict sembolü = exact Code nesnesi (ad yok). Lower/caller ABI
+  (`VirtualCallTakesDict`) değişmedi. Iface exact GVM kabukları için `mdict_` artık emit edilir (`HasMethodDictSymbol`; gövdesiz → boş layout,
+  yalnız kimlik token'ı); reflection `.methods` iface bildirimi için stub istemez (fn=0).
+- ITABLE TANIM DÜZEYİNDE ([Hierarchy.BuildITables/FindImpl](../aotcompiler/source/Hierarchy.cs)): sınıf zinciri `ClassChain` (örnek→tanım +
+  harita zinciri), iface örnekleri bildiren tanımın AÇIK uygulamasıyla **pozisyonel** eşlenir (`IfaceSite`; GenericInstantiator iface listesini
+  şablondan sırayla kurar, miras iface'ler de), `Signature.MatchesUnder2/TypeEquals2` iki taraflı harita zinciriyle ortak uzaya (en türemiş
+  tanım) çözer → `ISer<List<__Canon>>→ISer<__Canon>` çökmesinden bağımsız. Açık impl: `ExplicitInterface` düğümü yapısal eşitlik. GVM slotu:
+  sınıf şablonu iface slotunun `MethodTypeArguments` ile örneklenir (`Realize`; yeni örnek → `instantiated` → Resolver turu), sonra `Devirtualize`.
+  Eski `Signature.Matches` tabanlı FindImpl silindi. CLI kimliği gereği tek "ad" IL `SimpleName`.
+- EMİTTER BİRİM BAĞIMLILIĞI: `#include`'lar üretilen C metnindeki birim adlarından çıkarılır; sonucu atılan (`pop`) struct dönüşlü çağrı
+  (`ct.Register(cb, state)` → `CancellationTokenRegistration`) tipin adını metne yazmaz → "incomplete type". Call/CallVirtual emisyonunda
+  dönüş struct'ı tip NESNESİYLE `curUnit.ValueDeps`'e kaydedilir (`NoteValueUse`).
+- DOĞRULAMA: selftest 128/347 sabit; Sandbox 5305 KB birebir + çalışır (AOT_DEBUG=1 ile 13.9 MB — yalnız debug); **digitoyclient.exe (26 MB,
+  full) linklendi, açıldı, Entry.scene yüklendi** (Common.dll generator sürümüyle ilk uçtan uca AOT). yuzbirextra build koşulmadı.
+## OVERRIDE ÇÖZÜMÜ TANIM DÜZEYİNDE + CORELIB EKLERİ — Common.dll (generator'lı) Hierarchy ve stub kapısını geçti (2026-10-16)
+- NEDEN: digitoyserver 2026-10-15 generator'lı Serializer yeniden yazımı `ListSerializer<T> : Serializer<List<T>>` desenini getirdi (generic
+  tabana İÇ İÇE generic argüman). Canon paylaşımı `Serializer<List<__Canon>>` kimliğini `Serializer<__Canon>`'a çöktürür (GenericInstantiator
+  "yarı-canon" kararı); eski `Hierarchy.SlotOf` örnek imzalarını referans eşitliğiyle karşılaştırdığından `ShouldEncode(List<__Canon>)` ↔
+  `ShouldEncode(__Canon)` eşleşmiyordu. Eski Common'da desen yoktu (yuzbirextra geçiyordu).
+- ÇÖZÜM (CoreCLR MethodTableBuilder modeli, yama değil): override hedefi **IL sahibi TANIM** üzerinde, sahibin ŞABLON parent zincirinde
+  **bileşik ikameli imza** ile bir kez bulunur ([Hierarchy.OverrideTargetOf](../aotcompiler/source/Hierarchy.cs), önbellekli); slot kimliği =
+  zincirin kökündeki `virtual` tanım (`SlotRoot`); örnekte (exact/canon/generic-dışı) slot = vtable girişinin `RootTemplate`'i aynı SlotRoot'a
+  çıkan giriş. [Signature.MatchesUnder/TypeEqualsUnder](../aotcompiler/source/Signature.cs): SAF (örnekleme/intern yan etkisi yok), harita
+  ZİNCİRİ (`maps[k][T]` içindeki parametreler `maps[k-1]` ile çözülür: Mid<T>:Base<List<T>>, Leaf:Mid<string>), tip eşitliği yalnız nesne grafı
+  (tanım + TypeArguments + ElementType). Tek "ad" IL metadata `SimpleName` (CLI override kimliği = ad + ikameli imza; C# `override` için
+  MethodImpl satırı yok) — C mangled ad hiçbir yerde kullanılmaz. ITable (`FindImpl`) hâlâ `Signature.Matches` — Common'da tetiklenmedi; canon
+  iface çökmesi görülürse aynı mekanizma oraya taşınır. GVM slot mantığı değişmedi.
+- CORELIB EKLERİ (Common generator kodu): `Convert.ToInt32/ToInt64/ToDouble/ToBoolean/ToString(object)` (kutulu tip dallanması; enum kutusu
+  `(int)` ile açılır), `Convert.ChangeType(object, Type)` (TypeCode + enum → `Enum.ToObject`), `Enum.ToObject(Type, long/int)`,
+  `Type.GetType(string, bool)`, `Type.Namespace` (FullName'den), `Assembly.GetType(string, bool[, bool])`, `TypeLoadException`,
+  `InvalidCastException(string)`, `Encoding.GetString(ReadOnlySpan<byte>)` (ToArray kopyası), **`BitConverter.IsLittleEndian` ALAN** (.NET'te
+  `static readonly` alan; Common `ldsfld` okur — `string.Empty` dersi). İstemci: `NetworkDelay` `catch … when` → gövdede koşul (filter EH yok).
+- DURUM: selftest 128/347 sabit; Sandbox windows build + exe çalışır. digitoyclient: Roslyn ✓, Hierarchy ✓, trim ✓, stub kapısı ✓ (33→0);
+  **C derleme aşamasında iki AÇIK sorun** (ayrı planla): (1) INTERFACE üzerinde generic sanal metot canon'u —
+  `INetworkClient.SendRequestAsync<TRes>(…)`: itable stub'u gövdesiz iface canon metodunu (`…___Canon_`) ve exact `mdict_…` sözlüklerini
+  çağırıyor, ikisi de emit edilmiyor (CTranspiler.Canon GVM yolu sınıf GVM'i varsayıyor); (2) `CancellationToken.Register(Action<object>,
+  object)` çağrısı bir async-SM biriminde `struct CancellationTokenRegistration` tamamlanmamış tip hatası veriyor — birim değer-bağımlılığı
+  (ValueDeps) dönüş tipi struct olan çağrıları kapsamıyor olabilir (eski `Register(Action)` yolu çalışıyor).
+## ATLAS TRIM — şeffaf kenarlar sayfaya girmez, çizim mantıksal boyutta (2026-10-16, Sandbox MainAtlas 68 Kpx düştü; layout 112 PASS)
+- MEKANİZMA tek yer: [RegionPacker.TrimTransparent](../editor/RegionPacker.cs) `Pack` öncesi TÜM `RegionSource`'lara (png/jpg, font sayfasından
+  gelen bölgeler, Faz 2 SVG, ileride Spine) uygulanır — importer'a özel kod yok. Alfa `== 0` bbox'ı dışı atılır; `SrcX/Y`, `W/H` küçülür,
+  `OffX/OffY` ARTAR (mevcut trim'le birleşir: yeniden paketleme idempotent), `OrigW/OrigH` mantıksal boyut olarak kalır. Tamamen şeffaf → 1×1.
+  YALNIZ `RegionKind.Color` + RGBA: **SDF asla kırpılmaz** (alfa = mesafe, her yerde ≠0; kırpmak dış yumuşamayı keser, glyph metriği bozulur).
+  `AtlasGroup.trim` (varsayılan true; yaml `trim: false`), importer Version 5→6. Log: `[atlas] … trim N Kpx atildi`. `asset.info` → `trimmed{x,y,w,h}`.
+- Y SÖZLEŞMESİ (tuzak): decode tamponlarında satır 0 ALTTA (stbi flip) → bbox'ın `y0` ALT boşluk; `OffY` ise mantıksal ÜST boşluk
+  (`Sprite` sözleşmesi) → `OffY += H-1-y1`. Motorun dünya/yerel uzayı **y-aşağı** (`SetOrtho top=0`; `Mesh.Quad` local −y ↔ doku üstü v=1).
+  [SpriteRenderer](../engine/managed/SpriteRenderer.cs) ve [ParticleSystem](../engine/managed/ParticleSystem.cs) trim ofsetini y-yukarı
+  varsayımıyla (`0.5 − …`) yazmıştı — trim hiç üretilmediğinden gizli kalan hata; `cy = (OffY + H/2)/OrigH − 0.5` olarak düzeltildi.
+- LAYOUTBOX: [EncodeTextured](../engine/managed/LayoutBox.cs) tüm modları tek yardımcıya indirdi: `SpriteSpace` (mantıksal LW/LH, trim kutusu
+  TX/TY/TW/TH, bölge uv) + `EmitSpriteCell(mantıksal dikdörtgen → hedef dikdörtgen, klip)`: mantıksal aralık trim kutusuyla, hedef aralık klip
+  kutusuyla kesilir, uv kırpılmış bölgeden orantıyla. Stretch/Contain/Cover(klip)/Tile(karo başına)/9-slice(hücre başına, dilim sınırları
+  mantıksal px — kırpılmış kenar hücreleri doğal boş) hepsi buradan; trimsiz sprite'ta kesme no-op → eski çıktı birebir. Zero-alloc korundu.
+- DOĞRULAMA: `Textures/trimtest.png` (128², yalnız 72,16 48×32 opak; kalıcı test varlığı) → asset.info trimmed `72 16 48 32`; RPC sahnede
+  SpriteRenderer (normal/256×64 gerilmiş/90° döndürülmüş) + LayoutBox 6 mod screenshot, beklenen piksel konumları elle hesaplanıp birebir
+  tutuyor. TrimTest.scene kaydedilmedi (boş dosya silindi).
+- ATLAS ÖNİZLEME: [AtlasImporter.Preview.cs](../editor/AtlasImporter.Preview.cs) — Project'te AtlasGroup seçilince Inspector'da (ayarların
+  altında) bilgi satırı (bölge/sayfa/boyut/doluluk/trim kazancı), sayfa gezinme < >, "Show/Hide regions" (Color yeşil, Sdf camgöbeği,
+  trim'li bölgede soluk sarı mantıksal kutu), hover → ad + boyut/konum/trim. Sayfa AssetDatabase.TryGetSpriteTable (yüklü tablo; reimport
+  yerinde tazeler). [InspectorPanel.DrawAssetInspector](../editor/InspectorPanel.cs): importer'lı .asset için de PreviewHeight/DrawPreview
+  çağrılır (ayarlar YAML drawer'ında kalır; Apply/Revert yalnız .meta modunda).
+- GUI DOKU SÖZLEŞMESİ (tuzak, iki bug düzeltildi): GUI quad'ında **üst kenar ↔ 1**, alt ↔ 0 (vertex uv.y=1 lokal −y'de).
+  (1) [GuiRenderer.DrawClipped](../engine/managed/Gui/GuiRenderer.cs) klipte UV'yi "v0 üstte" varsayıp kaydırıyordu → scroll'da kesilen dokulu
+  quad (glyph, önizleme sayfası) TERS taraftan kırpılıyordu; artık üstten kırpılan 1'den, alttan kırpılan 0'dan düşülür.
+  (2) CPU'dan yüklenen sayfa dokularında satır 0 görselde ÜSTTE: dik çizim DrawRegion(..., v0=1, v1=0); DrawTexture/DrawTextureBlended
+  (v0=0, v1=1) RT içindir, CPU dokusunu baş aşağı gösterir (FontImporter "Show sheet" buna takılmıştı, düzeltildi). Bölge çerçevesi: 	op = Y.
+## PLUGIN FACADE + CORELIB YÜZEYİ — digitoyclient AOT 568 → 1 hata (2026-10-16, Sandbox exe çalışır, selftest 125→128/347)
+- KÖK NEDEN (490 × CS0012 "`Enum`/`List<>`… `System.Runtime`'da tanımlı, referans ekleyin"): `Digitoy.Common.dll` gerçek .NET'e karşı
+  derlenmiş; metadata'sında `System.Runtime 10.0.0.0 b03f…`, `System.Collections`, `System.Memory cc7b…` vb. assembly referansları var.
+  Oyun kodu NoStdLib + CoreLib ile derlenirken plugin üyesine her dokunuş imzadaki tipi o ADLI assembly'de arar → yok. CilFrontend adla
+  remap yapar ama **Roslyn yapmaz**. yuzbirextra'da çıkmamıştı çünkü scriptleri Common üyelerini pek kullanmıyordu.
+- ÇÖZÜM [FacadeBuilder](../aotcompiler/source/FacadeBuilder.cs): plugin'lerin `System.*`/`netstandard`/`mscorlib` referansları okunur
+  (System.Reflection.Metadata); her kimlik için corelib'in TÜM public top-level tiplerini `[assembly: TypeForwardedTo(typeof(…))]` ile
+  `Digitoy.CoreLib`'e yönlendiren facade dll üretilir. Kimlik birebir: `AssemblyVersion` = referanstaki sürüm, `PublicSign` + TAM public
+  key host TPA'daki aynı adlı dll'den (token = SHA1(key) son 8 bayt ters; ad yoksa aynı token'lı başka dll). `RoslynBuild.PublicKey`
+  eklendi. Facade YALNIZ Roslyn referansıdır: Game.dll doğrudan CoreLib'e bağlanır, pak'a/IR'a girmez. Cache `<proje>/Library/aot/
+  <target>/facades/` (corelib/plugin mtime). corelib'e `TypeForwardedToAttribute` (`AllowMultiple`) + `AssemblyVersionAttribute`.
+  Facade tipi `System.Void` atlanır (`typeof(void)` CS0673).
+- CORELIB EKLERİ (hepsi C# gövde, KURAL 1172): `string.Empty` (**alan**, const değil: .NET'e karşı derlenmiş IL `ldsfld` okur),
+  `TrimEnd/TrimStart(…)`, `Split(char,int)/(…, StringSplitOptions)/(params char[])`, `ToUpperInvariant()`, `Join(char,…)/Join(string,
+  IEnumerable<string>)/Join<T>`, `enum StringSplitOptions`; `Convert.To/FromBase64String`; `Buffer.BlockCopy` (yalnız byte[]);
+  `Math.Min/Max/Abs(long)`, `Math.Abs(int)`, `long.Min/MaxValue`; `ObjectDisposedException`; `DateTime.ToString(format)` (özel biçim alt
+  kümesi, standart tek harf → FormatException) + `Equals/GetHashCode`; `DateTimeOffset` (UTC sabit, `ToUnixTime*`); `Index`/`Range`
+  (Roslyn `[^1]`, `[a..]` lowering — IndexRange.cs); `Guid` (NewGuid=Random v4, kriptografik değil; `ToString("N/D/B/P")`); `Enum.IsDefined`
+  (ToObject→ToString→TryParse geri); `ArraySegment<T>` (Common `Codec.GetBuffer`); `List<T>(IEnumerable<T>)`; `Dictionary.Remove(key,
+  out v)`; `KeyValuePair.Deconstruct`; `Task.WhenAll/WhenAny(IEnumerable)` + generic `WhenAll<T>→Task<T[]>`/`WhenAny<T>`;
+  `CancellationTokenSource.CreateLinkedTokenSource` (saatsiz, Register ile; Dispose bağı koparır — eski "YOK" notu güncellendi);
+  `CancellationToken.Register(Action<object>, object)`; `DefaultInterpolatedStringHandler.AppendFormatted(value, format/alignment)`
+  (format yok sayılır, hizalama uygulanır — string.Format politikası); `AsyncVoidMethodBuilder` (`async void`: yakalanmayan istisna
+  stderr'e yazılır, yutulur; frontend Start/AwaitUnsafeOnCompleted remap'i `AsyncVoid*` için de çalışır).
+- EMİTTER: `string.Empty` için `Primitive.String` statiği — String runtime tipi (`HasLayout` false, **`AllPrimitives`'te yok**) →
+  `CTranspiler.HasStaticStorage` + `AllPrimitives.Concat(String)`; sembol paylaşımlı birimde (gen_misc). cctor'u zaten `IsEmittableCode`
+  üzerinden emit/çağrılıyordu.
+- FRONTEND TUZAĞI (yaşandı): struct ctor'da `_f = cond ? a : b;` → `this` dal boyunca yığında kalır, frontend struct this'i DEĞER sanıp
+  `l4 = __s3` (ptr→struct) üretir → C hatası. corelib'de geçici değişkenle yaz (IndexRange.cs). Kalıcı çözüm (yığın birleşiminde
+  managed pointer tipi) ayrı iş.
+- CORELIB'DE BİLİNÇLİ YOK (istemci kodu değiştirildi): `Delegate.GetInvocationList` (SafeInvoke tek try/catch), `IAsyncDisposable`
+  (`await using` → `using`), `Environment.OSVersion` (Platform.OS = Current.ToString()), `System.IO.File` (Log → engine `Debug`).
+  Kalan TEK hata `HMACSHA256` (DeviceKey) — kullanıcı kararıyla bekliyor (SHA256+HMAC saf C# ya da istemci tarafı değişiklik).
+- MOTOR: [Debug.cs](../engine/managed/Debug.cs) `DigitoyEngine.Debug.Log/LogWarning/LogError/LogException` (şimdilik stdout/stderr;
+  panel/dosya yönlendirmesi sonra). digitoyclient `Log` sınıfı buna yazar; `Log.FilePath` kaldırıldı.
+- DOĞRULAMA: Sandbox windows player build + exe açıldı (VectorTest sahnesi); selftest 128/347 (baseline 125; eski 84 FAIL kümesi aynı:
+  10, 47); `dotnet build editor` OK. digitoyclient player build Roslyn aşamasında yalnız HMACSHA256.
+- SHA256 + HMAC (sonraki tur, aynı gün): [Cryptography.cs](../aotcompiler/c_runtime/corelib/Cryptography.cs) saf C# `HashAlgorithm`
+  (abstract, ComputeHash/HashSize/Dispose) → `SHA256` (FIPS 180-4; `Create`/`HashData`), `HMAC` → `HMACSHA256(byte[] key)` (RFC 2104,
+  >64 bayt anahtar hash'lenir; Dispose anahtarı sıfırlar). .NET'e karşı doğrulandı: SHA256 boş/"abc"/56/55/64/1000 bayt + RFC 4231
+  HMAC anahtar 4/20/64/131 — hepsi birebir. digitoyclient Roslyn aşaması **0 hata**. Build şimdi CIL/Hierarchy'de duruyor:
+  `M.ListSerializer1<__Canon>.ShouldEncode(List<TItem>)` için `Serializer1<__Canon>` vtable'ında `ShouldEncode(T)` eşleşmiyor
+  (canon generic tabanda `T = List<TItem>` ikamesi) → A3 Common.dll AOT doğrulaması kapsamında AYRI frontend işi.
 ## DIGITOYCLIENT KARARI — çok oyunlu istemci ayrı kökte (2026-10-16, yalnız doküman; kod yok)
 - KARAR (kullanıcı): Gin Rummy (prod) + Yüzbir + Okey (+ gelecek oyunlar) Unity istemcilerinin yerine **tek DigitoyEngine
   projesi** `c:\work\digitoygames\digitoyclient` (game_rd `Projects/` altında DEĞİL; ayrı repo). Ürün: oyun başına ayrı

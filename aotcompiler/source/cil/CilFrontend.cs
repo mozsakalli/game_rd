@@ -2104,7 +2104,8 @@ namespace DigitoyEngine.Cil
                                 {
                                     var asyncOwner = loader.OwnerPrimOf(msp.Method, gc);
                                     var asyncTmplName = asyncOwner?.Definition.Name ?? "";
-                                    if (asyncTmplName.StartsWith("System.Runtime.CompilerServices.AsyncTaskMethodBuilder"))
+                                    if (asyncTmplName.StartsWith("System.Runtime.CompilerServices.AsyncTaskMethodBuilder")
+                                        || asyncTmplName.StartsWith("System.Runtime.CompilerServices.AsyncVoidMethodBuilder"))
                                     {
                                         var gargs = msp.DecodeSignature(loader.Sig, gc);
                                         var smType = gargs[gargs.Length - 1];

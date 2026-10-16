@@ -40,10 +40,17 @@ namespace System
     public class DivideByZeroException : ArithmeticException { public DivideByZeroException() : base("Attempted to divide by zero.") { } }
     public class ArithmeticException : Exception { public ArithmeticException() : base("Overflow or underflow in the arithmetic operation.") { } public ArithmeticException(string message) : base(message) { } }
     public class OverflowException : ArithmeticException { public OverflowException() : base("Arithmetic operation resulted in an overflow.") { } public OverflowException(string message) : base(message) { } }
-    public class InvalidCastException : Exception { public InvalidCastException() : base("Specified cast is not valid.") { } }
+    public class InvalidCastException : Exception { public InvalidCastException() : base("Specified cast is not valid.") { } public InvalidCastException(string message) : base(message) { } }
     public class InvalidOperationException : Exception { public InvalidOperationException() : base("Operation is not valid due to the current state of the object.") { } public InvalidOperationException(string message) : base(message) { } public InvalidOperationException(string message, Exception inner) : base(message, inner) { } }
     public class NotImplementedException : Exception { public NotImplementedException() : base("The method or operation is not implemented.") { } public NotImplementedException(string message) : base(message) { } }
     public class NotSupportedException : Exception { public NotSupportedException() : base("Specified method is not supported.") { } public NotSupportedException(string message) : base(message) { } }
+    public class TypeLoadException : Exception { public TypeLoadException() : base("Failure has occurred while loading a type.") { } public TypeLoadException(string message) : base(message) { } }
+    public class ObjectDisposedException : InvalidOperationException
+    {
+        public ObjectDisposedException(string objectName) : base("Cannot access a disposed object.\nObject name: '" + objectName + "'.") { ObjectName = objectName; }
+        public ObjectDisposedException(string objectName, string message) : base(message) { ObjectName = objectName; }
+        public string ObjectName;
+    }
     public class IOException : Exception { public IOException() : base("I/O error occurred.") { } public IOException(string message) : base(message) { } }
     public class FormatException : Exception { public FormatException() : base("One of the identified items was in an invalid format.") { } public FormatException(string message) : base(message) { } }
     public class ArgumentException : Exception

@@ -170,6 +170,9 @@ public static class Program
             Optimize = true,
         };
         build.References.AddRange(plugins);
+        // Plugin'ler gercek .NET'e karsi derlenmis: imzalarindaki System.Runtime/System.Collections... referanslari icin
+        // corelib'e forward eden facade'ler (FacadeBuilder); yoksa plugin uyesine her dokunus CS0012.
+        build.References.AddRange(DigitoyEngine.Build.FacadeBuilder.Build(plugins, CoreLibDll(), Path.Combine(outDir, "facades")));
         var r = DigitoyEngine.Build.RoslynCompiler.CompileToFile(build, dll, useCache: false);
         if (!r.Ok) throw new Exception("oyun kodu AOT derlemesi basarisiz:\n" + r.Errors);
         return dll;

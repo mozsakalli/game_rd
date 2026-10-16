@@ -28,8 +28,29 @@ namespace System
     {
         public extern static Type GetTypeFromHandle(RuntimeTypeHandle handle); // typeof(T) lowering (Roslyn well-known)
         public extern static Type GetType(string fullName); // tip tablosunda ada gore (null = yok)
+        public static Type GetType(string fullName, bool throwOnError)
+        {
+            var t = GetType(fullName);
+            if (t == null && throwOnError) throw new TypeLoadException("Could not load type '" + fullName + "'.");
+            return t;
+        }
         public extern override string Name { get; }
         public extern string FullName { get; }
+        // Ad alani: FullName'den (son '.' oncesi; ic ice tipte '+' oncesinin ad alani; yoksa null — .NET gibi).
+        public string Namespace
+        {
+            get
+            {
+                string f = FullName;
+                if (f == null) return null;
+                int plus = f.IndexOf('+');
+                if (plus >= 0) f = f.Substring(0, plus);
+                int tick = f.IndexOf('[');
+                if (tick >= 0) f = f.Substring(0, tick);
+                int dot = f.LastIndexOf('.');
+                return dot < 0 ? null : f.Substring(0, dot);
+            }
+        }
         public extern Type BaseType { get; }
         public extern bool IsPrimitive { get; }
         public extern bool IsEnum { get; }

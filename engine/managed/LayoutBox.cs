@@ -1568,12 +1568,21 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
         var tex = sprite.Page;
         if (tex == null)
             return;
-        float uu0 = 0f, uuS = 1f, vv0 = 0f, vvS = 1f;
+        // Mantiksal sprite uzayi (texel, y asagi, 0..LW x 0..LH) ve icinde pikselleri olan TRIM kutusu.
+        // Atlas trim'i seffaf kenarlari sayfaya koymaz: bolge (uu0..) yalniz trim kutusunu kaplar; her
+        // yerlesim modu once mantiksal dikdortgeni hedefe esler, sonra EmitSpriteCell trim'le keser.
+        var sp = new SpriteSpace
+        {
+            LW = Math.Max(1, sprite.LogicalWidth), LH = Math.Max(1, sprite.LogicalHeight),
+            U0 = 0f, US = 1f, V0 = 0f, VS = 1f,
+        };
         if (sprite.IsRegion)
         {
-            uu0 = sprite.U0; uuS = sprite.U1 - sprite.U0;
-            vv0 = sprite.V0; vvS = sprite.V1 - sprite.V0;
+            sp.U0 = sprite.U0; sp.US = sprite.U1 - sprite.U0;
+            sp.V0 = sprite.V0; sp.VS = sprite.V1 - sprite.V0;
+            sp.TX = sprite.OffX; sp.TY = sprite.OffY; sp.TW = Math.Max(1, sprite.W); sp.TH = Math.Max(1, sprite.H);
         }
+        else { sp.TX = 0; sp.TY = 0; sp.TW = sp.LW; sp.TH = sp.LH; }
         var baseMat = UiPieces.TexturedMaterial;
         baseMat.MainTexture = tex; // TexView DrawMesh aninda yakalanir (paylasilan materyal deseni)
         baseMat.Shader = UiPieces.UiShader; // varyantlar ForBlend/ForEffects'te tabandan kopyalanir
@@ -1587,49 +1596,80 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
 
         if (spriteFit != SpriteFit.Stretch)
         {
-            EncodeFitted(q, in world, x0, y0, x1, y1, uu0, vv0, uuS, vvS, mat, in user, cTop, cBot, gh, layer);
+            EncodeFitted(q, in world, x0, y0, x1, y1, in sp, mat, in user, cTop, cBot, gh, layer);
             EndGradient();
             return;
         }
 
         if (slice9Left <= 0 && slice9Top <= 0 && slice9Right <= 0 && slice9Bottom <= 0)
         {
-            EmitQuad(q, mat, world, x0, y0, x1, y1,
-                uu0, vv0, uu0 + uuS, vv0 + vvS, cTop, cBot, gh, user, layer);
+            EmitSpriteCell(q, mat, world, in sp, 0f, 0f, sp.LW, sp.LH, x0, y0, x1, y1, x0, y0, x1, y1, cTop, cBot, gh, user, layer);
             EndGradient();
             return;
         }
 
         // 9-slice: koseler doku-piksel boyutunda sabit, kenarlar/orta gerilir;
-        // dilimler sigmazsa oranla kisilir (border cakisma kuraliyla ayni).
+        // dilimler sigmazsa oranla kisilir (border cakisma kuraliyla ayni). Dilim sinirlari MANTIKSAL
+        // piksel: trim'lenmis kenar hucreleri EmitSpriteCell'de dogal olarak bos kalir.
         float sl = slice9Left, st = slice9Top, sr = slice9Right, sb = slice9Bottom;
         float w = x1 - x0, h = y1 - y0;
         float kx = sl + sr > w ? w / (sl + sr) : 1f;
         float ky = st + sb > h ? h / (st + sb) : 1f;
-        float tw = Math.Max(1, sprite.LogicalWidth), th = Math.Max(1, sprite.LogicalHeight);
         Span<float> xs = stackalloc float[4] { x0, x0 + sl * kx, x1 - sr * kx, x1 };
         Span<float> ys = stackalloc float[4] { y0, y0 + st * ky, y1 - sb * ky, y1 };
-        Span<float> us = stackalloc float[4]
-            { 0f, Math.Clamp(sl / tw, 0f, 1f), Math.Clamp(1f - sr / tw, 0f, 1f), 1f };
-        Span<float> vs = stackalloc float[4] // v: ust=1, alt=0 (GL yonelimi)
-            { 1f, Math.Clamp(1f - st / th, 0f, 1f), Math.Clamp(sb / th, 0f, 1f), 0f };
+        float lx1 = Math.Clamp(sl, 0f, sp.LW), lx2 = Math.Clamp(sp.LW - sr, lx1, sp.LW);
+        float ly1 = Math.Clamp(st, 0f, sp.LH), ly2 = Math.Clamp(sp.LH - sb, ly1, sp.LH);
+        Span<float> lxs = stackalloc float[4] { 0f, lx1, lx2, sp.LW };
+        Span<float> lys = stackalloc float[4] { 0f, ly1, ly2, sp.LH };
         for (int r = 0; r < 3; r++)
             for (int c = 0; c < 3; c++)
-                EmitQuad(q, mat, world, xs[c], ys[r], xs[c + 1], ys[r + 1],
-                    uu0 + us[c] * uuS, vv0 + vs[r + 1] * vvS,
-                    uu0 + us[c + 1] * uuS, vv0 + vs[r] * vvS,
+                EmitSpriteCell(q, mat, world, in sp, lxs[c], lys[r], lxs[c + 1], lys[r + 1],
+                    xs[c], ys[r], xs[c + 1], ys[r + 1], x0, y0, x1, y1,
                     tinted ? FillAt(gh ? xs[c] : ys[r]) : Color.White,
                     tinted ? FillAt(gh ? xs[c + 1] : ys[r + 1]) : Color.White, gh, user, layer);
         EndGradient();
     }
 
-    // Contain/Cover/Tile yerlesimi (9-slice yok). Oran sprite'in MANTIKSAL boyutundan.
-    // uv yonelimi: v1 <-> ust kenar (vv0+vvS), v0 <-> alt kenar (vv0).
+    // Sprite'in mantiksal uzayi + bolge uv'si + trim kutusu (EncodeTextured basinda bir kez kurulur).
+    ref struct SpriteSpace
+    {
+        public float LW, LH;          // mantiksal boyut (texel)
+        public float TX, TY, TW, TH;  // trim kutusu (mantiksal uzayda; pikseller yalniz burada)
+        public float U0, US, V0, VS;  // trim kutusunun sayfa uv'si (v: V0+VS <-> ust kenar)
+    }
+
+    // Mantiksal dikdortgen [lx0,lx1]x[ly0,ly1] (y asagi) -> hedef [dx0,dx1]x[dy0,dy1] (lokal, y asagi) afin
+    // eslemesi. Mantiksal aralik trim kutusuyla ve hedef aralik klip kutusuyla kesilir, uv kirpilmis
+    // bolgeden orantiyla hesaplanir. Trimsiz sprite'ta (TX=0, TW=LW) kesme no-op -> eski cikti birebir.
+    void EmitSpriteCell(RenderQueue q, Material mat, in Mat4 world, in SpriteSpace sp,
+        float lx0, float ly0, float lx1, float ly1, float dx0, float dy0, float dx1, float dy1,
+        float cx0, float cy0, float cx1, float cy1, Color c0, Color c1, bool gh, in Vec4 user, int layer)
+    {
+        if (lx1 <= lx0 || ly1 <= ly0 || dx1 <= dx0 || dy1 <= dy0)
+            return;
+        float sx = (dx1 - dx0) / (lx1 - lx0), sy = (dy1 - dy0) / (ly1 - ly0);
+        // mantiksal kesme: trim kutusu + klip kutusunun mantiksal karsiligi
+        float ax0 = MathF.Max(MathF.Max(lx0, sp.TX), lx0 + (cx0 - dx0) / sx);
+        float ax1 = MathF.Min(MathF.Min(lx1, sp.TX + sp.TW), lx0 + (cx1 - dx0) / sx);
+        float ay0 = MathF.Max(MathF.Max(ly0, sp.TY), ly0 + (cy0 - dy0) / sy);
+        float ay1 = MathF.Min(MathF.Min(ly1, sp.TY + sp.TH), ly0 + (cy1 - dy0) / sy);
+        if (ax1 <= ax0 || ay1 <= ay0)
+            return;
+        float qx0 = dx0 + (ax0 - lx0) * sx, qx1 = dx0 + (ax1 - lx0) * sx;
+        float qy0 = dy0 + (ay0 - ly0) * sy, qy1 = dy0 + (ay1 - ly0) * sy;
+        float u0 = sp.U0 + (ax0 - sp.TX) / sp.TW * sp.US, u1 = sp.U0 + (ax1 - sp.TX) / sp.TW * sp.US;
+        float vTop = sp.V0 + (1f - (ay0 - sp.TY) / sp.TH) * sp.VS; // ust kenar (ay0) <-> buyuk v
+        float vBot = sp.V0 + (1f - (ay1 - sp.TY) / sp.TH) * sp.VS;
+        EmitQuad(q, mat, world, qx0, qy0, qx1, qy1, u0, vBot, u1, vTop, c0, c1, gh, user, layer);
+    }
+
+    // Contain/Cover/Tile yerlesimi (9-slice yok). Oran sprite'in MANTIKSAL boyutundan; hedef dikdortgen
+    // kutuyla (Cover/Tile) ve trim'le EmitSpriteCell'de kesilir.
     void EncodeFitted(RenderQueue q, in Mat4 world, float x0, float y0, float x1, float y1,
-        float uu0, float vv0, float uuS, float vvS, Material mat, in Vec4 user, Color cTop, Color cBot, bool gh, int layer)
+        in SpriteSpace sp, Material mat, in Vec4 user, Color cTop, Color cBot, bool gh, int layer)
     {
         float w = x1 - x0, h = y1 - y0;
-        float tw = Math.Max(1, sprite.LogicalWidth), th = Math.Max(1, sprite.LogicalHeight);
+        float tw = sp.LW, th = sp.LH;
         switch (spriteFit)
         {
             case SpriteFit.Contain:
@@ -1637,18 +1677,16 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
                 float k = MathF.Min(w / tw, h / th);
                 float dw = tw * k, dh = th * k;
                 float dx0 = x0 + (w - dw) * 0.5f, dy0 = y0 + (h - dh) * 0.5f;
-                EmitQuad(q, mat, world, dx0, dy0, dx0 + dw, dy0 + dh,
-                    uu0, vv0, uu0 + uuS, vv0 + vvS, cTop, cBot, gh, user, layer);
+                EmitSpriteCell(q, mat, world, in sp, 0f, 0f, tw, th, dx0, dy0, dx0 + dw, dy0 + dh, x0, y0, x1, y1, cTop, cBot, gh, user, layer);
                 return;
             }
             case SpriteFit.Cover:
             {
-                // Kutuyu dolduran olcek; tasan eksen uv'den simetrik kirpilir.
+                // Kutuyu dolduran olcek; tasan eksen klip ile simetrik kirpilir.
                 float k = MathF.Max(w / tw, h / th);
-                float fx = w / (tw * k), fy = h / (th * k);
-                float cu0 = uu0 + (1f - fx) * 0.5f * uuS, cu1 = uu0 + (1f + fx) * 0.5f * uuS;
-                float cv0 = vv0 + (1f - fy) * 0.5f * vvS, cv1 = vv0 + (1f + fy) * 0.5f * vvS;
-                EmitQuad(q, mat, world, x0, y0, x1, y1, cu0, cv0, cu1, cv1, cTop, cBot, gh, user, layer);
+                float dw = tw * k, dh = th * k;
+                float dx0 = x0 + (w - dw) * 0.5f, dy0 = y0 + (h - dh) * 0.5f;
+                EmitSpriteCell(q, mat, world, in sp, 0f, 0f, tw, th, dx0, dy0, dx0 + dw, dy0 + dh, x0, y0, x1, y1, cTop, cBot, gh, user, layer);
                 return;
             }
             default: // Tile
@@ -1661,25 +1699,21 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
                     tw *= s; th *= s;
                     nx = (int)MathF.Ceiling(w / tw); ny = (int)MathF.Ceiling(h / th);
                 }
-                float vTop = vv0 + vvS;
+                // Karo sol-ustten dizilir; kismi karolar klip ile kesilir (dokunun sol/ust kismi gorunur).
                 for (int r = 0; r < ny; r++)
                 {
-                    float ty0 = y0 + r * th, ty1 = MathF.Min(ty0 + th, y1);
-                    float fy = (ty1 - ty0) / th;            // kismi karo: dokunun UST kismi
-                    float v0 = vTop - fy * vvS;
+                    float ty0 = y0 + r * th;
                     for (int c = 0; c < nx; c++)
                     {
-                        float tx0 = x0 + c * tw, tx1 = MathF.Min(tx0 + tw, x1);
-                        float fx = (tx1 - tx0) / tw;        // kismi karo: dokunun SOL kismi
-                        EmitQuad(q, mat, world, tx0, ty0, tx1, ty1,
-                            uu0, v0, uu0 + fx * uuS, vTop, cTop, cBot, gh, user, layer);
+                        float tx0 = x0 + c * tw;
+                        EmitSpriteCell(q, mat, world, in sp, 0f, 0f, sp.LW, sp.LH, tx0, ty0, tx0 + tw, ty0 + th,
+                            x0, y0, x1, y1, cTop, cBot, gh, user, layer);
                     }
                 }
                 return;
             }
         }
     }
-
     // Lokal-uzay dikdortgenini world matrisiyle tek instanced quad'a cevirir.
     // c0/c1 gradient EKSENI boyunca renkler (gradH=false: ust/alt, true: sol/sag).
     // Gradient baglami aktifse c0/c1/gradH yok sayilir: kose renkleri GradT'den

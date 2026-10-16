@@ -541,7 +541,7 @@ public static class RpcHost
             }
             return Ok(hasId, id, result);
         }
-        catch (JsonException ex)
+        catch (System.Text.Json.JsonException ex)
         {
             return Error(hasId, id, "gecersiz JSON: " + ex.Message);
         }

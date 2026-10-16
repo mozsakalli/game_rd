@@ -33,6 +33,8 @@ public sealed class TypeCatalog
 
     readonly Dictionary<string, Entry> _byName = new();
     readonly Dictionary<Type, Entry> _byType = new();
+    // Json binder'in tip haritasi cache'i (Json.TypeMap): statik tip cache yasagi geregi katalogla yasar/olur.
+    internal readonly Dictionary<Type, Json.TypeMap> JsonMaps = new();
     readonly Dictionary<string, string> _aliases = new(); // eski ad -> yeni ad (rename migrasyonu)
 
     // Dinamik modul kataloglari (docs/modules.md): modul kendi tiplerini CHILD kataloga kaydeder; sahnesi

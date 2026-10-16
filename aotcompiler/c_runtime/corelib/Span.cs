@@ -98,9 +98,62 @@ namespace System
         public static bool SequenceEqual<T>(this Span<T> a, ReadOnlySpan<T> b) { return SequenceEqual((ReadOnlySpan<T>)a, b); }
     }
 
+    // .NET ile ayni yuzey: dizi + ofset + sayi (saf C#, intrinsic degil). Common.dll Codec.GetBuffer bunu doner.
+    public struct ArraySegment<T>
+    {
+        readonly T[] _array; readonly int _offset, _count;
+        public ArraySegment(T[] array)
+        {
+            if (array == null) throw new ArgumentNullException("array");
+            _array = array; _offset = 0; _count = array.Length;
+        }
+        public ArraySegment(T[] array, int offset, int count)
+        {
+            if (array == null) throw new ArgumentNullException("array");
+            if (offset < 0 || count < 0 || offset + count > array.Length) throw new ArgumentException("Offset and length were out of bounds for the array or count is greater than the number of elements from index to the end of the source collection.");
+            _array = array; _offset = offset; _count = count;
+        }
+        public static ArraySegment<T> Empty { get { return new ArraySegment<T>(new T[0]); } }
+        public T[] Array { get { return _array; } }
+        public int Offset { get { return _offset; } }
+        public int Count { get { return _count; } }
+        public T this[int index]
+        {
+            get { if ((uint)index >= (uint)_count) throw new ArgumentOutOfRangeException("index"); return _array[_offset + index]; }
+            set { if ((uint)index >= (uint)_count) throw new ArgumentOutOfRangeException("index"); _array[_offset + index] = value; }
+        }
+        public T[] ToArray()
+        {
+            var r = new T[_count];
+            for (int i = 0; i < _count; i++) r[i] = _array[_offset + i];
+            return r;
+        }
+        public ArraySegment<T> Slice(int index) { return Slice(index, _count - index); }
+        public ArraySegment<T> Slice(int index, int count)
+        {
+            if ((uint)index > (uint)_count || (uint)count > (uint)(_count - index)) throw new ArgumentOutOfRangeException("index");
+            return new ArraySegment<T>(_array, _offset + index, count);
+        }
+        public static implicit operator ArraySegment<T>(T[] array) { return array == null ? default(ArraySegment<T>) : new ArraySegment<T>(array); }
+    }
+
     // MemoryCopy(void*,void*,long,long) frontend intrinsic'i -> SpanOps.Copy
     public static class Buffer
     {
         public static extern unsafe void MemoryCopy(void* source, void* destination, long destinationSizeInBytes, long sourceBytesToCopy);
+        // Yalniz primitive dizileri (.NET de bunu ister); bayt ofsetleri. Ayni dizi icinde ortusme guvenli (Array.Copy semantigi).
+        public static void BlockCopy(Array src, int srcOffset, Array dst, int dstOffset, int count)
+        {
+            if (src == null) throw new ArgumentNullException("src");
+            if (dst == null) throw new ArgumentNullException("dst");
+            if (srcOffset < 0 || dstOffset < 0 || count < 0) throw new ArgumentOutOfRangeException("count", "Non-negative number required.");
+            if (src is byte[] sb && dst is byte[] db)
+            {
+                if (srcOffset + count > sb.Length || dstOffset + count > db.Length) throw new ArgumentException("Offset and length were out of bounds for the array or count is greater than the number of elements from index to the end of the source collection.");
+                Array.Copy(sb, srcOffset, db, dstOffset, count);
+                return;
+            }
+            throw new NotSupportedException("Buffer.BlockCopy: only byte[] arrays are supported in corelib.");
+        }
     }
 }

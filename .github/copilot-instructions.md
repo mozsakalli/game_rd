@@ -8,6 +8,8 @@ yeni işe başlamadan ilgili bölümü oku; oturum sonunda yeni kararları oraya
 - **Kod yazmadan ÖNCE her zaman plan sun ve onay bekle.** Küçük/büyük fark etmez: ne değişecek, hangi dosyalar, ne
   silinecek, risk ne — kısa madde listesi; kullanıcı "başla/onay" demeden tek satır kod yazma. Onaylanan planın
   dışına çıkan yeni bir karar gerekirse dur, tekrar sor. (Kullanıcı kararı, 2026-10-12.)
+- **Runtime sorununda KODDAN TAHMİN YASAK.** Hipotez kovalama yok: geçici iz/log koy → çalıştır → ölç → fix → izleri
+  kaldır. En fazla 2 deneme; çıkmazsa dur, ölçümleri raporla. (Kullanıcı kararı, 2026-10-16.)
 
 ## Yapı
 - `engine/managed` DigitoyEngine.dll (motor), `engine/native` sokol_shim.c (FFI), `editor/` DigitoyEditor.exe,

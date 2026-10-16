@@ -131,6 +131,64 @@ namespace DigitoyEngine.Language
             return s;
         }
 
+        // ---- GENERIC SANAL METOT (GVM) CANON SLOTU: dispatcher (CoreCLR GVMLookup / IL2CPP GetGenericVirtualMethod karsiligi, STATIK) ----
+        // Exact koddan GVM cagrisi exact slota gider (impl'in instantiating stub'u; ek maliyet yok). Canon govdeden cagri canon slota
+        // (<__Canon>) gider ve BILDIRILEN exact metodun sozlugunu (mdict_D.M<X>) gizli ilk arguman olarak gecer; bu sozluk callee'nin
+        // layout'u DEGILDIR (impl'in kendi sozlugu stub'ta yuklenir). Canon slot girisi bu dispatcher'dir: gelen sozluk isaretcisini
+        // slot kokunun (SlotRoot) her exact orneklemesinin sozlugu ile karsilastirir ve o orneklemenin exact slot girisine (impl stub)
+        // atlar. Kimlik = sozluk SEMBOLU (exact Code nesnesi) — ad yok; n = orneklemesi sayisi (kucuk), hash/tablo yok. Caller'in
+        // sozlugu override zincirindeki herhangi bir bildirimin (Base.M<X>/Derived.M<X>/IFoo.M<X>) exact'i olabilir -> hepsi tanınır.
+        static string GvmDispatchSym(Primitive model, Primitive iface, int slot) => $"de_gvm_{CName(model.Name)}_{(iface != null ? CName(iface.Name) + "_" : "")}{slot}";
+        static bool IsCanonGvmSlot(Code m) => m.MethodTypeArguments != null && Canon.ContainsCanon(m.MethodTypeArguments) && !Context.IsDictSentinel(m);
+        // Exact generic metot kabugunun sozluk sembolu var mi: govdeli canon'a bagli olanlar + IFACE GVM bildirimleri (govdesiz; sozluk
+        // yalniz dispatcher icin KIMLIK token'idir, layout bos).
+        static bool HasMethodDictSymbol(Code c) =>
+            c.Shared.HasMethodDict && c.Owner != null && (IsEmittableModel(c.Owner) || c.Owner.IsCanonForm)
+            && (IsEmittableCode(c.Shared) || (c.Owner.IsInterface && TrimPlan.IsTypeLive(c.Owner)));
 
+        // Canon GVM slot girisi: dispatcher uretilir (model birimine), adresi doner. table: ayni tablonun girisleri (vtable ya da itable),
+        // declared: slotlari bildiren tablo (model.VTable ya da iface.VTable) — exact slotlar oradan eslenir.
+        static string GvmSlotRef(Primitive model, Primitive iface, List<Code> declared, List<Code> table, int slot)
+        {
+            var canon = declared[slot];
+            var root = Hierarchy.SlotRootOf(EmitCtx, canon);
+            if (root == null) return VSlotRefOf(table[slot]);
+            string sym = GvmDispatchSym(model, iface, slot);
+            var k = canon.Shared; // canon imza (dispatcher'in imzasi + sozluk)
+            var an = CArgNames(k, new HashSet<string>());
+            var pars = new List<string> { "const void *const *__gdict" };
+            for (int i = 0; i < an.Length; i++) pars.Add($"{ParamCType(k.Arguments[i])} {an[i]}");
+            bool isVoid = k.ReturnType == null || k.ReturnType == Primitive.Void;
+            string ret = isVoid ? "void" : CType(k.ReturnType);
+            var sigArgs = k.Arguments.Select(a => (a.IsRef || a.IsOut) ? CType(a.Type) + "*" : CType(a.Type));
+            string fnSig = $"{ret}(*)({string.Join(", ", sigArgs)})";
+            var sb = new StringBuilder();
+            var externs = new HashSet<string>();
+            sb.Append($"{ret} {sym}({string.Join(", ", pars)}) {{\n");
+            var callArgs = string.Join(", ", an);
+            // bu tablodaki exact slotlar (ayni kok, canon icermeyen argumanlar): o argumanlarla bildirilen TUM exact sozlukler -> impl stub
+            for (int s = 0; s < declared.Count; s++)
+            {
+                var e = declared[s];
+                if (e.MethodTypeArguments == null || Canon.ContainsCanon(e.MethodTypeArguments) || Context.IsDictSentinel(e)) continue;
+                if (Hierarchy.SlotRootOf(EmitCtx, e) != root) continue;
+                var impl = table[s];
+                if (!IsEmittableCode(impl.Shared)) continue;
+                RequestStub(impl);
+                foreach (var d in Hierarchy.ExactDeclarationsOf(EmitCtx, root, e.MethodTypeArguments))
+                {
+                    if (!HasMethodDictSymbol(d)) continue;
+                    externs.Add($"extern const void *const {MethodDictSym(d)}[];\n"); // baska birimin sozlugu: yerel extern (tekrar bildirim serbest)
+                    sb.Append($"    if (__gdict == {MethodDictSym(d)}) {(isVoid ? "{ " : "return ")}(({fnSig})&{FnPtrSym(impl)})({callArgs}){(isVoid ? "; return; }" : ";")}\n");
+                }
+            }
+            sb.Append($"    DIGITOYENGINE_throw_notimpl(\"GVM: unknown instantiation dictionary ({sym})\");\n");
+            sb.Append("}\n");
+            var u = UnitOf(model);
+            foreach (var x in externs) u.H.Append(x);
+            u.H.Append($"{ret} {sym}({string.Join(", ", pars)});\n");
+            u.Pre.Append(sb.ToString());
+            return $"(const void*)&{sym}";
+        }
     }
 }

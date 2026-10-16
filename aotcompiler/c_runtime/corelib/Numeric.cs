@@ -22,6 +22,8 @@ namespace System
     }
     public struct Int64
     {
+        public const long MinValue = -9223372036854775807L - 1L;
+        public const long MaxValue = 9223372036854775807L;
         public extern override string ToString();
         public extern static bool TryParse(string s, out long result);
     }

@@ -16,6 +16,8 @@ namespace System.Text
             return Utf8Decode(bytes, index, count);
         }
         public byte[] GetBytes(string value) { if (value == null) throw new ArgumentNullException("s"); return Utf8Encode(value); }
+        // Span kaynagi: ToArray (intrinsic) ile kopyalanir — kisa UTF-8 anahtarlar icin kabul (hot path degil).
+        public string GetString(ReadOnlySpan<byte> bytes) { return Utf8Decode(bytes.ToArray(), 0, bytes.Length); }
 
         public static extern string Utf8Decode(byte[] bytes, int index, int count);
         public static extern byte[] Utf8Encode(string value);
