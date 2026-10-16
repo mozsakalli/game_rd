@@ -1,5 +1,44 @@
 # DigitoyEngine R&D (game_rd)
 
+## RICH TEXT — LayoutBox.text TMPro alt kümesi, alan eklenmeden (2026-10-17, richtext 42 PASS, Test/RichTextCheck.scene)
+- TAG'LER ([RichText.cs](../engine/managed/RichText.cs)): `<b> <i> <u> <color=#RRGGBB[AA]|ad> <size=N|+N|-N|N%> <font=ad>
+  <link=id> <noparse>` + kapanışları. `<b>` = SDF weight (+1.5), `<i>` = baseline etrafında shear (0.2) — font listesi
+  gerekmez; gerçek yüz `<font=Bold>` (Fonts tablosu adı). size/+-/% tabanı HER ZAMAN textSize (TMP gibi, iç içe
+  birikmez). Geçersiz/eşleşmeyen açılış **literal** (görünür hata), fazla kapanış yutulur, `>` 64 kr içinde yoksa tag
+  değil. `<noparse>` içi literal; `RichText.Escape(s)` kullanıcı metnini (nick) sarar. Her zaman açık; LayoutBox'a
+  alan EKLENMEDİ; sabitler `RichText`'te. TextSprite düz kaldı.
+- YERLEŞİM ([LayoutBox.Text.cs](../engine/managed/LayoutBox.Text.cs)): kalem uzayı SDF-px → **px** (span başına
+  `scale = Size / Font.EmPx`); kerning yalnız aynı font+boyut ardışık glyph'lerde; textSpacing px. Satır metriği =
+  satırdaki span'ların maks ascent/lineHeight; `TextPreferredH` satır toplamı; ellipsis satır sayısı yükseklik
+  biriktirerek. Tarayıcı `RichText.Cursor {Pos, State, Depth}` + kutudaki `Frame[16]` yığını; kelime kırılımında durum
+  **yeniden taramayla** (`Advance`) boşluk sonrasına döner (yığın kopyası yok). TUZAK (bulundu): kırılım öncesi
+  yerleşen büyük glyph satır metriğini büyütüyordu → asc/lh de boşluk anındaki snapshot'a döner.
+- QUAD: `TextQuad + Base/Size/Color/Flags(Italic|Underline|Color|Bold)/FontIdx`; font başına grup (`_tbFonts`, materyal
+  değişir; aynı sayfaysa merge sürer). Alt çizgi = fontun sayfasındaki UiPieces **solid** parçasından quad (baseline +
+  0.08em, kalınlık max(1, 0.06em); run başına tek quad; dolgu+gölgeye girer, kontura girmez; sayfa parçasızsa atlanır).
+  Italik quad = `Shear(twm, -0.2, oy+Base)` per-quad matris kopyası; renk span'ı gradient'i o quad'da ezer; `<b>`
+  `WeightEdge(textWeight + BoldWeight)` her frame (textWeight rebuild istemez). Cache anahtarına `Fonts.Version` +
+  `_tbFonts` BindVersion toplamı eklendi.
+- LINK: `LinkRect[]` (satır × link; x: run başı→son advance, y: satır üstü→altı). API `LinkAt(PointerEvent)` /
+  `LinkAtWorld(Vec3)` / `LinkAtLocal(Vec2)` → id (tek Substring) ya da null; `HasLinks`. LayoutBox'a pointer handler
+  KONMADI (lifecycle flag tip-statik → her kutu handler olurdu): oyun component'i `OnPointerClick` içinde
+  `box.LinkAt(e)` sorar — örnek `Projects/yuzbirextra/Assets/Test/Scripts/RichLinkProbe.cs`.
+- FONT ÇÖZÜMÜ PUSH'A ALINDI (kullanıcı: "MarkDirty varken neden her frame check"): `LayoutBox.Font => _rf`;
+  `ResolveFont()` OnEnable/OnValidate/FontName setter'da + `Fonts.Changed` (tablo yükleme/`Touch`/
+  `AssetDatabase.ObjectChanged(FontTable)`) → `_fontUsers` listesindeki etkin kutular yeniden çözer + MarkDirty.
+  `AssetDatabase.NoteObjectChanged(obj)` artık nesneyi verir (`ObjectChanged` olayı). TextSprite dirty zinciri
+  olmadığından `Fonts.Version` kıyası rebuild kapısında kaldı.
+- EDİTÖR: `LocAudit.GlyphCheck` `RichText.ForEachGlyph` ile tag'siz gezer, `<font=ad>` span'ını o fonta göre denetler.
+  `rpc.guide` scene bölümüne RICH TEXT satırı. Bench EKLENMEDİ (kullanıcı: oyun büyüyünce toplu).
+- KONTROL SAHNESİ (görsel doğrulama kullanıcıda): `Projects/yuzbirextra/Assets/Test/RichTextCheck.scene` (+ intent.md):
+  9 satır (düz/stil/renk/boyut/font/literal/link+wrap/ellipsis/kontur+gölge). RPC: describe 9 satır ekranda, link
+  tıklamaları `terms`/`privacy`/`outside` doğru. `[aot-compat] LinkAt yok` uyarısı bayat AOT engine DLL'inden (sonraki
+  player build'de geçer).
+- SIRADA / NOT: tüm metin tek yerden (LayoutBox.Text) üretildiğinden glyph quad'ları **sayfaya göre sıralanabilir**
+  (farklı font/atlas sayfası karışan ekranda draw sayısı kutu başına değil sayfa başına) — font indeksine göre ardışık
+  emisyon ilk adım; tam sıralama RenderQueue seviyesinde sonraki iş. Rich text editör araç çubuğu (B/I/U/Color/Size/
+  Link/Font▾, seçimi tag'le sarar) Faz A olarak bekliyor; canvas-üstü WYSIWYG ayrı karar.
+
 ## FONT KAYIT DEFTERİ — `Fonts.asset`, component font = AD (2026-10-17, catalogtest 14 PASS, RPC + pak doğrulandı)
 - KARAR (kullanıcı): font isteyen hiçbir component Font asset'ine DOĞRUDAN referans vermez; proje genelinde tek
   kayıt defteri `Assets/Fonts.asset` ([FontTable](../engine/managed/FontTable.cs): `Entries[{Name, Font}]` +
@@ -9,8 +48,8 @@
 - MODEL: `LayoutBox.font` / `TextSprite.FontName` = `[FontName] string` (`""` = varsayılan); `[FontName]` attribute
   (Attributes.cs) → `FieldSchema.FontName` (editör). Çözüm `Fonts.Resolve(ad)`: modül tabloları (son yüklenen önce)
   → host → `UiPieces.DefaultFont` (tablo yoksa; tanımsız ad varsayılana düşer, metin kaybolmaz). Component çözümü
-  `(ad, Fonts.Version, AssetDatabase.ObjectVersion)` ile cache'ler — sıcak yolda sözlük yok; çözüm değişince
-  LayoutBox `MarkDirty` (bayrak). Tablolar `SceneDoc.Spawn`/`SceneBinary.Spawn`'da `Fonts.Load(locScope, assets)`
+  (ilk sürüm) `(ad, Fonts.Version, ObjectVersion)` kıyasıyla cache'liyordu — **aynı gün push modeline alındı**
+  (RICH TEXT girişi: `ResolveFont` + `Fonts.Changed`). Tablolar `SceneDoc.Spawn`/`SceneBinary.Spawn`'da `Fonts.Load(locScope, assets)`
   ile yüklenir (anahtar `Fonts.TableKeyFor(LocTable)`; Localization kapsam kalıbının aynısı).
 - PAK: `BakeScene` host + kapsam `Fonts.asset`'i sahnenin bağımlılığı yapar → tablodaki fontlar pak'a girer,
   tabloda olmayan font KIRPILIR (yuzbirextra: Primary+Bold girdi, Light strip). `LocAudit.GlyphCheck` artık
@@ -28,7 +67,7 @@
 - **KURAL — ESKİ DOC GÖÇÜ YOK (kullanıcı, 2026-10-17):** mevcut sahnelerdeki `font: <guid>` değerleri dönüştürülmez,
   koda doc düzeltme/göç yolu SIZMAZ. Şu an tam oyun yazılmıyor; projeler eksik bulmak için prova. Eski değer
   Inspector'da `"<guid> (?)"` görünür ve varsayılan fonta düşer; kullanıcı oyun kodu ilerleyince göçü ayrıca ister.
-- SIRADA: rich text (İş 2) — `b i u color size link font=ad`, LayoutBox'a alan eklenmeden; `<b>` = SDF weight.
+- SIRADA: rich text (İş 2) — yukarıdaki RICH TEXT girişinde tamamlandı; font çözümü push modeline alındı (orada).
 
 ## METİN BOYUTU = EM (TMP fontSize ile 1:1) — Font.EmSize (2026-10-17)
 - Belirti: Unity'de 48 olan metin bizde ~60'ta eşleşiyordu; oran fonta göre değişiyordu (Primary 1.20, Bold/Light

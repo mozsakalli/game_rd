@@ -14,7 +14,8 @@ public enum TextAlign { Left, Center, Right }
 [AddComponentMenu("Rendering/Text Sprite")]
 public sealed unsafe class TextSprite : Renderer
 {
-    // Font bir AD'dir (FontTable; "" = varsayilan). Cozum cache'li (LayoutBox.Font ile ayni kural).
+    // Font bir AD'dir (FontTable; "" = varsayilan). Cozum rebuild kapisinda (EnsureLayout) Fonts.Version kiyasiyla —
+    // TextSprite'in dirty zinciri yok, yerlesim kiyas blogu zaten her frame okunur.
     [FontName] public string FontName = "";
     public string Text = "";
     public float Size = 32f;
@@ -22,18 +23,17 @@ public sealed unsafe class TextSprite : Renderer
 
     Font _rf;
     string _rfName;
-    int _rfVer = -1, _rfObjVer = -1;
+    int _rfVer = -1;
 
     public Font Font
     {
         get
         {
-            if (_rfVer != Fonts.Version || _rfObjVer != AssetDatabase.ObjectVersion || !ReferenceEquals(_rfName, FontName))
+            if (_rfVer != Fonts.Version || !ReferenceEquals(_rfName, FontName))
             {
                 _rf = Fonts.Resolve(FontName);
                 _rfName = FontName;
                 _rfVer = Fonts.Version;
-                _rfObjVer = AssetDatabase.ObjectVersion;
             }
             return _rf;
         }

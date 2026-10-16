@@ -30,6 +30,20 @@ public sealed class FontTable
         return null;
     }
 
+    // Alloc'suz ad (rich text <font=ad> rebuild yolu).
+    public Font Find(ReadOnlySpan<char> name)
+    {
+        if (name.Length == 0 || Entries == null)
+            return null;
+        for (int i = 0; i < Entries.Count; i++)
+        {
+            var e = Entries[i];
+            if (e != null && e.Name != null && name.SequenceEqual(e.Name.AsSpan()))
+                return e.Font;
+        }
+        return null;
+    }
+
     public bool Contains(string name) => IndexOf(name) >= 0;
 
     public int IndexOf(string name)
@@ -83,8 +97,22 @@ public static class Fonts
         return slash < 0 ? TableFile : locScope.Substring(0, slash + 1) + TableFile;
     }
 
-    // Her tablo yukleme/kayit/degisiminde artar; tuketiciler (LayoutBox/TextSprite) bununla cache tazeler.
+    // Her tablo yukleme/kayit/degisiminde artar ve Changed yayar; tuketiciler (LayoutBox) PUSH ile kirlenir —
+    // sicak yolda surum kiyasi yok.
     public static int Version { get; private set; }
+    public static event Action Changed;
+
+    static Fonts()
+    {
+        // Tablo nesnesi editorde kaydedilince / diskten yerinde yeniden yuklenince: tuketiciler yeniden cozsun.
+        AssetDatabase.ObjectChanged += o => { if (o is FontTable) Bump(); };
+    }
+
+    static void Bump()
+    {
+        Version++;
+        Changed?.Invoke();
+    }
 
     static readonly Dictionary<string, FontTable> _registered = new(StringComparer.Ordinal);
     static FontTable _host;
@@ -109,7 +137,7 @@ public static class Fonts
             _registered[key] = table;
             Attach(key, table);
         }
-        Version++;
+        Bump();
     }
 
     static void Forget(FontTable t)
@@ -123,13 +151,13 @@ public static class Fonts
     {
         if (key == TableFile)
         {
-            if (!ReferenceEquals(_host, t)) { _host = t; Version++; }
+            if (!ReferenceEquals(_host, t)) { _host = t; Bump(); }
             return;
         }
         if (!_modules.Contains(t))
         {
             _modules.Add(t);
-            Version++;
+            Bump();
         }
     }
 
@@ -159,7 +187,7 @@ public static class Fonts
     }
 
     // Editor: tablo icerigi degisti (satir eklendi/silindi/varsayilan degisti).
-    public static void Touch() => Version++;
+    public static void Touch() => Bump();
 
     // Ad -> Font. "" = varsayilan. Modul (son yuklenen once) -> host -> ilk yuklenen font.
     // Tanimsiz ad varsayilana duser (metin kaybolmaz; yanlis yuz gozle gorulur).
@@ -182,6 +210,20 @@ public static class Fonts
     }
 
     public static Font Default => Resolve(null);
+
+    // Rich text <font=ad>: tanimli ad -> Font, yoksa null (tag literal kalir). Alloc yok.
+    public static Font Resolve(ReadOnlySpan<char> name)
+    {
+        if (name.Length == 0)
+            return null;
+        for (int i = _modules.Count - 1; i >= 0; i--)
+        {
+            var f = _modules[i].Find(name);
+            if (f != null)
+                return f;
+        }
+        return _host?.Find(name);
+    }
 
     // Tanimli adlar (modul ezmeleri dahil, tekil; editor combolari / rpc.guide icin).
     public static void Names(List<string> into)

@@ -31,32 +31,61 @@ public sealed unsafe partial class LayoutBox
     [SerializeField, ShowIf(nameof(text))] Vec2 textShadowOffset = new(0, 4);
     [SerializeField, ShowIf(nameof(text))] float textShadowBlur = 8f;
 
-    // Ad -> Font cozumu (Fonts.Resolve) cache'li: tablo surumu / asset surumu / ad degisince yenilenir.
-    // Sicak yolda sozluk taramasi yok; cozum degisirse yerlesim kendiliginden kirlenir (_tbFont kiyasi).
+    // Ad -> Font cozumu PUSH modeli: ad degisince (setter/OnValidate/OnEnable) ve tablo degisince (Fonts.Changed ->
+    // tum etkin kutular) cozulur ve kutu kirlenir; sicak yolda surum kiyasi yok, getter duz alan okur.
     Font _rf;
-    string _rfName;
-    int _rfVer = -1, _rfObjVer = -1;
+    public Font Font => _rf ?? ResolveFont();
 
-    public Font Font
+    Font ResolveFont()
     {
-        get
+        var f = Fonts.Resolve(font);
+        if (!ReferenceEquals(f, _rf))
         {
-            if (_rfVer != Fonts.Version || _rfObjVer != AssetDatabase.ObjectVersion || !ReferenceEquals(_rfName, font))
-            {
-                var f = Fonts.Resolve(font);
-                if (_rfVer >= 0 && !ReferenceEquals(f, _rf))
-                    MarkDirty(); // tablo/ad degisti: olcum + yerlesim yeniden (bayrak; frame ortasinda guvenli)
-                _rf = f;
-                _rfName = font;
-                _rfVer = Fonts.Version;
-                _rfObjVer = AssetDatabase.ObjectVersion;
-            }
-            return _rf;
+            _rf = f;
+            MarkDirty();
+        }
+        return f;
+    }
+
+    // Etkin kutular (OnEnable/OnDisable); tablo degisince hepsi yeniden cozer. Motor tipi statigi (ALC reload'dan
+    // etkilenmez); kutu basina alloc yok (List buyumesi haric).
+    static readonly System.Collections.Generic.List<LayoutBox> _fontUsers = new();
+    static bool _fontsHooked;
+
+    static void OnFontsChanged()
+    {
+        int w = 0;
+        for (int i = 0; i < _fontUsers.Count; i++)
+        {
+            var b = _fontUsers[i];
+            if (b._destroyed)
+                continue; // OnDisable kacirilmis olu kutu: listeden duser
+            _fontUsers[w++] = b;
+            b.ResolveFont();
+        }
+        _fontUsers.RemoveRange(w, _fontUsers.Count - w);
+    }
+
+    void HookFonts()
+    {
+        if (!_fontsHooked) { _fontsHooked = true; Fonts.Changed += OnFontsChanged; }
+        _fontUsers.Add(this);
+        ResolveFont();
+    }
+
+    void UnhookFonts()
+    {
+        int i = _fontUsers.LastIndexOf(this);
+        if (i >= 0)
+        {
+            int last = _fontUsers.Count - 1;
+            _fontUsers[i] = _fontUsers[last];
+            _fontUsers.RemoveAt(last);
         }
     }
 
     // Yerlesimi etkileyenler kirletir; stil alanlari duz assignment (cache yok).
-    public string FontName { get => font; set { value ??= ""; if (font != value) { font = value; MarkDirty(); } } }
+    public string FontName { get => font; set { value ??= ""; if (font != value) { font = value; ResolveFont(); MarkDirty(); } } }
     public string Text { get => text; set { value ??= ""; if (text != value) { text = value; MarkDirty(); } } }
     // Parametreli ceviri: bagli sablon ("{0} coins") args ile yazilir, dil degisince ayni args'la yeniden.
     // Kod key bilmez. Bagli degilse mevcut Text sablon sayilir (tek seferlik). Bkz. Localize.
@@ -96,35 +125,68 @@ public sealed unsafe partial class LayoutBox
         }
     }
 
-    float TextScale => textSize / Font.EmPx;
+    // --- rich text (RichText.cs): tag'ler yerlesim kurulurken tuketilir; kalem uzayi PX (span basina font/boyut
+    // degisebildiginden tek bir SDF-px olcegi yok: her glyph kendi scale = Size / Font.EmPx ile px'e gecer). ---
 
-    // Sabit px spacing'in SDF-px karsiligi (kalem uzayi; quad kurulurken *scale
-    // ile geri carpilir -> net etki advance*scale + textSpacing).
-    float SpacingSdf => textSpacing / TextScale;
+    readonly RichText.Frame[] _rtStack = new RichText.Frame[RichText.MaxDepth]; // ic ice tag yigini (rebuild)
 
-    // --- yerlesim cache'i (icerik sol-ust orijinli lokal uzay) ---
+    RichText.Cursor TextStart() => RichText.Cursor.Start(textSize, Font);
+
+    static float ScaleOf(in RichText.State st) => st.Size / st.Font.EmPx;
+
+    // --- yerlesim cache'i (icerik sol-ust orijinli lokal uzay, px) ---
+
+    const byte QfItalic = 1, QfUnderline = 2, QfColor = 4, QfBold = 8;
 
     struct TextQuad
     {
         public float X0, Y0, X1, Y1; // icerik uzayi (y-down, blok ustu y=0)
         public float U0, V0, U1, V1; // V takasli (CPU atlas satir 0 ustte)
+        public float Base, Size;     // satir baseline'i (italik shear merkezi), em px (kontur/golge olcegi)
+        public Color Color;          // QfColor: span rengi (dolgu gradient'ini ezer)
+        public byte Flags, FontIdx;  // FontIdx: _tbFonts indeksi (materyal gruplama)
+    }
+
+    struct LinkRect
+    {
+        public float X0, Y0, X1, Y1; // icerik uzayi
+        public int IdStart, IdLen;   // text icindeki id araligi
     }
 
     TextQuad[] _tq;
     int _tqCount;
+    LinkRect[] _links;
+    int _linkCount;
+    Font[] _tbFonts = new Font[4];
+    int _tbFontCount;
     float _tbBlockH;
     Font _tbFont;
-    int _tbBind;
+    int _tbBind, _tbFontsVer;
     string _tbText;
     float _tbSize, _tbAvailW, _tbAvailH, _tbSpacing;
     TextAlign _tbAlign;
     LayoutAlign _tbAlignV;
     bool _tbWrap, _tbEllipsis;
 
+    public bool HasLinks => _linkCount > 0;
+
+    // Test kancalari (editor testleri; davranis degil gozlem).
+    internal int TextQuadCount => _tqCount;
+    internal int TextFontCount => _tbFontCount;
+    internal int LinkCount => _linkCount;
+
     // --- olcum (PreferredW/H'den cagrilir; metin = icerik) ---
 
+    struct Line
+    {
+        public RichText.Cursor Start; // satir basi (konum + durum): kurulum buradan yeniden tarar
+        public int End;               // [Start.Pos, End) — kirilan bosluk / '\n' haric
+        public float W, InkL, InkR;   // advance toplami, murekkep sol/sag kenari (px, kalem orijinine gore)
+        public float Asc, H;          // satirdaki span'larin maks ascent / satir yuksekligi (px)
+    }
+
     // Dogal (wrap'siz) en genis satir. Wrap + authored genislik varsa metin
-    // kutuyu GENISLETMEZ (icine sarilir) â€” 0 doner, authored width kazanir.
+    // kutuyu GENISLETMEZ (icine sarilir) — 0 doner, authored width kazanir.
     float TextPreferredW()
     {
         if (!HasText)
@@ -132,126 +194,189 @@ public sealed unsafe partial class LayoutBox
         if (textWrap && width > 0)
             return 0;
         float mx = 0;
-        int pos = 0;
+        var cur = TextStart();
         // Yatayda murekkep kutusu: ilk glyph'in sol boslugu ve son glyph'in
         // advance'i sayilmaz (kutu metne tam sarilir). Dikey metrik kalir.
-        while (NextLine(ref pos, float.MaxValue, out _, out _, out _, out float inkL, out float inkR))
-            mx = MathF.Max(mx, inkR - inkL);
-        return mx * TextScale + padLeft + padRight;
+        while (NextLine(ref cur, float.MaxValue, out var ln))
+            mx = MathF.Max(mx, ln.InkR - ln.InkL);
+        return mx + padLeft + padRight;
     }
 
-    // Satir sayisi * satir yuksekligi. Wrap genisligi = authored width (varsa);
-    // grow/stretch'te nihai _rw olcum aninda bilinmez â€” bilinccli yaklasiklik.
+    // Satir yukseklikleri toplami (karisik boyutta satir basina maks). Wrap genisligi = authored width (varsa);
+    // grow/stretch'te nihai _rw olcum aninda bilinmez — bilincli yaklasiklik.
     float TextPreferredH()
     {
         if (!HasText)
             return 0;
-        float scale = TextScale;
         float wrapW = textWrap && width > 0
-            ? MathF.Max(1f, width - padLeft - padRight) / scale
+            ? MathF.Max(1f, width - padLeft - padRight)
             : float.MaxValue;
-        int n = 0, pos = 0;
-        while (NextLine(ref pos, wrapW, out _, out _, out _, out _, out _))
-            n++;
-        return n * Font.LineHeight * scale + padTop + padBottom;
+        float h = 0;
+        var cur = TextStart();
+        while (NextLine(ref cur, wrapW, out var ln))
+            h += ln.H;
+        return h + padTop + padBottom;
     }
 
     // --- satir kirici (greedy word wrap; olcum + kurulum ayni yolu kullanir) ---
-    // pos'tan bir satir tuketir; genislikler SDF-px uzayinda. Kirilim tercihen
-    // son bosluktan (bosluk yutulur, genislige girmez); tek kelime sigmazsa
-    // karakter kirilimi (satir basina en az 1 glyph â€” sonsuz dongu olmaz).
-    // w = advance toplami (ellipsis kirpma olcusu). inkL/inkR = murekkep sol/sag
-    // kenari (kalem orijinine gore). Sigma testi murekkep genisligiyle yapilir
-    // (inkR-inkL <= availW) â€” Grow'da availW = murekkep olcusu, advance ile
-    // karsilastirmak sahte wrap uretirdi.
-    bool NextLine(ref int pos, float availW, out int start, out int end, out float w, out float inkL, out float inkR)
+    // cur'dan bir satir tuketir; genislikler px. Kirilim tercihen son bosluktan (bosluk yutulur, genislige
+    // girmez; durum o noktaya YENIDEN TARAMAYLA geri sarilir — yigin kopyasi gerekmez), tek kelime sigmazsa
+    // karakter kirilimi (satir basina en az 1 glyph — sonsuz dongu olmaz). Sigma testi murekkep genisligiyle
+    // (inkR-inkL <= availW) — Grow'da availW = murekkep olcusu, advance ile karsilastirmak sahte wrap uretirdi.
+    // Kerning yalniz ayni font+boyut ardisik glyph'ler arasinda; textSpacing her glyph arasina px.
+    bool NextLine(ref RichText.Cursor cur, float availW, out Line ln)
     {
         string s = text;
-        var font = Font; // cozumlu font (alan 'font' = ad)
         int len = s.Length;
-        start = pos;
-        end = pos;
-        w = 0;
-        inkL = 0;
-        inkR = 0;
-        if (pos > len)
+        ln = default;
+        ln.Start = cur;
+        if (cur.Pos > len)
             return false;
-        int prev = -1, lastSp = -1;
-        float wAtSp = 0, inkRAtSp = 0;
-        for (int i = start; i < len; i++)
+        int i = cur.Pos;
+        float asc = cur.St.Font.Ascent * ScaleOf(in cur.St);
+        float lh = cur.St.Font.LineHeight * ScaleOf(in cur.St);
+        float w = 0, inkL = 0, inkR = 0;
+        int n = 0, prevGi = -1, lastSp = -1;
+        Font prevFont = null;
+        float prevScale = 0, wAtSp = 0, inkRAtSp = 0, ascAtSp = 0, lhAtSp = 0;
+        int end, pos;
+        while (i < len)
         {
             char c = s[i];
+            if (c == '<' && RichText.TryTag(s, ref i, ref cur.St, _rtStack, ref cur.Depth, textSize))
+                continue;
             if (c == '\n')
             {
                 end = i;
                 pos = i + 1;
-                return true;
+                goto Done;
             }
+            var font = cur.St.Font;
+            float scale = ScaleOf(in cur.St);
             int gi = font.GlyphIndex(c);
             ref readonly var g = ref font.GlyphAt(gi);
-            // Spacing glyph'ler ARASINA girer (ilk glyph'ten once / sonuncudan sonra yok):
-            // satir genisligi = advance toplami + (n-1)*spacing â€” aksi halde align kayar.
-            float gap = prev >= 0 ? font.Kerning(prev, gi) + SpacingSdf : 0;
-            float add = gap + g.Advance;
-            // Murekkep kenarlari: glyph'in alt-piksel InkL/InkR'si (quad/pad degil, gorunen piksel).
+            float kern = prevGi >= 0 && ReferenceEquals(prevFont, font) && prevScale == scale ? font.Kerning(prevGi, gi) * scale : 0;
+            float gap = prevGi >= 0 ? kern + textSpacing : 0;
+            float add = gap + g.Advance * scale;
             bool ink = g.W > 0;
-            float l = prev < 0 && ink ? g.InkL : inkL;
-            float r = ink ? MathF.Max(inkR, w + gap + g.InkR) : inkR;
+            float l = prevGi < 0 && ink ? g.InkL * scale : inkL;
+            float r = ink ? MathF.Max(inkR, w + gap + g.InkR * scale) : inkR;
             if (c == ' ')
             {
                 lastSp = i;
                 wAtSp = w;
                 inkRAtSp = inkR;
+                ascAtSp = asc;
+                lhAtSp = lh;
             }
-            else if (r - l > availW && i > start)
+            else if (r - l > availW && n > 0)
             {
-                if (lastSp >= start)
+                if (lastSp >= ln.Start.Pos)
                 {
+                    // Bosluktan sonra yerlesmis glyph'ler (ve metrikleri) bu satira ait degil: snapshot'a don.
                     end = lastSp;
                     w = wAtSp;
                     inkR = inkRAtSp;
+                    asc = ascAtSp;
+                    lh = lhAtSp;
                     pos = lastSp + 1;
+                    cur = ln.Start;
+                    Advance(ref cur, pos); // durum = bosluktan sonraki durum
                 }
                 else
                 {
                     end = i;
                     pos = i;
                 }
-                return true;
+                goto Done;
             }
+            asc = MathF.Max(asc, font.Ascent * scale);
+            lh = MathF.Max(lh, font.LineHeight * scale);
             inkL = l;
             inkR = r;
             w += add;
-            prev = gi;
+            prevGi = gi;
+            prevFont = font;
+            prevScale = scale;
+            n++;
+            i++;
         }
         end = len;
         pos = len + 1; // sentinel: metin bitti
+    Done:
+        cur.Pos = pos;
+        ln.End = end;
+        ln.W = w;
+        ln.InkL = inkL;
+        ln.InkR = inkR;
+        ln.Asc = asc;
+        ln.H = lh;
         return true;
     }
 
-    // [st,en) icinden maxW'ye sigan glyph sayisi (ellipsis kirpma noktasi).
-    int FitCount(int st, int en, float maxW, out float w)
+    // cur'u to konumuna ilerletir (tag'leri tuketerek; olcum yok).
+    void Advance(ref RichText.Cursor cur, int to)
     {
-        w = 0;
-        var font = Font;
-        int prev = -1, n = 0;
-        for (int i = st; i < en; i++)
+        string s = text;
+        int i = cur.Pos;
+        while (i < to)
         {
-            int gi = font.GlyphIndex(text[i]);
-            float add = (prev >= 0 ? font.Kerning(prev, gi) + SpacingSdf : 0) + font.GlyphAt(gi).Advance;
+            if (s[i] == '<' && RichText.TryTag(s, ref i, ref cur.St, _rtStack, ref cur.Depth, textSize))
+                continue;
+            i++;
+        }
+        cur.Pos = i;
+    }
+
+    // Satirin basindan maxW'ye sigan glyph'lerin bitis indeksi (ellipsis kirpma noktasi); cut = o noktadaki durum.
+    int FitCount(in Line ln, float maxW, out float w, out RichText.Cursor cut)
+    {
+        string s = text;
+        var cur = ln.Start;
+        int i = cur.Pos;
+        w = 0;
+        int prevGi = -1;
+        Font prevFont = null;
+        float prevScale = 0;
+        while (i < ln.End)
+        {
+            if (s[i] == '<' && RichText.TryTag(s, ref i, ref cur.St, _rtStack, ref cur.Depth, textSize))
+                continue;
+            var font = cur.St.Font;
+            float scale = ScaleOf(in cur.St);
+            int gi = font.GlyphIndex(s[i]);
+            float kern = prevGi >= 0 && ReferenceEquals(prevFont, font) && prevScale == scale ? font.Kerning(prevGi, gi) * scale : 0;
+            float add = (prevGi >= 0 ? kern + textSpacing : 0) + font.GlyphAt(gi).Advance * scale;
             if (w + add > maxW)
                 break;
             w += add;
-            prev = gi;
-            n++;
+            prevGi = gi;
+            prevFont = font;
+            prevScale = scale;
+            i++;
         }
-        return st + n;
+        cur.Pos = i;
+        cut = cur;
+        return i;
+    }
+
+    // "..." genisligi (px): oncesinde metin varken her noktanin onune spacing girer.
+    float DotsWidth(in RichText.State st)
+        => st.Font.MeasureLine("...".AsSpan()) * ScaleOf(in st) + 3 * textSpacing;
+
+    int BindSum()
+    {
+        int v = 0;
+        for (int i = 0; i < _tbFontCount; i++)
+            v += _tbFonts[i].BindVersion;
+        return v;
     }
 
     void EnsureTextLayout(float availW, float availH)
     {
         var font = Font;
-        if (_tq != null && ReferenceEquals(_tbFont, font) && _tbBind == font.BindVersion && _tbText == text
+        if (_tq != null && ReferenceEquals(_tbFont, font) && _tbBind == BindSum() && _tbFontsVer == Fonts.Version
+            && _tbText == text
             && _tbSize == textSize && _tbAlign == textAlign && _tbAlignV == textAlignV
             && _tbWrap == textWrap && _tbEllipsis == textEllipsis
             && _tbSpacing == textSpacing
@@ -259,7 +384,8 @@ public sealed unsafe partial class LayoutBox
             return;
         BuildTextQuads(availW, availH);
         _tbFont = font;
-        _tbBind = font.BindVersion;
+        _tbBind = BindSum();
+        _tbFontsVer = Fonts.Version;
         _tbText = text;
         _tbSize = textSize;
         _tbAlign = textAlign;
@@ -271,96 +397,290 @@ public sealed unsafe partial class LayoutBox
         _tbAvailH = availH;
     }
 
+    // Satir ici kalem durumu: konum + kerning oncesi + alt cizgi / link run'lari (satir sonunda flush).
+    struct Pen
+    {
+        public float X;
+        public int PrevGi;
+        public Font PrevFont;
+        public float PrevScale;
+        public bool UlActive, UlHasColor;
+        public float UlX0, UlX1, UlBase, UlSize;
+        public Font UlFont;
+        public Color UlColor;
+        public bool LinkActive;
+        public float LinkX0, LinkX1, LinkTop, LinkH;
+        public int LinkStart, LinkLen;
+    }
+
     void BuildTextQuads(float availW, float availH)
     {
-        var font = Font;
-        float scale = TextScale;
-        // FP toleransi (SDF-px): Grow'da availW = TextPreferredW'nin *scale ile
-        // buyutulmus olcumu; burada /scale ile geri donunce (ozellikle textSpacing'in
-        // SpacingSdf bolmesiyle) birkac ULP kucuk cikar ve tam sigan satir sahte
-        // wrap/ellipsis'e duserdi. Yarim SDF-px gorsel olarak farkedilmez.
-        const float fitEps = 0.5f;
-        float wrapW = textWrap ? MathF.Max(availW, 1f) / scale + fitEps : float.MaxValue;
-        float lineH = font.LineHeight * scale;
+        // FP toleransi (px): Grow'da availW = TextPreferredW'nin olcumu; birkac ULP kucuk cikarsa tam sigan
+        // satir sahte wrap/ellipsis'e duserdi. Ceyrek px gorsel olarak farkedilmez.
+        const float fitEps = 0.25f;
+        float wrapW = textWrap ? MathF.Max(availW, 1f) + fitEps : float.MaxValue;
 
-        int total = 0;
+        // 1. gecis: satir sayisi + (ellipsis) yukseklige sigan satir sayisi.
+        int total = 0, fit = 0;
         {
-            int pos = 0;
-            while (NextLine(ref pos, wrapW, out _, out _, out _, out _, out _))
+            float hAcc = 0;
+            var cur = TextStart();
+            while (NextLine(ref cur, wrapW, out var ln))
+            {
                 total++;
+                hAcc += ln.H;
+                if (hAcc <= availH + 0.001f)
+                    fit++;
+            }
         }
-        int lines = total;
-        if (textEllipsis && lineH > 0)
-            lines = Math.Max(1, Math.Min(total, (int)(availH / lineH + 0.001f)));
+        int lines = textEllipsis ? Math.Max(1, Math.Min(total, fit)) : total;
 
-        _tbBlockH = lines * lineH;
-        int cap = text.Length + 3 * lines + 1; // her satira olasi "..." payi
+        int cap = text.Length + 3 * lines + 1; // her satira olasi "..." payi (alt cizgi quad'lari gerekirse buyutur)
         if (_tq == null || _tq.Length < cap)
             _tq = new TextQuad[cap];
         _tqCount = 0;
+        _linkCount = 0;
+        _tbFontCount = 0;
+        FontIndex(Font);
 
-        float clipW = availW / scale + fitEps;
-        // "..." genisligi: oncesinde metin varken her noktanin onune spacing girer.
-        float dotsW = font.MeasureLine("...".AsSpan()) + 3 * SpacingSdf;
-        int p = 0;
+        float clipW = availW + fitEps;
+        float y = 0;
+        var c2 = TextStart();
         for (int li = 0; li < lines; li++)
         {
-            NextLine(ref p, wrapW, out int st, out int en, out float w, out float inkL, out float inkR);
+            NextLine(ref c2, wrapW, out var ln);
             // Ellipsis: blogun kirpilan son satiri VEYA availW'yi asan satir.
-            bool dots = textEllipsis && ((li == lines - 1 && li < total - 1) || inkR - inkL > clipW);
+            bool dots = textEllipsis && ((li == lines - 1 && li < total - 1) || ln.InkR - ln.InkL > clipW);
+            int en = ln.End;
+            var cut = ln.Start;
             if (dots)
             {
-                en = FitCount(st, en, clipW - dotsW, out float wc);
+                float dotsW = DotsWidth(in ln.Start.St);
+                en = FitCount(in ln, clipW - dotsW, out float wc, out cut);
                 // "..." ile biten satirda advance tabanli olcu yeterli.
-                inkL = 0;
-                inkR = wc + dotsW;
+                ln.InkL = 0;
+                ln.InkR = wc + dotsW;
             }
             // Murekkep kutusuna gore hizalama: sol kenar = ilk glyph'in murekkebi.
             float xs = textAlign switch
             {
-                TextAlign.Right => availW - inkR * scale,
-                TextAlign.Center => (availW - (inkR - inkL) * scale) * 0.5f - inkL * scale,
-                _ => -inkL * scale,
+                TextAlign.Right => availW - ln.InkR,
+                TextAlign.Center => (availW - (ln.InkR - ln.InkL)) * 0.5f - ln.InkL,
+                _ => -ln.InkL,
             };
-            float baseY = li * lineH + font.Ascent * scale;
-            float pen = 0;
-            int prev = -1;
-            EmitRun(text.AsSpan(st, en - st), xs, baseY, scale, ref pen, ref prev);
+            float baseY = y + ln.Asc;
+            var pen = new Pen { PrevGi = -1 };
+            var cur = ln.Start;
+            EmitRun(ref cur, en, xs, baseY, y, ln.H, ref pen);
             if (dots)
-                EmitRun("...".AsSpan(), xs, baseY, scale, ref pen, ref prev);
+                EmitChars("...".AsSpan(), in cut.St, xs, baseY, y, ln.H, ref pen);
+            FlushUnderline(ref pen);
+            FlushLink(ref pen);
+            y += ln.H;
         }
+        _tbBlockH = y;
     }
 
-    // Glyph run'ini quad'lara doker; pen/prev SDF-px kalem durumu satir icinde surer.
-    void EmitRun(ReadOnlySpan<char> s, float xs, float baseY, float scale, ref float pen, ref int prev)
+    // [cur.Pos, end) araligini quad'lara doker (tag'ler tuketilir); pen satir icinde surer.
+    void EmitRun(ref RichText.Cursor cur, int end, float xs, float baseY, float lineTop, float lineH, ref Pen pen)
     {
-        var font = Font;
-        for (int i = 0; i < s.Length; i++)
+        string s = text;
+        int i = cur.Pos;
+        while (i < end)
         {
-            int gi = font.GlyphIndex(s[i]);
-            if (prev >= 0)
-                pen += font.Kerning(prev, gi) + SpacingSdf;
-            ref readonly var g = ref font.GlyphAt(gi);
-            if (g.W > 0 && g.H > 0 && g.Sprite != null)
-            {
-                // V takasi: sayfada satir 0 ustte, quad V0 = alt kenar.
-                var sp = g.Sprite;
-                _tq[_tqCount++] = new TextQuad
-                {
-                    X0 = xs + (pen + g.XOff) * scale,
-                    Y0 = baseY + g.YOff * scale,
-                    X1 = xs + (pen + g.XOff + g.W) * scale,
-                    Y1 = baseY + (g.YOff + g.H) * scale,
-                    U0 = sp.U0,
-                    V0 = sp.V1,
-                    U1 = sp.U1,
-                    V1 = sp.V0,
-                };
-            }
-            pen += g.Advance;
-            prev = gi;
+            if (s[i] == '<' && RichText.TryTag(s, ref i, ref cur.St, _rtStack, ref cur.Depth, textSize))
+                continue;
+            EmitGlyph(s[i], in cur.St, xs, baseY, lineTop, lineH, ref pen);
+            i++;
         }
+        cur.Pos = i;
     }
+
+    void EmitChars(ReadOnlySpan<char> s, in RichText.State st, float xs, float baseY, float lineTop, float lineH, ref Pen pen)
+    {
+        for (int i = 0; i < s.Length; i++)
+            EmitGlyph(s[i], in st, xs, baseY, lineTop, lineH, ref pen);
+    }
+
+    void EmitGlyph(char c, in RichText.State st, float xs, float baseY, float lineTop, float lineH, ref Pen pen)
+    {
+        var font = st.Font;
+        float scale = ScaleOf(in st);
+        int gi = font.GlyphIndex(c);
+        if (pen.PrevGi >= 0)
+            pen.X += (ReferenceEquals(pen.PrevFont, font) && pen.PrevScale == scale ? font.Kerning(pen.PrevGi, gi) * scale : 0) + textSpacing;
+
+        // Alt cizgi run'i: ayni font/boyut/renk surdukce tek quad; degisince ya da span bitince flush.
+        if (st.Underline)
+        {
+            if (!pen.UlActive || !ReferenceEquals(pen.UlFont, font) || pen.UlSize != st.Size
+                || pen.UlHasColor != st.HasColor || (st.HasColor && !SameColor(pen.UlColor, st.Color)))
+            {
+                FlushUnderline(ref pen);
+                pen.UlActive = true;
+                pen.UlX0 = xs + pen.X;
+                pen.UlBase = baseY;
+                pen.UlSize = st.Size;
+                pen.UlFont = font;
+                pen.UlColor = st.Color;
+                pen.UlHasColor = st.HasColor;
+            }
+        }
+        else if (pen.UlActive)
+            FlushUnderline(ref pen);
+
+        // Link run'i: ayni id surdukce tek rect (satir basina).
+        if (st.InLink)
+        {
+            if (!pen.LinkActive || pen.LinkStart != st.LinkStart || pen.LinkLen != st.LinkLen)
+            {
+                FlushLink(ref pen);
+                pen.LinkActive = true;
+                pen.LinkX0 = xs + pen.X;
+                pen.LinkTop = lineTop;
+                pen.LinkH = lineH;
+                pen.LinkStart = st.LinkStart;
+                pen.LinkLen = st.LinkLen;
+            }
+        }
+        else if (pen.LinkActive)
+            FlushLink(ref pen);
+
+        ref readonly var g = ref font.GlyphAt(gi);
+        if (g.W > 0 && g.H > 0 && g.Sprite != null)
+        {
+            // V takasi: sayfada satir 0 ustte, quad V0 = alt kenar.
+            var sp = g.Sprite;
+            byte flags = 0;
+            if (st.Italic) flags |= QfItalic;
+            if (st.Bold) flags |= QfBold;
+            if (st.HasColor) flags |= QfColor;
+            PushQuad(new TextQuad
+            {
+                X0 = xs + pen.X + g.XOff * scale,
+                Y0 = baseY + g.YOff * scale,
+                X1 = xs + pen.X + (g.XOff + g.W) * scale,
+                Y1 = baseY + (g.YOff + g.H) * scale,
+                U0 = sp.U0,
+                V0 = sp.V1,
+                U1 = sp.U1,
+                V1 = sp.V0,
+                Base = baseY,
+                Size = st.Size,
+                Color = st.Color,
+                Flags = flags,
+                FontIdx = FontIndex(font),
+            });
+        }
+        pen.X += g.Advance * scale;
+        pen.UlX1 = pen.LinkX1 = xs + pen.X;
+        pen.PrevGi = gi;
+        pen.PrevFont = font;
+        pen.PrevScale = scale;
+    }
+
+    // Alt cizgi = fontun sayfasindaki UiPieces solid parcasindan duz quad (ayni materyal, tek draw);
+    // konum/kalinlik em oranindan (TTF post tablosu okunmuyor). Kontur gecisine girmez (EncodeText).
+    void FlushUnderline(ref Pen pen)
+    {
+        if (!pen.UlActive)
+            return;
+        pen.UlActive = false;
+        var page = pen.UlFont.Page;
+        if (page == null || !page.HasPieces || pen.UlX1 <= pen.UlX0)
+            return;
+        // Nokta UV OLMAZ: SDF shader kenar rampasini UV turevinden alir (turev 0 -> NaN, gorunmez). Kutu
+        // dolgusu gibi solid parcanin IC 16 px'i (8 px pad: bilinear komsu sizmasi yok), V takasli.
+        pen.UlFont.Pieces.Uv(UiPieces.SolidX + 8, UiPieces.SolidY + 8, 16, 16, out float u0, out float v0, out float u1, out float v1);
+        float y0 = pen.UlBase + pen.UlSize * RichText.UnderlineOffset;
+        float th = MathF.Max(1f, pen.UlSize * RichText.UnderlineThickness);
+        PushQuad(new TextQuad
+        {
+            X0 = pen.UlX0, Y0 = y0, X1 = pen.UlX1, Y1 = y0 + th,
+            U0 = u0, V0 = v1, U1 = u1, V1 = v0,
+            Base = pen.UlBase, Size = pen.UlSize, Color = pen.UlColor,
+            Flags = (byte)(QfUnderline | (pen.UlHasColor ? QfColor : 0)),
+            FontIdx = FontIndex(pen.UlFont),
+        });
+    }
+
+    void FlushLink(ref Pen pen)
+    {
+        if (!pen.LinkActive)
+            return;
+        pen.LinkActive = false;
+        if (pen.LinkX1 <= pen.LinkX0)
+            return;
+        if (_links == null)
+            _links = new LinkRect[4];
+        else if (_linkCount == _links.Length)
+            Array.Resize(ref _links, _links.Length * 2);
+        _links[_linkCount++] = new LinkRect
+        {
+            X0 = pen.LinkX0, Y0 = pen.LinkTop, X1 = pen.LinkX1, Y1 = pen.LinkTop + pen.LinkH,
+            IdStart = pen.LinkStart, IdLen = pen.LinkLen,
+        };
+    }
+
+    void PushQuad(in TextQuad q)
+    {
+        if (_tqCount == _tq.Length)
+            Array.Resize(ref _tq, Math.Max(16, _tq.Length * 2));
+        _tq[_tqCount++] = q;
+    }
+
+    byte FontIndex(Font f)
+    {
+        for (int i = 0; i < _tbFontCount; i++)
+            if (ReferenceEquals(_tbFonts[i], f))
+                return (byte)i;
+        if (_tbFontCount == _tbFonts.Length)
+            Array.Resize(ref _tbFonts, _tbFonts.Length * 2);
+        _tbFonts[_tbFontCount] = f;
+        return (byte)_tbFontCount++;
+    }
+
+    static bool SameColor(Color a, Color b) => a.r == b.r && a.g == b.g && a.b == b.b && a.a == b.a;
+
+    // --- link vurusu (<link=id>): pointer handler'i olan component sorar; LayoutBox'in kendi handler'i yok ---
+
+    // e.hit.Point (down anindaki dunya noktasi) -> icerik uzayi -> link id; yoksa null. Eslesmede tek Substring.
+    public string LinkAt(PointerEvent e) => e == null ? null : LinkAtWorld(e.hit.Point);
+
+    public string LinkAtWorld(Vec3 world)
+    {
+        if (_linkCount == 0)
+            return null;
+        ref var wm = ref transform._getWorldMatrix();
+        if (!Mat4.Inverse(ref wm, out var inv))
+            return null;
+        var lp = Mat4.TransformPoint(ref inv, world);
+        return LinkAtLocal(new Vec2(lp.x, lp.y));
+    }
+
+    // Kutu lokal noktasi (pivot orijinli, y-down).
+    public string LinkAtLocal(Vec2 local)
+    {
+        if (_linkCount == 0)
+            return null;
+        float availH = _rh - padTop - padBottom;
+        float cx = local.x - (-pivot.x * _rw + padLeft);
+        float cy = local.y - (-pivot.y * _rh + padTop + TextVAlignOffset(availH));
+        for (int i = 0; i < _linkCount; i++)
+        {
+            ref readonly var l = ref _links[i];
+            if (cx >= l.X0 && cx <= l.X1 && cy >= l.Y0 && cy <= l.Y1)
+                return text.Substring(l.IdStart, l.IdLen);
+        }
+        return null;
+    }
+
+    float TextVAlignOffset(float availH) => textAlignV switch
+    {
+        LayoutAlign.Center => (availH - _tbBlockH) * 0.5f,
+        LayoutAlign.End => availH - _tbBlockH,
+        _ => 0f,
+    };
 
     // --- cizim (Encode sonunda, kutu quad'larindan SONRA = ayni layer'da ustte) ---
 
@@ -389,14 +709,7 @@ public sealed unsafe partial class LayoutBox
             return;
 
         float ox = x0 + padLeft;
-        float oy = y0 + padTop + textAlignV switch
-        {
-            LayoutAlign.Center => (availH - _tbBlockH) * 0.5f,
-            LayoutAlign.End => availH - _tbBlockH,
-            _ => 0f,
-        };
-        var mat = Font.Material.ForBlend(BlendMode).ForEffects(Effects);
-        float scale = TextScale;
+        float oy = y0 + padTop + TextVAlignOffset(availH);
 
         // Italik shear (SADECE geometri; TextSprite paritesi): blok dikey merkezi
         // etrafinda x' = x - skew*(y - cy). Matrisin y kolonuna x kolonu karisir,
@@ -404,65 +717,99 @@ public sealed unsafe partial class LayoutBox
         // (klip quad kirpmasi icerik uzayinda, shear world matrisinde).
         Mat4 twm = wm;
         if (textSkew != 0f)
-        {
-            float k = -textSkew; // y-down: ust saga yatar
-            float cy = oy + _tbBlockH * 0.5f;
-            twm.m[4] += twm.m[0] * k;
-            twm.m[5] += twm.m[1] * k;
-            twm.m[6] += twm.m[2] * k;
-            twm.m[12] -= wm.m[0] * k * cy;
-            twm.m[13] -= wm.m[1] * k * cy;
-            twm.m[14] -= wm.m[2] * k * cy;
-        }
+            Shear(ref twm, -textSkew, oy + _tbBlockH * 0.5f); // y-down: ust saga yatar
 
-        // Dolgu kenari weight ile kayar; kontur kenar merkezi oradan disari kayar
-        // (SDF deger uzayi; TextSprite ile ayni).
-        float cFill = TextSprite.WeightEdge(textWeight);
-        float cOut = 0f;
-        if (textOutlineWidth > 0 && scale > 0)
-            cOut = MathF.Max(cFill - textOutlineWidth / scale / TextSdfSpread, 0.05f);
-
+        // Font (sayfa) basina grup: materyal degisir; ayni sayfadaki gruplar RenderQueue'da merge olur.
         // Painter sirasi ayni layer'da submit sirasi: golge -> kontur -> dolgu.
-        // Golge/kontur USER.y NEGATIF: MSDF sayfada gercek SDF (.a) okunur â€” kenardan
+        // Golge/kontur USER.y NEGATIF: MSDF sayfada gercek SDF (.a) okunur — kenardan
         // uzak/kaydirilmis esikler median'da guvenilir degil; R8 sayfada isaret yok sayilir.
-        if (textShadowColor.a > 0)
+        bool oh = textOutline.IsHorizontal, fh = textFill.IsHorizontal;
+        for (int fi = 0; fi < _tbFontCount; fi++)
         {
-            float s = textShadowBlur > 0
-                ? textShadowBlur * 0.5f / scale / TextSdfSpread : 0f;
-            var user = new Vec4(s, -(cOut > 0 ? cOut : cFill), 0f, 0f); // kontur varsa golge silueti kontur kenarindan
-            float sx = ox + textShadowOffset.x, sy = oy + textShadowOffset.y;
+            var font = _tbFonts[fi];
+            var mat = font.Material.ForBlend(BlendMode).ForEffects(Effects);
+            float emPx = font.EmPx;
+            if (textShadowColor.a > 0)
+            {
+                float sx = ox + textShadowOffset.x, sy = oy + textShadowOffset.y;
+                for (int i = 0; i < _tqCount; i++)
+                {
+                    ref readonly var g = ref _tq[i];
+                    if (g.FontIdx != fi) continue;
+                    float scale = g.Size / emPx;
+                    Edges(in g, scale, out float cFill, out float cOut);
+                    float s = textShadowBlur > 0 ? textShadowBlur * 0.5f / scale / TextSdfSpread : 0f;
+                    var user = new Vec4(s, -(cOut > 0 ? cOut : cFill), 0f, 0f); // kontur varsa golge silueti kontur kenarindan
+                    QuadMatrix(in twm, in g, oy, out Mat4 qm);
+                    EmitQuad(queue, mat, in qm, sx + g.X0, sy + g.Y0, sx + g.X1, sy + g.Y1,
+                        g.U0, g.V0, g.U1, g.V1, textShadowColor, textShadowColor, false, user, layer);
+                }
+            }
+            if (textOutlineWidth > 0)
+            {
+                for (int i = 0; i < _tqCount; i++)
+                {
+                    ref readonly var g = ref _tq[i];
+                    if (g.FontIdx != fi || (g.Flags & QfUnderline) != 0) continue;
+                    Edges(in g, g.Size / emPx, out _, out float cOut);
+                    if (cOut <= 0) continue;
+                    var user = new Vec4(0f, -cOut, 0f, 0f);
+                    QuadMatrix(in twm, in g, oy, out Mat4 qm);
+                    EmitQuad(queue, mat, in qm, ox + g.X0, oy + g.Y0, ox + g.X1, oy + g.Y1,
+                        g.U0, g.V0, g.U1, g.V1,
+                        TextGradAt(in textOutline, oh ? g.X0 : g.Y0),
+                        TextGradAt(in textOutline, oh ? g.X1 : g.Y1),
+                        oh, user, layer);
+                }
+            }
             for (int i = 0; i < _tqCount; i++)
             {
                 ref readonly var g = ref _tq[i];
-                EmitQuad(queue, mat, in twm, sx + g.X0, sy + g.Y0, sx + g.X1, sy + g.Y1,
-                    g.U0, g.V0, g.U1, g.V1, textShadowColor, textShadowColor, false, user, layer);
+                if (g.FontIdx != fi) continue;
+                Edges(in g, g.Size / emPx, out float cFill, out _);
+                var user = new Vec4(0f, cFill, 0f, 0f);
+                QuadMatrix(in twm, in g, oy, out Mat4 qm);
+                if ((g.Flags & QfColor) != 0)
+                    EmitQuad(queue, mat, in qm, ox + g.X0, oy + g.Y0, ox + g.X1, oy + g.Y1,
+                        g.U0, g.V0, g.U1, g.V1, g.Color, g.Color, false, user, layer);
+                else
+                    EmitQuad(queue, mat, in qm, ox + g.X0, oy + g.Y0, ox + g.X1, oy + g.Y1,
+                        g.U0, g.V0, g.U1, g.V1,
+                        TextGradAt(in textFill, fh ? g.X0 : g.Y0),
+                        TextGradAt(in textFill, fh ? g.X1 : g.Y1),
+                        fh, user, layer);
             }
         }
-        if (cOut > 0)
-        {
-            var user = new Vec4(0f, -cOut, 0f, 0f);
-            bool oh = textOutline.IsHorizontal;
-            for (int i = 0; i < _tqCount; i++)
-            {
-                ref readonly var g = ref _tq[i];
-                EmitQuad(queue, mat, in twm, ox + g.X0, oy + g.Y0, ox + g.X1, oy + g.Y1,
-                    g.U0, g.V0, g.U1, g.V1,
-                    TextGradAt(in textOutline, oh ? g.X0 : g.Y0),
-                    TextGradAt(in textOutline, oh ? g.X1 : g.Y1),
-                    oh, user, layer);
-            }
-        }
-        bool fh = textFill.IsHorizontal;
-        var fillUser = new Vec4(0f, cFill, 0f, 0f);
-        for (int i = 0; i < _tqCount; i++)
-        {
-            ref readonly var g = ref _tq[i];
-            EmitQuad(queue, mat, in twm, ox + g.X0, oy + g.Y0, ox + g.X1, oy + g.Y1,
-                g.U0, g.V0, g.U1, g.V1,
-                TextGradAt(in textFill, fh ? g.X0 : g.Y0),
-                TextGradAt(in textFill, fh ? g.X1 : g.Y1),
-                fh, fillUser, layer);
-        }
+    }
+
+    // Dolgu kenari weight ile kayar (<b>: +BoldWeight); kontur kenar merkezi oradan disari kayar
+    // (SDF deger uzayi; TextSprite ile ayni). Her frame instance verisinden (textWeight rebuild istemez).
+    void Edges(in TextQuad g, float scale, out float cFill, out float cOut)
+    {
+        cFill = TextSprite.WeightEdge(textWeight + ((g.Flags & QfBold) != 0 ? RichText.BoldWeight : 0f));
+        cOut = textOutlineWidth > 0 && scale > 0
+            ? MathF.Max(cFill - textOutlineWidth / scale / TextSdfSpread, 0.05f)
+            : 0f;
+    }
+
+    // Italik span: kendi baseline'i etrafinda ek shear (kutu textSkew'i twm'de zaten var).
+    static void QuadMatrix(in Mat4 twm, in TextQuad g, float oy, out Mat4 qm)
+    {
+        qm = twm;
+        if ((g.Flags & QfItalic) != 0)
+            Shear(ref qm, -RichText.ItalicSkew, oy + g.Base);
+    }
+
+    // x' = x + k*(y - cy): y kolonuna x kolonu karisir, cy sabit kalsin diye translation geri alinir.
+    static void Shear(ref Mat4 m, float k, float cy)
+    {
+        float mx = m.m[0], my = m.m[1], mz = m.m[2];
+        m.m[4] += mx * k;
+        m.m[5] += my * k;
+        m.m[6] += mz * k;
+        m.m[12] -= mx * k * cy;
+        m.m[13] -= my * k * cy;
+        m.m[14] -= mz * k * cy;
     }
 
     // Lineer gradient BLOK bandina gore (icerik uzayi: blok ustu y=0, sol x=0).

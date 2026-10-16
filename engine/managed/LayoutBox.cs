@@ -337,15 +337,21 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
 
     protected internal override void OnEnable()
     {
+        HookFonts();
         MarkDirty();
         ApplyStyle();
     }
 
-    protected internal override void OnDisable() => ParentBox()?.MarkDirty();
+    protected internal override void OnDisable()
+    {
+        UnhookFonts();
+        ParentBox()?.MarkDirty();
+    }
 
     // Editor Inspector'i alanlara dogrudan yazar; sonrasinda bunu cagirir.
     protected internal override void OnValidate()
     {
+        ResolveFont();
         MarkDirty();
         ValidateStyle();
     }

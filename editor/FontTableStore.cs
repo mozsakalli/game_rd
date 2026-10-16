@@ -80,8 +80,7 @@ public static class FontTableStore
         string abs = Path.Combine(assets.Root, scope);
         AssetWatcher.NoteSelfWrite(abs);
         ObjectSerializer.Save(t, abs, assets);
-        Fonts.Touch();
-        AssetDatabase.NoteObjectChanged();
+        AssetDatabase.NoteObjectChanged(t); // Fonts.Changed -> kutular yeniden cozer
     }
 
     // Kapsamdan gorunen tum (ad, font, yol) ciftleri: modul ezmeleri once (LocAudit glyph denetimi).

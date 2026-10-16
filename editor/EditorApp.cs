@@ -156,6 +156,7 @@ public unsafe class App
         CatalogTests.Run(_catalog);
         ObjectBinaryTests.Run(_catalog);
         LocalizationTests.Run(_catalog);
+        RichTextTests.Run(_catalog);
         PrefabTests.Run(_catalog);
         ThemeTests.Run(_catalog);
 #endif

@@ -324,7 +324,13 @@ public sealed class AssetDatabase
     // kaydi (NoteObjectChanged; self-write maskesi watcher reload'unu engeller) arttirir.
     // Tuketici (LayoutBox.style) frame'de TEK int kiyasiyla bayatligi anlar — polling/kopya yok.
     public static int ObjectVersion { get; private set; }
-    public static void NoteObjectChanged() => ObjectVersion++;
+    // Degisen [Asset] nesnesi (editor kaydi / yerinde reload); null = bilinmiyor. Tuketici kendi tipini suzer (Fonts).
+    public static event Action<object> ObjectChanged;
+    public static void NoteObjectChanged(object obj = null)
+    {
+        ObjectVersion++;
+        ObjectChanged?.Invoke(obj);
+    }
 
     // Editor: .asset degisti / reimport -> AYNI instance yerinde tazelenir (component referanslari bozulmaz).
     public bool ReloadObject(string keyOrGuid)
@@ -337,7 +343,7 @@ public sealed class AssetDatabase
             return false;
         bool ok = ReadObject(key, bytes, existing) != null;
         if (ok)
-            ObjectVersion++;
+            NoteObjectChanged(existing);
         return ok;
     }
 

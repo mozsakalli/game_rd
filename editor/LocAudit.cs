@@ -118,14 +118,15 @@ public static class LocAudit
     }
 
     // Kapsamdan gorunen tablo fontlari (Fonts.asset; yoksa projedeki her .ttf/.otf) icin tablo hucrelerinde gecen
-    // ama fontta olmayan codepoint'ler (kontrol karakterleri haric).
+    // ama fontta olmayan codepoint'ler (kontrol karakterleri haric). Rich text tag'leri atlanir; <font=ad> span'i
+    // o fonta gore denetlenir (RichText.ForEachGlyph).
     public static List<GlyphGap> GlyphCheck(string scope)
     {
         var res = new List<GlyphGap>();
         var table = LocTableStore.Get(scope);
         var assets = App.Assets;
         if (table == null || assets == null) return res;
-        var fonts = new List<(string Key, HashSet<int> Set)>();
+        var fonts = new List<(string Key, Font Font, HashSet<int> Set)>();
         var visible = new List<(string Name, Font Font)>();
         FontTableStore.Visible(scope, visible);
         foreach (var (name, f) in visible)
@@ -134,7 +135,7 @@ public static class LocAudit
                 continue;
             var set = new HashSet<int>();
             foreach (var g in f.Glyphs) set.Add(g.Codepoint);
-            fonts.Add((name, set));
+            fonts.Add((name, f, set));
         }
         if (fonts.Count == 0)
         {
@@ -147,30 +148,42 @@ public static class LocAudit
                     continue;
                 var set = new HashSet<int>();
                 foreach (var g in f.Glyphs) set.Add(g.Codepoint);
-                fonts.Add((k, set));
+                fonts.Add((k, f, set));
             }
         }
         if (fonts.Count == 0) return res;
-        foreach (var (fk, set) in fonts)
+        var gaps = new Dictionary<string, GlyphGap>(StringComparer.Ordinal);
+        GlyphGap GapOf(string key)
         {
-            var gap = new GlyphGap { Font = fk };
+            if (!gaps.TryGetValue(key, out var g)) { g = new GlyphGap { Font = key }; gaps[key] = g; res.Add(g); }
+            return g;
+        }
+        int IndexOfFont(Font f)
+        {
+            for (int i = 0; i < fonts.Count; i++)
+                if (ReferenceEquals(fonts[i].Font, f)) return i;
+            return -1;
+        }
+        foreach (var (fk, font, set) in fonts)
+        {
             foreach (var e in table.Entries)
             {
                 if (e.Values == null) continue;
                 foreach (var v in e.Values)
                 {
                     if (string.IsNullOrEmpty(v)) continue;
-                    for (int i = 0; i < v.Length; i++)
+                    RichText.ForEachGlyph(v, 32f, font, (cp, st) =>
                     {
-                        int cp = char.IsHighSurrogate(v[i]) && i + 1 < v.Length ? char.ConvertToUtf32(v[i], v[++i]) : v[i];
-                        if (cp < 32 || cp == '{' || cp == '}') continue; // bicim isaretleri/kontrol
-                        if (!set.Contains(cp)) { gap.Codepoints.Add(cp); gap.Keys.Add(e.Key); }
-                    }
+                        if (cp < 32 || cp == '{' || cp == '}') return; // bicim isaretleri/kontrol
+                        int ti = ReferenceEquals(st.Font, font) ? -2 : IndexOfFont(st.Font);
+                        if (ti == -1) return; // span fontu tabloda gorunmuyor (uyari ayri)
+                        var (tk, _, tset) = ti == -2 ? (fk, font, set) : fonts[ti];
+                        if (!tset.Contains(cp)) { var gap = GapOf(tk); gap.Codepoints.Add(cp); gap.Keys.Add(e.Key); }
+                    });
                 }
             }
-            if (gap.Codepoints.Count > 0)
-                res.Add(gap);
         }
+        res.RemoveAll(g => g.Codepoints.Count == 0);
         return res;
     }
 

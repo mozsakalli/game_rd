@@ -1,0 +1,182 @@
+scene: Main
+objects:
+  - id: 1
+    parent: 0
+    name: ROOT
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        alignChildren: Start
+        fill:
+          type: Solid
+          direction: Vertical
+          color: '#202830ff'
+          color2: '#00000000'
+          stops: 2
+          color3: '#00000000'
+          stop3: 0.5
+          color4: '#00000000'
+          stop4: 0.75
+        layout: Vertical
+        fitScreen: true
+        padding: 16 6 16 6
+        spacing: 2
+  - id: 2
+    parent: 1
+    name: R1_Plain
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        textEllipsis: false
+        textSize: 26
+        textWrap: false
+        text@loc: ''
+        text: 'Plain 26px: The quick brown fox'
+  - id: 3
+    parent: 1
+    name: R2_Styles
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        textEllipsis: false
+        textSize: 26
+        textWrap: false
+        text@loc: ''
+        text: <b>Bold</b>  <i>Italic</i>  <u>Underline</u>  <b><i><u>All three</u></i></b>  normal
+  - id: 4
+    parent: 1
+    name: R3_Colors
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        textEllipsis: false
+        textSize: 26
+        textWrap: false
+        text@loc: ''
+        text: <color=#FF4040>Red</color> <color=yellow>Yellow</color> <color=#40FF4080>Half-alpha green</color> <color=#80C0FF>Blue</color> normal
+  - id: 5
+    parent: 1
+    name: R4_Sizes
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        textEllipsis: false
+        textSize: 26
+        textWrap: false
+        text@loc: ''
+        text: Base <size=44>44px</size> <size=+10>+10</size> <size=-8>-8</size> <size=50%>50%</size> base (one baseline)
+  - id: 6
+    parent: 1
+    name: R5_Font
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        textEllipsis: false
+        textSize: 26
+        textWrap: false
+        text@loc: ''
+        text: Primary <font=Bold>Bold face (font=Bold)</font> <size=40><font=Bold>40</font></size> back to Primary
+  - id: 7
+    parent: 1
+    name: R6_Literal
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        textEllipsis: false
+        textSize: 26
+        textWrap: false
+        text@loc: ''
+        text: Invalid <x> tag, 1<2 and 3>2, <noparse><b>escaped</b></noparse>, <b>unclosed
+  - id: 8
+    parent: 1
+    name: R7_Link
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        textSize: 24
+        width: 440
+        padding: 8 4 8 4
+        textWrap: true
+        radius: 6 6 6 6
+        fill:
+          type: Solid
+          direction: Vertical
+          color: '#2a3442ff'
+          color2: '#00000000'
+          stops: 2
+          color3: '#00000000'
+          stop3: 0.5
+          color4: '#00000000'
+          stop4: 0.75
+        textEllipsis: false
+        text@loc: ''
+        text: By logging in you accept our <link=terms><u>Terms of Service</u></link> and <link=privacy><u><color=#80C0FF>Privacy Policy</color></u></link>. Second line wraps here.
+      - type: RichLinkProbe
+  - id: 9
+    parent: 1
+    name: R8_Ellipsis
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        textSize: 24
+        width: 260
+        textWrap: true
+        height: 34
+        textEllipsis: true
+        fill:
+          type: Solid
+          direction: Vertical
+          color: '#2a3442ff'
+          color2: '#00000000'
+          stops: 2
+          color3: '#00000000'
+          stop3: 0.5
+          color4: '#00000000'
+          stop4: 0.75
+        overflowY: Hidden
+        text@loc: ''
+        text: <b>Ellipsis</b> with <color=red>long colored text that must be cut off</color>
+  - id: 10
+    parent: 1
+    name: R9_Outline
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        textOutline:
+          type: Solid
+          direction: Vertical
+          color: '#000000ff'
+          color2: '#000000ff'
+          stops: 2
+          color3: '#000000ff'
+          stop3: 0.5
+          color4: '#000000ff'
+          stop4: 0.75
+        textSize: 28
+        textShadowOffset: 0 3
+        textShadowBlur: 6
+        textOutlineWidth: 2
+        textWrap: false
+        textShadowColor: '#000000c0'
+        text@loc: ''
+        text: <b>Outline</b> <i>Shadow</i> <u>under</u> <color=yellow>colored</color>
