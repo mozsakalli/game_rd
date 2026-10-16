@@ -1,5 +1,22 @@
 # DigitoyEngine R&D (game_rd)
 
+## DIGITOYCLIENT KARARI — çok oyunlu istemci ayrı kökte (2026-10-16, yalnız doküman; kod yok)
+- KARAR (kullanıcı): Gin Rummy (prod) + Yüzbir + Okey (+ gelecek oyunlar) Unity istemcilerinin yerine **tek DigitoyEngine
+  projesi** `c:\work\digitoygames\digitoyclient` (game_rd `Projects/` altında DEĞİL; ayrı repo). Ürün: oyun başına ayrı
+  store/FB uygulaması, tek kaynak ağacından **build varyantı**; sahne görünümü/tema oyuna göre tamamen değişebilir. İlk oyun Gin.
+- Dokümanlar orada: `docs/00-inventory.md` (3 Unity istemci + core.upm + digitoyserver + digiplay-net envanteri),
+  `01-architecture.md` (Shared/Games/<Oyun>/Plugins sözleşmesi, GameVariant, tema override), `02-engine-gaps.md`
+  (**motora sipariş listesi**), `03-roadmap.md`, `.github/copilot-instructions.md`. `Projects/ginrummy/.ai/*` oraya kopyalandı.
+- MOTOR İŞİ (digitoyclient/docs/02-engine-gaps.md'den, her biri ayrı plan/onay): A1 build varyantı (`[Asset] GameVariant`:
+  sahne listesi + bundleId/productName/icon/orientation override, editörde aktif varyant, Play aktif varyantla), A2
+  `Variant.Current`, A3 **generator'lı Common.dll AOT doğrulaması** (digitoyserver 2026-10-15 `Common.Generators`:
+  `Serializer.cs` artık MakeGenericType/Expression'sız, yalnız `CodecName.GetCustomAttribute` kaldı → legacy B1 blokeri
+  "doğrula"ya indi), B1 oyun-tarafı TextField + soft keyboard, B2 JSON okuyucu (ya da sunucuda Codec ucu), B3 safe-area
+  inset, B4 OpenURL/pano/paylaşım/haptic/ağ probu, C6 Unity prefab→.prefab yarı otomatik çevirici (karar bekliyor), D native
+  köprüler (IAP/MAX/FB/Apple/push/Integrity/Adjust).
+- `Projects/ginrummy` ve `Projects/yuzbirextra` DigitoyClient Faz 0'da tohumları (fontlar, fx, Button/Motion) taşındıktan
+  sonra silinecek (kullanıcı onayıyla); şimdilik dokunulmadı.
+
 ## VEKTÖR ASSET (SVG) — FAZ 1: DVEC KODEK + STANDALONE SPRITE (2026-10-16, editör/pak/player uçtan uca; badge.svg 830 B kaynak → 392 B pak girişi)
 - AMAÇ yalnız **asset boyutu**: çözünürlük import'ta sabit (`scale`), DPI ölçeği YOK, runtime vektör çizimi YOK. SVG import'ta
   canvas benzeri **komut akışına** (M/L/C/Z + boya) derlenir, runtime yükleme anında bir kez rasterize eder (ikon: ms düzeyi, worker'da).
