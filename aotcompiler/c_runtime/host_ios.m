@@ -10,14 +10,122 @@
 //      GameHost "<root>/Build/game.pak" acar (duz dosya; kopya yok). writable = Application Support/<bundle id>.
 #import <UIKit/UIKit.h>
 #import <QuartzCore/CAMetalLayer.h>
+#import <objc/runtime.h>
 #include <stdio.h>
 #include <string.h>
 #include "de_app.h"
+#include "de_plugin.h"
+#include "vmrt.h"
+#import "DEPlugin.h"
 
 void de_metal_init_layer(void *caMetalLayer); // sokol_shim.m (SOKOL_METAL, iOS dali)
 
 void de_host_set_title(const char *utf8) { fprintf(stderr, "[host] title: %s\n", utf8); }
 void de_host_log(int level, const char *utf8) { fprintf(level >= 2 ? stderr : stdout, "%s\n", utf8); }
+
+// de_host_fatal (docs/plugins.md): yakalanmayan managed exception -> NSException (reason = "Tip: mesaj" + .cs frame'leri).
+// Yakalanmayan ObjC exception -> "Terminating app due to uncaught exception" -> crash log "Application Specific Information" /
+// Crashlytics / Organizer satir bilgili trace gosterir. exit() reporter'lara gorunmezdi. Donmez.
+void de_host_fatal(const char *reason, const RtFrame *frames, int count)
+{
+    NSMutableString *text = [NSMutableString stringWithUTF8String:reason ?: "managed exception"];
+    int n = count > 64 ? 64 : count;
+    for (int i = 0; i < n; i++)
+    {
+        const RtFrame *f = &frames[count - 1 - i];
+        char type[128], method[128]; const char *file; int line, col;
+        digitoyengine_frame_info(f, type, sizeof type, method, sizeof method, &file, &line, &col);
+        const char *fname = file ? strrchr(file, '/') : 0; fname = fname ? fname + 1 : file;
+        [text appendFormat:@"\n  at %s.%s(%s:%d)", type[0] ? type : "Managed", method[0] ? method : "?", fname ?: "?", line];
+    }
+    [[NSException exceptionWithName:@"DigitoyManagedException" reason:text userInfo:nil] raise];
+    abort(); // raise donmez; derleyici icin
+}
+
+// ---------------------------------------------------------------------------
+// Plugin host (docs/plugins.md): kayit, dispatch (main thread, @try/@catch), lifecycle fan-out.
+static NSMutableArray<Class> *g_pluginClasses;
+static NSMutableDictionary<NSString *, DEPlugin *> *g_plugins;
+static __weak UIViewController *g_gameVC;
+static __weak UIView *g_overlay;
+static void (^g_errorReporter)(NSException *);
+
+static void de_ios_report(DEPlugin *p, NSException *e)
+{
+    fprintf(stderr, "[plugin] hata (%s) — oyun devam ediyor: %s: %s\n", p ? p.name.UTF8String : "?", e.name.UTF8String, e.reason.UTF8String);
+    @try { if (g_errorReporter) g_errorReporter(e); } @catch (NSException *ignored) {}
+}
+#define DE_GUARD(p, body) @try { body; } @catch (NSException *e) { de_ios_report(p, e); }
+
+static void de_ios_on_message(void *user, const char *msg)
+{
+    DEPlugin *p = (__bridge DEPlugin *)user;
+    NSString *s = [NSString stringWithUTF8String:msg ?: ""];
+    DE_GUARD(p, [p onMessage:s]);
+}
+// de_plugin_send main thread'den gelir (display link); degilse main'e atla.
+static void de_ios_run_on_main(DePluginDispatchFn fn, void *user, char *name, char *msg)
+{
+    if ([NSThread isMainThread]) { fn(user, name, msg); de_plugin_free_dispatch(name, msg); return; }
+    dispatch_async(dispatch_get_main_queue(), ^{ fn(user, name, msg); de_plugin_free_dispatch(name, msg); });
+}
+
+@implementation DEPlugin
+- (instancetype)initWithName:(NSString *)name { if ((self = [super init])) _name = [name copy]; return self; }
+- (UIViewController *)viewController { return g_gameVC; }
+- (UIView *)overlayView { return g_overlay; }
+- (void)onMessage:(NSString *)msg {}
+- (void)send:(NSString *)msg { de_plugin_post(self.name.UTF8String, (msg ?: @"").UTF8String); }
+- (void)didFinishLaunching:(NSDictionary *)o {}
+- (BOOL)openURL:(NSURL *)url options:(NSDictionary<UIApplicationOpenURLOptionsKey, id> *)options { return NO; }
+- (BOOL)continueUserActivity:(NSUserActivity *)activity { return NO; }
+- (void)didRegisterForRemoteNotifications:(NSData *)t {}
+- (void)didFailToRegisterForRemoteNotifications:(NSError *)e {}
+- (void)didReceiveRemoteNotification:(NSDictionary *)u {}
+- (void)didBecomeActive {}
+- (void)willResignActive {}
+- (void)didEnterBackground {}
+- (void)willEnterForeground {}
+@end
+
+@implementation DEPluginHost
++ (void)registerClass:(Class)cls
+{
+    if (!g_pluginClasses) g_pluginClasses = [NSMutableArray array];
+    [g_pluginClasses addObject:cls];
+}
++ (void (^)(NSException *))errorReporter { return g_errorReporter; }
++ (void)setErrorReporter:(void (^)(NSException *))r { g_errorReporter = [r copy]; }
+@end
+
+// didFinishLaunching'de: siniflar -> instance'lar (ad = sinifin -name'i; DE_REGISTER_PLUGIN'li sinif initWithName
+// ile kendi adini verir: plugin yazari `- (instancetype)init { return [super initWithName:@"Ads"]; }`).
+static void de_ios_plugins_create(void)
+{
+    g_plugins = [NSMutableDictionary dictionary];
+    for (Class cls in g_pluginClasses)
+    {
+        DEPlugin *p = nil;
+        DE_GUARD(nil, p = [cls new]);
+        if (!p || !p.name.length) { fprintf(stderr, "[plugin] %s: ad yok (initWithName cagrilmali)\n", class_getName(cls)); continue; }
+        if (g_plugins[p.name]) { fprintf(stderr, "[plugin] ad cakisti: %s\n", p.name.UTF8String); continue; }
+        g_plugins[p.name] = p;
+        de_plugin_register(p.name.UTF8String, de_ios_on_message, (__bridge void *)p);
+    }
+    de_plugin_set_dispatcher(de_ios_run_on_main);
+}
+#define DE_FANOUT(sel) for (DEPlugin *p in g_plugins.allValues) { DE_GUARD(p, sel); }
+
+// Tiklamayi gecirir: yalniz alt view'lara (banner) vurursa yakalar.
+@interface DEOverlayView : UIView
+@end
+@implementation DEOverlayView
+- (UIView *)hitTest:(CGPoint)point withEvent:(UIEvent *)event
+{
+    UIView *v = [super hitTest:point withEvent:event];
+    return v == self ? nil : v;
+}
+@end
 
 // ---------------------------------------------------------------------------
 @interface DEMetalView : UIView
@@ -57,6 +165,17 @@ void de_host_log(int level, const char *utf8) { fprintf(level >= 2 ? stderr : st
 {
     [super viewDidLoad];
     _touches = [NSMutableArray array];
+    g_gameVC = self;
+    // Plugin overlay'i: Metal yuzeyinin ustunde, tam ekran, safe area'ya saygili (banner centik altina girmesin).
+    DEOverlayView *ov = [[DEOverlayView alloc] initWithFrame:self.view.bounds];
+    ov.backgroundColor = [UIColor clearColor];
+    ov.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.view addSubview:ov];
+    UILayoutGuide *g = self.view.safeAreaLayoutGuide;
+    [NSLayoutConstraint activateConstraints:@[
+        [ov.topAnchor constraintEqualToAnchor:g.topAnchor], [ov.bottomAnchor constraintEqualToAnchor:g.bottomAnchor],
+        [ov.leadingAnchor constraintEqualToAnchor:g.leadingAnchor], [ov.trailingAnchor constraintEqualToAnchor:g.trailingAnchor]]];
+    g_overlay = ov;
     [UIApplication sharedApplication].idleTimerDisabled = YES; // FLAG_KEEP_SCREEN_ON
 
     NSNotificationCenter *nc = [NSNotificationCenter defaultCenter];
@@ -119,10 +238,10 @@ void de_host_log(int level, const char *utf8) { fprintf(level >= 2 ? stderr : st
 }
 
 // ---- yasam dongusu (GL thread yok: hepsi ana thread) ----
-- (void)onBackground { if (_ready && !_paused) { _paused = YES; _link.paused = YES; de_app_pause(); } }
-- (void)onForeground { if (_ready && _paused) { _paused = NO; _last = 0; _link.paused = NO; de_app_resume(); } }
-- (void)onResign { DeEvent e = { DE_EV_FOCUS, 0, 0, 0, 0, 0 }; if (_ready) de_app_event(&e); }
-- (void)onActive { DeEvent e = { DE_EV_FOCUS, 0, 0, 0, 1, 0 }; if (_ready) de_app_event(&e); }
+- (void)onBackground { if (_ready && !_paused) { _paused = YES; _link.paused = YES; de_app_pause(); } DE_FANOUT([p didEnterBackground]); }
+- (void)onForeground { if (_ready && _paused) { _paused = NO; _last = 0; _link.paused = NO; de_app_resume(); } DE_FANOUT([p willEnterForeground]); }
+- (void)onResign { DeEvent e = { DE_EV_FOCUS, 0, 0, 0, 0, 0 }; if (_ready) de_app_event(&e); DE_FANOUT([p willResignActive]); }
+- (void)onActive { DeEvent e = { DE_EV_FOCUS, 0, 0, 0, 1, 0 }; if (_ready) de_app_event(&e); DE_FANOUT([p didBecomeActive]); }
 - (void)onTerminate { if (_ready) de_app_shutdown(); }
 - (void)didReceiveMemoryWarning { [super didReceiveMemoryWarning]; if (_ready) de_app_low_memory(); }
 
@@ -168,10 +287,30 @@ void de_host_log(int level, const char *utf8) { fprintf(level >= 2 ? stderr : st
 - (BOOL)application:(UIApplication *)application didFinishLaunchingWithOptions:(NSDictionary *)launchOptions
 {
     setvbuf(stdout, 0, _IOLBF, 0); // Xcode konsolu satir satir
+    de_ios_plugins_create();
     self.window = [[UIWindow alloc] initWithFrame:[UIScreen mainScreen].bounds];
     self.window.rootViewController = [DEGameViewController new];
     [self.window makeKeyAndVisible];
+    DE_FANOUT([p didFinishLaunching:launchOptions]);
     return YES;
+}
+// Plugin forward'lari (ilk kabul eden kazanir; hepsi @try/@catch).
+- (BOOL)application:(UIApplication *)app openURL:(NSURL *)url options:(NSDictionary<UIApplicationOpenURLOptionsKey, id> *)options
+{
+    for (DEPlugin *p in g_plugins.allValues) { BOOL h = NO; DE_GUARD(p, h = [p openURL:url options:options]); if (h) return YES; }
+    return NO;
+}
+- (BOOL)application:(UIApplication *)app continueUserActivity:(NSUserActivity *)activity restorationHandler:(void (^)(NSArray<id<UIUserActivityRestoring>> *))handler
+{
+    for (DEPlugin *p in g_plugins.allValues) { BOOL h = NO; DE_GUARD(p, h = [p continueUserActivity:activity]); if (h) return YES; }
+    return NO;
+}
+- (void)application:(UIApplication *)app didRegisterForRemoteNotificationsWithDeviceToken:(NSData *)token { DE_FANOUT([p didRegisterForRemoteNotifications:token]); }
+- (void)application:(UIApplication *)app didFailToRegisterForRemoteNotificationsWithError:(NSError *)error { DE_FANOUT([p didFailToRegisterForRemoteNotifications:error]); }
+- (void)application:(UIApplication *)app didReceiveRemoteNotification:(NSDictionary *)userInfo fetchCompletionHandler:(void (^)(UIBackgroundFetchResult))handler
+{
+    DE_FANOUT([p didReceiveRemoteNotification:userInfo]);
+    handler(UIBackgroundFetchResultNoData);
 }
 @end
 

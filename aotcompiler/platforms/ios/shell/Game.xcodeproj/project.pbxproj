@@ -14,6 +14,7 @@
 		A1000001000000000000000B /* Build in Resources */ = {isa = PBXBuildFile; fileRef = A1000001000000000000000A /* Build */; };
 		A1000001000000000000000D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A1000001000000000000000C /* Assets.xcassets */; };
 		A1000001000000000000000F /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = A1000001000000000000000E /* LaunchScreen.storyboard */; };
+		A10000010000000000000042 /* DEPlugins in Frameworks */ = {isa = PBXBuildFile; productRef = A10000010000000000000041 /* DEPlugins */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -34,6 +35,7 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				A10000010000000000000042 /* DEPlugins in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -89,6 +91,7 @@
 			);
 			name = Game;
 			packageProductDependencies = (
+				A10000010000000000000041 /* DEPlugins */,
 			);
 			productName = Game;
 			productReference = A10000010000000000000001 /* Game.app */;
@@ -117,6 +120,9 @@
 			);
 			mainGroup = A10000010000000000000006;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				A10000010000000000000040 /* XCLocalSwiftPackageReference "generated/DEPlugins" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = A10000010000000000000011 /* Products */;
 			projectDirPath = "";
@@ -211,6 +217,20 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		A10000010000000000000040 /* XCLocalSwiftPackageReference "generated/DEPlugins" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = generated/DEPlugins;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		A10000010000000000000041 /* DEPlugins */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = DEPlugins;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = A10000010000000000000000 /* Project object */;
 }

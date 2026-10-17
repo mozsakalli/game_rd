@@ -84,6 +84,7 @@ static class PlayMode
             return;
         State = PlayState.Editing;
         DestroyPlayScene();
+        Plugin.ResetAll(); // plugin instance'lari Play omurlu (bekleyen Task'lar GC'ye)
         PlayerPrefs.Save(); // oyun kodunun kaydetmedigi prefs Stop'ta diske (release'teki Shutdown muadili)
         EditorWindow.GetWindow<SceneViewPanel>(); // Scene tab'i one
     }

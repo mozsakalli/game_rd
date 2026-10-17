@@ -132,6 +132,15 @@ public unsafe class App
         Debug.OnInfo = EditorLog.Info;          // oyun kodunun Debug.Log* cagrilari Console paneline (stdout'a EditorLog akitir)
         Debug.OnWarning = EditorLog.Warning;
         Debug.OnError = EditorLog.Error;
+        // Plugin ayarlari (docs/plugins.md): editorde ProjectSettings/Plugins/<Ad>.asset (pak blobu yerine).
+        Plugin.SettingsLoader = (name, into) =>
+        {
+            string p = DigitoyEngine.Build.PluginSettingsStore.PathFor(_project.Root, name);
+            if (!System.IO.File.Exists(p)) return false;
+            ObjectSerializer.LoadInto(into, p, _assets);
+            return true;
+        };
+        Plugin.Host = Plugin.MockHost.Instance; // editorde host = mock'lar (yoksa Available=false)
         _gameCode = new GameCode();
         try { GameCode.WriteIdeProject(_project); } // IDE csproj (proje koku), derlemeden bagimsiz
         catch (Exception e) { EditorLog.Warning("[gamecode] IDE csproj yazilamadi: " + e.Message); }
@@ -159,6 +168,7 @@ public unsafe class App
         RichTextTests.Run(_catalog);
         PrefabTests.Run(_catalog);
         ThemeTests.Run(_catalog);
+        PluginTests.Run();
 #endif
         // Apply yolu: stash'li sahne (stage) de kapsama girsin.
         EditorScene.PrefabEditScope = (es, mutate) => WithPrefabEdit(mutate);
@@ -256,6 +266,8 @@ public unsafe class App
             }
             Scene.UpdateAll(PlayMode.ForcedDt > 0f && PlayMode.Simulate ? PlayMode.ForcedDt : dt,
                 GameOutput.ViewW, GameOutput.ViewH, PlayMode.Simulate);
+            if (PlayMode.Simulate)
+                Plugin.PumpInbox(); // mock plugin mesajlari (GameHost.Frame paritesi)
 
             // Oyun ciktisi: oyun sahnesi (Play'de) yoksa edit projeksiyonu.
             // Sahnedeki aktif CameraComponent'ler depth sirasiyla havuz kameralarina
@@ -712,6 +724,7 @@ public unsafe class App
     }
 
     internal static Project Project => _project;
+    internal static GameCode Code => _gameCode;
 
     // Katalog SADECE bilinen assembly'lerden kurulur (AppDomain taramasi degil:
     // unload edilmis eski oyun assembly'si listede gorunup ad cakismasi yaratabilir).

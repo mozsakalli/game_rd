@@ -49,6 +49,7 @@ public static class Program
                         case "--props": app.Props = ReadProps(args[++i]); break;
                         case "--trim": app.Trim = args[++i]; break;            // full | lean (docs/engine-notes.md TRIM)
                         case "--trim-report": app.TrimReport = true; break;  // <aot dizini>/trim-report.md
+                        case "--editor-engine": app.EditorEngine = args[++i]; break; // DigitoyEngine .NET dll (DE_EDITOR): plugin kancalari/ayar YAML
                     }
                 return RunPlayerBuild(args.Length > 1 && !args[1].StartsWith("--") ? args[1] : Path.Combine(RepoRoot, "Projects", "Sandbox"), target, app);
             }
@@ -306,6 +307,9 @@ public static class Program
             Console.WriteLine("trim raporu -> " + rp);
         }
         Lap("trim analizi");
+        // Plugin'ler (docs/plugins.md): canli Plugin turevleri -> yalniz onlarin native klasorleri/kancalari. Editor.dll + ayar dogrulama.
+        var pluginBuild = PluginBuild.Prepare(projectRoot, projName, workDir, PluginBuild.LivePlugins(ctx, trim), EditorEngineDll(app), Console.WriteLine);
+        Lap("plugin hazirlik (Editor.dll)");
         // STUB KAPISI: runtime'in GERCEKTEN cagiracagi koklerden (host girisleri + EmitInit'in eager cctor/finalizer/exception-kind
         // ctor'lari; trim planina gore canli olanlar) cagri grafiyla ERISILEBILEN stub = NotImplementedException demek -> build
         // HATASI (exe cikmaz; liste basilir). Erisilemeyen stub'lar (editor/import yolu, kullanilmayan API) diag.txt'de kalir.
@@ -323,19 +327,19 @@ public static class Program
         Lap("C transpile");
         if (target == "android")
         {
-            EmitAndroidProject(projectRoot, projName, files, app);
+            EmitAndroidProject(projectRoot, projName, files, app, pluginBuild);
             Lap("android projesi");
             return 0;
         }
         if (target == "ios")
         {
-            EmitIosProject(projectRoot, projName, files, app);
+            EmitIosProject(projectRoot, projName, files, app, pluginBuild);
             Lap("ios projesi");
             return 0;
         }
         if (target == "wasm")
         {
-            BuildWasm(projectRoot, projName, files, app);
+            BuildWasm(projectRoot, projName, files, app, pluginBuild);
             Lap("emcc + link");
             return 0;
         }
@@ -384,7 +388,21 @@ public static class Program
 
     // Yayin kimligi (editor PlayerSettings'ten --app-* ile gelir; CLI'dan verilmezse proje adindan turetilir).
     // Props: Android'e ozel ayarlar (editor AndroidBuildProps.Write -> --props; key=value). null = CLI/varsayilan.
-    sealed class AppInfo { public string Id, Name, Version = "1.0", Orientation = "landscape"; public Dictionary<string, string> Props; public string Trim; public bool TrimReport; }
+    sealed class AppInfo { public string Id, Name, Version = "1.0", Orientation = "landscape"; public Dictionary<string, string> Props; public string Trim; public bool TrimReport; public string EditorEngine; }
+
+    // DigitoyEngine .NET (DE_EDITOR) dll'i: plugin kancalari (Editor.dll referansi) ve ayar YAML okuma. Editor --editor-engine ile
+    // kendi dll'ini verir; CLI: dev editor/bin, kurulu <exe>/DigitoyEngine.dll (sdk/aotcompiler iki ust). Yoksa null (kancasiz build).
+    static string EditorEngineDll(AppInfo app)
+    {
+        if (!string.IsNullOrEmpty(app.EditorEngine)) return app.EditorEngine;
+        var cands = new[]
+        {
+            Path.Combine(RepoRoot, "editor", "bin", "Debug", "net10.0", "DigitoyEngine.dll"),
+            Path.Combine(RepoRoot, "editor", "bin", "Release", "net10.0", "DigitoyEngine.dll"),
+            Path.GetFullPath(Path.Combine(PrebuiltDir, "..", "..", "DigitoyEngine.dll")),
+        };
+        return cands.FirstOrDefault(File.Exists);
+    }
     static string VmintSource = "vmint.c"; // RunPlayerBuild trim profiline gore atar (vmint.c | vmint_stub.c)
 
     static Dictionary<string, string> ReadProps(string path)
@@ -403,14 +421,18 @@ public static class Program
     }
 
     // Kabuk surumu: sablon degisince artar; eski kabuk tespit edilip kullanici uyarilir (dosyalarina dokunulmaz).
-    const int AndroidShellVersion = 2;
+    // v3 (2026-10-17): GameApplication, FragmentActivity, plugin apply(from=) noktalari, R8 release, proguard-rules.pro.
+    const int AndroidShellVersion = 3;
 
-    static void EmitAndroidProject(string projectRoot, string projName, List<CTranspiler.GeneratedFile> files, AppInfo app)
+    static void EmitAndroidProject(string projectRoot, string projName, List<CTranspiler.GeneratedFile> files, AppInfo app, PluginBuild.Result plugins)
     {
         string tpl = Path.Combine(PlatformsDir, "android");
         if (!Directory.Exists(tpl)) throw new Exception("android sablonu yok: " + tpl);
         string root = Path.Combine(projectRoot, "Build", "android");
         string gen = Path.Combine(root, "generated");
+
+        // Plugin kancalari ONCE (ayar eksikse hata -> generated/ dokunulmaz).
+        var android = PluginBuild.RunAndroid(plugins, projectRoot, Console.WriteLine);
 
         // Ayarlari onceden dogrula: hata varsa generated/ silinmeden cik (eski proje calisir kalir).
         var props = app.Props ?? new Dictionary<string, string>();
@@ -486,8 +508,11 @@ public static class Program
         CopyTree(Path.Combine(EngineNativeDir, "sokol"), Path.Combine(cpp, "native", "sokol"));
         CopyIfChanged(Path.Combine(tpl, "CMakeLists.txt"), Path.Combine(cpp, "CMakeLists.txt"));
 
-        // java: host (her build taze — engine'e ait), assets: game.pak
+        // java: host (her build taze — engine'e ait), dehost: plugin API modulu, assets: game.pak
         CopyTree(Path.Combine(tpl, "java"), Path.Combine(gen, "java"));
+        CopyTree(Path.Combine(tpl, "dehost"), Path.Combine(gen, "dehost"));
+        // plugin'ler: Gradle library modulleri + gradle/res/Plugins.kt uretimi (docs/plugins.md)
+        PluginBuild.EmitAndroid(plugins, android, root, gen, CopyTree, WriteIfChanged, Console.WriteLine);
         // assets: game.pak -> assets/Build/game.pak (GameHost "<root>/Build/game.pak"; root = "asset:" -> AAssetManager fd+offset, kopya yok)
         string pak = Path.Combine(projectRoot, "Build", "game.pak");
         if (!File.Exists(pak)) throw new Exception("game.pak yok (once asset pack): " + pak);
@@ -495,10 +520,12 @@ public static class Program
         File.Copy(pak, Path.Combine(gen, "assets", "Build", "game.pak"), true);
 
         // app.properties: kabuk Gradle her build okur (applicationId/versionCode/versionName/targetSdk/abis/debugAbis + manifest placeholder'lari).
+        // placeholder.<ad>=<deger>: plugin kancalarinin manifestPlaceholders'i (kabuk prefix'e gore dongu).
         File.WriteAllText(Path.Combine(gen, "app.properties"),
             "# DigitoyEngine: her build yeniden yazilir (Player Settings). Elle duzenlemeyin; app/build.gradle.kts okur.\n" +
             $"applicationId={appId}\nappName={PropEscape(appName)}\nversionName={PropEscape(versionName)}\nversionCode={versionCode}\n" +
-            $"targetSdk={targetSdk}\nabis={abis}\ndebugAbis={debugAbis}\norientation={orientation}\n");
+            $"targetSdk={targetSdk}\nabis={abis}\ndebugAbis={debugAbis}\norientation={orientation}\n" +
+            string.Concat(android.ManifestPlaceholders.Select(kv => $"placeholder.{kv.Key}={PropEscape(kv.Value)}\n")));
 
         // res: adaptive launcher icon (minSdk 26 -> yalniz anydpi-v26; PNG yeniden boyutlandirma yok).
         string res = Path.Combine(gen, "res");
@@ -575,14 +602,18 @@ public static class Program
     //                bu yuzden cpp/'ye yalniz derlenecek dosyalar kopyalanir).
     //   Game.xcodeproj, Game/{Info.plist, LaunchScreen.storyboard}, shell.version   ILK uretimde sablondan, sonra DOKUNULMAZ
     //                (imza/team/capability kullanicinin; degisken her sey generated/app.xcconfig'ten okunur)
-    const int IosShellVersion = 1;
+    // v2 (2026-10-17): DEPlugins yerel SPM paketi referansi (generated/DEPlugins), Info.plist/entitlements generated/'tan (xcconfig).
+    const int IosShellVersion = 2;
 
-    static void EmitIosProject(string projectRoot, string projName, List<CTranspiler.GeneratedFile> files, AppInfo app)
+    static void EmitIosProject(string projectRoot, string projName, List<CTranspiler.GeneratedFile> files, AppInfo app, PluginBuild.Result plugins)
     {
         string tpl = Path.Combine(PlatformsDir, "ios");
         if (!Directory.Exists(tpl)) throw new Exception("ios sablonu yok: " + tpl);
         string root = Path.Combine(projectRoot, "Build", "ios");
         string gen = Path.Combine(root, "generated");
+
+        // Plugin kancalari ONCE (ayar eksikse hata -> generated/ dokunulmaz).
+        var ios = PluginBuild.RunIos(plugins, projectRoot, Console.WriteLine);
 
         var props = app.Props ?? new Dictionary<string, string>();
         string P(string k, string def = "") => props.TryGetValue(k, out var v) && !string.IsNullOrWhiteSpace(v) ? v.Trim() : def;
@@ -634,7 +665,7 @@ public static class Program
             if (n.EndsWith(".h")) { CopyIfChanged(f, Path.Combine(crt, n)); continue; }
             if (wantCrt.TryGetValue(n, out var to)) CopyIfChanged(f, Path.Combine(crt, to));
         }
-        var wantNat = new Dictionary<string, string> { ["sokol_shim.c"] = "sokol_shim.m", ["audio_shim.c"] = "audio_shim.m", ["de_fs.c"] = "de_fs.c", ["de_async.c"] = "de_async.c", ["de_net.c"] = "de_net.c" };
+        var wantNat = new Dictionary<string, string> { ["sokol_shim.c"] = "sokol_shim.m", ["audio_shim.c"] = "audio_shim.m", ["de_fs.c"] = "de_fs.c", ["de_async.c"] = "de_async.c", ["de_net.c"] = "de_net.c", ["de_plugin.c"] = "de_plugin.c" };
         foreach (var f in Directory.GetFiles(EngineNativeDir))
         {
             string n = Path.GetFileName(f);
@@ -650,6 +681,10 @@ public static class Program
             bool keep = Path.GetDirectoryName(f) == crt ? wantCrt.ContainsValue(n) : wantNat.ContainsValue(n);
             if (!keep) File.Delete(f);
         }
+
+        // plugin'ler: cpp/plugins kaynaklari, DEPlugins SPM paketi, Info.plist/entitlements (docs/plugins.md)
+        string basePlist = File.Exists(Path.Combine(root, "Game", "Info.plist")) ? Path.Combine(root, "Game", "Info.plist") : Path.Combine(tpl, "shell", "Game", "Info.plist");
+        var xc = PluginBuild.EmitIos(plugins, ios, basePlist, gen, cpp, minIos, Console.WriteLine);
 
         // pak: bundle icinde Build/game.pak (klasor referansi) -> GameHost "<resourcePath>/Build/game.pak"
         string pak = Path.Combine(projectRoot, "Build", "game.pak");
@@ -680,13 +715,15 @@ public static class Program
             "CODE_SIGN_STYLE = Automatic\n" +
             $"DE_ORIENTATION_1 = {orient[0]}\nDE_ORIENTATION_2 = {orient[1]}\nDE_ORIENTATION_3 = {orient[2]}\nDE_ORIENTATION_4 = {orient[3]}\n" +
             "SDKROOT = iphoneos\nTARGETED_DEVICE_FAMILY = 1,2\nSUPPORTED_PLATFORMS = iphoneos iphonesimulator\n" +
-            "INFOPLIST_FILE = Game/Info.plist\nASSETCATALOG_COMPILER_APPICON_NAME = AppIcon\nGENERATE_INFOPLIST_FILE = NO\n" +
+            "ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon\nGENERATE_INFOPLIST_FILE = NO\n" +
+            xc.Lines +
             "CLANG_ENABLE_OBJC_ARC = YES\nCLANG_ENABLE_MODULES = YES\nGCC_C_LANGUAGE_STANDARD = gnu11\nENABLE_BITCODE = NO\n" +
             "GCC_PREPROCESSOR_DEFINITIONS = $(inherited) SOKOL_METAL SOKOL_IMPL DE_NO_DECODERS\n" +
             "HEADER_SEARCH_PATHS = $(SRCROOT)/generated/cpp/c_runtime $(SRCROOT)/generated/cpp/gen $(SRCROOT)/generated/cpp/native\n" +
             "OTHER_CFLAGS = -w -ffunction-sections -fdata-sections\n" +
             "DEAD_CODE_STRIPPING = YES\nGCC_WARN_INHIBIT_ALL_WARNINGS = YES\n" +
-            "OTHER_LDFLAGS = $(inherited) -Wl,-dead_strip -framework UIKit -framework Foundation -framework Metal -framework QuartzCore -framework AVFoundation -framework AudioToolbox -framework CoreMedia -framework CoreFoundation\n");
+            "OTHER_LDFLAGS = $(inherited) -Wl,-dead_strip -framework UIKit -framework Foundation -framework Metal -framework QuartzCore -framework AVFoundation -framework AudioToolbox -framework CoreMedia -framework CoreFoundation" +
+            (xc.LdExtra.Length > 0 ? " " + xc.LdExtra : "") + "\n");
 
         // kabuk: yalniz yoksa (kullaniciya ait)
         string shellVersionFile = Path.Combine(root, "shell.version");
@@ -748,7 +785,7 @@ public static class Program
     //   index.html                        ILK uretimde sablondan (platforms/wasm/shell), sonra DOKUNULMAZ (kullaniciya ait)
     // Nesneler <proje>/Library/aot/wasm/obj/ altinda: generated.c her build, runtime/shim'ler mtime cache. Tarayici file:// ile wasm yuklemez:
     // Build/wasm/ bir HTTP sunucudan servis edilmeli (editor "Run in Browser" ya da `python -m http.server`).
-    static void BuildWasm(string projectRoot, string projName, List<CTranspiler.GeneratedFile> files, AppInfo app)
+    static void BuildWasm(string projectRoot, string projName, List<CTranspiler.GeneratedFile> files, AppInfo app, PluginBuild.Result plugins)
     {
         string pak = Path.Combine(projectRoot, "Build", "game.pak");
         if (!File.Exists(pak)) throw new Exception("game.pak yok (once asset pack): " + pak);
@@ -758,6 +795,11 @@ public static class Program
         Directory.CreateDirectory(outDir);
         string workDir = ProjectAotDir(projectRoot, "wasm");
         string objDir = Path.Combine(workDir, "obj");
+
+        // Plugin kancalari ONCE (ayar eksikse hata); plugins.js + ek .c + pre/post-js (docs/plugins.md)
+        var wasmP = PluginBuild.RunWasm(plugins, projectRoot, Console.WriteLine);
+        var pluginC = new List<string>();
+        string pluginJsFlags = PluginBuild.EmitWasm(plugins, wasmP, outDir, pluginC);
 
         DigitoyEngine.Build.EmsdkToolchain.Ensure(Console.WriteLine);
         bool debug = Environment.GetEnvironmentVariable("AOT_DEBUG") == "1";
@@ -769,8 +811,10 @@ public static class Program
         foreach (var n in new[] { "vmrt.c", "corelib.c", VmintSource, "de_app.c", "host_wasm.c" })
             items.Add(new DigitoyEngine.Build.CcBuild.Item { Source = Path.Combine(CRuntimeDir, n) });
         // DE_NO_DECODERS: mp3/ogg/wav decoder'lari yalniz editor importer'i icin; player PCM alir, release'ten duser.
-        foreach (var n in new[] { "sokol_shim.c", "audio_shim.c", "de_fs.c", "de_async.c", "de_net.c" })
+        foreach (var n in new[] { "sokol_shim.c", "audio_shim.c", "de_fs.c", "de_async.c", "de_net.c", "de_plugin.c" })
             items.Add(new DigitoyEngine.Build.CcBuild.Item { Source = Path.Combine(EngineNativeDir, n), ExtraFlags = "-DSOKOL_IMPL -DDE_NO_DECODERS" });
+        foreach (var c in pluginC)
+            items.Add(new DigitoyEngine.Build.CcBuild.Item { Source = c });
         var emcc = new DigitoyEngine.Build.CcBuild.Tool { Key = "emcc:" + DigitoyEngine.Build.EmsdkToolchain.Key, Start = DigitoyEngine.Build.EmsdkToolchain.Emcc };
         // Release varsayilani (docs/engine-notes.md BOYUT/E olcumleri): -Oz (1 960 -> 1 546 KB), emmalloc (-7 KB),
         // SUPPORT_LONGJMP=wasm (-72 KB; longjmp invoke_* sarmalayicilari ve JS glue kalkar). LTO buyuttu (+48 KB), kullanilmaz.
@@ -790,7 +834,7 @@ public static class Program
         string link = (debug ? "-g -sASSERTIONS=1" : opt + lto) +
             " -sUSE_WEBGL2=1 -sMIN_WEBGL_VERSION=2 -sMAX_WEBGL_VERSION=2 -sALLOW_MEMORY_GROWTH=1 -sINITIAL_MEMORY=64MB -sSTACK_SIZE=8MB" +
             $" {longjmp} -sMALLOC=emmalloc -sENVIRONMENT=web -sEXIT_RUNTIME=0 -sMODULARIZE=0 -sEXPORT_NAME=Module -sFILESYSTEM=0" +
-            " -sEXPORTED_RUNTIME_METHODS=UTF8ToString -sEXPORTED_FUNCTIONS=_main,_malloc" + linkExtra;
+            " -sEXPORTED_RUNTIME_METHODS=UTF8ToString,stringToUTF8,lengthBytesUTF8,stringToNewUTF8 -sEXPORTED_FUNCTIONS=_main,_malloc,_free,_de_plugin_post" + pluginJsFlags + linkExtra;
         DigitoyEngine.Build.CcBuild.Link(emcc, objs, "", link, outJs, Console.WriteLine);
         foreach (var stale in new[] { "game.data" }) { var sp = Path.Combine(outDir, stale); if (File.Exists(sp)) File.Delete(sp); } // eski MEMFS paketi
         File.Copy(pak, Path.Combine(outDir, "game.pak"), true);
@@ -848,7 +892,7 @@ public static class Program
         string stamp = Path.Combine(outDir, ".toolchain");
         string stampValue = clang + "\n" + defines;
         var sources = new List<string>();
-        foreach (var n in new[] { "sokol_shim.c", "audio_shim.c", "de_fs.c", "de_async.c", "de_net.c" }) sources.Add(Path.Combine(EngineNativeDir, n));
+        foreach (var n in new[] { "sokol_shim.c", "audio_shim.c", "de_fs.c", "de_async.c", "de_net.c", "de_plugin.c" }) sources.Add(Path.Combine(EngineNativeDir, n));
         foreach (var g in GlfwWin32Sources) sources.Add(Path.Combine(EngineNativeDir, "glfw-master", "src", g + ".c"));
         var inputs = sources.Concat(Directory.GetFiles(EngineNativeDir, "*.h", SearchOption.AllDirectories)).ToList();
         bool sameToolchain = File.Exists(stamp) && File.ReadAllText(stamp) == stampValue;

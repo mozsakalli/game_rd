@@ -41,6 +41,8 @@ void de_app_shutdown(void);
 // ---- oyun -> host (host SAGLAR; eksikse link hatasi = acik sozlesme) ----
 void de_host_set_title(const char* utf8);
 void de_host_log(int level, const char* utf8);
+// de_host_fatal(reason, frames, n): yakalanmayan managed exception -> platform-native crash (vmrt.h; zayif varsayilan var,
+// mobil/wasm host'lari ezer). Plugin koprusu de_plugin.h (engine/native). docs/plugins.md.
 
 // ---- generated.c SAGLAR (aotcompiler koprusu; host dokunmaz) ----
 void digitoyengine_init(void);

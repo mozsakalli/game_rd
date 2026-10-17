@@ -69,6 +69,28 @@ public static class ObjectBinary
         return obj;
     }
 
+    // Katalogsuz okuma: sema hedef nesnenin tipinden kurulur (plugin ayarlari gibi katalogda olmayan,
+    // ic ice tanimlanmis [Serializable] siniflar). Yazan taraf Bake(object, assets) ile ayni semayi kullanir.
+    public static void ReadInto(byte[] data, object into, AssetDatabase assets)
+    {
+        var r = new SceneBinary.Reader(data, assets);
+        if (r.I32() != Magic)
+            throw new InvalidOperationException("baked nesne: magic uyusmuyor");
+        int ver = r.I32();
+        if (ver != Version)
+            throw new InvalidOperationException($"baked nesne: surum {ver} desteklenmiyor (beklenen {Version})");
+        int nStr = r.I32();
+        var strs = new string[nStr];
+        for (int i = 0; i < nStr; i++)
+            strs[i] = r.Str();
+        r.Strs = strs;
+        string typeName = strs[r.I32()];
+        var table = SceneBinary.ReadFieldTable(r);
+        var schema = SerializedType.Build(into.GetType());
+        SceneBinary.BindFieldTable(table, schema, typeName);
+        SceneBinary.ReadFields(r, into, table, assets, r.Deferred);
+    }
+
     static int I32(byte[] b, int p)
         => b[p] | (b[p + 1] << 8) | (b[p + 2] << 16) | (b[p + 3] << 24);
 
@@ -80,6 +102,16 @@ public static class ObjectBinary
     {
         var entry = catalog.Find(typeName)
             ?? throw new InvalidOperationException("bake: katalogda asset tipi yok: " + typeName);
+        return Bake(entry.Name, entry.Schema, fields, warn, assetRefs);
+    }
+
+    // Katalogsuz pisirme (ReadInto'nun esi): tip adi yalniz etiket, sema nesnenin tipinden.
+    public static byte[] Bake(object obj, AssetDatabase assets, Action<string> warn = null)
+        => Bake(obj.GetType().Name, SerializedType.Build(obj.GetType()), ObjectSerializer.ToNode(obj, assets), warn, null);
+
+    static byte[] Bake(string typeName, SerializedType.FieldSchema[] schema, DocNode fields, Action<string> warn,
+        List<string> assetRefs)
+    {
         var strs = new Dictionary<string, int>();
         assetRefs ??= new List<string>();
         int Str(string s)
@@ -100,10 +132,10 @@ public static class ObjectBinary
         }
 
         var body = new SceneBinary.Writer();
-        int typeIdx = Str(entry.Name);
-        SceneBinary.WriteFieldTable(body, entry.Schema, Str);
-        SceneBinary.WriteFields(body, fields?.Fields ?? new List<KeyValuePair<string, DocNode>>(), entry.Schema,
-            null, null, Str, AssetStr, warn, entry.Name);
+        int typeIdx = Str(typeName);
+        SceneBinary.WriteFieldTable(body, schema, Str);
+        SceneBinary.WriteFields(body, fields?.Fields ?? new List<KeyValuePair<string, DocNode>>(), schema,
+            null, null, Str, AssetStr, warn, typeName);
 
         var w = new SceneBinary.Writer();
         w.I32(Magic);

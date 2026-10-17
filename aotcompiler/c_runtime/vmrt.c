@@ -1969,7 +1969,44 @@ static void DIGITOYENGINE_dispatch(void)
     else
         snprintf(DIGITOYENGINE_reason, sizeof DIGITOYENGINE_reason, "%s", DIGITOYENGINE_ex_msg);
     DIGITOYENGINE_crash_dump(DIGITOYENGINE_reason, DIGITOYENGINE_ex_trace, DIGITOYENGINE_ex_trace_n);
+    // Mesajli reason (USER: "Tip: mesaj") host'a: Java/NSException mesaji olur.
+    if (DIGITOYENGINE_ex_kind == DIGITOYENGINE_EX_USER)
+    {
+        const VmString *msg = DIGITOYENGINE_ex_obj ? *(const VmString **)((const char *)DIGITOYENGINE_ex_obj + sizeof(GCHeader)) : 0;
+        if (msg)
+        {
+            size_t n = strlen(DIGITOYENGINE_reason);
+            if (n + 2 < sizeof DIGITOYENGINE_reason)
+            {
+                DIGITOYENGINE_reason[n++] = ':'; DIGITOYENGINE_reason[n++] = ' ';
+                DIGITOYENGINE_narrow_name(DIGITOYENGINE_reason + n, sizeof DIGITOYENGINE_reason - n, msg);
+            }
+        }
+    }
+    fflush(stderr);
+    de_host_fatal(DIGITOYENGINE_reason, DIGITOYENGINE_ex_trace, DIGITOYENGINE_ex_trace_n); // platform-native crash (donmez)
     exit(134);
+}
+
+// Zayif varsayilan: platform host'u (host_android.c / host_ios.m / host_wasm.c) kendi tanimiyla ezer. Derleyici her
+// hedefte clang (mingw/NDK/Apple/emcc) -> weak COFF/ELF/Mach-O/wasm'da gecerli.
+__attribute__((weak)) void de_host_fatal(const char *reason, const RtFrame *frames, int count) { (void)reason; (void)frames; (void)count; }
+
+void digitoyengine_frame_info(const RtFrame *f, char *type, int typeCap, char *method, int methodCap, const char **file, int *line, int *col)
+{
+    const MethodInfo *mi = f ? f->mi : 0;
+    if (typeCap > 0) type[0] = 0;
+    if (methodCap > 0) method[0] = 0;
+    if (file) *file = 0;
+    if (line) *line = 0;
+    if (col) *col = 0;
+    if (!mi) return;
+    if (mi->declaringType && typeCap > 0)
+        DIGITOYENGINE_narrow_name(type, (size_t)typeCap, digitoyengine_type_name_noalloc(mi->declaringType));
+    if (mi->name && methodCap > 0) { strncpy(method, mi->name, (size_t)methodCap - 1); method[methodCap - 1] = 0; }
+    if (file) *file = mi->file && mi->file[0] ? mi->file : 0;
+    if (line) *line = f->line >> 10;
+    if (col) *col = f->line & 1023;
 }
 void DIGITOYENGINE_throw(int kind, GCHeader *obj)
 {

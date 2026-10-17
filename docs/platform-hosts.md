@@ -30,11 +30,9 @@ void de_app_shutdown(void);
 const char* de_host_data_root(void);        // pak yolu kökü (desktop ".."; iOS bundle; Android: aşağıya bk.)
 const char* de_host_writable_root(void);    // kayıt/log/crash
 void        de_host_log(int level, const char*);
-void        de_host_open_url(const char*);
-int         de_host_message(const char* channel, const char* json);   // genel amaçlı oyun->host kanalı (SDK'lar için)
+void        de_host_fatal(const char* reason, const RtFrame* frames, int n);  // unhandled managed exception → platform-native crash (docs/plugins.md)
 ```
-Host→oyun geri kanalı: `de_app_message(channel, json)` kuyruğa yazar; managed `Platform.OnMessage(channel, json)` olayıyla
-Frame içinde alır. Böylece SDK callback'leri (reklam kapandı, satın alma bitti) thread/GC kuralını bozmadan oyuna ulaşır.
+Plugin köprüsü (`de_plugin.h`: `register/send/post/drain`, string mesaj, inbox süreç ömürlü) ayrı dosyada; tasarım ve sözleşme **docs/plugins.md**.
 
 ### Desteklenen kurallar (mevcut modelden değişmez)
 - GC safepoint: toplama `de_app_frame` içinde managed Frame döndükten sonra (host_desktop'taki `gc_maybe_major` buraya taşınır).
@@ -50,6 +48,15 @@ pointer → `DriveCameras`/encode/`Commit` → `Module.TickAll`), `Pause/Resume`
 Katalog: `GameHost.LoadCatalog` → `TypeCatalog.FromReflection()` (AOT reflection, `Assembly.GetTypes` → `Component` türevleri;
 `docs/registry-removal.md`). Üretilmiş Registry / `de_game_register` yok.
 `player/` dizini **.NET dev host** olarak kalır: GLFW pencere açan ince `Main`, aynı `GameHost`'u sürer; `DE_EDITOR` loose-Assets yolu burada.
+
+## Platform servisleri ve proje üretimi → docs/plugins.md
+(2026-10-17'de yeniden tasarlandı; aşağıdaki eski taslak geçersiz.) Özet: engine'e SDK gömülmez. Plugin = `Assets/Plugins/<Ad>/` altında
+`Runtime/` (C# `Plugin<TSettings>` türevi: `Send(string)` / `OnMessage(string)`), `Editor/` (`IAndroidProjectHook`/`IIosProjectHook`/
+`IWasmProjectHook` + `PluginMock<T>`), `Android/` (Gradle library modülü), `iOS/` (`DEPlugin` ObjC/Swift), `WASM/` (js). Protokol iki yönde
+UTF-8 string, push yok (host biriktirir, managed frame başında çeker). Bağımlılık çözücüsü Gradle/SPM; trim R8/dead-strip. Kullanılmayan plugin
+(oyun kodunda `Plugin.Get<T>()` yok) ne AOT'ye ne APK/IPA'ya girer. Üretim idempotent: `Build/<platform>/generated/` her build; kabuk kullanıcıya ait.
+
+<details><summary>Eski taslak (tarihsel)</summary>
 
 ## Platform servisleri: ince köprü, SDK'lar oyun projesinde
 Engine'e **SDK gömülmez**. İki mekanizma:
@@ -82,6 +89,8 @@ class MyAdsHookIos : IIosProjectHook {
 kopyalanır, sonra **dokunulmaz**: imza, ikon, splash, elle Gradle ayarları). Kancalar yalnız `generated/`'a yazar; `user/` kullanıcıya ait.
 Aynı kural `Build/ios/`, `Build/wasm/` için.
 
+</details>
+
 ## Platform başına notlar / riskler
 - **Android**
   - `libgame.so` Android Studio'nun NDK'sıyla **projenin içinde** derlenir (`externalNativeBuild` + CMakeLists): `gen/` (tip başına AOT C, açık liste
@@ -109,7 +118,7 @@ Aynı kural `Build/ios/`, `Build/wasm/` için.
 |---|---|---|
 | H1 | `de_app.h` ABI + `host_desktop.c` + `GameHost` (managed) + olay kuyruğu; aotcompiler `main` üretmez, `de_game_register` bağlar; `player/` dev host | Sandbox.exe davranış birebir (Windows); .NET dev host çalışır |
 | H2 | aotcompiler: Game.dll Roslyn in-process, corelib/engine prebuilt IL (dev'de taze), `DigitoyPlayer.aot.dll` kalkar; publisher `sdk/` güncel | paketten SDK'sız player build |
-| H3 | Proje üretim altyapısı: `Build/<platform>/{generated,user}` kuralı, `Assets/Editor` → `<Ad>.Editor.dll`, `I*ProjectHook` API, `Platform.Send/OnMessage` + `de_host_message` | Windows'ta sahte kanca ile uçtan uca |
+| H3 | Proje üretim altyapısı: `Build/<platform>/{generated,user}` kuralı, `Assets/**/Editor` → `<Ad>.Editor.dll`, `I*ProjectHook` API, plugin köprüsü (`Plugin.Send/OnMessage` + `de_plugin.*`), `de_host_fatal` — **docs/plugins.md** | Windows'ta mock ile uçtan uca; Android/iOS/WASM proje üretimi |
 | H4 | wasm spike → wasm host + emsdk Platform Support + GLES3 shader yolu | Sandbox tarayıcıda — **BİTTİ (ilk dilim)** |
 | H5 | Android: Kotlin host şablonu + CMakeLists + Gradle + JNI köprü + AAsset pak + `de_music_*` MediaPlayer | Android Studio'da aç → derle → cihazda Sandbox |
 | H6 | iOS: Xcode proje şablonu (elle pbxproj, synchronized folder) + ObjC host + Metal + AVFoundation | Xcode'da aç → derle → cihazda Sandbox — **İLK DİLİM BİTTİ (simülatör)** |

@@ -78,6 +78,8 @@ public static class AssetWatcher
                 continue; // bizim yazdigimiz dosyanin yankisi
             if (full.EndsWith(".meta", StringComparison.OrdinalIgnoreCase))
                 continue; // sahibiyle birlikte gelir; tek basina ilginc degil
+            if (DigitoyEngine.AssetDatabase.IsPluginNativePath(System.IO.Path.GetRelativePath(App.Project.AssetsPath, full)))
+                continue; // plugin native kaynagi (Kotlin/ObjC/js): ne kod ne asset
             _lastEventAt = now;
             if (full.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) || full.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
             {

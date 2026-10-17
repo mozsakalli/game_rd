@@ -159,7 +159,12 @@ public sealed class GameCode
             return false;
         Unload();
         if (job.Dll == null && job.Plugins.Count == 0)
-            return true; // script de plugin de yok
+        {
+            // script de plugin de yok; Editor/ kodu yine olabilir (ayar tipi plugin'siz)
+            _alc = new AssemblyLoadContext("game", isCollectible: true);
+            LoadEditorCode(project);
+            return true;
+        }
         _alc = new AssemblyLoadContext("game", isCollectible: true);
         // Plugin'ler once (oyun dll'i onlara referans verir); hepsi stream'den: dosya kilitlenmez, uzerine yazilabilir.
         var plugins = new List<Assembly>();
@@ -191,6 +196,7 @@ public sealed class GameCode
         GameDllPath = job.Dll;
         Console.WriteLine($"[gamecode] yuklendi: {job.AsmName ?? "(script yok)"} ({job.Scripts.Count} script, {plugins.Count} plugin)");
         UpdateTypemap(project, assets, job.Scripts);
+        LoadEditorCode(project);
         return true;
     }
 
@@ -286,10 +292,57 @@ public sealed class GameCode
 
     public void Unload()
     {
+        DigitoyEngine.Plugin.MockHost.Instance.Clear(); // eski ALC mock'lari tutulmasin (reload kacagi)
+        DigitoyEngine.Plugin.ResetAll();
         _alc?.Unload();
         _alc = null;
         GameAssembly = null;
+        EditorAssembly = null;
         PluginAssemblies = Array.Empty<Assembly>();
         GameDllPath = null;
+    }
+
+    // Assets/**/Editor/**/*.cs -> <Ad>.Editor.dll (docs/plugins.md): plugin build kancalari (IAndroidProjectHook...) + PluginMock<T>.
+    // Oyun assembly'siyle ayni ALC'de, ondan sonra (Runtime ayar tiplerine referans verir). Hata = Console'a; oyun kodu etkilenmez.
+    public Assembly EditorAssembly { get; private set; }
+
+    public void LoadEditorCode(Project project)
+    {
+        EditorAssembly = null;
+        var sources = new List<string>();
+        foreach (var f in RoslynCompiler.SourcesUnder(project.AssetsPath))
+            if (f.Replace('\\', '/').Contains("/Editor/")) sources.Add(f);
+        if (sources.Count == 0 || _alc == null)
+            return;
+        string dll = Path.Combine(project.LibraryPath, "Build", "bin", project.Name + ".Editor.dll");
+        var build = new RoslynBuild
+        {
+            AssemblyName = project.Name + ".Editor",
+            SourceFiles = sources,
+            References = { typeof(DigitoyEngine.GameObject).Assembly.Location, typeof(DigitoyEngine.Build.ProjectHooks).Assembly.Location },
+            Defines = new[] { "DEBUG", "TRACE", "DE_EDITOR", "DE_GAME" },
+        };
+        if (GameDllPath != null) build.References.Add(GameDllPath);
+        build.References.AddRange(PluginDlls(project));
+        var r = RoslynCompiler.CompileToFile(build, dll, useCache: false);
+        if (!r.Ok)
+        {
+            EditorLog.Error("[gamecode] Editor.dll derleme hatasi (Assets/**/Editor):\n" + r.Errors);
+            return;
+        }
+        try
+        {
+            using (var fs = File.OpenRead(dll))
+                EditorAssembly = _alc.LoadFromStream(fs);
+        }
+        catch (Exception e) { EditorLog.Error("[gamecode] Editor.dll yuklenemedi: " + e.Message); return; }
+        int mocks = 0;
+        foreach (var t in EditorAssembly.GetTypes())
+        {
+            if (t.IsAbstract || !typeof(DigitoyEngine.PluginMockBase).IsAssignableFrom(t)) continue;
+            try { DigitoyEngine.Plugin.MockHost.Instance.Register((DigitoyEngine.PluginMockBase)Activator.CreateInstance(t)); mocks++; }
+            catch (Exception e) { EditorLog.Error("[gamecode] mock kurulamadi " + t.Name + ": " + e.Message); }
+        }
+        Console.WriteLine($"[gamecode] editor kodu: {sources.Count} dosya, {mocks} plugin mock");
     }
 }

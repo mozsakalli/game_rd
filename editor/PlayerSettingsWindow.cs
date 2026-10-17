@@ -22,6 +22,8 @@ public sealed class PlayerSettingsWindow : EditorWindow
 
     readonly ObjectDrawer _drawer = new() { KeyPrefix = "ps:" };
     readonly ObjectDrawer _signDrawer = new() { KeyPrefix = "ps.sign:" };
+    readonly Dictionary<string, ObjectDrawer> _pluginDrawers = new();
+    List<PluginSettingsEditor.Entry> _plugins = new();
     readonly List<string> _sceneRows = new();
     Vec2 _scroll;
 
@@ -47,11 +49,20 @@ public sealed class PlayerSettingsWindow : EditorWindow
         if (!ReferenceEquals(_signDrawer.Target, project.AndroidSigning))
             _signDrawer.Bind(project.AndroidSigning);
         CollectSceneRows(ps);
+        // Plugin ayarlari (docs/plugins.md): her Plugin<TSettings> / [ProjectSetting] tipi bir bolum.
+        _plugins = PluginSettingsEditor.Entries(project, App.Assets);
+        float pluginsH = 0;
+        foreach (var e in _plugins)
+        {
+            var d = PluginDrawer(e);
+            pluginsH += HeaderH + 6 + RowH + d.Measure() + 8;
+        }
+        if (_plugins.Count == 0) pluginsH = HeaderH + 6 + RowH + 8;
 
         var vis = GuiClip.VisibleRect;
         float scenesH = RowH * (Math.Max(1, _sceneRows.Count) + 1) + 4;
         float contentHeight = 4 + HeaderH + 6 + _drawer.Measure() + 8 + HeaderH + 6 + scenesH + 8
-            + HeaderH + 6 + RowH + _signDrawer.Measure() + 8;
+            + HeaderH + 6 + RowH + _signDrawer.Measure() + 8 + pluginsH;
         _scroll = Gui.BeginScrollView(new Rect(0, 0, vis.width, vis.height), _scroll,
             new Rect(0, 0, vis.width - 20, contentHeight));
         float w = vis.width - 24;
@@ -75,7 +86,44 @@ public sealed class PlayerSettingsWindow : EditorWindow
         y += RowH;
         if (_signDrawer.Draw(ref y, w, SaveSigning))
             SaveSigning();
+        y += 8;
+        if (_plugins.Count == 0)
+        {
+            DrawHeader(ref y, w, "Plugins");
+            if (Event.Current.Type == EventType.Repaint)
+                GuiRenderer.DrawTextIn(new Rect(12, y, w - 12, RowH), "No plugin settings (Assets/Plugins/<Name>/Runtime: Plugin<TSettings>)",
+                    InspectorPanel.SmallFont, InspectorPanel.LabelDimColor);
+            y += RowH;
+        }
+        foreach (var e in _plugins)
+        {
+            DrawHeader(ref y, w, "Plugin: " + e.Name);
+            var missing = PluginSettingsEditor.MissingRequired(e.Instance);
+            if (Event.Current.Type == EventType.Repaint)
+            {
+                string info = "ProjectSettings/Plugins/" + e.Name + ".asset" + (e.Referenced ? "" : "  — not referenced by game code (Plugin.Get<" + e.Name + ">)")
+                    + (missing.Count > 0 ? "  — required: " + string.Join(", ", missing) : "");
+                GuiRenderer.DrawTextIn(new Rect(12, y, w - 12, RowH), info, InspectorPanel.SmallFont,
+                    missing.Count > 0 ? MissingColor : InspectorPanel.LabelDimColor);
+            }
+            y += RowH;
+            var d = PluginDrawer(e);
+            var assets = App.Assets;
+            if (d.Draw(ref y, w, () => PluginSettingsEditor.Save(e, assets)))
+                PluginSettingsEditor.Save(e, assets);
+            y += 8;
+        }
         Gui.EndScrollView();
+    }
+
+    ObjectDrawer PluginDrawer(PluginSettingsEditor.Entry e)
+    {
+        if (!_pluginDrawers.TryGetValue(e.Name, out var d))
+            _pluginDrawers[e.Name] = d = new ObjectDrawer { KeyPrefix = "ps.plugin." + e.Name + ":" };
+        if (!ReferenceEquals(d.Target, e.Instance))
+            d.Bind(e.Instance);
+        d.LabelW = _drawer.LabelW;
+        return d;
     }
 
     static void DrawHeader(ref float y, float w, string title)

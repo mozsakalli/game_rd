@@ -7,6 +7,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
 
     <application
+        android:name="com.digitoy.host.GameApplication"
         android:allowBackup="false"
         android:label="${appName}"
         android:icon="@mipmap/ic_launcher"

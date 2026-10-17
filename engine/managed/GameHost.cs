@@ -90,6 +90,7 @@ public static class GameHost
             _assets.Tick(2, dt); // async pompasi + biten texture'lari butceli bagla
         else
             NativeAsync.Pump(dt);
+        Plugin.PumpInbox(); // host plugin mesajlari (docs/plugins.md): yalniz burada managed'a girer
         Module.TickAll();
         // Async Boot'un hatasi Task'ta kalir; burada gozlenir ve yeniden firlatilir (sessiz kalma yok).
         if (_bootTask != null && _bootTask.IsFaulted)
@@ -142,6 +143,9 @@ public static class GameHost
             throw new Exception("pak'ta proje kaydi yok (" + ProjectBinary.PakKey + ") — pak'i yeniden build edin");
         _title = name;
         SetTitle?.Invoke(name);
+        // Plugin ayarlari (docs/plugins.md): pak'ta .plugins blobu varsa (yoksa her plugin varsayilan ayarla).
+        if (_source.Exists(Plugin.SettingsPakKey))
+            Plugin.LoadSettingsBlob(await _source.ReadBytesAsync(Plugin.SettingsPakKey), assets);
 
         // Dev/test kancalari [DevOnly]: lean build'de govdesiz (bkz. DevOnlyAttribute) -> SceneDump/Module/Net kodu kirpilir.
         await DevArmSceneDump(root);

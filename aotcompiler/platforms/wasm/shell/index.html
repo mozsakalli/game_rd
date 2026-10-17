@@ -34,7 +34,10 @@
       onAbort: function (what) { statusEl.classList.remove('hidden'); textEl.textContent = 'Error: ' + what; barEl.style.background = '#f55'; }
     };
     window.onerror = function (msg) { statusEl.classList.remove('hidden'); textEl.textContent = 'Error: ' + msg; };
+    // Plugin'ler (docs/plugins.md): plugins.js her build uretilir ve DE.register(...) ile kaydeder; SENKRON ve game.js'den ONCE.
+    window.DE = { plugins: {}, register: function (p) { if (p && p.name) DE.plugins[p.name] = p; }, errorReporter: null };
   </script>
+  <script src="plugins.js" onerror="this.remove()"></script>
   <script async src="game.js"></script>
 </body>
 </html>

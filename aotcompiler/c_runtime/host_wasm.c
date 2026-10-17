@@ -6,12 +6,79 @@
 // Koordinat: canvas CSS px = MANTIKSAL px (fbw = css * devicePixelRatio, scale = dpr) -> olaylar oldugu gibi gecer.
 #include "de_app.h"
 #include "de_fs.h"
+#include "de_plugin.h"
+#include "vmrt.h"
 #include <emscripten/emscripten.h>
 #include <emscripten/html5.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #define CANVAS "#canvas"
+
+// ---- plugin koprusu (docs/plugins.md): JS tarafi window.DE (index.html). Tek thread: dispatch aninda. ----
+// clang-format off
+EM_JS(int, de_js_plugin_available, (const char* name), {
+    return (typeof DE !== 'undefined' && DE.plugins && DE.plugins[UTF8ToString(name)]) ? 1 : 0;
+});
+EM_JS(void, de_js_plugin_dispatch, (const char* name, const char* msg), {
+    var n = UTF8ToString(name), m = UTF8ToString(msg);
+    var p = (typeof DE !== 'undefined' && DE.plugins) ? DE.plugins[n] : null;
+    if (!p) return;
+    try { p.onMessage(m); }
+    catch (e) { console.error('[plugin] hata (' + n + ') — oyun devam ediyor', e); try { if (DE.errorReporter) DE.errorReporter(e); } catch (_) {} }
+});
+EM_JS(void, de_js_plugin_install, (), {
+    // DE.send(name, msg): plugin -> managed inbox (host -> managed yolu). Sayfa yuklenirken DE.plugins doldurulmus olmali
+    // (plugins.js senkron, main()'den once); DE.register(obj) obj.name ile kaydeder.
+    if (typeof DE === 'undefined') window.DE = {};
+    DE.plugins = DE.plugins || {};
+    DE.register = DE.register || function (p) { if (!p || !p.name) { console.error('[plugin] name yok'); return; } DE.plugins[p.name] = p; };
+    DE.send = function (name, msg) {
+        var n = lengthBytesUTF8(name) + 1, m = lengthBytesUTF8(msg) + 1;
+        var pn = _malloc(n), pm = _malloc(m);
+        stringToUTF8(name, pn, n); stringToUTF8(msg, pm, m);
+        _de_plugin_post(pn, pm);
+        _free(pn); _free(pm);
+    };
+    for (var k in DE.plugins) _de_wasm_plugin_register(stringToNewUTF8(k));
+});
+// clang-format on
+static void plugin_noop(void *user, const char *msg) { (void)user; (void)msg; }
+EMSCRIPTEN_KEEPALIVE void de_wasm_plugin_register(char *name) { de_plugin_register(name, plugin_noop, 0); free(name); }
+static void plugin_run_now(DePluginDispatchFn fn, void *user, char *name, char *msg)
+{
+    (void)fn; (void)user;
+    de_js_plugin_dispatch(name, msg);
+    de_plugin_free_dispatch(name, msg);
+}
+
+// de_host_fatal (docs/plugins.md): yakalanmayan managed exception -> JS Error throw (window.onerror / Sentry-browser yakalar).
+// Ana dongu iptal; throw wasm frame'lerinden JS'e cikar (JS exception, wasm trap degil). Donmez.
+// clang-format off
+EM_JS(void, de_js_fatal, (const char* text), {
+    var e = new Error(UTF8ToString(text)); e.name = 'DigitoyManagedException';
+    try { if (typeof DE !== 'undefined' && DE.errorReporter) DE.errorReporter(e); } catch (_) {}
+    throw e;
+});
+// clang-format on
+void de_host_fatal(const char *reason, const RtFrame *frames, int count)
+{
+    emscripten_cancel_main_loop();
+    char text[4096]; size_t pos = 0;
+    pos += (size_t)snprintf(text + pos, sizeof text - pos, "%s", reason ? reason : "managed exception");
+    int n = count > 64 ? 64 : count;
+    for (int i = 0; i < n && pos < sizeof text - 64; i++)
+    {
+        const RtFrame *f = &frames[count - 1 - i];
+        char type[128], method[128]; const char *file; int line, col;
+        digitoyengine_frame_info(f, type, sizeof type, method, sizeof method, &file, &line, &col);
+        const char *fname = file ? strrchr(file, '/') : 0; fname = fname ? fname + 1 : file;
+        pos += (size_t)snprintf(text + pos, sizeof text - pos, "\n  at %s.%s(%s:%d)", type[0] ? type : "Managed", method[0] ? method : "?", fname ? fname : "?", line);
+    }
+    de_js_fatal(text);
+    abort();
+}
 
 static int g_fbw, g_fbh;
 static float g_scale = 1.0f;
@@ -187,6 +254,8 @@ int main(void)
 
     measure();
     // Pak asenkron gelir; dongu simdi kurulur, g_running=0 iken frame bos doner. Init de_wasm_pak_ready'de.
+    de_plugin_set_dispatcher(plugin_run_now);
+    de_js_plugin_install(); // DE.plugins'tekileri kaydet (plugins.js senkron yuklenmis olmali), DE.send'i kur
     emscripten_set_main_loop(frame, 0, 0); // 0 fps = requestAnimationFrame; simulate_infinite_loop=0 -> main doner, runtime yasar
     de_js_fetch_pak("game.pak"); // index.html ile ayni dizin
     return 0;

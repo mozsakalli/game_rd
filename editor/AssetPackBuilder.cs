@@ -27,7 +27,8 @@ static class AssetPackBuilder
         || rel.EndsWith(".dll", StringComparison.OrdinalIgnoreCase)
         || rel.EndsWith(".pdb", StringComparison.OrdinalIgnoreCase)
         || rel.Contains("/Editor/", StringComparison.OrdinalIgnoreCase)
-        || rel.StartsWith("Editor/", StringComparison.OrdinalIgnoreCase);
+        || rel.StartsWith("Editor/", StringComparison.OrdinalIgnoreCase)
+        || AssetDatabase.IsPluginNativePath(rel);
 
     [MenuItem("Project/Build Asset Pack", 1)]
     internal static void BuildMenu() => Build();
@@ -246,6 +247,10 @@ static class AssetPackBuilder
 
         // Proje ayarlari: runtime project.yaml okumaz; pismis kayit pak'ta (sahne listesi dahil).
         items.Add((ProjectBinary.PakKey, "", ProjectBinary.Write(project.Name, project.StartScene, roots)));
+        // Plugin ayarlari (docs/plugins.md): her Plugin<TSettings> / [ProjectSetting] tipi icin ProjectSettings/Plugins/<Ad>.asset -> DOBJ.
+        var pluginSettings = PluginSettingsEditor.CollectForPak(project, assets);
+        if (pluginSettings.Count > 0)
+            items.Add((Plugin.SettingsPakKey, "", Plugin.WriteSettingsBlob(pluginSettings, assets)));
         if (extra != null)
             foreach (var (key, data) in extra)
                 items.Add((key, "", data));

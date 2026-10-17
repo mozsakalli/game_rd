@@ -1,0 +1,6 @@
+type: Config
+fields:
+  appId: 123456789012345
+  clientToken: sandbox-client-token
+  displayName: Sandbox
+  autoLogAppEvents: true

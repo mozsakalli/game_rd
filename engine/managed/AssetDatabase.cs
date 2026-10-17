@@ -91,6 +91,21 @@ public sealed class AssetDatabase
     // GUID referanslar — dosya tasinsa/adi degisse referans kirilmaz (Unity modeli).
     // createMissing=true yalniz editorde: eksik meta uretilir, sahipsiz meta silinir.
 #if DE_EDITOR
+    // Plugin konvansiyonu (docs/plugins.md): Assets/Plugins/<Ad>/{Android,iOS,WASM}/ icerigi platform kaynagidir, asset DEGIL
+    // (meta yok, import yok, pak'a girmez, watcher yok sayar). Runtime/ ve Editor/ C# normal kod yolundan gider.
+    public static bool IsPluginNativePath(string rel)
+    {
+        if (rel == null) return false;
+        var p = rel.Replace('\\', '/');
+        int i = p.IndexOf("Plugins/", StringComparison.OrdinalIgnoreCase);
+        if (i < 0 || (i > 0 && p[i - 1] != '/')) return false;
+        string rest = p.Substring(i + 8);
+        int slash = rest.IndexOf('/');
+        if (slash < 0) return false;
+        rest = rest.Substring(slash + 1);
+        return rest.StartsWith("Android/", StringComparison.Ordinal) || rest.StartsWith("iOS/", StringComparison.Ordinal) || rest.StartsWith("WASM/", StringComparison.Ordinal);
+    }
+
     public void ScanMetas(bool createMissing)
     {
         if (_root == null)
@@ -101,6 +116,9 @@ public sealed class AssetDatabase
             return;
         foreach (var file in Directory.GetFiles(_root, "*", SearchOption.AllDirectories))
         {
+            string relEarly = Path.GetRelativePath(_root, file).Replace('\\', '/');
+            if (IsPluginNativePath(relEarly))
+                continue; // plugin native kaynagi (Kotlin/ObjC/js/gradle): asset degil, meta uretilmez (docs/plugins.md)
             if (file.EndsWith(".meta", StringComparison.OrdinalIgnoreCase))
             {
                 if (createMissing && !File.Exists(file.Substring(0, file.Length - 5)))

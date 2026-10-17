@@ -32,6 +32,7 @@
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.12.0" />
     <!-- Ortak in-process Roslyn derleyicisi (aotcompiler ile AYNI dosya): oyun kodu hot-reload -->
     <Compile Include="..\aotcompiler\source\RoslynCompiler.cs" Link="Build\RoslynCompiler.cs" />
+    <Compile Include="..\aotcompiler\source\ProjectHooks.cs" Link="Build\ProjectHooks.cs" />
   </ItemGroup>
 
   <!-- Native motor kutuphanesi cikti klasorune kopyalanir (P/Invoke burada arar). -->

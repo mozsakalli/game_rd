@@ -42,6 +42,8 @@ android {
         ndk { abiFilters += prop("abis", "arm64-v8a").split(',').map { it.trim() }.filter { it.isNotEmpty() } }
         manifestPlaceholders["appName"] = prop("appName")
         manifestPlaceholders["orientation"] = prop("orientation", "sensorLandscape")
+        // Plugin kancalarinin placeholder'lari (placeholder.<ad>=<deger>).
+        for (k in appProps.stringPropertyNames()) if (k.startsWith("placeholder.")) manifestPlaceholders[k.removePrefix("placeholder.")] = appProps.getProperty(k)
         externalNativeBuild {
             cmake {
                 arguments += listOf("-DANDROID_STL=none") // saf C
@@ -61,6 +63,7 @@ android {
             java.srcDirs("../generated/java")
             assets.srcDirs("../generated/assets")
             res.srcDirs("../generated/res")
+            // Plugin manifest parcalari (izin/meta-data) library modullerinde; app manifest'i statik kalir.
         }
     }
 
@@ -82,9 +85,14 @@ android {
         debug {
             // Emulator ABI'si (x86_64) yalniz debug APK'ya girer; release'e ASLA eklenmez.
             ndk { abiFilters += prop("debugAbis", "x86_64").split(',').map { it.trim() }.filter { it.isNotEmpty() } }
+            isMinifyEnabled = false
         }
         release {
-            isMinifyEnabled = false
+            // R8: SDK plugin'leri (reklam/login/firebase) kendi consumer-rules.pro'sunu tasir; bizim keep'ler proguard-rules.pro
+            // (JNI'den isimle cagrilan host siniflari). Trim platformun isi (docs/plugins.md).
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
             signingConfig = if (hasReleaseSigning) signingConfigs.getByName("release") else signingConfigs.getByName("debug")
         }
     }
@@ -94,6 +102,14 @@ android {
     }
     kotlinOptions { jvmTarget = "17" }
 }
+
+dependencies {
+    implementation(project(":dehost")) // DEPlugin/PluginLib (+ androidx.fragment api ile gelir)
+}
+
+// Plugin modulleri + app-seviyesi gradle plugin'leri + surum sabitlemeleri (IAndroidProjectHook) — editor her build yazar.
+val pluginsDeps = rootProject.file("generated/plugins.deps.gradle.kts")
+if (pluginsDeps.exists()) apply(from = pluginsDeps)
 
 if (!hasReleaseSigning)
     logger.warn("DigitoyEngine: keystore.properties yok -> release DEBUG anahtariyla imzalanir (Player Settings > android.keystorePath / Android Signing)")

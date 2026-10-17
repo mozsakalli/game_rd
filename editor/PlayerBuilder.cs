@@ -62,6 +62,8 @@ public static class PlayerBuilder
             return Fail("oyun kodu derlenemiyor; once hatalari giderin (Console)");
         var ps = project.Player;
         string appArgs = $" --app-id \"{ps.bundleIdentifier}\" --app-name \"{ps.productName}\" --app-version \"{ps.version}\" --orientation {ps.orientation.ToString().ToLowerInvariant()} --trim {(ps.stripCode ? "lean" : "full")}";
+        // Plugin kancalari/ayar YAML icin editorun .NET DigitoyEngine.dll'i (docs/plugins.md)
+        appArgs += $" --editor-engine \"{typeof(DigitoyEngine.GameObject).Assembly.Location}\"";
         if (target == "android")
         {
             // Android'e ozel her sey (versionCode, ABI, ikon, imza) tek props dosyasiyla gider; aotcompiler dogrular.

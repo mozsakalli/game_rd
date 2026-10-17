@@ -594,6 +594,14 @@ void vm_write_utf8_to(FILE *f, const unsigned short *d, int len); // ayni donusu
 // yazilir (time+pid -> ezme yok). Yazim low-level open/write (signal-safe, malloc yok).
 void digitoyengine_crash_init(const char *dir);
 void DIGITOYENGINE_crash_dump(const char *reason, const RtFrame *frames, int count);
+// ---- platform-native crash (docs/plugins.md): yakalanmayan managed exception stderr raporu + crash dosyasindan SONRA
+// host'a verilir; host platformun kendi crash yoluna cevirir (Android Java exception + setStackTrace, iOS NSException,
+// WASM JS throw) -> Play vitals / Crashlytics / Organizer satir bilgili trace gorur. exit() reporter'lara GORUNMEZ.
+// Zayif varsayilan (vmrt.c): hicbir sey yapmaz -> dispatch exit(134) ile biter (desktop/selftest eski sozlesme).
+// frames[]: firlatma ani (en ust = count-1). DONMEMELIDIR; donerse runtime exit(134) yapar.
+void de_host_fatal(const char *reason, const RtFrame *frames, int count);
+// Host'un frame'leri alloc'suz okumasi icin: tip/metot adi ASCII daraltilmis (cap dahil NUL), dosya (0 olabilir), satir/kolon.
+void digitoyengine_frame_info(const RtFrame *f, char *type, int typeCap, char *method, int methodCap, const char **file, int *line, int *col);
 // sicak yol: static inline (TU basina kopya) -> cagri yerinde acilir. Uretilen extern prototip
 // (String_ext.h) static'ten SONRA gelir -> C99 6.2.2p4 ile ic baglantiyi devralir (Mach-O duplicate cozumu).
 static inline int vmstring_length(VmString *s)

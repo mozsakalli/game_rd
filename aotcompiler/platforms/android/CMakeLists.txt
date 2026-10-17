@@ -6,7 +6,7 @@ cmake_minimum_required(VERSION 3.22.1)
 project(game C)
 
 include(${CMAKE_CURRENT_SOURCE_DIR}/gen_sources.cmake) # DE_GEN_SOURCES + DE_VMINT (her build yeniden uretilir; trim profili vmint.c | vmint_stub.c)
-set(DE_SHIM native/sokol_shim.c native/audio_shim.c native/de_fs.c native/de_async.c native/de_net.c)
+set(DE_SHIM native/sokol_shim.c native/audio_shim.c native/de_fs.c native/de_async.c native/de_net.c native/de_plugin.c)
 add_library(game SHARED
     ${DE_GEN_SOURCES}
     c_runtime/vmrt.c c_runtime/corelib.c ${DE_VMINT}

@@ -1,7 +1,7 @@
 package com.digitoy.host
 
-import android.app.Activity
 import android.content.Context
+import android.content.Intent
 import android.opengl.GLSurfaceView
 import android.os.Build
 import android.os.Bundle
@@ -11,35 +11,73 @@ import android.view.View
 import android.view.WindowInsets
 import android.view.WindowInsetsController
 import android.view.WindowManager
+import android.widget.FrameLayout
+import androidx.fragment.app.FragmentActivity
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
 
 // DigitoyEngine Android host'u (docs/platform-hosts.md): pencere = GLSurfaceView (EGL/GLES3), dongu = Renderer,
 // girdi = onTouchEvent -> GameLib.event (kuyruk), yasam dongusu = onPause/onResume -> GL thread'inde pause/resume.
 // Oyun mantigi libgame.so icinde (generated.c + runtime); burasi yalnizca host.
-// Bu dosya her build'de generated/java altina yeniden yazilir — degistirmeyin; SDK entegrasyonu icin
-// kendi Activity'nizi/kancalarinizi app/ tarafina ekleyin.
-class GameActivity : Activity() {
+// Plugin'ler (docs/plugins.md): FragmentActivity (ActivityResultLauncher/fragment isteyen SDK'lar), GL yuzeyinin
+// ustunde `overlay` FrameLayout (banner/webview), tum lifecycle PluginHost'a iletilir.
+// Bu dosya her build'de generated/java altina yeniden yazilir — degistirmeyin; SDK entegrasyonu plugin'le yapilir.
+class GameActivity : FragmentActivity() {
     private lateinit var view: GameView
+    private lateinit var overlay: FrameLayout
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         hideSystemBars()
         view = GameView(this)
-        setContentView(view)
+        overlay = FrameLayout(this).apply { isClickable = false; isFocusable = false }
+        val root = FrameLayout(this)
+        root.addView(view, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+        root.addView(overlay, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
+        if (Build.VERSION.SDK_INT >= 30) {
+            // Centik/sistem cubugu altina plugin UI'si girmesin (oyun yuzeyi tam ekran kalir).
+            overlay.setOnApplyWindowInsetsListener { v, insets ->
+                val i = insets.getInsets(WindowInsets.Type.displayCutout())
+                v.setPadding(i.left, i.top, i.right, i.bottom)
+                insets
+            }
+        }
+        setContentView(root)
+        PluginHost.onCreate(this, overlay, savedInstanceState)
     }
+
+    override fun onStart() { super.onStart(); PluginHost.onStart() }
+    override fun onStop() { PluginHost.onStop(); super.onStop() }
 
     override fun onResume() {
         super.onResume()
         view.onResume()
         view.queueEvent { if (view.ready) GameLib.resume() }
+        PluginHost.onResume()
     }
 
     override fun onPause() {
+        PluginHost.onPause()
         view.queueEvent { if (view.ready) GameLib.pause() }
         view.onPause()
         super.onPause()
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        PluginHost.onActivityResult(requestCode, resultCode, data)
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        PluginHost.onNewIntent(intent)
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        PluginHost.onRequestPermissionsResult(requestCode, permissions, grantResults)
     }
 
     override fun onTrimMemory(level: Int) {
@@ -51,6 +89,7 @@ class GameActivity : Activity() {
     // bitiriyoruz: bir sonraki acilis temiz surec = temiz runtime. (Yasayan Activity'de home/geri donus pause/resume'dur.)
     // GL thread'i hala kosuyor olabilir -> shutdown cagirmadan dogrudan surec sonu (durum zaten diske yazilmaz).
     override fun onDestroy() {
+        PluginHost.onDestroy()
         super.onDestroy()
         android.os.Process.killProcess(android.os.Process.myPid())
     }
@@ -61,9 +100,11 @@ class GameActivity : Activity() {
         GameLib.event(GameLib.EV_FOCUS, 0, 0f, 0f, if (hasFocus) 1 else 0, 0)
     }
 
-    // Geri tusu oyuna olay olarak gider (GameHost.BackRequested); oyun islemezse Frame 0 doner -> finish().
+    // Geri tusu: once plugin'ler (reklam/webview kapatma), sonra oyuna olay (GameHost.BackRequested); oyun islemezse Frame 0 -> finish().
     @Suppress("DEPRECATION")
+    @Deprecated("Deprecated in Java")
     override fun onBackPressed() {
+        if (PluginHost.onBackPressed()) return
         GameLib.event(GameLib.EV_BACK, 0, 0f, 0f, 0, 0)
     }
 

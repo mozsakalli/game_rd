@@ -1,5 +1,39 @@
 # DigitoyEngine R&D (game_rd)
 
+## PLUGIN MODELİ + PLATFORM-NATIVE CRASH — TASARIM KARARLARI (2026-10-17; uygulama fazları sürüyor)
+- Tam metin [docs/plugins.md](plugins.md); platform-hosts.md'deki eski "Platform servisleri / Proje üretimi" taslağı geçersiz (details'e alındı).
+- Çıkış noktası: oyuncuda patlayan bize ulaşsın. Mevcut `exit(134)` platform reporter'larına GÖRÜNMEZ (normal çıkış sayılır) →
+  `DIGITOYENGINE_dispatch` sonunda `de_host_fatal(reason, frames, n)` (weak default = eski davranış): Android Java `ManagedException` +
+  `setStackTrace` (satır bilgili .cs frame'leri Play vitals/Crashlytics'te), iOS `NSException`, WASM JS `throw` → `window.onerror`.
+  Haxe engine'deki "Haxe exception → Java exception" deseninin aynısı.
+- Plugin = `Assets/Plugins/<Ad>/{Runtime,Editor,Android,iOS,WASM}`; id = C# kısa tip adı. plugin.json / `.deplugin` / şema dosyası YOK.
+  Core protokolü iki yönde UTF-8 string: `Plugin.Send` → host `onMessage` (main thread), host `send` → süreç ömürlü inbox → frame başında
+  `Plugin.OnMessage`. PUSH YOK (dinleyici kaydı yok → "dinlemeden önce fire" sınıfı sorun yok). `Listen/OnMessage(channel)/CallSync/Request`
+  yardımcıları BİLEREK yok; await isteyen plugin TCS + `Wait.Timeout` + kendi id'siyle kurar (Http deseni). NativeAsync/Net.cs'e DOKUNULMAZ.
+- Ayar = `Plugin<TSettings>` `[Serializable]` sınıf → `ProjectSettings/Plugins/<Ad>.asset`, `ObjectDrawer` otomatik; tek attribute `[Required]`.
+  "Secret" kavramı yok (App ID/Client Token APK'da zaten açık; Unity de düz metin); gizli tek şey imza parolası = AndroidSigning.
+- Build bilgisi `Editor/`'da: `IAndroidProjectHook/IIosProjectHook/IWasmProjectHook` (`p.Settings<T>()` tipli). Runtime'a build verisi girmez.
+  aotcompiler `Assets/**/*.cs`'i (Editor dahil) normal .NET'e karşı ikinci kez derler (hook + TSettings tipleri oradan).
+- Bağımlılık: Android plugin = gerçek Gradle LIBRARY modülü (dependency/manifest/consumer-rules AGP'nin), iOS = yerel SPM paketi
+  (`generated/DEPlugins/Package.swift`, product listesi zorunlu = asıl trim), CocoaPods/EDM4U YOK (tek çözücü). Çakışma: aynı gradle plugin/SPM
+  url → en yüksek sürüm + log, major farkı hata; `ForceVersion` tek satır kırıcı. Trim platformun işi: R8 release'te açık + JNI keep'leri kabukta.
+- Kullanılmayan plugin hiçbir yere girmez: `Plugin` türevleri TrimAnalysis kökü DEĞİL; kullanım = `Plugin.Get<T>()` (statik generic, reflection yok).
+  Canlı tip listesi aotcompiler'dan üreticiye → yalnız onların Android/iOS/WASM klasörleri ve hook'ları.
+- Hata duvarı: core'un çağırdığı her plugin yolu try/catch (3 platform + managed). SDK callback'inde yazar hatası ve native SDK crash'i SINIR
+  (uncaught handler yalnız raporlar). Looper yeniden sürme (Cockroach) BİLEREK yok. Tablo plugins.md'de.
+- Reddedilenler (gerekçesiyle): JSON şema ayarlar (ikinci dil), `PluginBuild<T>` (build verisi runtime'da), kod kancası aotcompiler'da editor
+  dll yükleme yerine props (CLI tek başına eksik kalır), `de_async` job/EventBit üstünden plugin (iki kuyruk + korelasyon core'da), `[Secret]`/
+  UserSettings/env türetme, `[Platform]`/`[RuntimeSetting]`/`IValidatable`, protokol versiyonu, rapor dosyası — hepsi ya ikinci mekanizma ya da
+  yazara/host'a bilgi sızdırıyordu.
+- Editör Play'de component exception izolasyonu (hata logla, Play dursun) AYRI iş, bu modelden sonra.
+- UYGULAMA (aynı gün, fazlar 0–6 bitti; cihaz testleri bekliyor): durum ve dosya listesi [docs/plugins.md](plugins.md) "Durum".
+  TUZAKLAR: (1) iç içe ayar sınıfına `Settings` adı verilemez (`Plugin<T>.Settings` ile çakışır) → `Config`. (2) CoreLib
+  `StringBuilder(string)` ctor'u ve `Append(char)` dışı sürprizler: plugin Runtime C#'ı AOT'ye girer, corelib yüzeyine uymalı
+  (`Append(string)`). (3) Android plugin library modülü `DEPlugin`'i görmek için ayrı `:dehost` modülü şart (app'e library referansı
+  olmaz) → `generated/dehost/`. (4) Component lifecycle metotları `protected override` (private `void Start()` koşmaz). (5) Mock ctor'da
+  `Send` → inbox'a gider, ilk frame Pump'ta teslim (Start'tan sonra); "instance öncesi mesaj" yalnız `Plugin.Dispatch` yolunda anında.
+  (6) ObjectSerializer YAML'ı elle yazarken skaler tırnaksız (tırnak değere girer).
+
 ## ANDROID APK BOYUTU — 39.7 MB → 13.2 MB release (2026-10-17; cihazda (ANE-LX1, API 28) açılış OK)
 - ÖLÇÜM (tahmin değil): APK'nın %94'ü iki `libgame.so` (18.7 MB/ABI). .so içinde debug yoktu; `.text` yalnız 3.6 MB.
   Şişiren: `.rela.dyn` 6.1 MB (~254 bin paketlenmemiş relocation), `.dynsym/.dynstr/.gnu.hash` 2.7 MB (34 bin sembolün
