@@ -97,27 +97,28 @@ namespace System
         {
             if (inArray == null) throw new ArgumentNullException("inArray");
             if (offset < 0 || length < 0 || offset + length > inArray.Length) throw new ArgumentOutOfRangeException("length");
-            var sb = new Text.StringBuilder((length + 2) / 3 * 4);
-            int i = offset, end = offset + length;
+            // Cikis boyutu bastan belli: dogrudan char[] + tek string tahsisi (StringBuilder/Concat yok)
+            var outChars = new char[(length + 2) / 3 * 4];
+            int i = offset, end = offset + length, o = 0;
             while (end - i >= 3)
             {
                 int v = (inArray[i] << 16) | (inArray[i + 1] << 8) | inArray[i + 2];
-                sb.Append(Base64Chars[(v >> 18) & 63]); sb.Append(Base64Chars[(v >> 12) & 63]);
-                sb.Append(Base64Chars[(v >> 6) & 63]); sb.Append(Base64Chars[v & 63]);
-                i += 3;
+                outChars[o] = Base64Chars[(v >> 18) & 63]; outChars[o + 1] = Base64Chars[(v >> 12) & 63];
+                outChars[o + 2] = Base64Chars[(v >> 6) & 63]; outChars[o + 3] = Base64Chars[v & 63];
+                i += 3; o += 4;
             }
             int rest = end - i;
             if (rest == 1)
             {
                 int v = inArray[i] << 16;
-                sb.Append(Base64Chars[(v >> 18) & 63]); sb.Append(Base64Chars[(v >> 12) & 63]); sb.Append('='); sb.Append('=');
+                outChars[o] = Base64Chars[(v >> 18) & 63]; outChars[o + 1] = Base64Chars[(v >> 12) & 63]; outChars[o + 2] = '='; outChars[o + 3] = '=';
             }
             else if (rest == 2)
             {
                 int v = (inArray[i] << 16) | (inArray[i + 1] << 8);
-                sb.Append(Base64Chars[(v >> 18) & 63]); sb.Append(Base64Chars[(v >> 12) & 63]); sb.Append(Base64Chars[(v >> 6) & 63]); sb.Append('=');
+                outChars[o] = Base64Chars[(v >> 18) & 63]; outChars[o + 1] = Base64Chars[(v >> 12) & 63]; outChars[o + 2] = Base64Chars[(v >> 6) & 63]; outChars[o + 3] = '=';
             }
-            return sb.ToString();
+            return outChars.Length == 0 ? "" : new string(outChars);
         }
 
         // .NET gibi: bosluk karakterleri yok sayilir, '=' dolgusu dogrulanir, gecersiz karakter -> FormatException.

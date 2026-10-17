@@ -308,7 +308,7 @@ public static class Program
         }
         Lap("trim analizi");
         // Plugin'ler (docs/plugins.md): canli Plugin turevleri -> yalniz onlarin native klasorleri/kancalari. Editor.dll + ayar dogrulama.
-        var pluginBuild = PluginBuild.Prepare(projectRoot, projName, workDir, PluginBuild.LivePlugins(ctx, trim), EditorEngineDll(app), Console.WriteLine);
+        var pluginBuild = PluginBuild.Prepare(projectRoot, projName, workDir, PluginBuild.LivePlugins(ctx, trim), EditorEngineDll(app), PluginDlls(projectRoot), Console.WriteLine);
         Lap("plugin hazirlik (Editor.dll)");
         // STUB KAPISI: runtime'in GERCEKTEN cagiracagi koklerden (host girisleri + EmitInit'in eager cctor/finalizer/exception-kind
         // ctor'lari; trim planina gore canli olanlar) cagri grafiyla ERISILEBILEN stub = NotImplementedException demek -> build

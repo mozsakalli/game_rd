@@ -1,5 +1,82 @@
 # DigitoyEngine R&D (game_rd)
 
+## TRIM: [Preserve] UNITY KURALI (2026-10-17, digitoyclient Common.dll serializer'ları kesiliyordu → RX type=null)
+- Unity spec (ScriptReference/Scripting.PreserveAttribute, Manual/managed-code-stripping-preserving): linker **kısa adı
+  `PreserveAttribute` olan HER attribute'u** (ya da alt sınıfını) namespace/assembly bağımsız tanır; kapsam: tip → tip + default
+  ctor; metot → metot + bildiren tip + dönüş/arg tipleri; property → get/set + bildiren tip + değer tipi; alan → alan tipi +
+  bildiren tip; assembly → tüm tipler. 3. parti DLL kendi `PreserveAttribute`'unu tanımlayabilir (Common.Generators `internal
+  sealed class M.PreserveAttribute` böyle).
+- SORUN: `HasAttr` adı doğru arıyordu ama attribute [CilFrontend.ReadAttributes](../aotcompiler/source/cil/CilFrontend.cs)'ta
+  reflection tablosu amaçlı elemelerde (tip/ctor çözümü, generic) düşünce trim hiç görmüyordu → 77 `__Serializer` + `__CodecPreserve.Keep`
+  kesildi; full build'de çalışıyordu.
+- FIX: `ReadAttributes` tip çözümünden ÖNCE ada bakar (`ShortName == "PreserveAttribute"`, çözülebildiyse base zinciri) → `IsPreserved`
+  bayrağı (`Primitive`/`Code`/`PrimitiveField`/`PrimitiveProperty`; serileşmez). `[assembly: Preserve]` → o assembly'nin tüm tipleri.
+  [TrimAnalysis.CollectAutoRoots](../aotcompiler/source/Trim/TrimAnalysis.cs) bayrağa bakar; kapsam Unity'den geniş (konservatif):
+  tip `All`; metot → owner `Methods|Ctors`; alan → owner `Name|Ctors|Fields` + alan tipi `Name|Ctors`; property → owner
+  `Name|Ctors|Props` + değer tipi. KURAL: 3. parti paketi motorumuza göre derlemek gerekmez; Unity ile aynı anlaşma.
+- 2. TUR (PlayerState hâlâ null): serializer'lar üretildi ama Codec decode yolu TAMAMEN ad tabanlı reflection —
+  `CodecTypes.Resolve("M.PlayerState")` → `Type.GetType(ad)` → `asm.GetType("M.PlayerState__Serializer")` → `GetField("Instance")`.
+  Model tipinin (`PlayerState`) **adı** kök değildi (`AuthResult` başka bir typeof'tan tesadüfen köktü). Unity metot kapsamı
+  ("dönüş + arg tipleri") uygulandı: `SigRoot` — Preserve'li metodun ve Preserve'li tipin TÜM metotlarının dönüş/arg tipleri +
+  base generic argümanları (`Serializer<T> : T`) `Name|Ctors` kökü; dizi/generic arg içine iner.
+- 3. TUR (iz `[TRACE-RX]`: ZOBJ/DICT ikisi de null verebiliyor, FullName'li tipler çözülüyor, `[CodecName("LS")]` alias'lılar
+  çözülmüyor): `CodecTypes.Resolve` alias için `Assembly.GetTypes()` + `GetCustomAttribute<CodecNameAttribute>()` tarar; model
+  descriptor'unda `nattrs=0` (Attrs facet'i yok). Unity "tip korunur" = attribute'ları dahil → `SigRoot` ve alan/property kapsamı
+  `Name|Ctors|Attrs`. DERS: ad tabanlı reflection yalnız ad değil, **arama kriterinin** (attribute) de kök olmasını ister.
+- Trim raporu: `--trim-report` → `<proje>/Library/aot/<platform>/trim-report.md` (tutulan/atılan + kök yolu). Hızlı ölçüm:
+  `gen/T_*.c` mtime — son build'de yazılmayan dosya = kesilmiş.
+- Aynı gün: `new string(...)` frontend desteği (`newobj String::.ctor` → `String.Ctor(sig)` statik fabrika, .NET JIT modeli;
+  `Ctor(char[],int,int)/(char[])/(char,int)` C, `(ReadOnlySpan<char>)` managed). `FromChars` yaması kaldırıldı.
+
+## CORELIB StringBuilder GERÇEK TAMPON + Base64 char[] (2026-10-17, ANR watchdog ilk avı: login 6+ sn donma)
+- ÖLÇÜM: `[anr]` dökümü → `String.Concat ← StringBuilder.Append(char) ← Convert.ToBase64String ← LocalCache.Save` (180 KB
+  definitions cache'i PlayerPrefs'e Base64). Corelib `StringBuilder` stub'dı: `string value += item` → her Append tam kopya
+  (O(n²)); 240 K char append ≈ 30 GB memcpy. Editörde BCL StringBuilder olduğu için görünmüyordu. Pump durunca bekleyen
+  `GetState` isteği de düştü (InternalError) — aynı kök.
+- FIX [StringBuilder.cs](../aotcompiler/c_runtime/corelib/StringBuilder.cs): `char[]` + `len`, ikiye katlama; kopyalar
+  `Array.Copy((Array)…)` (non-generic extern → memmove; generic `Copy<T>` eleman döngüsü, cast şart). Kısa string (≤8) indexer
+  döngüsü, uzun `ToCharArray`+memmove. Yüzey: Append(char/string/string,i,n/char[]/char,n/object/int/uint/long/float/double/bool),
+  AppendLine ('\n'; Environment.NewLine yok), Insert, Remove, Length set ('\0' dolgu), indexer, ToString(i,n). `ulong.ToString`
+  corelib'de yok → Append(ulong) bilinçli yok. [Convert.cs](../aotcompiler/c_runtime/corelib/Convert.cs) `ToBase64String`:
+  doğrudan `char[]` çıkış + tek `new string`.
+- BOŞLUK (bulundu, AYNI GÜN KAPANDI — üstteki bölüm): AOT'de `new string(char[]…)` derlenmiyordu — frontend `newobj` →
+  `New_System_String()` (yok), ctor C gövdesi de yok. Çözüm: frontend `newobj String::.ctor(sig)` → `String.Ctor(sig)` statik
+  fabrika (VmString boyutu arglara bağlı; .NET JIT'in string ctor → FastAllocateString modeli). StringBuilder/Base64 düz `new string`.
+- DERS: corelib "stub yüzeyi" (derlenir ama BCL karmaşıklığı değil) performans sınıfı AOT farkı üretir; şüphede ANR watchdog
+  (`DE_ANR_MS`) ile tek frame'de yakala, tahmin etme.
+
+## ANR WATCHDOG: DONMADA SATIR BİLGİLİ SHADOW STACK DÖKÜMÜ (2026-10-17, digitoyclient AOT login donması için)
+- [de_app.c](../aotcompiler/c_runtime/de_app.c): `de_app_frame` giriş/çıkışında atomik monotonic-ms kalp atışı; `de_app_init`'te
+  watchdog thread (Win32 CreateThread / pthread; wasm'da derlenmez). Kalp atışı `DE_ANR_MS` (varsayılan 2000) ms'den eskiyse stderr'e
+  `[anr] main thread N ms yanitsiz (in_frame, depth)` + `DIGITOYENGINE_dump_stack()` (dosya:satır:kolon) + DEBUG'da `dump_steps`
+  (son adımlar halkası → döngü/şelale tekrar eden adımlarda görünür). Donma sürdükçe her eşikte tekrar (en çok 5), dönünce
+  `[anr] recovered after N ms`. `in_frame=0` = managed dışında (host/swap) bekliyor. `DE_ANR_MS=0` kapatır. Release'te de açık.
+- Yalnız okur; üst frame yarışta bayat olabilir (MethodInfo statik → pointer güvenli). Maliyet frame başına 2 atomik store.
+
+## TUZAK: AOT'DE DİZİ → GENERIC ARAYÜZ DISPATCH YOK (2026-10-17, digitoyclient ServerDirectory)
+- BELİRTİ: editörde çalışan kod Windows AOT'de `InvalidCastException (InvalidCast: string[] -> IReadOnlyCollection<string>)`.
+  Kaynak: `IReadOnlyList<string> Gateways => _gateways` (alan `string[]`) + `.Count` → arayüz dispatch `DIGITOYENGINE_itable`
+  ([vmrt.h](../aotcompiler/c_runtime/vmrt.h)) dizi descriptor'unda itable bulamaz → cast_fail. `EmitArrayType` itables=0, corelib `Array`
+  arayüz uygulamaz; CoreCLR'da SZArrayHelper şeffaf karşılar. Bilinen boşluk ("Dizi arayüz haritası HENÜZ YOK", 2026-10-12).
+- KURAL (B yapılana kadar): oyun/motor kodunda `T[]`'yi `IList<T>/IReadOnlyList<T>/ICollection<T>/IEnumerable<T>` olarak **arayüz üzerinden
+  çağırma** (Count/indexer/foreach). Arayüz tipli alan/dönüş için `List<T>` tut. Statik tipi dizi olan foreach güvenli (ArrayLength/ldelem).
+- FIX: ServerDirectory `_gateways` → `List<string>`. KALAN İŞ (B): corelib SZArrayHelper<T> eşdeğeri + dizi descriptor'una itable bağlama
+  (CTranspiler EmitArrayType / Hierarchy / sentez `digitoyengine_array_type`); doğrulama Par94 `ArrayInterfaces`.
+
+## EXCEPTION.ToString() PARİTESİ + RUNTIME DETAYI (2026-10-17; Android "sadece InvalidCastException yazıyor" dersi)
+- ÖLÇÜM: logcat'teki `[error] System.InvalidCastException` satırı `Debug.LogError($"{ex}")` çıktısıydı = HANDLED exception;
+  `de_host_fatal`/ManagedException doğru olarak devreye girmedi (o yol yalnız unhandled). Trace yoktu çünkü corelib
+  `Exception.ToString()` override'sızdı (object.ToString = tip adı) — oysa trace verisi ve `StackTrace` getter'ı vardı.
+- FIX [Exception.cs](../aotcompiler/c_runtime/corelib/Exception.cs): `ToString()` .NET biçimi (`Tip: Mesaj ---> inner … --- End of
+  inner exception stack trace ---\n  at …`). Runtime türü detayı (`vmrt ex_msg`: "InvalidCast: A -> B", "IndexOutOfRange: 7 (len 3)")
+  yeni `runtimeDetail` alanına (`ex_current` → corelib.c `DIGITOYENGINE_ex_set_runtime_detail`); `Message` .NET paritesini korur,
+  ToString " (detay)" ekler. Alan layout kopyasının SONUNDA (A3 kuralı). Doğrulama: Sandbox Windows AOT handled InvalidCast →
+  `System.InvalidCastException: Specified cast is not valid. (InvalidCast: System.String -> ExceptionProbe)` + 4 frame satır:kolon.
+- host_android.c: stdout/stderr ayrı pipe → logcat INFO / ERROR (hata satırları `E` seviyesinde filtrelenir).
+- TUZAK: selftest (`aotcompiler` varsayılan komut) şu an çalışma ağacındaki başka corelib değişiklikleriyle (`New_System_String`
+  undeclared) derlenmiyor — benden önce de öyleydi; bu iş Sandbox AOT ile doğrulandı, selftest düzelince Par95 ToString case'leri
+  (`ov.ToString()`, `NullMessageEx`) yeniden koşulmalı.
+
 ## PLUGIN MODELİ + PLATFORM-NATIVE CRASH — TASARIM KARARLARI (2026-10-17; uygulama fazları sürüyor)
 - Tam metin [docs/plugins.md](plugins.md); platform-hosts.md'deki eski "Platform servisleri / Proje üretimi" taslağı geçersiz (details'e alındı).
 - Çıkış noktası: oyuncuda patlayan bize ulaşsın. Mevcut `exit(134)` platform reporter'larına GÖRÜNMEZ (normal çıkış sayılır) →

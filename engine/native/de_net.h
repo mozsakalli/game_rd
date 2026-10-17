@@ -1,6 +1,6 @@
 // ---------------------------------------------------------------------------
 // de_net.h — HTTP + WebSocket (docs/network.md). Platformun HAZIR ag yigini:
-//   Windows WinHTTP (async) | Apple NSURLSession | Android OkHttp (JNI) | wasm fetch/WebSocket (EM_JS)
+//   Windows WinHTTP (async) | Apple NSURLSession | Android java.net (JNI, Net.kt: HttpURLConnection + RFC 6455) | wasm fetch/WebSocket (EM_JS)
 // TLS/sertifika/proxy/cookie OS'un; biz yalniz URL veririz. Bloklayan cagri YOK.
 // Sonuclar de_async kuyruguna (de_async.h); burada poll yok. Yalniz ana thread cagirir.
 //

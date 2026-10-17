@@ -58,6 +58,22 @@ namespace System
     }
 }
 
+namespace System.ComponentModel
+{
+    // Yalniz metadata (serializer/inspector ipucu); runtime'da okunmaz.
+    public class DefaultValueAttribute : Attribute
+    {
+        public object Value;
+        public DefaultValueAttribute(object value) { Value = value; }
+        public DefaultValueAttribute(bool value) { Value = value; }
+        public DefaultValueAttribute(int value) { Value = value; }
+        public DefaultValueAttribute(long value) { Value = value; }
+        public DefaultValueAttribute(float value) { Value = value; }
+        public DefaultValueAttribute(double value) { Value = value; }
+        public DefaultValueAttribute(string value) { Value = value; }
+    }
+}
+
 namespace System.Reflection
 {
     // Roslyn indexer bildiren her tipe [DefaultMember("Item")] basar.

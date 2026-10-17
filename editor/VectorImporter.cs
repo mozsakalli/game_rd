@@ -33,4 +33,56 @@ public sealed class VectorImporter : AssetImporter
         ctx.AddArtifact("main", blob, ArtifactScope.Standalone);
         EditorLog.Info($"[vector] {ctx.AssetPath}: {w}x{h} ({blob.Length} B, kaynak {text.Length} B)");
     }
+
+    // --- Inspector onizleme: tek satir bilgi (derlenmis DVEC boyutu / kaynak svg boyutu). Kontrol yok. ---
+    string _pvRel;
+    int _pvSeenChange = -1;
+    int _pvW, _pvH;
+    long _pvEncoded, _pvSource;
+    const float PreviewRowH = 22f;
+
+    public override float PreviewHeight(string assetPath) => PreviewRowH;
+
+    public override void HidePreview()
+    {
+        _pvRel = null;
+    }
+
+    void PreviewBind(string rel)
+    {
+        // Secim degisince ya da diskte bir sey degisince (Apply -> reimport) yeniden oku.
+        if (_pvRel == rel && _pvSeenChange == AssetWatcher.AssetChangeVersion)
+            return;
+        _pvRel = rel;
+        _pvSeenChange = AssetWatcher.AssetChangeVersion;
+        _pvW = _pvH = 0;
+        _pvEncoded = _pvSource = 0;
+        try { _pvSource = new FileInfo(ImportPipeline.FullPath(rel)).Length; }
+        catch { }
+        string art = ImportPipeline.ArtifactPath(rel, "main");
+        if (art == null)
+            return;
+        try { _pvEncoded = new FileInfo(art).Length; }
+        catch { }
+        ImageHeader.TryReadSize(art, out _pvW, out _pvH);
+    }
+
+    public override void DrawPreview(string assetPath, in Rect rect)
+    {
+        PreviewBind(assetPath);
+        if (Event.Current.Type != EventType.Repaint)
+            return;
+        string info;
+        if (_pvEncoded <= 0)
+            info = "(not imported)";
+        else
+        {
+            string ratio = _pvSource > 0 ? $"  ({_pvEncoded * 100 / _pvSource}%)" : "";
+            info = $"{_pvW}×{_pvH}  ·  encoded {FormatKb(_pvEncoded)}  ·  source {FormatKb(_pvSource)}{ratio}";
+        }
+        GuiRenderer.DrawTextIn(new Rect(rect.x, rect.y, rect.width, PreviewRowH), info, Gui.FontSize - 1,
+            new Color(160, 168, 182, 255));
+    }
+
+    static string FormatKb(long bytes) => bytes < 1024 ? $"{bytes} B" : $"{bytes / 1024f:0.0} KB";
 }

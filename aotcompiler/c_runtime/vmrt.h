@@ -30,7 +30,7 @@ struct VmArray;
 typedef void (*TraceFn)(GCHeader *);
 typedef void (*FrameTrace)(void *);
 typedef void (*FinalizeFn)(GCHeader *);
-typedef int (*EnumParseFn)(struct VmString *value, int *result);
+typedef int (*EnumParseFn)(struct VmString *value, int ignoreCase, int *result);
 enum
 {
     DIGITOYENGINE_MEMBER_FIELD = 1,
@@ -388,6 +388,7 @@ extern void (*DIGITOYENGINE_exception_ctor_msg)(GCHeader *, struct VmString *);
 DIGITOYENGINE_NORETURN void DIGITOYENGINE_throw_notimpl(const char *what);
 // catch bind: firlatma ani trace'ini exception nesnesinin gomulu (fixed) tamponlarina kopyalar
 void DIGITOYENGINE_bind_trace(long long *miArr, int *lineArr, int *count, int cap);
+void DIGITOYENGINE_ex_set_runtime_detail(GCHeader *o, const char *msg); // corelib.c (Exception layout'u orada)
 // M9c: firlatma ANINDAKI trace kopyasi (mi+line; frame ptr'lar unwind sonrasi bayat, kullanma).
 // DIGITOYENGINE_rethrow KORUR (C# `throw;` gibi) -> rapor hep orijinal firlatma noktasini gosterir.
 extern RtFrame DIGITOYENGINE_ex_trace[DIGITOYENGINE_STACK_MAX];
@@ -542,7 +543,9 @@ VmObject *digitoyengine_box_enum(int v, const Type *t);                       //
 VmObject *digitoyengine_box_struct(const Type *t, const void *src, int size); // kullanici struct kutusu: payload kopyasi (t->size = header + struct)
 int digitoyengine_enumbox_hash(VmObject *s);                                  // ortak enum vtable govdeleri (ToString uretilir)
 int digitoyengine_enumbox_eq(VmObject *s, VmObject *o);
-VmString *digitoyengine_int_str(int v); // uretilen enum ToString'in tanimsiz-deger dali kullanir// kisitsiz T'nin deger-tipi somutlamalari: boxing'siz GetHashCode/Equals (dotnet birebir; corelib.c)
+VmString *digitoyengine_int_str(int v); // uretilen enum ToString'in tanimsiz-deger dali kullanir
+int digitoyengine_string_eq_cmp(struct VmString *a, struct VmString *b, int ignoreCase); // uretilen enum parse govdeleri (ordinal / ASCII ignore-case)
+// kisitsiz T'nin deger-tipi somutlamalari: boxing'siz GetHashCode/Equals (dotnet birebir; corelib.c)
 int digitoyengine_valhash_i64(long long v);
 int digitoyengine_valhash_f32(float v);
 int digitoyengine_valhash_f64(double v);

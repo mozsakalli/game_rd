@@ -179,6 +179,7 @@ namespace DigitoyEngine.Language
         public bool NeedsDictParam => IsCanonCode && !IsExternal && NativeBody == null && (IsStatic || (Owner != null && Owner.IsStruct) || HasMethodDict);
         public ushort CilAttributes; // System.Reflection.MethodAttributes
         public List<PrimitiveAttribute> Attributes = new List<PrimitiveAttribute>(); // custom attribute'lar (reflection tablosu)
+        public bool IsPreserved; // [Preserve] (ad kurali) -> trim koku: metot + bildiren tip
 
         public string EncodeName() => (Owner != null ? Owner.Name + "$" : "") + Name;
 

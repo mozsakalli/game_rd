@@ -16,6 +16,17 @@ namespace System
         public static int Sign(double value) { if (value != value) throw new ArithmeticException("Function does not accept floating point Not-a-Number values."); return value > 0 ? 1 : value < 0 ? -1 : 0; }
         public static extern double Ceiling(double value);
         public static extern double Round(double value);
+        // .NET: digits 0..15 disi ArgumentOutOfRange; MidpointRounding.ToEven (Round(double) ile ayni kural)
+        public static double Round(double value, int digits)
+        {
+            if (digits < 0 || digits > 15) throw new ArgumentOutOfRangeException("digits", "Rounding digits must be between 0 and 15, inclusive.");
+            if (value != value || digits == 0) return Round(value);
+            double scale = 1;
+            for (int i = 0; i < digits; i++) scale *= 10;
+            double scaled = value * scale;
+            if (scaled > 9007199254740992.0 || scaled < -9007199254740992.0) return value; // 2^53 ustu zaten tamsayi
+            return Round(scaled) / scale;
+        }
         public static float Clamp(float value, float min, float max) { if (min > max) throw new ArgumentException("'" + min + "' cannot be greater than " + max + "."); return value < min ? min : value > max ? max : value; }
         public static int Clamp(int value, int min, int max) { if (min > max) throw new ArgumentException("'" + min + "' cannot be greater than " + max + "."); return value < min ? min : value > max ? max : value; }
     }

@@ -2,7 +2,7 @@
 // yalniz managed frame yokken kosar; span'lar kisa omurlu stack degerleridir -> dizi/dizgi icine ham
 // isaretci guvenlidir (fixed/pinning ile ayni gerekce).
 // Asagidaki `extern` uyeler CilFrontend (SpanIntrinsics) tarafindan op dizisine acilir (C govdesi YOK):
-// get_Item (eleman ADRESI), ctor(void*,int), ctor(T[]), ctor(T[],int,int), op_Implicit(T[]),
+// get_Item (eleman ADRESI), GetPinnableReference (fixed), ctor(void*,int), ctor(T[]), ctor(T[],int,int), op_Implicit(T[]),
 // op_Implicit(Span->ReadOnlySpan), Slice, CopyTo, ToArray, MemoryExtensions.AsSpan, Buffer.MemoryCopy.
 // Bildirimler Roslyn icin (motor kodu bunlara karsi derlenir); Enumerator saf C# (indexer intrinsic'i uzerinden).
 namespace System
@@ -20,6 +20,7 @@ namespace System
         public static Span<T> Empty { get { return new Span<T>(0, 0); } }
         internal long Ptr { get { return _ptr; } }
         public extern ref T this[int index] { get; }
+        public extern ref T GetPinnableReference(); // `fixed (T* p = span)` deseni; frontend intrinsic (_ptr)
         public extern Span<T> Slice(int start);
         public extern Span<T> Slice(int start, int length);
         public extern void CopyTo(Span<T> destination);
@@ -53,6 +54,7 @@ namespace System
         public static ReadOnlySpan<T> Empty { get { return new ReadOnlySpan<T>(0, 0); } }
         internal long Ptr { get { return _ptr; } }
         public extern ref readonly T this[int index] { get; }
+        public extern ref readonly T GetPinnableReference(); // `fixed (T* p = span)` deseni; frontend intrinsic (_ptr)
         public extern ReadOnlySpan<T> Slice(int start);
         public extern ReadOnlySpan<T> Slice(int start, int length);
         public extern void CopyTo(Span<T> destination);

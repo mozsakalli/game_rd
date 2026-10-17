@@ -178,6 +178,8 @@ class GameView(context: Context) : GLSurfaceView(context) {
                 // game.pak APK assets/Build/ icinde; native taraf AssetManager fd+offset ile dogrudan okur (kopya yok).
                 Music.assets = context.assets // de_music_* pak araligi icin (audio_shim.c -> Music.kt)
                 Prefs.init(context)           // PlayerPrefs -> SharedPreferences (de_fs.c -> Prefs.kt)
+                // Dev kancasi (docs/network.md): `adb shell am start ... --es net.probe http://10.0.2.2:18500` -> PlayerPrefs
+                (context as? GameActivity)?.intent?.getStringExtra("net.probe")?.let { Prefs.set("net.probe", it) }
                 GameLib.init(context.assets, context.filesDir.path, w, h, density)
                 ready = true
             } else {

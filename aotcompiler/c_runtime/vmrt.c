@@ -1869,6 +1869,7 @@ GCHeader *DIGITOYENGINE_ex_current(void)
     DIGITOYENGINE_ex_obj = o; // ctor/bind sirasinda GC calismaz (safepoint yok); ayni handler zincirinde ayni nesne
     if (DIGITOYENGINE_ex_kind_ctor[k])
         DIGITOYENGINE_ex_kind_ctor[k](o);
+    DIGITOYENGINE_ex_set_runtime_detail(o, DIGITOYENGINE_ex_msg); // "InvalidCast: A -> B" gibi detay nesneye (ToString gosterir)
     return o;
 }
 void DIGITOYENGINE_throw_notimpl(const char *what)

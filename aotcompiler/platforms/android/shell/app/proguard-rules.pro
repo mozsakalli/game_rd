@@ -6,6 +6,7 @@
 -keep class com.digitoy.host.PluginHost { public static void dispatch(java.lang.String, java.lang.String); }
 -keep class com.digitoy.host.Music { *; }
 -keep class com.digitoy.host.Prefs { *; }
+-keep class com.digitoy.host.Net { *; }
 -keep class com.digitoy.host.ManagedException { *; }
 -keep class com.digitoy.host.GameApplication
 -keep class com.digitoy.host.GameActivity

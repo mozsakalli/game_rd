@@ -27,11 +27,27 @@ namespace System
         public Exception InnerException { get { return innerException; } }
         // .NET yuzeyi: override edilebilir (aksi halde AOT "override edilecek virtual yok" ile DERLEMEYI durdurur)
         public string source; public string helpLink; public System.Collections.IDictionary data;
+        // Runtime turu detayi (vmrt ex_msg: "InvalidCast: A -> B", "IndexOutOfRange: 7 (len 3)"): Message .NET paritesini korur,
+        // ToString() bunu parantezle ekler. ex_current yeni nesneyi kurarken doldurur (corelib.c layout kopyasi: SONDA).
+        public string runtimeDetail;
         public virtual string Source { get { return source; } set { source = value; } }
         public virtual string HelpLink { get { return helpLink; } set { helpLink = value; } }
         public virtual System.Collections.IDictionary Data { get { if (data == null) data = new System.Collections.Generic.Dictionary<object, object>(); return data; } } // .NET: bos sozluk (null degil)
         public virtual Exception GetBaseException() { Exception e = this; while (e.innerException != null) e = e.innerException; return e; }
         public extern void Print();
+
+        // .NET bicimi: "Tip: Mesaj[ ---> ic ... --- End of inner exception stack trace ---]\n   at ...". Debug.LogError($"{ex}") /
+        // string birlestirme her yerde satir bilgisi versin diye tek nokta. Runtime detayi mesajin ardina " (detay)".
+        public override string ToString()
+        {
+            string s = GetType().FullName;
+            string m = Message;
+            if (m != null && m.Length > 0) s = s + ": " + m;
+            if (runtimeDetail != null && runtimeDetail.Length > 0) s = s + " (" + runtimeDetail + ")";
+            if (innerException != null) s = s + " ---> " + innerException.ToString() + "\n   --- End of inner exception stack trace ---";
+            if (traceCount > 0) s = s + "\n" + StackTrace;
+            return s;
+        }
     }
     // runtime hata kind'lari (RT_EX_*) -> siniflar; digitoyengine_init'te SINGLETON olarak yaratilir
     // (throw/catch sifir alloc; ctor default C# mesajini atar). Eslesme: WellKnown.ExceptionKinds.

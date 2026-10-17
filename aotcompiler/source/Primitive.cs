@@ -33,6 +33,7 @@ namespace DigitoyEngine.Language
         public int Index; // slot içindeki konum, runtime alan erişimi bunu kullanır
         public ushort CilAttributes; // System.Reflection.FieldAttributes (reflection: IsPublic/IsNotSerialized...)
         public List<PrimitiveAttribute> Attributes = new List<PrimitiveAttribute>();
+        public bool IsPreserved; // [Preserve] (Unity kurali: kisa adi PreserveAttribute olan HER attribute; tip cozumunden bagimsiz) -> trim koku
     }
 
     // Custom attribute kaydi (CIL'den): tip + ctor + sabit argumanlar (string/int/bool/float/double/long/enum-int/Primitive=typeof)
@@ -58,6 +59,7 @@ namespace DigitoyEngine.Language
         public Code Setter;
         public ushort CilAttributes;
         public List<PrimitiveAttribute> Attributes = new List<PrimitiveAttribute>();
+        public bool IsPreserved; // [Preserve] -> trim koku (bildiren tip + get/set)
     }
 
     public class Primitive
@@ -219,6 +221,7 @@ namespace DigitoyEngine.Language
         public List<PrimitiveProperty> Properties = new List<PrimitiveProperty>(); // source property metadata; get_/set_ methodlardan ayri
         public uint CilAttributes; // System.Reflection.TypeAttributes (IsSerializable/IsPublic...)
         public List<PrimitiveAttribute> Attributes = new List<PrimitiveAttribute>();
+        public bool IsPreserved; // [Preserve] (ad kurali, CilFrontend.ReadAttributes) -> TrimAnalysis koku; serilesmez
         public object[] StaticStorage; // VM runtime: GetStatic/SetStatic deposu (lazy, VM.EnsureStatics)
         public int FixedSize;
         public bool IsGenericParameter;

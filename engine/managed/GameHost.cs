@@ -210,10 +210,10 @@ public static class GameHost
             string wsUrl = baseUrl.StartsWith("https://") ? "wss://" + baseUrl.Substring(8) : "ws://" + baseUrl.Substring(7);
             var ws = await WebSocket.ConnectAsync(wsUrl + "/ws");
             ws.Send("ping");
-            var m = await ws.ReceiveAsync();
+            string mText = (await ws.ReceiveAsync()).Text; // gorunum bir sonraki ReceiveAsync'e dek gecerli
             ws.Send(new byte[] { 1, 2, 3 });
             var b = await ws.ReceiveAsync();
-            Console.WriteLine("[net-probe] WS text='" + m.Text + "' bin=" + b.Data.Length + " isText=" + b.IsText);
+            Console.WriteLine("[net-probe] WS text='" + mText + "' bin=" + b.Length + " isText=" + b.IsText);
             await ws.CloseAsync(1000, "bye");
             Console.WriteLine("[net-probe] WS closed code=" + ws.CloseCode + " state=" + ws.State);
             Console.WriteLine("[net-probe] DONE");

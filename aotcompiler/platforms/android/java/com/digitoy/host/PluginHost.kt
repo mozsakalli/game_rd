@@ -21,6 +21,7 @@ object PluginHost {
         if (registered) return
         registered = true
         DEPlugin.hostApplication = app
+        System.loadLibrary("game") // PluginLib.register JNI: Application.onCreate GameLib init'inden (GL thread) ONCE kosar; idempotent
         for (p in Plugins.all) {
             if (byName.containsKey(p.name)) { Log.e(DEPlugin.TAG, "plugin adi cakisti: ${p.name}"); continue }
             byName[p.name] = p

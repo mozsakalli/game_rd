@@ -188,6 +188,13 @@ namespace System.Collections.Generic
             int count = collection.size;
             for (int i = 0; i < count; i++) { Add(collection.items[i]); }
         }
+        public void AddRange(IEnumerable<T> collection)
+        {
+            if (collection == null) { throw new ArgumentNullException("collection"); }
+            if (collection is List<T> list) { AddRange(list); return; }
+            if (collection is T[] arr) { for (int i = 0; i < arr.Length; i++) Add(arr[i]); return; }
+            foreach (var x in collection) Add(x);
+        }
         public List<T>.Enumerator GetEnumerator() { return new List<T>.Enumerator { list = this, index = -1, version = version }; }
         IEnumerator<T> IEnumerable<T>.GetEnumerator() { return new ListInterfaceEnumerator<T>(GetEnumerator()); }
         System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() { return new ListInterfaceEnumerator<T>(GetEnumerator()); } // koleksiyon baslaticisi (new List<T>{...}) bunu ister

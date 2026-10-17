@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Collections.Immutable;
 using System.IO;
@@ -27,7 +27,7 @@ namespace DigitoyEngine.Cil
 
         public static List<Code> Compile(Context ctx, string dllPath, out Code entryPoint) => Compile(ctx, dllPath, out entryPoint, isCoreLib: false);
 
-        // isCoreLib: Digitoy.CoreLib.dll — System.Object/String/Int32... TypeDef'leri yeni tip yaratmaz, runtime
+        // isCoreLib: Digitoy.CoreLib.dll â€” System.Object/String/Int32... TypeDef'leri yeni tip yaratmaz, runtime
         // singleton'larina baglanir (uyeler onlara eklenir); govdesiz (RVA=0) metotlar extern = C govdesi corelib.c'de.
         public static List<Code> Compile(Context ctx, string dllPath, out Code entryPoint, bool isCoreLib)
         {
@@ -107,7 +107,7 @@ namespace DigitoyEngine.Cil
             public MetadataReader pdb;
             public bool isCoreLib;
             public string assemblyName => md.GetString(md.GetAssemblyDefinition().Name);
-            // corelib modu: runtime singleton'ina baglanan TypeDef'ler (Object/String/skalerler) — base/iface islenmez
+            // corelib modu: runtime singleton'ina baglanan TypeDef'ler (Object/String/skalerler) â€” base/iface islenmez
             public readonly HashSet<TypeDefinitionHandle> boundRoots = new HashSet<TypeDefinitionHandle>();
             public readonly Dictionary<TypeDefinitionHandle, Primitive> prims = new Dictionary<TypeDefinitionHandle, Primitive>();
             public readonly Dictionary<FieldDefinitionHandle, PrimitiveField> fieldMap = new Dictionary<FieldDefinitionHandle, PrimitiveField>();
@@ -231,7 +231,7 @@ namespace DigitoyEngine.Cil
                     var full = FullName(td);
                     if (SkipType(full)) continue;
                     Primitive p;
-                    // corelib: Object/String/ValueType/skalerler yeni tip DEGIL — uyeleri runtime singleton'ina eklenir
+                    // corelib: Object/String/ValueType/skalerler yeni tip DEGIL â€” uyeleri runtime singleton'ina eklenir
                     // (MiniCs'teki well-known binding ile ayni kural; tek kaynak WellKnown.RuntimeRootFor).
                     var root = isCoreLib ? WellKnown.RuntimeRootFor(full) : null;
                     if (root != null)
@@ -517,11 +517,13 @@ namespace DigitoyEngine.Cil
                 // Pseudo-attribute'lar: CIL bit olarak saklar, .NET reflection'da attribute olarak gorunur -> sentezle
                 var serializable = PseudoAttr("System.SerializableAttribute");
                 var nonSerialized = PseudoAttr("System.NonSerializedAttribute");
+                // [assembly: Preserve] (Unity): assembly'nin TUM tipleri korunur
+                bool asmPreserve = ReadAttributes(md.GetAssemblyDefinition().GetCustomAttributes(), new List<PrimitiveAttribute>(), "<assembly>");
                 foreach (var kv in prims)
                 {
                     var td = md.GetTypeDefinition(kv.Key);
                     var p = kv.Value;
-                    ReadAttributes(td.GetCustomAttributes(), p.Attributes, p.Name);
+                    if (ReadAttributes(td.GetCustomAttributes(), p.Attributes, p.Name) || asmPreserve) p.IsPreserved = true;
                     if (serializable != null && (td.Attributes & TypeAttributes.Serializable) != 0)
                         p.Attributes.Add(new PrimitiveAttribute { Type = serializable.Value.type, Ctor = serializable.Value.ctor });
                     if (p.IsEnum) continue;
@@ -529,7 +531,7 @@ namespace DigitoyEngine.Cil
                         if (fieldMap.TryGetValue(fh, out var pf))
                         {
                             var fd = md.GetFieldDefinition(fh);
-                            ReadAttributes(fd.GetCustomAttributes(), pf.Attributes, p.Name + "." + pf.Name);
+                            if (ReadAttributes(fd.GetCustomAttributes(), pf.Attributes, p.Name + "." + pf.Name)) pf.IsPreserved = true;
                             if (nonSerialized != null && (fd.Attributes & FieldAttributes.NotSerialized) != 0)
                                 pf.Attributes.Add(new PrimitiveAttribute { Type = nonSerialized.Value.type, Ctor = nonSerialized.Value.ctor });
                         }
@@ -538,11 +540,11 @@ namespace DigitoyEngine.Cil
                         var pd = md.GetPropertyDefinition(ph);
                         var name = md.GetString(pd.Name);
                         var pp = p.Properties.Find(x => x.Name == name);
-                        if (pp != null) ReadAttributes(pd.GetCustomAttributes(), pp.Attributes, p.Name + "." + name);
+                        if (pp != null && ReadAttributes(pd.GetCustomAttributes(), pp.Attributes, p.Name + "." + name)) pp.IsPreserved = true;
                     }
                     foreach (var mh in td.GetMethods())
                         if (methodMap.TryGetValue(mh, out var code))
-                            ReadAttributes(md.GetMethodDefinition(mh).GetCustomAttributes(), code.Attributes, code.EncodeName());
+                            if (ReadAttributes(md.GetMethodDefinition(mh).GetCustomAttributes(), code.Attributes, code.EncodeName())) code.IsPreserved = true;
                 }
             }
 
@@ -559,8 +561,11 @@ namespace DigitoyEngine.Cil
                 catch { return null; }
             }
 
-            void ReadAttributes(CustomAttributeHandleCollection handles, List<PrimitiveAttribute> into, string owner)
+            // Donus: hedefte [Preserve] var mi (Unity kurali: kisa adi "PreserveAttribute" olan HER attribute ya da onun alt sinifi,
+            // namespace/assembly bagimsiz). Bu karar tip/ctor COZUMUNDEN ONCE verilir: attribute internal/cozumsuz olsa da trim koku olur.
+            bool ReadAttributes(CustomAttributeHandleCollection handles, List<PrimitiveAttribute> into, string owner)
             {
+                bool preserved = false;
                 foreach (var ah in handles)
                 {
                     var a = md.GetCustomAttribute(ah);
@@ -568,10 +573,14 @@ namespace DigitoyEngine.Cil
                     try
                     {
                         typeName = AttributeTypeName(a);
+                        if (typeName != null && DigitoyEngine.Language.Trim.TrimAnalysis.ShortName(typeName) == "PreserveAttribute") preserved = true;
                         if (typeName == null || typeName.StartsWith("System.Runtime.CompilerServices.") || typeName.StartsWith("System.Diagnostics.")
                             || typeName == "System.Runtime.InteropServices.DllImportAttribute" || typeName == "System.ObsoleteAttribute")
                             continue; // derleyici/platform attribute'lari: reflection'a girmez
                         var type = ResolveName(typeName);
+                        if (!preserved && type != null)
+                            for (var b = type.Parent; b != null; b = b.Parent) // PreserveAttribute alt sinifi
+                                if (DigitoyEngine.Language.Trim.TrimAnalysis.ShortName(b.Name) == "PreserveAttribute") { preserved = true; break; }
                         if (type == null || type.Type != PrimitiveType.Model || type.IsGeneric) continue;
                         var ctor = ResolveMethod(a.Constructor);
                         if (ctor == null) continue;
@@ -593,6 +602,7 @@ namespace DigitoyEngine.Cil
                     }
                     catch (Exception ex) { diag.Add($"skip attribute {typeName ?? "?"} on {owner}: {ex.Message}"); }
                 }
+                return preserved;
             }
 
             public List<Code> LoadBodies()
@@ -1611,7 +1621,7 @@ namespace DigitoyEngine.Cil
                 or PrimitiveType.Short or PrimitiveType.UShort or PrimitiveType.Byte or PrimitiveType.SByte
                 or PrimitiveType.Char or PrimitiveType.Bool or PrimitiveType.Long or PrimitiveType.ULong;
             static bool IsFloating(Primitive t) => t != null && (t.Type == PrimitiveType.Float || t.Type == PrimitiveType.Double);
-            // *.un karsilastirma (cgt.un/clt.un/bXX.un): tamsayida UNSIGNED kiyas — Roslyn switch/aralik testleri
+            // *.un karsilastirma (cgt.un/clt.un/bXX.un): tamsayida UNSIGNED kiyas â€” Roslyn switch/aralik testleri
             // `(uint)(x-k) <= n` seklinde ble.un uretir; isaretli yorumlanirsa negatifler araliga girer
             // (AnimValue.Lerp: Vec3 "step" sanildi, interpolasyon yok). Kayan noktada "unordered-or":
             // NaN'da true -> !(tersi sirali kiyas). Referans/isaretci: duz kiyas (adres zaten unsigned).
@@ -1803,7 +1813,7 @@ namespace DigitoyEngine.Cil
                             var t = DecodeTypeTok(il, p);
                             if (IsPromoted(t))
                             {
-                                Emit(OpType.Pop); Pop(); // nesne girişte ayrildi, alanlar zaten sifir
+                                Emit(OpType.Pop); Pop(); // nesne giriÅŸte ayrildi, alanlar zaten sifir
                                 return p + 4;
                             }
                             EmitOp(new Op { Type = OpType.Default, PrimitiveRef = t }); // adres zaten stack'te: *adr = default(T)
@@ -1894,7 +1904,7 @@ namespace DigitoyEngine.Cil
                     case ILOpCode.Dup: Emit(OpType.Dup); Push(Top); return p;
                     case ILOpCode.Pop: Emit(OpType.Pop); Pop(); return p;
 
-                    // *.ovf(.un): tasma kontrolu YOK (bilinen sinir) — Roslyn `stackalloc T[n]` ve `checked` icin uretir;
+                    // *.ovf(.un): tasma kontrolu YOK (bilinen sinir) â€” Roslyn `stackalloc T[n]` ve `checked` icin uretir;
                     // C'de duz aritmetik. OverflowException firlatilmaz.
                     case ILOpCode.Add: case ILOpCode.Add_ovf: case ILOpCode.Add_ovf_un: Emit(OpType.Add); Bin(); return p;
                     case ILOpCode.Sub: case ILOpCode.Sub_ovf: case ILOpCode.Sub_ovf_un: Emit(OpType.Sub); Bin(); return p;
@@ -2052,7 +2062,7 @@ namespace DigitoyEngine.Cil
                                 else
                                 {
                                     // referans tip: alici ptr (ldloca/ldelema/ldarga) kalir; deref'i CTranspiler
-                                    // CallVirtual'da yapar (alici slotunu bilir — argumanli cagrida stack tepesi alici DEGILDIR).
+                                    // CallVirtual'da yapar (alici slotunu bilir â€” argumanli cagrida stack tepesi alici DEGILDIR).
                                     int recvDepth = csig.ParameterTypes.Length; // alici = tepe - arg sayisi
                                     if (stack.Count > recvDepth)
                                     {
@@ -2166,6 +2176,16 @@ namespace DigitoyEngine.Cil
                             var h = Tok(il, p);
                             var ownerPrim = loader.OwnerPrimOf(h, gc);
                             if (TrySpanNewobj(h, ownerPrim)) return p + 4; // new Span<T>(void*,int) / (T[]) / (T[],int,int)
+                            if (ownerPrim == Primitive.String) // new string(...): boyut arglara bagli (VmString inline) -> .NET gibi statik fabrika
+                            {
+                                var (sname, sps, _) = CallSigOf(h);
+                                if (sname != ".ctor") throw new Exception("CIL: string newobj ctor degil");
+                                var factory = loader.FindCode(Primitive.String, "Ctor", sps);
+                                for (int i = 0; i < sps.Length; i++) Pop();
+                                EmitOp(new Op { Type = OpType.Call, Code = factory });
+                                Push(Primitive.String);
+                                return p + 4;
+                            }
                             if (ownerPrim == Primitive.Object) // new object() -> ctor'suz New (Object..ctor no-op)
                             {
                                 EmitOp(new Op { Type = OpType.New, PrimitiveRef = Primitive.Object });
@@ -2396,7 +2416,7 @@ namespace DigitoyEngine.Cil
                         {
                             var st = DecodeTypeTok(il, p);
                             EmitOp(new Op { Type = OpType.SizeOf, PrimitiveRef = st });
-                            Push(Primitive.Int); // C#'ta uint; stack'te int32 — kullanim hep aritmetik
+                            Push(Primitive.Int); // C#'ta uint; stack'te int32 â€” kullanim hep aritmetik
                             return p + 4;
                         }
 

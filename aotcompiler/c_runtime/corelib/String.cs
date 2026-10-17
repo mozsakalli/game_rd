@@ -28,6 +28,17 @@ namespace System
     public class String
     {
         public static readonly string Empty = ""; // .NET'te alan (ldsfld): gercek .NET'e karsi derlenmis DLL'ler alan olarak okur, const OLAMAZ
+        // Ctor'lar: Roslyn `new string(...)` -> .ctor memberref (bildirim Roslyn icin). VmString boyutu arglara bagli oldugundan
+        // normal newobj (tahsis + ctor) uygulanamaz; CilFrontend `newobj String::.ctor(sig)` -> `String.Ctor(sig)` statik
+        // fabrikasina cevirir (.NET JIT'in string ctor -> FastAllocateString yonlendirmesiyle ayni model). Govdeler corelib.c'de.
+        public extern String(char[] value, int startIndex, int length);
+        public extern String(char[] value);
+        public extern String(char c, int count);
+        public extern String(ReadOnlySpan<char> value);
+        public static extern string Ctor(char[] value, int startIndex, int length);
+        public static extern string Ctor(char[] value);
+        public static extern string Ctor(char c, int count);
+        public static string Ctor(ReadOnlySpan<char> value) { return value.Length == 0 ? "" : Ctor(value.ToArray(), 0, value.Length); }
         public extern int Length { get; }
         [System.Runtime.CompilerServices.IndexerName("Chars")] // metadata adi get_Chars: C sembolu System_String_get_Chars_Int
         public extern char this[int index] { get; }
@@ -226,6 +237,7 @@ namespace System
             return a.Equals(b);
         }
         public extern bool Contains(string value);
+        public bool Contains(string value, StringComparison comparisonType) { if (value == null) throw new ArgumentNullException("value"); return IndexOf(value, comparisonType) >= 0; }
         public extern bool Contains(char value);
         public extern bool StartsWith(string value);
         public extern bool StartsWith(string value, StringComparison comparisonType);

@@ -1,7 +1,11 @@
 // ---------------------------------------------------------------------------
 // de_net.c — HTTP + WebSocket backend'leri (de_net.h). Sonuclar de_async kuyruguna.
 //   _WIN32          : WinHTTP async (HTTP + WinHttpWebSocket*, Win8.1+). TLS/proxy OS'un.
-//   diger platformlar: faz 2-4 (docs/network.md); simdilik "desteklenmiyor" tamamlanmasi.
+//   __EMSCRIPTEN__  : EM_JS fetch + JS WebSocket.
+//   __ANDROID__     : JNI -> com.digitoy.host.Net (HttpURLConnection + RFC 6455 Socket/SSLSocket; 3. parti yok).
+//   diger (Apple)   : faz 4 (docs/network.md); simdilik "desteklenmiyor" tamamlanmasi.
+// KOPYA SOZLESMESI (docs/network.md "Zero-GC"): alim dogrudan mesaj tamponuna, FIN'de pointer kuyruga devredilir
+// (memcpy yok, 1 malloc/mesaj); gonderim bitisik ring'e tek kopya (tampon yazim bitene dek yasamali).
 // Thread: WinHTTP callback'leri kendi thread havuzunda gelir; yalniz de_async_complete + kendi
 // baglam kilidi kullanilir, managed'a dokunulmaz. Baglam yasam suresi: HANDLE_CLOSING'de serbest.
 // ---------------------------------------------------------------------------
@@ -250,26 +254,32 @@ typedef struct
     int job;
     de_url_t u;
     unsigned char *body; // istek govdesi kopyasi (SendRequest tamamlanana dek canli)
-    unsigned char *buf;  // [basliklar][yanit govdesi]
+    unsigned char *buf;  // [basliklar][yanit govdesi]; ReadData dogrudan kuyruguna okur (ara chunk/memcpy yok)
     size_t len, cap;
     int headerLen, status;
-    unsigned char chunk[DE_NET_CHUNK];
     volatile LONG done; // tamamlanma yazildi (ya da iptal) -> callback'ler API cagirmaz
 } http_t;
 
+// buf'ta en az n bayt bos yer garantiler (realloc; amortize).
+static int http_reserve(http_t *h, size_t n)
+{
+    if (h->len + n <= h->cap)
+        return 1;
+    size_t cap = h->cap ? h->cap * 2 : 65536;
+    while (cap < h->len + n)
+        cap *= 2;
+    unsigned char *nb = (unsigned char *)realloc(h->buf, cap);
+    if (!nb)
+        return 0;
+    h->buf = nb;
+    h->cap = cap;
+    return 1;
+}
+
 static int http_append(http_t *h, const void *p, size_t n)
 {
-    if (h->len + n > h->cap)
-    {
-        size_t cap = h->cap ? h->cap * 2 : 65536;
-        while (cap < h->len + n)
-            cap *= 2;
-        unsigned char *nb = (unsigned char *)realloc(h->buf, cap);
-        if (!nb)
-            return 0;
-        h->buf = nb;
-        h->cap = cap;
-    }
+    if (!http_reserve(h, n))
+        return 0;
     memcpy(h->buf + h->len, p, n);
     h->len += n;
     return 1;
@@ -356,7 +366,12 @@ static void CALLBACK http_cb(HINTERNET hReq, DWORD_PTR ctx, DWORD status, LPVOID
         }
         if (avail > DE_NET_CHUNK)
             avail = DE_NET_CHUNK;
-        if (!WinHttpReadData(hReq, h->chunk, avail, NULL))
+        if (!http_reserve(h, avail))
+        {
+            http_finish(h, 0, ERROR_OUTOFMEMORY);
+            break;
+        }
+        if (!WinHttpReadData(hReq, h->buf + h->len, avail, NULL))
             http_finish(h, 0, GetLastError());
         break;
     }
@@ -366,11 +381,7 @@ static void CALLBACK http_cb(HINTERNET hReq, DWORD_PTR ctx, DWORD status, LPVOID
             http_finish(h, 1, 0);
             break;
         }
-        if (!http_append(h, h->chunk, infoLen))
-        {
-            http_finish(h, 0, ERROR_OUTOFMEMORY);
-            break;
-        }
+        h->len += infoLen; // dogrudan buf kuyruguna okundu
         if (!WinHttpQueryDataAvailable(hReq, NULL))
             http_finish(h, 0, GetLastError());
         break;
@@ -446,13 +457,12 @@ DE_NET_API void de_http_cancel(int job)
 // =========================================================================================
 // WEBSOCKET
 // =========================================================================================
-typedef struct ws_send_s
+// Gonderim: baglanti basina BITISIK ring (sbuf) + dairesel segment listesi. Kopya 1 (WinHTTP tamponun
+// WRITE_COMPLETE'e dek yasamasini ister), malloc amortize 0 (yalniz buyumede). Bas segment ucan yazimdir.
+typedef struct
 {
-    struct ws_send_s *next;
-    unsigned char *data;
-    int len;
-    int isText;
-} ws_send_t;
+    int off, len, isText;
+} ws_seg_t;
 
 typedef struct
 {
@@ -460,14 +470,17 @@ typedef struct
     de_url_t u;
     HINTERNET ws;
     unsigned char *rbuf;
-    size_t rlen, rcap; // parcali mesaj birikimi
-    unsigned char rchunk[DE_NET_CHUNK];
+    size_t rlen, rcap; // mesaj tamponu: Receive DOGRUDAN kuyruguna okur; FIN'de pointer kuyruga devredilir (memcpy yok)
     CRITICAL_SECTION lock;
-    ws_send_t *sq_head, *sq_tail, *sending; // gonderim kuyrugu + ucan yazim
-    volatile LONG finished;                 // CLOSE ya da -1 yazildi
-    volatile LONG freeReq;                  // de_ws_free cagrildi: tum handle'lar kapaninca baglam serbest
-    int closeSent;                          // biz Shutdown gonderdik
-    int haveClose;                          // closeCode/closeReason dolu (CLOSE frame'inden okundu)
+    unsigned char *sbuf;
+    size_t scap;
+    ws_seg_t *segs;
+    int segCap, segHead, segCount;
+    int sending;            // bas segment WinHTTP'de ucuyor
+    volatile LONG finished; // CLOSE ya da -1 yazildi
+    volatile LONG freeReq;  // de_ws_free cagrildi: tum handle'lar kapaninca baglam serbest
+    int closeSent;          // biz Shutdown gonderdik
+    int haveClose;          // closeCode/closeReason dolu (CLOSE frame'inden okundu)
     USHORT closeCode;
     char closeReason[124];
     DWORD closeReasonLen;
@@ -479,21 +492,99 @@ static void ws_destroy(ws_t *w)
     slot_del(ws_slots, w);
     LeaveCriticalSection(&net_lock);
     close_url(&w->u);
-    for (ws_send_t *s = w->sq_head; s;)
-    {
-        ws_send_t *n = s->next;
-        free(s->data);
-        free(s);
-        s = n;
-    }
-    if (w->sending)
-    {
-        free(w->sending->data);
-        free(w->sending);
-    }
+    free(w->sbuf);
+    free(w->segs);
     free(w->rbuf);
     DeleteCriticalSection(&w->lock);
     free(w);
+}
+
+// Ring'e len baytlik yer acar; ofseti doner (-1 = bellek yok). lock tutulurken cagrilir.
+static int ws_ring_alloc(ws_t *w, int len)
+{
+    if (len < 1)
+        len = 1;
+    if (w->segCount == 0)
+    {
+        if ((size_t)len > w->scap)
+        {
+            size_t cap = w->scap ? w->scap : 4096;
+            while (cap < (size_t)len)
+                cap *= 2;
+            unsigned char *nb = (unsigned char *)realloc(w->sbuf, cap);
+            if (!nb)
+                return -1;
+            w->sbuf = nb;
+            w->scap = cap;
+        }
+        return 0;
+    }
+    ws_seg_t *first = &w->segs[w->segHead];
+    ws_seg_t *last = &w->segs[(w->segHead + w->segCount - 1) % w->segCap];
+    int rpos = first->off, wpos = last->off + last->len;
+    if (wpos >= rpos)
+    {
+        if ((size_t)(wpos + len) <= w->scap)
+            return wpos;
+        if (len < rpos)
+            return 0; // sarmala
+    }
+    else if (wpos + len < rpos)
+        return wpos;
+    // sigmadi: buyut, segmentleri dogrusal yerlestir (tek seferlik kopya, amortize)
+    size_t need = 0;
+    for (int i = 0; i < w->segCount; i++)
+        need += (size_t)w->segs[(w->segHead + i) % w->segCap].len;
+    need += (size_t)len;
+    size_t cap = w->scap ? w->scap * 2 : 4096;
+    while (cap < need)
+        cap *= 2;
+    unsigned char *nb = (unsigned char *)malloc(cap);
+    if (!nb)
+        return -1;
+    int pos = 0;
+    for (int i = 0; i < w->segCount; i++)
+    {
+        ws_seg_t *s = &w->segs[(w->segHead + i) % w->segCap];
+        memcpy(nb + pos, w->sbuf + s->off, (size_t)s->len);
+        s->off = pos;
+        pos += s->len;
+    }
+    free(w->sbuf);
+    w->sbuf = nb;
+    w->scap = cap;
+    return pos;
+}
+
+static int ws_seg_push(ws_t *w, int off, int len, int isText)
+{
+    if (w->segCount == w->segCap)
+    {
+        int cap = w->segCap ? w->segCap * 2 : 16;
+        ws_seg_t *ns = (ws_seg_t *)malloc((size_t)cap * sizeof(ws_seg_t));
+        if (!ns)
+            return 0;
+        for (int i = 0; i < w->segCount; i++)
+            ns[i] = w->segs[(w->segHead + i) % w->segCap];
+        free(w->segs);
+        w->segs = ns;
+        w->segCap = cap;
+        w->segHead = 0;
+    }
+    ws_seg_t *s = &w->segs[(w->segHead + w->segCount) % w->segCap];
+    s->off = off;
+    s->len = len;
+    s->isText = isText;
+    w->segCount++;
+    return 1;
+}
+
+static void ws_seg_pop(ws_t *w)
+{
+    if (w->segCount == 0)
+        return;
+    w->segHead = (w->segHead + 1) % w->segCap;
+    w->segCount--;
 }
 
 static void ws_fail(ws_t *w, DWORD err)
@@ -532,27 +623,38 @@ static void ws_closed(ws_t *w)
 
 static void ws_pump_send(ws_t *w)
 {
-    // lock tutulurken cagrilir; ucan yazim yoksa kuyruktan birini ucurur
-    if (w->sending || !w->sq_head || !w->ws || w->finished)
+    // lock tutulurken cagrilir; ucan yazim yoksa bas segmenti ucurur (segment WRITE_COMPLETE'e dek kuyrukta kalir)
+    if (w->sending || w->segCount == 0 || !w->ws || w->finished)
         return;
-    ws_send_t *s = w->sq_head;
-    w->sq_head = s->next;
-    if (!w->sq_head)
-        w->sq_tail = NULL;
-    w->sending = s;
-    DWORD r = WinHttpWebSocketSend(w->ws, s->isText ? WINHTTP_WEB_SOCKET_UTF8_MESSAGE_BUFFER_TYPE : WINHTTP_WEB_SOCKET_BINARY_MESSAGE_BUFFER_TYPE, s->data, (DWORD)s->len);
+    ws_seg_t *s = &w->segs[w->segHead];
+    w->sending = 1;
+    DWORD r = WinHttpWebSocketSend(w->ws, s->isText ? WINHTTP_WEB_SOCKET_UTF8_MESSAGE_BUFFER_TYPE : WINHTTP_WEB_SOCKET_BINARY_MESSAGE_BUFFER_TYPE, w->sbuf + s->off, (DWORD)s->len);
     if (r != NO_ERROR)
     {
-        free(s->data);
-        free(s);
-        w->sending = NULL;
+        w->sending = 0;
+        ws_seg_pop(w);
         ws_fail(w, r);
     }
 }
 
+// Mesaj tamponunda en az DE_NET_CHUNK bos yer garantiler ve almayi oraya baslatir (ara tampon yok).
 static void ws_receive(ws_t *w)
 {
-    DWORD r = WinHttpWebSocketReceive(w->ws, w->rchunk, DE_NET_CHUNK, NULL, NULL);
+    if (w->rlen + DE_NET_CHUNK > w->rcap)
+    {
+        size_t cap = w->rcap ? w->rcap * 2 : DE_NET_CHUNK;
+        while (cap < w->rlen + DE_NET_CHUNK)
+            cap *= 2;
+        unsigned char *nb = (unsigned char *)realloc(w->rbuf, cap);
+        if (!nb)
+        {
+            ws_fail(w, ERROR_OUTOFMEMORY);
+            return;
+        }
+        w->rbuf = nb;
+        w->rcap = cap;
+    }
+    DWORD r = WinHttpWebSocketReceive(w->ws, w->rbuf + w->rlen, DE_NET_CHUNK, NULL, NULL);
     if (r != NO_ERROR && r != ERROR_INVALID_OPERATION)
         ws_fail(w, r);
 }
@@ -627,29 +729,19 @@ static void CALLBACK ws_cb(HINTERNET h, DWORD_PTR ctx, DWORD status, LPVOID info
             break;
         }
         DWORD n = st->dwBytesTransferred;
-        if (n)
-        {
-            if (w->rlen + n > w->rcap)
-            {
-                size_t cap = w->rcap ? w->rcap * 2 : 65536;
-                while (cap < w->rlen + n)
-                    cap *= 2;
-                unsigned char *nb = (unsigned char *)realloc(w->rbuf, cap);
-                if (!nb)
-                {
-                    ws_fail(w, ERROR_OUTOFMEMORY);
-                    break;
-                }
-                w->rbuf = nb;
-                w->rcap = cap;
-            }
-            memcpy(w->rbuf + w->rlen, w->rchunk, n);
-            w->rlen += n;
-        }
+        w->rlen += n; // dogrudan rbuf kuyruguna okundu
         if (st->eBufferType == WINHTTP_WEB_SOCKET_UTF8_MESSAGE_BUFFER_TYPE || st->eBufferType == WINHTTP_WEB_SOCKET_BINARY_MESSAGE_BUFFER_TYPE)
         {
             int isText = st->eBufferType == WINHTTP_WEB_SOCKET_UTF8_MESSAGE_BUFFER_TYPE;
-            de_async_complete(w->job, DE_WS_MESSAGE, w->rbuf ? w->rbuf : de_net_memdup("", 0), (long long)w->rlen, isText, 0);
+            // Mesaj bitti: tamponu kuyruga DEVRET (kopya yok). Kucult: realloc kucultme yerinde olur.
+            unsigned char *msg = w->rbuf;
+            if (msg && w->rlen < w->rcap)
+            {
+                unsigned char *shr = (unsigned char *)realloc(msg, w->rlen ? w->rlen : 1);
+                if (shr)
+                    msg = shr;
+            }
+            de_async_complete(w->job, DE_WS_MESSAGE, msg ? msg : de_net_memdup("", 0), (long long)w->rlen, isText, 0);
             w->rbuf = NULL;
             w->rlen = w->rcap = 0;
         }
@@ -660,9 +752,8 @@ static void CALLBACK ws_cb(HINTERNET h, DWORD_PTR ctx, DWORD status, LPVOID info
         EnterCriticalSection(&w->lock);
         if (w->sending)
         {
-            free(w->sending->data);
-            free(w->sending);
-            w->sending = NULL;
+            w->sending = 0;
+            ws_seg_pop(w);
         }
         ws_pump_send(w);
         LeaveCriticalSection(&w->lock);
@@ -752,18 +843,17 @@ DE_NET_API int de_ws_send(int ws, const void *data, int len, int isText)
     ws_t *w = ws_get(ws);
     if (!w || w->finished)
         return -1;
-    ws_send_t *s = (ws_send_t *)calloc(1, sizeof(ws_send_t));
-    if (!s)
-        return -1;
-    s->data = (unsigned char *)de_net_memdup(data, (size_t)(len > 0 ? len : 0));
-    s->len = len > 0 ? len : 0;
-    s->isText = isText;
+    if (len < 0)
+        len = 0;
     EnterCriticalSection(&w->lock);
-    if (w->sq_tail)
-        w->sq_tail->next = s;
-    else
-        w->sq_head = s;
-    w->sq_tail = s;
+    int off = ws_ring_alloc(w, len);
+    if (off < 0 || !ws_seg_push(w, off, len, isText))
+    {
+        LeaveCriticalSection(&w->lock);
+        return -1;
+    }
+    if (len)
+        memcpy(w->sbuf + off, data, (size_t)len); // tek kopya: ring WRITE_COMPLETE'e dek yasar
     ws_pump_send(w); // baglanti henuz yoksa kuyrukta bekler, OPEN'da ucar
     LeaveCriticalSection(&w->lock);
     return 0;
@@ -1008,7 +1098,167 @@ DE_NET_API void de_ws_close(int ws, int code, const char *reason) { de_js_ws_clo
 DE_NET_API void de_ws_free(int ws) { de_js_ws_free(ws); }
 // clang-format on
 
-#else // ---- diger platformlar: faz 3-4 ----------------------------------------------------------
+#elif defined(__ANDROID__)
+// ---- Android: JNI -> com.digitoy.host.Net (Kotlin; HttpURLConnection + RFC 6455 Socket/SSLSocket, 3. parti yok).
+// Host JNI_OnLoad de_android_net_bind(vm, env, cls) cagirir (sinif APP classloader'indan). Baglanmamissa
+// her istek "bagli degil" hatasiyla biter. Tamamlanmalar Java'dan Net.done -> asagidaki JNI ucu ->
+// de_async_complete (GetByteArrayRegion ile tek kopya; Java tamponu hemen yeniden kullanilir).
+// Gonderim: Java scratch dizisi (wsScratch) SetByteArrayRegion ile doldurulur -> wsSend frame'ler (Java alloc yok).
+#include <jni.h>
+static JavaVM *de_net_vm;
+static jclass de_net_cls;
+static jmethodID de_nm_request, de_nm_cancel, de_nm_ws_open, de_nm_ws_scratch, de_nm_ws_send, de_nm_ws_close, de_nm_ws_free;
+
+DE_NET_API void de_android_net_bind(void *vm, void *env_, void *cls_)
+{
+    JNIEnv *env = (JNIEnv *)env_;
+    jclass cls = (jclass)cls_;
+    de_net_vm = (JavaVM *)vm;
+    de_net_cls = (jclass)(*env)->NewGlobalRef(env, cls);
+    de_nm_request = (*env)->GetStaticMethodID(env, cls, "request", "(ILjava/lang/String;Ljava/lang/String;Ljava/lang/String;[BI)V");
+    de_nm_cancel = (*env)->GetStaticMethodID(env, cls, "cancel", "(I)V");
+    de_nm_ws_open = (*env)->GetStaticMethodID(env, cls, "wsOpen", "(ILjava/lang/String;Ljava/lang/String;)V");
+    de_nm_ws_scratch = (*env)->GetStaticMethodID(env, cls, "wsScratch", "(II)[B");
+    de_nm_ws_send = (*env)->GetStaticMethodID(env, cls, "wsSend", "(IIZ)I");
+    de_nm_ws_close = (*env)->GetStaticMethodID(env, cls, "wsClose", "(IILjava/lang/String;)V");
+    de_nm_ws_free = (*env)->GetStaticMethodID(env, cls, "wsFree", "(I)V");
+    if ((*env)->ExceptionCheck(env))
+    {
+        (*env)->ExceptionClear(env);
+        de_net_cls = NULL; // imza uyusmazligi: kopru kapali
+    }
+}
+
+static JNIEnv *de_net_env(void)
+{
+    if (!de_net_vm || !de_net_cls)
+        return NULL;
+    JNIEnv *env = NULL;
+    if ((*de_net_vm)->GetEnv(de_net_vm, (void **)&env, JNI_VERSION_1_6) == JNI_OK)
+        return env;
+    return (*de_net_vm)->AttachCurrentThread(de_net_vm, &env, NULL) == JNI_OK ? env : NULL;
+}
+
+static void de_net_jclear(JNIEnv *env)
+{
+    if ((*env)->ExceptionCheck(env))
+    {
+        (*env)->ExceptionDescribe(env);
+        (*env)->ExceptionClear(env);
+    }
+}
+
+// Java -> native tamamlanma (Net.done; Java'nin ag thread'lerinden gelir, de_async MPSC guvenli).
+JNIEXPORT void JNICALL Java_com_digitoy_host_Net_done(JNIEnv *env, jclass cls, jint job, jint code, jbyteArray data, jint off, jint len, jint a, jint b)
+{
+    (void)cls;
+    void *buf = NULL;
+    if (data && len > 0)
+    {
+        buf = malloc((size_t)len);
+        if (buf)
+            (*env)->GetByteArrayRegion(env, data, off, len, (jbyte *)buf);
+        else
+            len = 0;
+    }
+    de_async_complete(job, code, buf, (long long)len, a, b);
+}
+
+DE_NET_API int de_http_request(const char *method, const char *url, const char *headers, const void *body, int bodyLen, int timeoutMs)
+{
+    int job = de_async_new_job();
+    JNIEnv *env = de_net_env();
+    if (!env)
+    {
+        de_net_fail(job, "de_net: Android koprusu bagli degil");
+        return job;
+    }
+    jstring jm = (*env)->NewStringUTF(env, method ? method : "GET");
+    jstring ju = (*env)->NewStringUTF(env, url ? url : "");
+    jstring jh = headers ? (*env)->NewStringUTF(env, headers) : NULL;
+    jbyteArray jb = NULL;
+    if (body && bodyLen > 0)
+    {
+        jb = (*env)->NewByteArray(env, bodyLen);
+        if (jb)
+            (*env)->SetByteArrayRegion(env, jb, 0, bodyLen, (const jbyte *)body);
+    }
+    (*env)->CallStaticVoidMethod(env, de_net_cls, de_nm_request, (jint)job, jm, ju, jh, jb, (jint)timeoutMs);
+    de_net_jclear(env);
+    if (jm) (*env)->DeleteLocalRef(env, jm);
+    if (ju) (*env)->DeleteLocalRef(env, ju);
+    if (jh) (*env)->DeleteLocalRef(env, jh);
+    if (jb) (*env)->DeleteLocalRef(env, jb);
+    return job;
+}
+
+DE_NET_API void de_http_cancel(int job)
+{
+    JNIEnv *env = de_net_env();
+    if (!env)
+        return;
+    (*env)->CallStaticVoidMethod(env, de_net_cls, de_nm_cancel, (jint)job);
+    de_net_jclear(env);
+}
+
+DE_NET_API int de_ws_open(const char *url, const char *headers)
+{
+    int job = de_async_new_job();
+    JNIEnv *env = de_net_env();
+    if (!env)
+    {
+        de_net_fail(job, "de_net: Android koprusu bagli degil");
+        return job;
+    }
+    jstring ju = (*env)->NewStringUTF(env, url ? url : "");
+    jstring jh = headers ? (*env)->NewStringUTF(env, headers) : NULL;
+    (*env)->CallStaticVoidMethod(env, de_net_cls, de_nm_ws_open, (jint)job, ju, jh);
+    de_net_jclear(env);
+    if (ju) (*env)->DeleteLocalRef(env, ju);
+    if (jh) (*env)->DeleteLocalRef(env, jh);
+    return job;
+}
+
+DE_NET_API int de_ws_send(int ws, const void *data, int len, int isText)
+{
+    JNIEnv *env = de_net_env();
+    if (!env)
+        return -1;
+    if (len < 0)
+        len = 0;
+    jbyteArray arr = (jbyteArray)(*env)->CallStaticObjectMethod(env, de_net_cls, de_nm_ws_scratch, (jint)ws, (jint)len);
+    de_net_jclear(env);
+    if (!arr)
+        return -1;
+    if (len)
+        (*env)->SetByteArrayRegion(env, arr, 0, len, (const jbyte *)data); // native -> Java scratch (1 kopya)
+    jint r = (*env)->CallStaticIntMethod(env, de_net_cls, de_nm_ws_send, (jint)ws, (jint)len, (jboolean)(isText ? JNI_TRUE : JNI_FALSE));
+    de_net_jclear(env);
+    (*env)->DeleteLocalRef(env, arr);
+    return r;
+}
+
+DE_NET_API void de_ws_close(int ws, int code, const char *reason)
+{
+    JNIEnv *env = de_net_env();
+    if (!env)
+        return;
+    jstring jr = (*env)->NewStringUTF(env, reason ? reason : "");
+    (*env)->CallStaticVoidMethod(env, de_net_cls, de_nm_ws_close, (jint)ws, (jint)code, jr);
+    de_net_jclear(env);
+    if (jr) (*env)->DeleteLocalRef(env, jr);
+}
+
+DE_NET_API void de_ws_free(int ws)
+{
+    JNIEnv *env = de_net_env();
+    if (!env)
+        return;
+    (*env)->CallStaticVoidMethod(env, de_net_cls, de_nm_ws_free, (jint)ws);
+    de_net_jclear(env);
+}
+
+#else // ---- diger platformlar: faz 4 (Apple) ----------------------------------------------------------
 
 DE_NET_API int de_http_request(const char *method, const char *url, const char *headers, const void *body, int bodyLen, int timeoutMs)
 {

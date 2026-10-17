@@ -11,6 +11,10 @@ namespace DigitoyEngine;
 // TLS/proxy/cookie OS'un. Tamamlanmalar NativeAsync uzerinden ana thread'de; kendi pump'i yok.
 // Zaman asimi native'de (TimeoutMs); CancellationToken yalnizca kullanici/yasam dongusu iptali
 // (ornegin Component.destroyCancellationToken). Editor ve release ayni native kodu kullanir.
+//
+// ZERO-GC SOZLESMESI (docs/network.md "Zero-GC"): WS mesaji NATIVE bellekte kalir, managed ona Span ile bakar;
+// kopya yalniz kullanici isterse (ToArray/Text). Sicak yol OnMessage (alloc yok). Gonderim Span alir; string
+// gonderimi statik scratch'e kodlanir. HTTP: dusuk frekans, tek byte[] (basliklar+govde bitisik), tembel string.
 static unsafe class NativeNet
 {
     const string Lib = "digitoyengine_native";
@@ -62,9 +66,67 @@ static unsafe class NativeNet
         return HttpRequest(req.Method, req.Url, req.HeaderBlock, null, 0, req.TimeoutMs);
     }
 
-    public static bool SendBytes(int ws, byte[] data, bool isText)
+    public static bool SendBytes(int ws, ReadOnlySpan<byte> data, bool isText)
     {
         fixed (byte* p = data) return WsSend(ws, p, data.Length, isText ? 1 : 0) == 0;
+    }
+
+    // string -> UTF-8, statik buyuyen scratch (GC yok; ana thread, tek kullanim: hemen native'e kopyalanir).
+    static byte[] _scratch = new byte[256];
+    public static ReadOnlySpan<byte> EncodeUtf8(string s)
+    {
+        if (string.IsNullOrEmpty(s)) return ReadOnlySpan<byte>.Empty;
+        int need = s.Length * 3;
+        if (_scratch.Length < need) _scratch = new byte[Math.Max(need, _scratch.Length * 2)];
+        var b = _scratch;
+        int n = 0;
+        for (int i = 0; i < s.Length; i++)
+        {
+            int c = s[i];
+            if (c >= 0xD800 && c <= 0xDBFF && i + 1 < s.Length && s[i + 1] >= 0xDC00 && s[i + 1] <= 0xDFFF)
+                c = 0x10000 + ((c - 0xD800) << 10) + (s[++i] - 0xDC00);
+            if (c < 0x80) b[n++] = (byte)c;
+            else if (c < 0x800) { b[n++] = (byte)(0xC0 | (c >> 6)); b[n++] = (byte)(0x80 | (c & 0x3F)); }
+            else if (c < 0x10000) { b[n++] = (byte)(0xE0 | (c >> 12)); b[n++] = (byte)(0x80 | ((c >> 6) & 0x3F)); b[n++] = (byte)(0x80 | (c & 0x3F)); }
+            else { b[n++] = (byte)(0xF0 | (c >> 18)); b[n++] = (byte)(0x80 | ((c >> 12) & 0x3F)); b[n++] = (byte)(0x80 | ((c >> 6) & 0x3F)); b[n++] = (byte)(0x80 | (c & 0x3F)); }
+        }
+        return new ReadOnlySpan<byte>(b, 0, n);
+    }
+
+    // Baslik blogunda ("K: V\r\n" satirlari, bayt) ad arar (buyuk/kucuk harf duyarsiz, ASCII). Deger araligi doner.
+    public static bool FindHeader(byte[] raw, int rawLen, string name, out int valStart, out int valLen)
+    {
+        valStart = 0; valLen = 0;
+        if (raw == null || string.IsNullOrEmpty(name)) return false;
+        int i = 0;
+        while (i < rawLen)
+        {
+            int lineEnd = i;
+            while (lineEnd < rawLen && raw[lineEnd] != (byte)'\n') lineEnd++;
+            int colon = i;
+            while (colon < lineEnd && raw[colon] != (byte)':') colon++;
+            if (colon < lineEnd && colon - i == name.Length)
+            {
+                bool eq = true;
+                for (int k = 0; k < name.Length && eq; k++)
+                {
+                    int a = raw[i + k], c = name[k];
+                    if (a >= 'A' && a <= 'Z') a += 32;
+                    if (c >= 'A' && c <= 'Z') c += 32;
+                    eq = a == c;
+                }
+                if (eq)
+                {
+                    int vs = colon + 1, ve = lineEnd;
+                    while (vs < ve && (raw[vs] == ' ' || raw[vs] == '\t')) vs++;
+                    while (ve > vs && (raw[ve - 1] == ' ' || raw[ve - 1] == '\t' || raw[ve - 1] == '\r')) ve--;
+                    valStart = vs; valLen = ve - vs;
+                    return true;
+                }
+            }
+            i = lineEnd + 1;
+        }
+        return false;
     }
 }
 
@@ -72,7 +134,7 @@ public sealed class HttpRequest
 {
     public string Method = "GET";
     public string Url;
-    public byte[] Body;
+    public byte[] Body; // istek bitene dek native kopyasi yasar (1 kopya zorunlu)
     public int TimeoutMs = 30000;
     List<KeyValuePair<string, string>> _headers;
     public HttpRequest Header(string name, string value)
@@ -83,30 +145,26 @@ public sealed class HttpRequest
     internal string HeaderBlock => NativeNet.JoinHeaders(_headers);
 }
 
+// Yanit: TEK tampon (Raw = basliklar + govde bitisik; HeaderLength = baslik bayti). Govde Span dilimi;
+// string'ler (Text/RawHeaders/Header) yalnizca istenince uretilir.
 public sealed class HttpResponse
 {
     public int Status;          // 0 = yanit yok (ag/zaman asimi hatasi; Error dolu)
-    public byte[] Body;         // null degil (bos olabilir)
     public string Error;        // null = tasima basarili (HTTP hata kodu olsa bile)
-    public string RawHeaders;   // "HTTP/1.1 200 OK\r\nK: V\r\n..." (platform bicimi)
+    public byte[] Raw = Array.Empty<byte>();
+    public int HeaderLength;
     public bool Ok => Error == null && Status >= 200 && Status < 300;
-    string _text;
-    public string Text => _text ??= Body == null || Body.Length == 0 ? "" : Encoding.UTF8.GetString(Body);
+    public int BodyLength => Raw.Length - HeaderLength;
+    public ReadOnlySpan<byte> Body => new ReadOnlySpan<byte>(Raw, HeaderLength, Raw.Length - HeaderLength);
+    public byte[] BodyToArray() => Body.ToArray();
+    public string Text => BodyLength == 0 ? "" : Encoding.UTF8.GetString(Raw, HeaderLength, BodyLength);
+    public string RawHeaders => HeaderLength == 0 ? "" : Encoding.UTF8.GetString(Raw, 0, HeaderLength); // "HTTP/1.1 200 OK\r\nK: V\r\n..."
 
-    // Baslik degeri (ad buyuk/kucuk harf duyarsiz); yoksa null.
+    // Baslik degeri (ad buyuk/kucuk harf duyarsiz); yoksa null. Yalniz sonuc string'i alloc eder.
     public string Header(string name)
     {
-        if (string.IsNullOrEmpty(RawHeaders) || string.IsNullOrEmpty(name)) return null;
-        var lines = RawHeaders.Split('\n');
-        for (int i = 0; i < lines.Length; i++)
-        {
-            var line = lines[i].Trim();
-            int colon = line.IndexOf(':');
-            if (colon <= 0) continue;
-            if (string.Equals(line.Substring(0, colon).Trim(), name, StringComparison.OrdinalIgnoreCase))
-                return line.Substring(colon + 1).Trim();
-        }
-        return null;
+        if (!NativeNet.FindHeader(Raw, HeaderLength, name, out int vs, out int vl)) return null;
+        return vl == 0 ? "" : Encoding.UTF8.GetString(Raw, vs, vl);
     }
 }
 
@@ -124,22 +182,18 @@ public static class Http
     public static async Task<HttpResponse> SendAsync(HttpRequest req, CancellationToken ct = default)
     {
         if (req == null || string.IsNullOrEmpty(req.Url))
-            return new HttpResponse { Error = "url bos", Body = Array.Empty<byte>() };
+            return new HttpResponse { Error = "url bos" };
         ct.ThrowIfCancellationRequested();
         int job = NativeNet.StartHttp(req);
         var c = await NativeAsync.Await(job, ct, () => NativeNet.HttpCancel(job));
         var res = new HttpResponse();
         if (!c.Ok)
-        {
             res.Error = c.Len > 0 ? NativeNet.Utf8(c.Data, 0, (int)c.Len) : "network error";
-            res.Body = Array.Empty<byte>();
-        }
         else
         {
             res.Status = c.A;
-            int headerLen = c.B, total = (int)c.Len;
-            res.RawHeaders = NativeNet.Utf8(c.Data, 0, headerLen);
-            res.Body = NativeNet.CopyBytes(c.Data, headerLen, total - headerLen);
+            res.HeaderLength = c.B;
+            res.Raw = NativeNet.CopyBytes(c.Data, 0, (int)c.Len); // native -> managed tek kopya, sahiplik kullanicida
         }
         NativeAsync.Free(c.Data);
         return res;
@@ -148,17 +202,22 @@ public static class Http
 
 public enum WebSocketState { Connecting, Open, Closed }
 
-// class: struct'ta `this` spill + `??=` deseni AOT frontend'inde pointer/deger karisikligi uretiyor (mesaj zaten alloc).
-public sealed class WsMessage
+// Native bellekteki mesaja GORUNUM (kopya yok). Gecerlilik: OnMessage icinde callback donene dek; ReceiveAsync
+// sonucu ayni soketteki BIR SONRAKI ReceiveAsync cagrisina ya da kapanisa dek. Saklamak icin ToArray().
+public struct WsMessage
 {
-    public bool IsText;
-    public byte[] Data;
-    string _text;
-    public string Text => _text ??= Data == null || Data.Length == 0 ? "" : Encoding.UTF8.GetString(Data);
+    public readonly IntPtr Data;
+    public readonly int Length;
+    public readonly bool IsText;
+    internal WsMessage(IntPtr data, int length, bool isText) { Data = data; Length = length; IsText = isText; }
+    public unsafe ReadOnlySpan<byte> Bytes => Data == IntPtr.Zero ? ReadOnlySpan<byte>.Empty : new ReadOnlySpan<byte>((void*)Data, Length);
+    public byte[] ToArray() => NativeNet.CopyBytes(Data, 0, Length);
+    public string Text => Length == 0 ? "" : NativeNet.Utf8(Data, 0, Length); // her cagri alloc (acik)
 }
 
-// Tek baglanti. Alim iki bicimde: `await ReceiveAsync()` (ic kuyruk) ya da OnMessage (Pump'ta, ana thread).
-// OnMessage atanmissa mesajlar kuyruga girmez. Kapanis/hata: State=Closed, bekleyen ReceiveAsync'ler iptal, OnClose.
+// Tek baglanti. Alim iki bicimde: OnMessage (Pump'ta, ana thread; SIFIR alloc) ya da `await ReceiveAsync()`
+// (TCS alloc; kolaylik). OnMessage atanmissa mesajlar kuyruga girmez. Kapanis/hata: State=Closed, bekleyen
+// ReceiveAsync'ler iptal, OnClose. Kuyruktaki mesajlar native'de bekler (kopya yok), tuketilince/kapanista free.
 public sealed class WebSocket : IDisposable
 {
     sealed class Receiver
@@ -170,6 +229,7 @@ public sealed class WebSocket : IDisposable
     WebSocketState _state = WebSocketState.Connecting;
     readonly List<WsMessage> _inbox = new();
     readonly List<Receiver> _receivers = new();
+    IntPtr _lastReceived; // ReceiveAsync ile verilen son mesaj; bir sonraki ReceiveAsync/kapanis free eder
     TaskCompletionSource<bool> _connect;
     TaskCompletionSource<bool> _closeTask;
     public Action<WsMessage> OnMessage;
@@ -204,23 +264,29 @@ public sealed class WebSocket : IDisposable
     {
         if (c.Code == NativeNet.WsOpenEvent)
         {
+            NativeAsync.Free(c.Data);
             _state = WebSocketState.Open;
             _connect?.TrySetResult(true);
             return;
         }
         if (c.Code == NativeNet.WsMessageEvent)
         {
-            var m = new WsMessage { IsText = c.A != 0, Data = NativeNet.CopyBytes(c.Data, 0, (int)c.Len) };
-            NativeAsync.Free(c.Data);
+            var m = new WsMessage(c.Data, (int)c.Len, c.A != 0);
             if (_receivers.Count > 0)
             {
                 var r = _receivers[0];
                 _receivers.RemoveAt(0);
                 r.Reg.Dispose();
+                ReleaseLast();
+                _lastReceived = c.Data;
                 r.Tcs.TrySetResult(m);
             }
-            else if (OnMessage != null) OnMessage(m);
-            else _inbox.Add(m);
+            else if (OnMessage != null)
+            {
+                OnMessage(m);
+                NativeAsync.Free(c.Data); // callback donunce gorunum gecersiz
+            }
+            else _inbox.Add(m); // native'de bekler
             return;
         }
         // son tamamlanma: CLOSE ya da hata
@@ -229,6 +295,13 @@ public sealed class WebSocket : IDisposable
         NativeNet.WsFree(_job);
         if (c.Code == NativeNet.WsCloseCode) Finish(c.A, text ?? "", false);
         else Finish(0, text ?? "network error", false);
+    }
+
+    void ReleaseLast()
+    {
+        if (_lastReceived == IntPtr.Zero) return;
+        NativeAsync.Free(_lastReceived);
+        _lastReceived = IntPtr.Zero;
     }
 
     void Finish(int code, string reason, bool canceled)
@@ -251,23 +324,30 @@ public sealed class WebSocket : IDisposable
             else _receivers[i].Tcs.TrySetException(new Exception("websocket closed: " + reason));
         }
         _receivers.Clear();
+        for (int i = 0; i < _inbox.Count; i++) NativeAsync.Free(_inbox[i].Data);
+        _inbox.Clear();
+        ReleaseLast();
         if (!wasConnecting) OnClose?.Invoke(code, reason);
         _closeTask?.TrySetResult(true); // en son: await CloseAsync devami inline kosar, OnClose'u gormus olsun
     }
 
+    // Metin: statik scratch'e UTF-8 kodlanir (GC yok), native kuyruguna kopyalanir.
     public bool Send(string text)
     {
-        if (_state == WebSocketState.Closed) return false;
-        return NativeNet.SendBytes(_job, Encoding.UTF8.GetBytes(text ?? ""), true);
+        if (_state != WebSocketState.Open) return false;
+        return NativeNet.SendBytes(_job, NativeNet.EncodeUtf8(text), true);
     }
 
-    public bool Send(byte[] data)
+    public bool Send(byte[] data) => data != null && Send(new ReadOnlySpan<byte>(data));
+
+    public bool Send(ReadOnlySpan<byte> data)
     {
-        if (_state == WebSocketState.Closed || data == null) return false;
+        if (_state != WebSocketState.Open) return false;
         return NativeNet.SendBytes(_job, data, false);
     }
 
-    // Siradaki mesaj (kuyrukta varsa hemen). Kapanista Exception / iptalde OperationCanceledException.
+    // Siradaki mesaj (kuyrukta varsa hemen). Donen gorunum bir sonraki ReceiveAsync'e / kapanisa dek gecerli.
+    // Kapanista Exception / iptalde OperationCanceledException.
     public Task<WsMessage> ReceiveAsync(CancellationToken ct = default)
     {
         var r = new Receiver();
@@ -275,6 +355,8 @@ public sealed class WebSocket : IDisposable
         {
             var m = _inbox[0];
             _inbox.RemoveAt(0);
+            ReleaseLast();
+            _lastReceived = m.Data;
             r.Tcs.TrySetResult(m);
             return r.Tcs.Task;
         }

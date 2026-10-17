@@ -47,8 +47,9 @@ public static class PluginBuild
     }
 
     // Assets/**/*.cs (Editor dahil) normal .NET'e karsi: <Ad>.Editor.dll. Referans: DigitoyEngine .NET (DE_EDITOR) + aotcompiler
-    // (ProjectHooks). engineNetDll null -> derlenmez (kancasiz; uyari). Editor GameCode ile ayni kaynak kapsami.
-    public static Result Prepare(string projectRoot, string projName, string workDir, HashSet<string> live, string engineNetDll, Action<string> log)
+    // (ProjectHooks) + managed plugin dll'leri (Assets/**/*.dll; oyun derlemesi ve editor GameCode ile AYNI liste — kaynak kapsami
+    // ayni oldugundan referans kapsami da ayni olmali). engineNetDll null -> derlenmez (kancasiz; uyari).
+    public static Result Prepare(string projectRoot, string projName, string workDir, HashSet<string> live, string engineNetDll, List<string> pluginDlls, Action<string> log)
     {
         var r = new Result { Live = live, Folders = PluginFolder.Scan(projectRoot) };
         foreach (var f in r.Folders)
@@ -72,8 +73,24 @@ public static class PluginBuild
             References = { engineNetDll, typeof(ProjectHooks).Assembly.Location },
             Defines = new[] { "DE_EDITOR", "DE_GAME" },
         };
+        build.References.AddRange(pluginDlls);
         var res = RoslynCompiler.CompileToFile(build, dll, useCache: true);
         if (!res.Ok) throw new Exception("Editor.dll derlemesi basarisiz (Assets/**/Editor kancalari):\n" + res.Errors);
+        // Editor.dll'in plugin dll referanslari basit adla cozulur (editor GameCode ile ayni desen; dll'ler workDir'de degil).
+        var pluginAsms = new List<Assembly>();
+        foreach (var p in pluginDlls)
+        {
+            try { pluginAsms.Add(Assembly.LoadFrom(p)); }
+            catch (Exception e) { log($"[uyari] plugin dll yuklenemedi (kanca derlemesi icin): {Path.GetFileName(p)}: {e.Message}"); }
+        }
+        if (pluginAsms.Count > 0)
+            AppDomain.CurrentDomain.AssemblyResolve += (_, a) =>
+            {
+                var want = new AssemblyName(a.Name).Name;
+                foreach (var pa in pluginAsms)
+                    if (string.Equals(pa.GetName().Name, want, StringComparison.Ordinal)) return pa;
+                return null;
+            };
         try { r.EditorAsm = Assembly.LoadFrom(dll); }
         catch (Exception e) { log("[uyari] Editor.dll yuklenemedi: " + e.Message); }
         return r;
@@ -109,7 +126,8 @@ public static class PluginBuild
         {
             string dst = Path.Combine(pdir, f.Name);
             copyTree(f.Android, dst);
-            settings.Append($"include(\":plugins:{f.Name}\")\nproject(\":plugins:{f.Name}\").projectDir = file(\"generated/plugins/{f.Name}\")\n");
+            // settingsDir: bu script generated/ icinden apply edilir, duz file("...") script dizinine gore cozulur (generated/generated/...).
+            settings.Append($"include(\":plugins:{f.Name}\")\nproject(\":plugins:{f.Name}\").projectDir = settingsDir.resolve(\"generated/plugins/{f.Name}\")\n");
             deps.Append($"dependencies {{ add(\"implementation\", project(\":plugins:{f.Name}\")) }}\n");
             string cls = FindDEPluginClass(dst);
             if (cls == null) { log($"[uyari] {f.Name}/Android: DEPlugin turevi bulunamadi (onMessage yok -> Available=false)"); continue; }

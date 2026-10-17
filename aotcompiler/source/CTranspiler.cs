@@ -580,9 +580,9 @@ namespace DigitoyEngine.Language
         {
             var cn = CName(p.Name);
             var sb = new StringBuilder();
-            sb.Append($"static int digitoyengine_enumparse_{cn}(VmString *value, int *result) {{\n");
+            sb.Append($"static int digitoyengine_enumparse_{cn}(VmString *value, int ignoreCase, int *result) {{\n");
             foreach (var m in p.EnumMembers)
-                sb.Append($"    if (System_String_op_eq_System_String_System_String(value, &{strPool[m.Key]})) {{ *result = {m.Value}; return 1; }}\n");
+                sb.Append($"    if (digitoyengine_string_eq_cmp(value, &{strPool[m.Key]}, ignoreCase)) {{ *result = {m.Value}; return 1; }}\n");
             sb.Append("    *result = 0; return 0;\n}\n");
             sb.Append($"static VmString *digitoyengine_enumstr_{cn}(VmObject *s) {{\n");
             sb.Append("    switch (*(int*)((char*)s + sizeof(GCHeader))) {\n");

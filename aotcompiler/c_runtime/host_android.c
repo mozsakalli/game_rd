@@ -74,20 +74,22 @@ void de_host_fatal(const char* reason, const RtFrame* frames, int count)
 }
 
 // printf/fprintf(stderr) ciktilari (runtime [host]/[app]/[player] loglari) logcat'e aksin.
-static int g_pipe[2];
-static void* stdio_pump(void* arg)
+// Iki pipe: stdout -> INFO, stderr ([error]/[exception]/[warn]) -> ERROR (logcat'te filtrelenebilir).
+static int g_pipe_out[2], g_pipe_err[2];
+static void* stdio_pump_fn(int fd, int prio)
 {
-    (void)arg;
-    char buf[1024];
+    char buf[4096];
     ssize_t n;
-    while ((n = read(g_pipe[0], buf, sizeof buf - 1)) > 0)
+    while ((n = read(fd, buf, sizeof buf - 1)) > 0)
     {
         if (buf[n - 1] == '\n') n--;
         buf[n] = 0;
-        if (n) __android_log_write(ANDROID_LOG_INFO, TAG, buf);
+        if (n) __android_log_write(prio, TAG, buf);
     }
     return 0;
 }
+static void* stdio_pump_out(void* arg) { (void)arg; return stdio_pump_fn(g_pipe_out[0], ANDROID_LOG_INFO); }
+static void* stdio_pump_err(void* arg) { (void)arg; return stdio_pump_fn(g_pipe_err[0], ANDROID_LOG_ERROR); }
 static void redirect_stdio(void)
 {
     static int done;
@@ -95,11 +97,9 @@ static void redirect_stdio(void)
     done = 1;
     setvbuf(stdout, 0, _IOLBF, 0);
     setvbuf(stderr, 0, _IONBF, 0);
-    if (pipe(g_pipe) != 0) return;
-    dup2(g_pipe[1], 1);
-    dup2(g_pipe[1], 2);
     pthread_t t;
-    if (pthread_create(&t, 0, stdio_pump, 0) == 0) pthread_detach(t);
+    if (pipe(g_pipe_out) == 0) { dup2(g_pipe_out[1], 1); if (pthread_create(&t, 0, stdio_pump_out, 0) == 0) pthread_detach(t); }
+    if (pipe(g_pipe_err) == 0) { dup2(g_pipe_err[1], 2); if (pthread_create(&t, 0, stdio_pump_err, 0) == 0) pthread_detach(t); }
 }
 
 void de_host_set_title(const char* utf8) { __android_log_print(ANDROID_LOG_INFO, TAG, "title: %s", utf8); }
@@ -110,6 +110,8 @@ void de_host_log(int level, const char* utf8) { __android_log_write(level >= 2 ?
 // Muzik koprusu (audio_shim.c __ANDROID__): Music sinifi APP classloader'indan burada cozulur
 // (JNI_OnLoad System.loadLibrary'yi cagiran loader'la kosar; GL thread'inden FindClass bulamaz).
 void de_android_music_bind(void* vm, void* env, void* cls);
+// Ag koprusu (de_net.c __ANDROID__): Net sinifi (Net.kt) ayni sekilde burada cozulur.
+void de_android_net_bind(void* vm, void* env, void* cls);
 
 // Plugin koprusu (docs/plugins.md): managed Plugin.Send -> de_plugin_send -> buradaki dispatcher -> Java
 // PluginHost.dispatch(name, msg) (main Handler'a post eder, plugin.onMessage orada). Cagiran thread render
@@ -159,6 +161,9 @@ JNIEXPORT jint JNICALL JNI_OnLoad(JavaVM* vm, void* reserved)
     jclass pcls = (*env)->FindClass(env, "com/digitoy/host/Prefs");
     if (pcls) { de_android_prefs_bind(vm, env, pcls); (*env)->DeleteLocalRef(env, pcls); }
     else { (*env)->ExceptionClear(env); __android_log_write(ANDROID_LOG_WARN, TAG, "Prefs sinifi yok: PlayerPrefs kapali"); }
+    jclass ncls = (*env)->FindClass(env, "com/digitoy/host/Net");
+    if (ncls) { de_android_net_bind(vm, env, ncls); (*env)->DeleteLocalRef(env, ncls); }
+    else { (*env)->ExceptionClear(env); __android_log_write(ANDROID_LOG_WARN, TAG, "Net sinifi yok: Http/WebSocket kapali"); }
     jclass hcls = (*env)->FindClass(env, "com/digitoy/host/PluginHost");
     if (hcls)
     {

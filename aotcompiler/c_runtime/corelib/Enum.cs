@@ -8,6 +8,7 @@ namespace System
         public static object ToObject(Type enumType, int value) { return ToObject(enumType, (object)value); }
 
         public static extern bool TryParse(Type enumType, string value, out object result); // .NET sirasi (Type, string, out)
+        public static extern bool TryParse(Type enumType, string value, bool ignoreCase, out object result); // ignoreCase: ASCII (kultur yok)
 
         // Tanimli uye mi: kutulanan degerin ToString'i uye adi (tanimli) ya da sayi (tanimsiz) doner; ad geri parse edilirse tanimlidir.
         public static bool IsDefined(Type enumType, object value)
@@ -20,10 +21,11 @@ namespace System
             return TryParse(enumType, s, out parsed);
         }
 
-        public static bool TryParse<TEnum>(string value, out TEnum result)
+        public static bool TryParse<TEnum>(string value, out TEnum result) { return TryParse<TEnum>(value, false, out result); }
+        public static bool TryParse<TEnum>(string value, bool ignoreCase, out TEnum result)
         {
             object parsed;
-            if (TryParse(typeof(TEnum), value, out parsed))
+            if (TryParse(typeof(TEnum), value, ignoreCase, out parsed))
             {
                 result = (TEnum)parsed;
                 return true;

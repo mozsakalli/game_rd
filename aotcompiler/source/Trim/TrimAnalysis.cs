@@ -86,23 +86,52 @@ namespace DigitoyEngine.Language.Trim
 
         // ---- reflection kokleri ----
 
-        // Koddan otomatik kokler: [Preserve] tasiyan tip/uye, typeof(T) hedefleri (Name), AddComponent<T>/New hedefleri degil
+        // Koddan otomatik kokler: [Preserve] (Unity kurali: adi PreserveAttribute olan her attribute; CilFrontend IsPreserved bayragi,
+        // tip cozumunden bagimsiz) tasiyan tip/metot/alan/property, typeof(T) hedefleri (Name), AddComponent<T>/New hedefleri degil
         // (New dogrudan cagri -> kod grafi). Attribute tipleri: emit edilen her attribute'un tipi Ctors + Fields + Props ister.
+        // Preserve kapsami (Unity'den genis, konservatif): tip -> All; metot -> metot + bildiren tipin metot/ctor'lari;
+        // alan -> bildiren tip + alan tipi; property -> bildiren tip + get/set + deger tipi.
         static void CollectAutoRoots(Context ctx, TrimRoots roots)
         {
             foreach (var p in ctx.AllPrimitives)
             {
                 if (p.Type != PrimitiveType.Model) continue;
-                if (HasAttr(p.Attributes, "Preserve")) roots.AddReflection(p, MemberKinds.All);
+                if (p.IsPreserved || HasAttr(p.Attributes, "Preserve")) roots.AddReflection(p, MemberKinds.All);
                 foreach (var a in p.Attributes) AttrRoot(roots, a);
-                foreach (var f in p.Fields) foreach (var a in f.Attributes) AttrRoot(roots, a);
-                foreach (var pr in p.Properties) foreach (var a in pr.Attributes) AttrRoot(roots, a);
+                foreach (var f in p.Fields.Concat(p.StaticFields))
+                {
+                    foreach (var a in f.Attributes) AttrRoot(roots, a);
+                    if (f.IsPreserved || HasAttr(f.Attributes, "Preserve"))
+                    {
+                        roots.AddReflection(p, MemberKinds.Name | MemberKinds.Ctors | MemberKinds.Fields | MemberKinds.Attrs);
+                        SigRoot(roots, f.Type);
+                    }
+                }
+                foreach (var pr in p.Properties)
+                {
+                    foreach (var a in pr.Attributes) AttrRoot(roots, a);
+                    if (pr.IsPreserved || HasAttr(pr.Attributes, "Preserve"))
+                    {
+                        roots.AddReflection(p, MemberKinds.Name | MemberKinds.Ctors | MemberKinds.Props | MemberKinds.Attrs);
+                        SigRoot(roots, pr.Type);
+                    }
+                }
                 if (p.IsEnum) roots.AddReflection(p, MemberKinds.Name); // Enum.ToString/Parse uye adlari
             }
             foreach (var c in ctx.AllCodes)
             {
                 foreach (var a in c.Attributes) AttrRoot(roots, a);
-                if (HasAttr(c.Attributes, "Preserve") && c.Owner != null) roots.AddReflection(c.Owner, MemberKinds.Methods | MemberKinds.Ctors);
+                bool methodPreserved = c.IsPreserved || HasAttr(c.Attributes, "Preserve");
+                bool ownerPreserved = c.Owner != null && (c.Owner.IsPreserved || HasAttr(c.Owner.Attributes, "Preserve"));
+                if (methodPreserved && c.Owner != null) roots.AddReflection(c.Owner, MemberKinds.Methods | MemberKinds.Ctors);
+                // Unity: korunan metot -> donus tipi + arg tipleri de korunur (ad + ctor). Korunan tipin tum metotlari icin de
+                // (Serializer<PlayerState>.Decode() -> PlayerState adi: CodecTypes.Resolve ada gore Type.GetType yapar).
+                if (methodPreserved || ownerPreserved)
+                {
+                    SigRoot(roots, c.ReturnType);
+                    foreach (var arg in c.Arguments) SigRoot(roots, arg.Type);
+                    if (ownerPreserved) for (var b = c.Owner.Parent; b != null; b = b.Parent) foreach (var ta in b.TypeArguments) SigRoot(roots, ta); // Serializer<T> : T
+                }
                 List<Primitive> lastTypeOf = null;
                 var ops = c.Operations;
                 for (int oi = 0; oi < ops.Count; oi++)
@@ -135,6 +164,16 @@ namespace DigitoyEngine.Language.Trim
         {
             if (a?.Type == null) return;
             roots.AddReflection(a.Type, MemberKinds.Name | MemberKinds.Ctors | MemberKinds.Fields | MemberKinds.Props);
+        }
+        // Imza tipi koku (Preserve kapsami): model tip -> ad + ctor + ATTRIBUTE tablosu (Unity "tip korunur" = attribute'lari dahil;
+        // CodecTypes.Resolve `GetCustomAttribute<CodecNameAttribute>` ile alias tarar); dizi/generic arg icine iner.
+        static void SigRoot(TrimRoots roots, Primitive t)
+        {
+            if (t == null) return;
+            if (t.Type == PrimitiveType.Array) { SigRoot(roots, t.ElementType); return; }
+            if (t.Type != PrimitiveType.Model || t.IsGenericParameter || Canon.ContainsCanon(t)) return;
+            roots.AddReflection(t, MemberKinds.Name | MemberKinds.Ctors | MemberKinds.Attrs);
+            foreach (var ta in t.TypeArguments) SigRoot(roots, ta);
         }
         static bool HasAttr(List<PrimitiveAttribute> attrs, string shortName)
             => attrs != null && attrs.Any(a => a.Type != null && ShortName(a.Type.Name) == shortName + "Attribute");

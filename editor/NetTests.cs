@@ -78,7 +78,7 @@ public static class NetTests
 
         // Buyuk govde (parcali okuma)
         var big = await Http.GetAsync(baseUrl + "/big");
-        Check(big.Ok && big.Body.Length == 300000 && big.Body[0] == (byte)'a' && big.Body[299999] == (byte)'a', $"300 KB govde parcali okuma ({big.Body?.Length})");
+        Check(big.Ok && big.BodyLength == 300000 && big.Body[0] == (byte)'a' && big.Body[299999] == (byte)'a', $"300 KB govde parcali okuma ({big.BodyLength})");
 
         // Baglanti hatasi (kapali port): Error dolu, status 0
         var bad = await Http.GetAsync("http://127.0.0.1:1/x");
@@ -106,11 +106,18 @@ public static class NetTests
         Check(m1.IsText && m1.Text == "echo:ping", $"WS metin echo ('{m1.Text}')");
         ws.Send(new byte[] { 1, 2, 3, 250 });
         var m2 = await ws.ReceiveAsync();
-        Check(!m2.IsText && m2.Data.Length == 4 && m2.Data[3] == 250, "WS ikili echo");
-        // sunucudan 3 mesaj pes pese -> kuyruk sirasi
+        Check(!m2.IsText && m2.Length == 4 && m2.Bytes[3] == 250, "WS ikili echo");
+        // sunucudan 3 mesaj pes pese -> kuyruk sirasi (gorunum bir sonraki ReceiveAsync'e dek gecerli: metni hemen al)
         ws.Send("burst");
-        var b1 = await ws.ReceiveAsync(); var b2 = await ws.ReceiveAsync(); var b3 = await ws.ReceiveAsync();
-        Check(b1.Text == "b1" && b2.Text == "b2" && b3.Text == "b3", "WS kuyruk sirasi");
+        string b1 = (await ws.ReceiveAsync()).Text, b2 = (await ws.ReceiveAsync()).Text, b3 = (await ws.ReceiveAsync()).Text;
+        Check(b1 == "b1" && b2 == "b2" && b3 == "b3", "WS kuyruk sirasi");
+        // OnMessage sicak yolu: Span uzerinden, kopyasiz
+        int onMsgLen = -1; bool onMsgText = false;
+        ws.OnMessage = m => { onMsgLen = m.Length; onMsgText = m.IsText && m.Bytes[0] == (byte)'e'; };
+        ws.Send("hot");
+        for (int i = 0; i < 300 && onMsgLen < 0; i++) await Frame.Next();
+        ws.OnMessage = null;
+        Check(onMsgLen == 8 && onMsgText, $"WS OnMessage span ({onMsgLen})");
         int closeCode = -1;
         ws.OnClose = (code, reason) => closeCode = code;
         await ws.CloseAsync(1000, "bye");

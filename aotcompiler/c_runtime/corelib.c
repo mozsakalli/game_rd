@@ -926,6 +926,33 @@ VmArray *System_String_ToCharArray(VmString *a0)
         destination[i] = a0->data[i];
     return result;
 }
+// String.Ctor(...) fabrikalari: CilFrontend `new string(...)`'i buraya yonlendirir (VmString inline, boyut arglardan)
+VmString *System_String_Ctor__Char_Int_Int(VmArray *chars, int start, int length)
+{
+    DIGITOYENGINE_NULLCHECK(chars);
+    if (start < 0 || length < 0 || start + length > chars->len)
+        DIGITOYENGINE_throw_kind(DIGITOYENGINE_EX_ARGOOR, "Index and length must refer to a location within the buffer.");
+    VmString *r = vmstring_alloc(length);
+    if (length)
+        memcpy((void *)r->data, (const cil_char *)chars->data + start, (size_t)length * 2);
+    return r;
+}
+VmString *System_String_Ctor__Char(VmArray *chars)
+{
+    if (!chars)
+        return vmstring_alloc(0); // .NET: new string((char[])null) == ""
+    return System_String_Ctor__Char_Int_Int(chars, 0, chars->len);
+}
+VmString *System_String_Ctor_Char_Int(cil_char c, int count)
+{
+    if (count < 0)
+        DIGITOYENGINE_throw_kind(DIGITOYENGINE_EX_ARGOOR, "count cannot be less than zero.");
+    VmString *r = vmstring_alloc(count);
+    cil_char *d = (cil_char *)r->data;
+    for (int i = 0; i < count; i++)
+        d[i] = c;
+    return r;
+}
 static VmString *digitoyengine_format_bytes(VmString *format, const unsigned char *args, int count)
 {
     DIGITOYENGINE_NULLCHECK(format);
@@ -1009,6 +1036,38 @@ static int digitoyengine_indexof(VmString *s, VmString *t, int from)
         if (memcmp(s->data + i, t->data, (size_t)m * 2) == 0)
             return i;
     return -1;
+}
+/* StringComparison: 1/3/5 = IgnoreCase (ASCII; kultur yok). Alloc'suz karsilastirma. */
+static int digitoyengine_cmp_ignores_case(int comparison) { return comparison == 1 || comparison == 3 || comparison == 5; }
+static int digitoyengine_chars_eq_ic(const unsigned short *a, const unsigned short *b, int n)
+{
+    for (int i = 0; i < n; i++)
+    {
+        unsigned short x = a[i], y = b[i];
+        if (x >= 'A' && x <= 'Z') x += 'a' - 'A';
+        if (y >= 'A' && y <= 'Z') y += 'a' - 'A';
+        if (x != y) return 0;
+    }
+    return 1;
+}
+static int digitoyengine_indexof_ic(VmString *s, VmString *t, int from)
+{
+    if (from < 0)
+        from = 0;
+    int n = s->length, m = t->length;
+    if (m == 0)
+        return from <= n ? from : -1;
+    for (int i = from; i + m <= n; i++)
+        if (digitoyengine_chars_eq_ic(s->data + i, t->data, m))
+            return i;
+    return -1;
+}
+/* Uretilen enum parse govdeleri (CTranspiler.EmitEnumReflection) bunu cagirir: ordinal / ASCII ignore-case esitlik. */
+int digitoyengine_string_eq_cmp(VmString *a, VmString *b, int ignoreCase)
+{
+    if (!a || !b) return a == b;
+    if (a->length != b->length) return 0;
+    return ignoreCase ? digitoyengine_chars_eq_ic(a->data, b->data, a->length) : memcmp(a->data, b->data, (size_t)a->length * 2) == 0;
 }
 VmString *System_String_Replace_System_String_System_String(VmString *a0, VmString *a1, VmString *a2)
 {
@@ -1120,10 +1179,9 @@ int System_String_IndexOf_System_String_Int(VmString *a0, VmString *a1, int a2)
 }
 int System_String_IndexOf_System_String_System_StringComparison(VmString *a0, VmString *a1, int a2)
 {
-    (void)a2;
     DIGITOYENGINE_NULLCHECK(a0);
     if (!a1) DIGITOYENGINE_throw_kind(DIGITOYENGINE_EX_ARGNULL, "Value cannot be null.");
-    return digitoyengine_indexof(a0, a1, 0);
+    return digitoyengine_cmp_ignores_case(a2) ? digitoyengine_indexof_ic(a0, a1, 0) : digitoyengine_indexof(a0, a1, 0);
 }
 int System_String_Contains_System_String(VmString *a0, VmString *a1)
 {
@@ -1149,8 +1207,13 @@ int System_String_StartsWith_System_String(VmString *a0, VmString *a1)
 }
 int System_String_StartsWith_System_String_System_StringComparison(VmString *a0, VmString *a1, int a2)
 {
-    (void)a2;
-    return System_String_StartsWith_System_String(a0, a1);
+    if (!digitoyengine_cmp_ignores_case(a2))
+        return System_String_StartsWith_System_String(a0, a1);
+    DIGITOYENGINE_NULLCHECK(a0);
+    if (!a1) DIGITOYENGINE_throw_kind(DIGITOYENGINE_EX_ARGNULL, "Value cannot be null.");
+    if (a1->length > a0->length)
+        return 0;
+    return digitoyengine_chars_eq_ic(a0->data, a1->data, a1->length);
 }
 int System_String_StartsWith_Char(VmString *a0, cil_char a1)
 {
@@ -1167,8 +1230,13 @@ int System_String_EndsWith_System_String(VmString *a0, VmString *a1)
 }
 int System_String_EndsWith_System_String_System_StringComparison(VmString *a0, VmString *a1, int a2)
 {
-    (void)a2;
-    return System_String_EndsWith_System_String(a0, a1);
+    if (!digitoyengine_cmp_ignores_case(a2))
+        return System_String_EndsWith_System_String(a0, a1);
+    DIGITOYENGINE_NULLCHECK(a0);
+    if (!a1) DIGITOYENGINE_throw_kind(DIGITOYENGINE_EX_ARGNULL, "Value cannot be null.");
+    if (a1->length > a0->length)
+        return 0;
+    return digitoyengine_chars_eq_ic(a0->data + a0->length - a1->length, a1->data, a1->length);
 }
 int System_String_GetHashCode(VmString *a0)
 {
@@ -1434,15 +1502,19 @@ VmObject *System_Enum_ToObject_System_Type_System_Object(DigitoyEngineTypeObj *e
     }
     return digitoyengine_box_enum((int)number, target);
 }
-int System_Enum_TryParse_System_Type_System_String_out_System_Object(DigitoyEngineTypeObj *enum_type, VmString *value, VmObject **result)
+int System_Enum_TryParse_System_Type_System_String_Bool_out_System_Object(DigitoyEngineTypeObj *enum_type, VmString *value, int ignoreCase, VmObject **result)
 {
     const Type *target = type_of(enum_type);
     int parsed;
     *result = 0;
-    if (!value || target->base != &vmenum_type || !target->enum_parse || !target->enum_parse(value, &parsed))
+    if (!value || target->base != &vmenum_type || !target->enum_parse || !target->enum_parse(value, ignoreCase, &parsed))
         return 0;
     *result = digitoyengine_box_enum(parsed, target);
     return 1;
+}
+int System_Enum_TryParse_System_Type_System_String_out_System_Object(DigitoyEngineTypeObj *enum_type, VmString *value, VmObject **result)
+{
+    return System_Enum_TryParse_System_Type_System_String_Bool_out_System_Object(enum_type, value, 0, result);
 }
 VmArray *System_Type_GetGenericArguments(DigitoyEngineTypeObj *a0)
 {
@@ -1869,7 +1941,16 @@ typedef struct DigitoyEngineException
     } trace; /* System.ExceptionTrace (bayt yerlesimi eski inline tamponlarla ayni) */
     int traceCount;
     GCHeader *innerException;
+    VmString *source, *helpLink;
+    GCHeader *data;
+    VmString *runtimeDetail; /* vmrt ex_msg kopyasi (ex_current yeni nesneyi kurarken); ToString ekler */
 } DigitoyEngineException;
+// vmrt.c ex_current kancasi: runtime turu nesnesi kurulunca ex_msg'yi nesneye tasir (Message .NET paritesi bozulmaz).
+void DIGITOYENGINE_ex_set_runtime_detail(GCHeader *o, const char *msg)
+{
+    if (!o || !msg || !*msg) return;
+    ((DigitoyEngineException *)o)->runtimeDetail = digitoyengine_from_utf8(msg);
+}
 VmString *System_Exception_get_Message(DigitoyEngineException *a0)
 {
     if (a0->message)

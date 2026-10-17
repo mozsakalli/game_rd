@@ -206,6 +206,7 @@ public sealed class GameCode
         if (!job.Ok)
         {
             Console.WriteLine("[gamecode] DERLEME HATASI:\n" + job.Output);
+            EditorLog.Error("[gamecode] derleme hatasi — oyun kodu yuklenmedi:\n" + job.Output);
             return false;
         }
         return LoadCompiled(project, assets, job);

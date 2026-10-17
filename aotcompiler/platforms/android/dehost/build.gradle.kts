@@ -7,7 +7,10 @@ plugins {
 android {
     namespace = "com.digitoy.hostapi"
     compileSdk = 35
-    defaultConfig { minSdk = 26 }
+    defaultConfig {
+        minSdk = 26
+        consumerProguardFiles("consumer-rules.pro") // engine host siniflarinin keep'leri app'e tasinir
+    }
     compileOptions { sourceCompatibility = JavaVersion.VERSION_17; targetCompatibility = JavaVersion.VERSION_17 }
     kotlinOptions { jvmTarget = "17" }
     sourceSets["main"].java.srcDirs("src/main/kotlin")
