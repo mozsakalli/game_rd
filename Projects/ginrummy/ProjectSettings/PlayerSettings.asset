@@ -14,7 +14,7 @@ fields:
   targetFrameRate: 0
   orientation: Landscape
   moduleHostDll: ''
-  moduleHost: false
+  stripCode: true
   android:
     packageName: ''
     versionCode: 1

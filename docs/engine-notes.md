@@ -1,5 +1,75 @@
 # DigitoyEngine R&D (game_rd)
 
+## ANDROID APK BOYUTU — 39.7 MB → 13.2 MB release (2026-10-17; cihazda (ANE-LX1, API 28) açılış OK)
+- ÖLÇÜM (tahmin değil): APK'nın %94'ü iki `libgame.so` (18.7 MB/ABI). .so içinde debug yoktu; `.text` yalnız 3.6 MB.
+  Şişiren: `.rela.dyn` 6.1 MB (~254 bin paketlenmemiş relocation), `.dynsym/.dynstr/.gnu.hash` 2.7 MB (34 bin sembolün
+  HEPSİ export), `.data` 4.1 MB (17.580 AOT metadata tablosu `*_methods/*_members`). Mevcut .o'ları varyantlarla
+  yeniden linkleyip strip'li boyut ölçüldü (baseline birebir 18.73 tuttu): relr 13.5 → +hidden 9.7; API 23+ `android`
+  paketleme + hidden 10.75.
+- KARAR [CMakeLists.txt](../aotcompiler/platforms/android/CMakeLists.txt): `-fvisibility=hidden` (derleme) +
+  `-Wl,--pack-dyn-relocs=android` (link). Version script/sabit export listesi BİLEREK YOK: `JNIEXPORT` (= visibility
+  default) taşıyan her şey otomatik dışa açılır — ileride SDK'ların JNI uçları listeye unutulup patlamaz. KURAL: Java'dan
+  çağrılacak her C fonksiyonu `JNIEXPORT` taşır. Doğrulama: `llvm-readelf --dyn-symbols` → yalnız `JNI_OnLoad` +
+  `Java_*` (+ compiler-rt `__emutls_get_address`, zararsız).
+- minSdk 26 KALDI → RELR kullanılmaz (`DT_RELR` API 30+, `DT_ANDROID_RELR` API 28+); minSdk 28'e çıkarsa
+  `android+relr -Wl,--use-android-relr-tags` ≈ 1 MB daha kazandırır.
+- ABI: release YALNIZ arm64-v8a; x86_64 (emülatör) yalnız debug varyantına. AGP buildType `abiFilters` defaultConfig ile
+  BİRLEŞİR (çıkarma yok) → defaultConfig = `abis` (release listesi), `buildTypes.debug.ndk.abiFilters += debugAbis`.
+  Props: editör `abis=arm64-v8a` sabit, `debugAbis=x86_64` (`AndroidSettings.includeX86_64` artık yalnız debug'ı
+  etkiler). [build.gradle.kts](../aotcompiler/platforms/android/shell/app/build.gradle.kts) ilk üretimden sonra
+  kopyalanmaz → mevcut projelerin `Build/android/app/build.gradle.kts` kopyası elle güncellenir (digitoyclient yapıldı).
+- AÇIK: `.data` 4.1 MB AOT metadata tabloları (writable, pointer dolu) — FULL profile özgü; lean ile düşer (aşağıdaki bölüm).
+
+## RELEASE = LEAN (stripCode) — Android 13.2 → 7.0 MB; `moduleHost` → `stripCode` (2026-10-17; cihazda Login sahnesi 38/38 yüklendi)
+- ÖLÇÜM: lean release APK **6.97 MB**, libgame.so arm64 **4.47 MB** (full 10.69). Canlı kod 8245 → 7067; .c dosyası 4046 → 2997.
+  Toplam gün: 39.7 → 13.2 → 7.0 MB. Full'ün 4.1 MB `.data`'sı = her metot için tam MethodInfo + thunk + trampoline + vmint,
+  yani kodun MODÜLE AÇIK YÜZEYİ; kod değil. Lean'de yalnız kökler Full kayıt alır.
+- KARAR: `PlayerSettings.moduleHost` (bool, false=lean) → **`stripCode`** (bool, varsayılan **true**=lean; Unity "Managed
+  Stripping Level" karşılığı). `--trim {stripCode ? lean : full}` ([PlayerBuilder.cs](../editor/PlayerBuilder.cs)). Dört proje
+  asset'i `stripCode: true`. Full yalnız dinamik modül yükleyen host ya da autoload geliştirme (tools/scene-dump-test.ps1) için.
+- KARAR (minigame/offer modeli, Unity UPM+Addressables gibi): minigame KODU host'a derleme zamanında girer, ASSET'leri
+  runtime'da iner (ek pak mount — TODO). Küçük kod değişikliği host release ister; kabul edildi. Modülden erişilecek host
+  API'si için AYRI "modül yüzeyi" kavramı YOK: **`[Preserve]` = kök** (Unity anlamı). Bugün: metotta `[Preserve]` → sahibine
+  Methods|Ctors; tipte kısmi. TODO: tipte → tüm üyeler; `[assembly: Preserve]` → derlemenin tüm public yüzeyi; alan/property
+  → kendi facet'i; `module_build` kaydı olmayan host üyesine referansı DERLEME hatasıyla reddetsin (runtime "bulunamadı" değil).
+- AOTCOMPILER DÜZELTMELERİ (lean digitoyclient'ta İLK KEZ derlendi; Sandbox'ta bu yollar tetiklenmiyordu; full çıktı değişmez —
+  `IsCodeLive` full'de hep true):
+  (1) [CTranspiler.Canon.cs](../aotcompiler/source/CTranspiler.Canon.cs) `HasMethodDictSymbol` += `TrimPlan.IsCodeLive(c)`:
+  canon gövde canlı diye ÖLÜ exact generic metodun `mdict_*` sözlüğü yazılıyordu, hedefi (async state-machine tipi) trim'li →
+  "canon sozluk hedefinin descriptor'u yok: Server/<SendRequestAsync>d__64<AvailablePlayersResponse>". Tip sözlüğü
+  (`IsEmittableModel`) ile simetrik. (2) [TrimAnalysis.cs](../aotcompiler/source/Trim/TrimAnalysis.cs) `DrainDictLinks`:
+  sözlük→sözlük kenarı (`MethodDict` slotu; `GetSystem<T>` sözlüğü `Activator.CreateInstance<T>` sözlüğünü tutar) hiçbir
+  op'a bağlı değildi → (1) sonrası C'de `undeclared mdict_System_Activator_CreateInstance_LayoutSystem`. Canlı exact'in
+  sözlüğündeki Code hedefleri sabit noktada `Visit`. +9 canlı kod. TUZAK: trim'de "emit edilen her sembolün referansı canlı mı"
+  sorusu her yeni kenar türünde (sözlük, vtable, itable) ayrı sorulmalı; derleme/link hatası verir, runtime değil — güvenli taraf.
+
+## AOT YÜZEY TURU — rich text sonrası player build (2026-10-17; android transpile OK, windows link + boot OK, selftest 128/347 = taban ile birebir)
+- BELİRTİ: `player.build android` Roslyn'de 16 hata (engine artık corelib'e karşı derleniyor): `Fonts.Resolve(null)`
+  belirsiz, `span.Equals(str, StringComparison)`, `char.IsHighSurrogate/ConvertToUtf32`, `List.RemoveRange/LastIndexOf`,
+  `float.IsNaN/IsInfinity`, `Enum.TryParse(Type,string,out)` sırası.
+- CORELIB EKLERİ (saf C#, .NET imzası birebir): `Single.IsNaN/IsInfinity`; `Char.IsHigh/LowSurrogate/IsSurrogate/
+  IsSurrogatePair/ConvertToUtf32`; `List<T>.RemoveRange/LastIndexOf`; `MemoryExtensions.Equals(ROS<char>, ROS<char>,
+  StringComparison)` (kültür türleri Ordinal'a düşer) + **`SequenceEqual(ROS<char>, ROS<char>)` char-özel** — generic
+  sürüm `Object.Equals` ile karakter başına 2 kutulama yapıyordu (FontTable.Find rebuild'de çöp üretirdi; Roslyn daha
+  özgül overload'u seçer, engine kodu değişmez). `Enum.TryParse` artık **(Type, string, out object)** .NET sırası
+  (corelib.c sembolü `System_Enum_TryParse_System_Type_System_String_out_System_Object`; 171. satırdaki risk kapandı).
+- ENGINE: `Resolve((string)null)` — corelib'de `string→ReadOnlySpan<char>` implicit op YOK (frontend intrinsic ister),
+  .NET'te bu op string adayını "daha iyi" yapıyordu; corelib'de iki aday eşit kalır. KURAL: string/span overload çifti
+  olan API'ye `null` geçme, cast et. RichText tag adları mevcut `Eq(span, "ad")` yardımcısı üzerinden.
+- ENCODETEXT PERF (her frame, glyph × geçiş): `WeightEdge` artık glyph başına değil, normal/bold iki değer döngü
+  dışında; `QuadMatrix` `ref readonly` döner — düz glyph kopyasız `twm`, 64 B Mat4 kopyası yalnız italik quad'da.
+  Sıcak yol denetimi: parse/tag/`Fonts.Resolve` yalnız rebuild; `EnsureTextLayout` guard'ındaki `_tbText == text`
+  corelib'de de referans fast-path'li (`vmstring_eq`).
+- AOTCOMPILER KÖK NEDEN (windows C derleme, HEAD'de de kırıktı): `typeof(Nullable<>)` (corelib
+  `Nullable.GetUnderlyingType`, Json `T?` yolu) TypeOf op'u `reflectedValueStructs`'a düşüyordu → `sizeof(struct
+  System_Nullable_1)` (açık şablon, yerleşimi yok) + şablonun `reflectedGenericDefs` boyutsuz descriptor'uyla ÇİFT
+  tanım. Düzeltme [CTranspiler.cs](../aotcompiler/source/CTranspiler.cs) `structRef`: struct descriptor kapısı
+  `HasLayout` sözleşmesine bağlandı (AllPrimitives döngüsüyle aynı ayrım). Böyle hatalarda önce "hangi kayıt noktası"
+  izi koy; iki ağaçta (worktree) aynı selftest'i koş — `dotnet run` artımlı derleme eski binary'yi koşturabilir, şüphede
+  `obj`'u sil.
+- BİLİNEN/AÇIK: selftest Par86–95 219 FAIL (taban ile birebir aynı küme; WIP paketler, satır ~801). diag'da Common.dll
+  `Enum.TryParse(string, bool ignoreCase, out TEnum)` stub (öncesinden var; gerekirse corelib'e eklenir).
+
 ## RICH TEXT — LayoutBox.text TMPro alt kümesi, alan eklenmeden (2026-10-17, richtext 42 PASS, Test/RichTextCheck.scene)
 - TAG'LER ([RichText.cs](../engine/managed/RichText.cs)): `<b> <i> <u> <color=#RRGGBB[AA]|ad> <size=N|+N|-N|N%> <font=ad>
   <link=id> <noparse>` + kapanışları. `<b>` = SDF weight (+1.5), `<i>` = baseline etrafında shear (0.2) — font listesi
@@ -38,6 +108,14 @@
   (farklı font/atlas sayfası karışan ekranda draw sayısı kutu başına değil sayfa başına) — font indeksine göre ardışık
   emisyon ilk adım; tam sıralama RenderQueue seviyesinde sonraki iş. Rich text editör araç çubuğu (B/I/U/Color/Size/
   Link/Font▾, seçimi tag'le sarar) Faz A olarak bekliyor; canvas-üstü WYSIWYG ayrı karar.
+
+## FONT TABLOSU OTOMATİK AÇILIR (2026-10-17, Sandbox'ta açılış + watcher canlı doğrulandı)
+- KARAR (kullanıcı): `Fonts.asset` kullanıcı/AI tarafından "yaratılmaz" — editör açılışta `Assets/Fonts.asset` + her
+  `Assets/Modules/<ad>/Fonts.asset` yoksa BOŞ yaratır ([FontTableStore.EnsureAll](../editor/FontTableStore.cs), `Scopes()` =
+  `LocTableStore.Scopes` paritesi). `EditorApp` açılışında son sahne yüklenmeden önce; `AssetWatcher.ApplyAssetChange` yeni
+  `Modules/<ad>` KLASÖRÜ görünce tekrar. Modül tablosu boş doğar (çözümde host'u miras alır; kopya yok). Önceki durum: yalnız
+  `Register` (inspector'a font bırakma / `fonts.register`) host'u tembel yaratıyordu, modül tablosu için hiçbir yol yoktu.
+- `fonts.register` hâlâ HOST'a yazar; modül satırları asset inspector'ında. `rpc.guide` font satırı güncellendi.
 
 ## FONT KAYIT DEFTERİ — `Fonts.asset`, component font = AD (2026-10-17, catalogtest 14 PASS, RPC + pak doğrulandı)
 - KARAR (kullanıcı): font isteyen hiçbir component Font asset'ine DOĞRUDAN referans vermez; proje genelinde tek
@@ -160,8 +238,8 @@
 - CACHE: tip haritası `TypeCatalog.JsonMaps` (statik tip cache yasağı; `catalog` parametresi yoksa `Scene.Active.Catalog`,
   o da yoksa geçici sözlük — her çağrı reflection). Özyineli tip güvenli (harita önce kaydedilir). Hata yolu string'i yalnız
   hata anında kurulur; ısınmış parse+bind alloc ≈ DOM + hedef nesne (test eşiği 2.5 KB, stdout'a yazar).
-- SINIR / RİSK: enum ad çözümü `Enum.TryParse(Type, string, out object)` .NET sırası — corelib bildirimi `(string, Type, out)`
-  sırasında (selftest Par90 .NET sırasını kullanıyor; AOT build'de stub çıkarsa corelib imzası düzeltilir). Polimorfizm/
+- SINIR / RİSK: enum ad çözümü `Enum.TryParse(Type, string, out object)` .NET sırası — corelib imzası 2026-10-17'de
+  .NET sırasına çekildi (eski `(string, Type, out)` kalktı; bkz. üstteki AOT YÜZEY TURU). Polimorfizm/
   `[SerializeReference]`, pretty-print, `Dictionary<int,…>` yok. M (Common.dll) property tabanlı tiplere bind edilmez — oyun
   tarafı alan sınıfı yazılır (GameSettings zaten öyle).
 - Editör `RpcHost` System.Text.Json kullanmaya devam eder; `JsonException` çakışması tam adla çözüldü.
@@ -1559,7 +1637,7 @@
 - Karar: trim aotcompiler GENELINDE tek cerceve (`aotcompiler/source/Trim/`): kok kume + analiz -> `TrimResult`; emisyon
   (CTranspiler/Meta) kod/meta/thunk/trampoline/tip-adi kararlarini YALNIZ `CTranspiler.TrimPlan`'a sorar, profile dogrudan bakmaz.
   Host opsiyonelligi bu cercevenin bir profili (lean), ayri mekanizma degil.
-- Parcalar: `TrimProfile` (full = bugunku cikti, lean = moduleHost kapali + meta yalniz koklere; `--trim full|lean`),
+- Parcalar: `TrimProfile` (full = bugunku cikti, lean = moduleHost (simdi stripCode=true) + meta yalniz koklere; `--trim full|lean`),
   `TrimRoots` (Entry = GameHost Init/Event/Frame/Pause/Resume/Shutdown; Reflection tip->MemberKinds; ComponentNames pak'tan),
   `PakRoots` (game.pak DPK3 index + zlib -> DSCN v2 tip tablosu + alias adlari; AYRI kok dosyasi YOK, pak tek gercek),
   `TrimAnalysis.Run` (otomatik kokler: [Preserve], typeof(T)->Name, attribute tipleri, enum->Name; pak adlari kisa ad esleme
@@ -1582,7 +1660,7 @@
   derlenir (Module.cs P/Invoke'lari baglanir, vmint_load "disabled" doner; Android CMake `${DE_VMINT}`); attribute tablolari
   Attrs facet'ine bagli; `Type.flags` unsigned short + `DIGITOYENGINE_TYPE_NOREFLECT=256` (facet'siz tip; Assembly.GetTypes
   atlar -> katalog yalniz kok component'leri gorur: Sandbox 16 -> 13). TIP ADLARI HER ZAMAN yazilir (trace "List<?>" olmasin).
-  PlayerSettings.moduleHost (varsayilan false = lean) -> PlayerBuilder `--trim`.
+  PlayerSettings.moduleHost (2026-10-17: `stripCode`, varsayilan true = lean) -> PlayerBuilder `--trim`.
 - Lean'de bulunan kok eksikleri (first-chance dokumuyle): (1) `new T()` -> Activator.CreateInstance<T> -> typeof(T)+
   CreateInstance(Type): TypeOf'u izleyen Activator cagrisi hedefe Ctors verir (GetSystem<LayoutSystem> null donuyordu);
   (2) List<T> alanlari: serializer `NewList` = Activator(List<T>) -> List<T> tipine Ctors.
@@ -1618,7 +1696,7 @@
   (TrimResult.Stubbed / IsStubbed, CTranspiler.EmitFunction). GameHost dev kancalari `DevArmSceneDump` (durum `_dumpArmed`
   alanla) ve `DevAfterBoot` (autoload modul + net probe) altina alindi -> SceneDump/Module.LoadAsync/Net.cs/NetProbe kirpildi.
   wasm 1 467 -> **1 354 KB** (CODE 733, DATA 610); canli kod 3 444 -> 2 646. Tarayicida dogrulandi. NOT: scene-dump testi ve
-  autoload modul FULL profil ister (tools/scene-dump-test.ps1 uyarir; PlayerSettings.moduleHost=true ya da --trim full).
+  autoload modul FULL profil ister (tools/scene-dump-test.ps1 uyarir; PlayerSettings.stripCode=false ya da --trim full).
 
 ## BOYUT (PLAYABLE/WASM) — OLCUM + PLAN + A1 BITTI (2026-10-11)
 - Hedef: playable (tek HTML, base64 x1.33; 2-5 MB ag limiti) -> Sandbox wasm <= ~1.5 MB ham. Baslangic 5 580 KB (-O2) + 1 114 KB data.

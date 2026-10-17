@@ -74,7 +74,10 @@ namespace DigitoyEngine.Language
                             RegisterArray(op.PrimitiveRef); // typeof(T[]) hedefi: eleman descriptor'suz olsa da kimlik descriptor'u var
                         // Kullanici struct descriptor'i: typeof + kutulama/kutudan cikarma hedefleri
                         // (Box/Unbox/UnboxOrDefault/AsType/CastClass/IsType) — box helper'i &X_type ister. CANON tipler sozlukten.
-                        bool structRef = op.PrimitiveRef != null && TypeShape.IsStructModel(op.PrimitiveRef) && !op.PrimitiveRef.IsGenericParameter && !Canon.ContainsCanon(op.PrimitiveRef);
+                        // Yalniz YERLESIMI OLAN struct (HasLayout): acik sablon (typeof(Nullable<>)) ve acik argumanli ornekler
+                        // reflectedGenericDefs'in boyutsuz descriptor'unu alir; burada kaydedilirse sizeof(struct) + cift tanim.
+                        bool structRef = op.PrimitiveRef != null && TypeShape.IsStructModel(op.PrimitiveRef) && !op.PrimitiveRef.IsGenericParameter
+                            && HasLayout(op.PrimitiveRef) && !Canon.ContainsCanon(op.PrimitiveRef);
                         bool structOp = op.Type == OpType.TypeOf || op.Type == OpType.Box || op.Type == OpType.Unbox || op.Type == OpType.UnboxOrDefault
                             || op.Type == OpType.AsType || op.Type == OpType.CastClass || op.Type == OpType.IsType;
                         if (structRef && structOp)

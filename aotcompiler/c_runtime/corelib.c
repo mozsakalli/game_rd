@@ -1434,7 +1434,7 @@ VmObject *System_Enum_ToObject_System_Type_System_Object(DigitoyEngineTypeObj *e
     }
     return digitoyengine_box_enum((int)number, target);
 }
-int System_Enum_TryParse_System_String_System_Type_out_System_Object(VmString *value, DigitoyEngineTypeObj *enum_type, VmObject **result)
+int System_Enum_TryParse_System_Type_System_String_out_System_Object(DigitoyEngineTypeObj *enum_type, VmString *value, VmObject **result)
 {
     const Type *target = type_of(enum_type);
     int parsed;

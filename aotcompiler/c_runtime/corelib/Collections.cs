@@ -258,10 +258,30 @@ namespace System.Collections.Generic
                 right--;
             }
         }
+        public void RemoveRange(int index, int count)
+        {
+            if (index < 0) throw new ArgumentOutOfRangeException("index", "Non-negative number required.");
+            if (count < 0) throw new ArgumentOutOfRangeException("count", "Non-negative number required.");
+            if (size - index < count) throw new ArgumentException("Offset and length were out of bounds for the array or count is greater than the number of elements from index to the end of the source collection.");
+            if (count == 0) return;
+            version++;
+            int tail = size - index - count;
+            for (int i = 0; i < tail; i++) { items[index + i] = items[index + count + i]; }
+            for (int i = size - count; i < size; i++) { items[i] = default(T); }
+            size -= count;
+        }
         public bool Contains(T item) { return IndexOf(item) >= 0; }
         public int IndexOf(T item)
         {
             for (int i = 0; i < size; i++)
+            {
+                if (items[i] == null ? item == null : items[i].Equals(item)) { return i; }
+            }
+            return -1;
+        }
+        public int LastIndexOf(T item)
+        {
+            for (int i = size - 1; i >= 0; i--)
             {
                 if (items[i] == null ? item == null : items[i].Equals(item)) { return i; }
             }

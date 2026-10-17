@@ -43,6 +43,8 @@ namespace System
         public extern override string ToString();
         public extern static bool IsPositiveInfinity(float value);
         public extern static bool TryParse(string s, out float result);
+        public static bool IsNaN(float f) { return f != f; }
+        public static bool IsInfinity(float f) { return f == PositiveInfinity || f == NegativeInfinity; }
     }
     public struct Double
     {
@@ -84,5 +86,16 @@ namespace System
         }
         public static char ToUpper(char c) { return ToUpperInvariant(c); }
         public static char ToLower(char c) { return ToLowerInvariant(c); }
+        // UTF-16 vekil ciftleri (.NET ile ayni; ConvertToUtf32 gecersiz ciftte ArgumentException).
+        public static bool IsHighSurrogate(char c) { return c >= '\uD800' && c <= '\uDBFF'; }
+        public static bool IsLowSurrogate(char c) { return c >= '\uDC00' && c <= '\uDFFF'; }
+        public static bool IsSurrogate(char c) { return c >= '\uD800' && c <= '\uDFFF'; }
+        public static bool IsSurrogatePair(char highSurrogate, char lowSurrogate) { return IsHighSurrogate(highSurrogate) && IsLowSurrogate(lowSurrogate); }
+        public static int ConvertToUtf32(char highSurrogate, char lowSurrogate)
+        {
+            if (!IsHighSurrogate(highSurrogate)) throw new ArgumentOutOfRangeException("highSurrogate", "A valid high surrogate character is between 0xd800 and 0xdbff, inclusive.");
+            if (!IsLowSurrogate(lowSurrogate)) throw new ArgumentOutOfRangeException("lowSurrogate", "A valid low surrogate character is between 0xdc00 and 0xdfff, inclusive.");
+            return ((highSurrogate - 0xD800) << 10) + (lowSurrogate - 0xDC00) + 0x10000;
+        }
     }
 }

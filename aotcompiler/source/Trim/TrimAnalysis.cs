@@ -351,9 +351,26 @@ namespace DigitoyEngine.Language.Trim
                 }
                 return any;
             }
+            // CANON: sozluk -> sozluk kenari (MethodDict slotu: GetSystem<T> sozlugu Activator.CreateInstance<T> sozlugunu tutar) hicbir
+            // op'a bagli degil. Canli exact'in sozlugundeki Code hedefleri canli (emisyon HasMethodDictSymbol -> IsCodeLive ile olu exact'in
+            // sozlugunu yazmaz; referans veren canli kalirsa link kirilir). Sabit noktada yeniden denenir.
+            var dictLinkDone = new HashSet<object>();
+            bool DrainDictLinks()
+            {
+                bool any = false;
+                foreach (var d in ctx.AllDictInstances)
+                {
+                    var e = d.Exact;
+                    bool live = e is Primitive ep ? r.LiveTypes.Contains(ep) : r.LiveCodes.Contains((Code)e);
+                    if (!live || !dictLinkDone.Add(e)) continue;
+                    for (int i = 0; i < d.Targets.Count && i < d.Layout.Slots.Count; i++)
+                        if (d.Layout.Slots[i].Kind == DictSlotKind.MethodDict && d.Targets[i] is Code tc) { Visit(tc, e as Code); any = true; }
+                }
+                return any;
+            }
             const string TaskName = "System.Threading.Tasks.Task";
             r.CompletedTaskGetter = ctx.TryGetPrimitive(TaskName, out var taskType) ? ctx.FindMember(taskType, "get_CompletedTask", 0) : null;
-            while (queue.Count > 0 || InstantiateLiveStructs() || DrainDictOps())
+            while (queue.Count > 0 || InstantiateLiveStructs() || DrainDictOps() || DrainDictLinks())
             {
                 if (queue.Count == 0) continue; // ornekleme/sozluk adimi yeni kod eklemedi -> kosulu yeniden degerlendir
                 var c = queue.Dequeue();

@@ -141,9 +141,10 @@ namespace DigitoyEngine.Language
         static string GvmDispatchSym(Primitive model, Primitive iface, int slot) => $"de_gvm_{CName(model.Name)}_{(iface != null ? CName(iface.Name) + "_" : "")}{slot}";
         static bool IsCanonGvmSlot(Code m) => m.MethodTypeArguments != null && Canon.ContainsCanon(m.MethodTypeArguments) && !Context.IsDictSentinel(m);
         // Exact generic metot kabugunun sozluk sembolu var mi: govdeli canon'a bagli olanlar + IFACE GVM bildirimleri (govdesiz; sozluk
-        // yalniz dispatcher icin KIMLIK token'idir, layout bos).
+        // yalniz dispatcher icin KIMLIK token'idir, layout bos). Exact'in KENDISI canli olmali (tip sozlugundeki IsEmittableModel ile
+        // simetrik): canon govde canli diye olu exact'in sozlugu yazilirsa hedefleri (state-machine tipi vb.) trim'lenmis olur -> strict hata.
         static bool HasMethodDictSymbol(Code c) =>
-            c.Shared.HasMethodDict && c.Owner != null && (IsEmittableModel(c.Owner) || c.Owner.IsCanonForm)
+            c.Shared.HasMethodDict && c.Owner != null && (IsEmittableModel(c.Owner) || c.Owner.IsCanonForm) && TrimPlan.IsCodeLive(c)
             && (IsEmittableCode(c.Shared) || (c.Owner.IsInterface && TrimPlan.IsTypeLive(c.Owner)));
 
         // Canon GVM slot girisi: dispatcher uretilir (model birimine), adresi doner. table: ayni tablonun girisleri (vtable ya da itable),

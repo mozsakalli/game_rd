@@ -2,7 +2,7 @@
 // bagimliliklar, SDK entegrasyonlari, ozel Gradle ayarlari burada elle/kancayla yonetilir.
 // Oyun icerigi ../generated/ altindadir (her build yeniden yazilir):
 //   cpp (C kaynaklari + CMake), java (host), assets (game.pak), res (launcher ikonu),
-//   app.properties (Player Settings: applicationId, versionCode/Name, targetSdk, abis, appName, orientation).
+//   app.properties (Player Settings: applicationId, versionCode/Name, targetSdk, abis, debugAbis, appName, orientation).
 // Imza: ../keystore.properties varsa (editor Player Settings > android.keystorePath + Android Signing) release
 // onunla imzalanir; yoksa debug anahtari (yalniz test; Play'e yuklenemez).
 import java.util.Properties
@@ -37,7 +37,9 @@ android {
         targetSdk = targetSdkVersion
         versionCode = prop("versionCode").toInt()
         versionName = prop("versionName")
-        ndk { abiFilters += prop("abis", "arm64-v8a,x86_64").split(',').map { it.trim() } } // yalniz 64-bit (runtime 64-bit varsayar)
+        // ABI: yalniz 64-bit (runtime 64-bit varsayar). abis = release/store listesi (varsayilan yalniz arm64-v8a);
+        // AGP buildType abiFilters'i defaultConfig ile BIRLESTIRIR (cikarma yok) -> emulator ABI'si debug'a asagida eklenir.
+        ndk { abiFilters += prop("abis", "arm64-v8a").split(',').map { it.trim() }.filter { it.isNotEmpty() } }
         manifestPlaceholders["appName"] = prop("appName")
         manifestPlaceholders["orientation"] = prop("orientation", "sensorLandscape")
         externalNativeBuild {
@@ -77,6 +79,10 @@ android {
     }
 
     buildTypes {
+        debug {
+            // Emulator ABI'si (x86_64) yalniz debug APK'ya girer; release'e ASLA eklenmez.
+            ndk { abiFilters += prop("debugAbis", "x86_64").split(',').map { it.trim() }.filter { it.isNotEmpty() } }
+        }
         release {
             isMinifyEnabled = false
             signingConfig = if (hasReleaseSigning) signingConfigs.getByName("release") else signingConfigs.getByName("debug")

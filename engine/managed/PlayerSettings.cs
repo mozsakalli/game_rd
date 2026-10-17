@@ -49,9 +49,12 @@ public class PlayerSettings
     // modul kodu onlara isimle baglanir. Bos = yalniz engine API'si.
     public string moduleHostDll = "";
 
-    // Dinamik modul HOST'u mu (docs/engine-notes.md TRIM)? Kapali (varsayilan) = lean build: interpreter (vmint) derlenmez,
-    // reflection meta yalniz kok kumeye (pak component tipleri + alanlari + [Preserve]) -> kucuk ikili. Acik = tam meta + vmint.
-    public bool moduleHost;
+    // Kod/meta budama (Unity "Managed Stripping Level" karsiligi; docs/engine-notes.md TRIM). true (varsayilan) = lean build:
+    // erisilemeyen kod emit edilmez, interpreter (vmint) derlenmez, reflection meta yalniz kok kumeye (pak component tipleri
+    // + alanlari + [Preserve]) -> kucuk ikili (Android libgame.so 10.7 -> 4.5 MB). false = full: tam meta + vmint; yalniz
+    // dinamik modul yukleyen HOST ya da autoload gelistirme (scene-dump-test) icin. Release = true; modulden erisilecek
+    // API [Preserve] ile kok yapilir (Unity mantigi), ayri "modul yuzeyi" kavrami yok.
+    public bool stripCode = true;
 
     // Android'e ozel yayin ayarlari (Build Android Project -> generated/app.properties; kabuk Gradle her build okur).
     public AndroidSettings android = new();
@@ -81,7 +84,7 @@ public class AndroidSettings
     public string packageName = "";        // bos = bundleIdentifier (applicationId)
     public int versionCode = 1;            // Play Store her yuklemede artis ister (versionName = PlayerSettings.version)
     public int targetSdk = 35;
-    public bool includeX86_64 = true;      // emulator ABI'si; kapali = yalniz arm64-v8a (kucuk APK)
+    public bool includeX86_64 = true;      // emulator ABI'si YALNIZ debug APK'ya girer; release her zaman yalniz arm64-v8a
     public string keystorePath = "";       // proje kokune goreli ya da mutlak .keystore/.jks; bos = debug imza
     public string keyAlias = "";
     public string iconForeground = "";     // Assets'e goreli PNG (adaptive icon on plani, 432x432 onerilir); bos = engine varsayilani

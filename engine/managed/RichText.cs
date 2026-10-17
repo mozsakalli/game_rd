@@ -161,11 +161,11 @@ public static class RichText
             }
             return Tag.None;
         }
-        if (n.Equals("color", StringComparison.OrdinalIgnoreCase)) return Tag.Color;
-        if (n.Equals("size", StringComparison.OrdinalIgnoreCase)) return Tag.Size;
-        if (n.Equals("font", StringComparison.OrdinalIgnoreCase)) return Tag.Font;
-        if (n.Equals("link", StringComparison.OrdinalIgnoreCase)) return Tag.Link;
-        if (n.Equals("noparse", StringComparison.OrdinalIgnoreCase)) return Tag.NoParse;
+        if (Eq(n, "color")) return Tag.Color;
+        if (Eq(n, "size")) return Tag.Size;
+        if (Eq(n, "font")) return Tag.Font;
+        if (Eq(n, "link")) return Tag.Link;
+        if (Eq(n, "noparse")) return Tag.NoParse;
         return Tag.None;
     }
 

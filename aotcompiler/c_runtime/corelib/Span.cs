@@ -96,6 +96,28 @@ namespace System
             return true;
         }
         public static bool SequenceEqual<T>(this Span<T> a, ReadOnlySpan<T> b) { return SequenceEqual((ReadOnlySpan<T>)a, b); }
+        // char ozel: generic surum Object.Equals ile karakter basina 2 kutulama yapiyordu (FontTable.Find, rich text).
+        public static bool SequenceEqual(this ReadOnlySpan<char> a, ReadOnlySpan<char> b)
+        {
+            if (a.Length != b.Length) return false;
+            for (int i = 0; i < a.Length; i++)
+                if (a[i] != b[i]) return false;
+            return true;
+        }
+        public static bool SequenceEqual(this Span<char> a, ReadOnlySpan<char> b) { return SequenceEqual((ReadOnlySpan<char>)a, b); }
+        // .NET: span.Equals(other, StringComparison). Kultur turleri Ordinal'a duser (corelib kultursuz).
+        public static bool Equals(this ReadOnlySpan<char> a, ReadOnlySpan<char> b, StringComparison comparisonType)
+        {
+            if (a.Length != b.Length) return false;
+            bool ic = comparisonType == StringComparison.OrdinalIgnoreCase || comparisonType == StringComparison.InvariantCultureIgnoreCase || comparisonType == StringComparison.CurrentCultureIgnoreCase;
+            for (int i = 0; i < a.Length; i++)
+            {
+                char x = a[i], y = b[i];
+                if (x == y) continue;
+                if (!ic || Char.ToUpperInvariant(x) != Char.ToUpperInvariant(y)) return false;
+            }
+            return true;
+        }
     }
 
     // .NET ile ayni yuzey: dizi + ofset + sayi (saf C#, intrinsic degil). Common.dll Codec.GetBuffer bunu doner.

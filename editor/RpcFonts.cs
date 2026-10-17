@@ -43,7 +43,7 @@ static class RpcFonts
         return r;
     }
 
-    [RpcCommand("fonts.register", "Font asset'ini (yol ya da guid; .ttf/.otf) HOST tablosuna ekler (tablo yoksa olusturur). name bos = dosya adi; makeDefault=true varsayilan yapar. Donus: ad")]
+    [RpcCommand("fonts.register", "Font asset'ini (yol ya da guid; .ttf/.otf) HOST tablosuna (Assets/Fonts.asset; editor acilista olusturur) ekler. name bos = dosya adi; makeDefault=true varsayilan yapar. Donus: ad")]
     static DocNode Register(RpcContext ctx, string path, string name = "", bool makeDefault = false)
     {
         var assets = ctx.Assets ?? throw new RpcError("proje acik degil");

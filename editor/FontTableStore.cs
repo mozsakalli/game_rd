@@ -7,7 +7,8 @@ namespace DigitoyEditor;
 
 // Editorun font kayit defteri kapisi (LocTableStore paritesi). Dosyalar KONVANSIYONLA yasar
 // (Fonts.TableKeyFor): host Assets/Fonts.asset, modul Assets/Modules/<ad>/Fonts.asset; kullanici dosya
-// secmez — ilk kayitta (Font asset'i bir [FontName] alanina birakilinca) burada yaratilir. Yazimlar
+// secmez — editor acilisinda (ve yeni modul klasoru belirince) EnsureAll her kapsamin tablosunu yoksa bos yaratir;
+// Register de gerekirse ayni yoldan yaratir. Yazimlar
 // AssetDatabase'in CANLI instance'ina gider (projeksiyon/Play ayni nesneyi gorur), hemen YAML'a yazilir.
 public static class FontTableStore
 {
@@ -15,6 +16,31 @@ public static class FontTableStore
 
     // Acik sahnenin kapsami (loc kapsamindan turetilir).
     public static string CurrentScope => Fonts.TableKeyFor(App.EditScene?.LocTableKey);
+
+    // Projedeki kapsamlar: host + her Assets/Modules/<ad>/ klasoru (LocTableStore.Scopes paritesi).
+    public static List<string> Scopes()
+    {
+        var list = new List<string> { HostScope };
+        var root = App.Assets?.Root;
+        if (root != null)
+        {
+            string mods = Path.Combine(root, "Modules");
+            if (Directory.Exists(mods))
+                foreach (var dir in Directory.GetDirectories(mods))
+                    list.Add("Modules/" + Path.GetFileName(dir) + "/" + Fonts.TableFile);
+        }
+        return list;
+    }
+
+    // Editor acilisinda ve yeni modul klasoru belirince: her kapsamin tablosu diskte yoksa BOS yaratilir
+    // (modul tablosu host'u cozumde miras alir; kopya yok). Kullanici dosya acmak zorunda kalmaz.
+    public static void EnsureAll()
+    {
+        if (App.Assets == null)
+            return;
+        foreach (var scope in Scopes())
+            Get(scope, create: true);
+    }
 
     public static FontTable Get(string scope, bool create = false)
     {

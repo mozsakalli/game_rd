@@ -724,6 +724,9 @@ public sealed unsafe partial class LayoutBox
         // Golge/kontur USER.y NEGATIF: MSDF sayfada gercek SDF (.a) okunur — kenardan
         // uzak/kaydirilmis esikler median'da guvenilir degil; R8 sayfada isaret yok sayilir.
         bool oh = textOutline.IsHorizontal, fh = textFill.IsHorizontal;
+        // Dolgu kenari yalniz weight + bold bayragina bagli: iki deger bir kez (glyph basina WeightEdge cagrisi yok).
+        float fillN = TextSprite.WeightEdge(textWeight), fillB = TextSprite.WeightEdge(textWeight + RichText.BoldWeight);
+        Mat4 qmScratch = default; // italik span icin shear'li kopya; duz glyph twm'yi referansla kullanir
         for (int fi = 0; fi < _tbFontCount; fi++)
         {
             var font = _tbFonts[fi];
@@ -737,10 +740,10 @@ public sealed unsafe partial class LayoutBox
                     ref readonly var g = ref _tq[i];
                     if (g.FontIdx != fi) continue;
                     float scale = g.Size / emPx;
-                    Edges(in g, scale, out float cFill, out float cOut);
+                    Edges(in g, scale, fillN, fillB, out float cFill, out float cOut);
                     float s = textShadowBlur > 0 ? textShadowBlur * 0.5f / scale / TextSdfSpread : 0f;
                     var user = new Vec4(s, -(cOut > 0 ? cOut : cFill), 0f, 0f); // kontur varsa golge silueti kontur kenarindan
-                    QuadMatrix(in twm, in g, oy, out Mat4 qm);
+                    ref readonly Mat4 qm = ref QuadMatrix(in twm, in g, oy, ref qmScratch);
                     EmitQuad(queue, mat, in qm, sx + g.X0, sy + g.Y0, sx + g.X1, sy + g.Y1,
                         g.U0, g.V0, g.U1, g.V1, textShadowColor, textShadowColor, false, user, layer);
                 }
@@ -751,10 +754,10 @@ public sealed unsafe partial class LayoutBox
                 {
                     ref readonly var g = ref _tq[i];
                     if (g.FontIdx != fi || (g.Flags & QfUnderline) != 0) continue;
-                    Edges(in g, g.Size / emPx, out _, out float cOut);
+                    Edges(in g, g.Size / emPx, fillN, fillB, out _, out float cOut);
                     if (cOut <= 0) continue;
                     var user = new Vec4(0f, -cOut, 0f, 0f);
-                    QuadMatrix(in twm, in g, oy, out Mat4 qm);
+                    ref readonly Mat4 qm = ref QuadMatrix(in twm, in g, oy, ref qmScratch);
                     EmitQuad(queue, mat, in qm, ox + g.X0, oy + g.Y0, ox + g.X1, oy + g.Y1,
                         g.U0, g.V0, g.U1, g.V1,
                         TextGradAt(in textOutline, oh ? g.X0 : g.Y0),
@@ -766,9 +769,9 @@ public sealed unsafe partial class LayoutBox
             {
                 ref readonly var g = ref _tq[i];
                 if (g.FontIdx != fi) continue;
-                Edges(in g, g.Size / emPx, out float cFill, out _);
+                Edges(in g, g.Size / emPx, fillN, fillB, out float cFill, out _);
                 var user = new Vec4(0f, cFill, 0f, 0f);
-                QuadMatrix(in twm, in g, oy, out Mat4 qm);
+                ref readonly Mat4 qm = ref QuadMatrix(in twm, in g, oy, ref qmScratch);
                 if ((g.Flags & QfColor) != 0)
                     EmitQuad(queue, mat, in qm, ox + g.X0, oy + g.Y0, ox + g.X1, oy + g.Y1,
                         g.U0, g.V0, g.U1, g.V1, g.Color, g.Color, false, user, layer);
@@ -784,20 +787,23 @@ public sealed unsafe partial class LayoutBox
 
     // Dolgu kenari weight ile kayar (<b>: +BoldWeight); kontur kenar merkezi oradan disari kayar
     // (SDF deger uzayi; TextSprite ile ayni). Her frame instance verisinden (textWeight rebuild istemez).
-    void Edges(in TextQuad g, float scale, out float cFill, out float cOut)
+    void Edges(in TextQuad g, float scale, float fillN, float fillB, out float cFill, out float cOut)
     {
-        cFill = TextSprite.WeightEdge(textWeight + ((g.Flags & QfBold) != 0 ? RichText.BoldWeight : 0f));
+        cFill = (g.Flags & QfBold) != 0 ? fillB : fillN;
         cOut = textOutlineWidth > 0 && scale > 0
             ? MathF.Max(cFill - textOutlineWidth / scale / TextSdfSpread, 0.05f)
             : 0f;
     }
 
     // Italik span: kendi baseline'i etrafinda ek shear (kutu textSkew'i twm'de zaten var).
-    static void QuadMatrix(in Mat4 twm, in TextQuad g, float oy, out Mat4 qm)
+    // Duz glyph kopyasiz twm doner; italik scratch'e kopyalar + shear (64 B kopya yalniz italikte).
+    static ref readonly Mat4 QuadMatrix(in Mat4 twm, in TextQuad g, float oy, ref Mat4 scratch)
     {
-        qm = twm;
-        if ((g.Flags & QfItalic) != 0)
-            Shear(ref qm, -RichText.ItalicSkew, oy + g.Base);
+        if ((g.Flags & QfItalic) == 0)
+            return ref twm;
+        scratch = twm;
+        Shear(ref scratch, -RichText.ItalicSkew, oy + g.Base);
+        return ref scratch;
     }
 
     // x' = x + k*(y - cy): y kolonuna x kolonu karisir, cy sabit kalsin diye translation geri alinir.

@@ -6,7 +6,7 @@
 #   -Baseline: player dokumunu Library/Build/scene-dump.baseline.txt olarak kaydeder.
 #   Baseline varsa player dokumu onunla da TAM karsilastirilir (fazlar arasi regresyon).
 # On kosul: editor acik (RPC 5157), player exe guncel VE full profil ([DevOnly] kanca lean'de kirpilir:
-#   PlayerSettings.moduleHost=true ya da `aotcompiler player <proje> --trim full`).
+#   PlayerSettings.stripCode=false ya da `aotcompiler player <proje> --trim full`).
 param(
     [string]$Project = "$PSScriptRoot\..\Projects\Sandbox",
     [int]$Port = 5157,

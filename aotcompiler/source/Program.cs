@@ -430,7 +430,8 @@ public static class Program
             throw new Exception("android: versionCode pozitif tam sayi olmali (Player Settings > android.versionCode)");
         if (!int.TryParse(P("targetSdk", "35"), out int targetSdk) || targetSdk < 26)
             throw new Exception("android: targetSdk >= 26 olmali (minSdk 26: AAudio)");
-        string abis = P("abis", "arm64-v8a,x86_64");
+        string abis = P("abis", "arm64-v8a");          // release ABI'leri (store)
+        string debugAbis = P("debugAbis", "x86_64");   // debug varyantina EK (emulator); release'e girmez
         string orientation = P("orientation", app.Orientation) switch { "portrait" => "sensorPortrait", "auto" => "fullSensor", _ => "sensorLandscape" };
 
         // Imza: hepsi ya da hicbiri. Parolalar: props (editor UserSettings) < ortam degiskeni (CI).
@@ -493,11 +494,11 @@ public static class Program
         Directory.CreateDirectory(Path.Combine(gen, "assets", "Build"));
         File.Copy(pak, Path.Combine(gen, "assets", "Build", "game.pak"), true);
 
-        // app.properties: kabuk Gradle her build okur (applicationId/versionCode/versionName/targetSdk/abis + manifest placeholder'lari).
+        // app.properties: kabuk Gradle her build okur (applicationId/versionCode/versionName/targetSdk/abis/debugAbis + manifest placeholder'lari).
         File.WriteAllText(Path.Combine(gen, "app.properties"),
             "# DigitoyEngine: her build yeniden yazilir (Player Settings). Elle duzenlemeyin; app/build.gradle.kts okur.\n" +
             $"applicationId={appId}\nappName={PropEscape(appName)}\nversionName={PropEscape(versionName)}\nversionCode={versionCode}\n" +
-            $"targetSdk={targetSdk}\nabis={abis}\norientation={orientation}\n");
+            $"targetSdk={targetSdk}\nabis={abis}\ndebugAbis={debugAbis}\norientation={orientation}\n");
 
         // res: adaptive launcher icon (minSdk 26 -> yalniz anydpi-v26; PNG yeniden boyutlandirma yok).
         string res = Path.Combine(gen, "res");

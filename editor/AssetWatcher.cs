@@ -136,6 +136,14 @@ public static class AssetWatcher
             FileListVersion++;
         }
 
+        // Yeni modul klasoru (Assets/Modules/<ad>): kapsam tablolari acilsin.
+        if (Directory.Exists(full) && rel.StartsWith("Modules/", StringComparison.OrdinalIgnoreCase)
+            && rel.IndexOf('/', "Modules/".Length) < 0)
+        {
+            FontTableStore.EnsureAll();
+            return;
+        }
+
         bool atlasDirty = false;
         switch (ext)
         {

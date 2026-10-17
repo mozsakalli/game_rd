@@ -34,7 +34,8 @@ public static class AndroidBuildProps
             new("versionName", ps.version),
             new("versionCode", a.versionCode.ToString()),
             new("targetSdk", a.targetSdk.ToString()),
-            new("abis", a.includeX86_64 ? "arm64-v8a,x86_64" : "arm64-v8a"),
+            new("abis", "arm64-v8a"),                              // release ABI'leri (store); 64-bit, x86 yok
+            new("debugAbis", a.includeX86_64 ? "x86_64" : ""),     // yalniz debug varyantina eklenir (emulator)
             new("orientation", ps.orientation.ToString().ToLowerInvariant()),
             new("iconForeground", ResolveAsset(project, a.iconForeground)),
             new("iconBackground", a.iconBackground != null && a.iconBackground.TrimStart().StartsWith("#")

@@ -19,9 +19,13 @@ target_compile_definitions(game PRIVATE SOKOL_GLES3)
 set_source_files_properties(${DE_SHIM} PROPERTIES COMPILE_DEFINITIONS "SOKOL_IMPL;DE_NO_DECODERS")
 # Release: NDK varsayilani (-O3 -DNDEBUG) — tam optimizasyon, override yok. Debug varyantinda -O0 yerine -O1:
 # AOT runtime (GC) -O0'da oynanamaz; debug sembolleri (-g) korunur.
-target_compile_options(game PRIVATE -w -ffunction-sections -fdata-sections $<$<CONFIG:Debug>:-O1>)
+# -fvisibility=hidden: 34 bin sembolun hepsi export ediliyordu (.dynsym/.dynstr ~2.7 MB). Artik yalniz JNIEXPORT
+# (= visibility default) tasiyanlar disa acilir — JNI_OnLoad, Java_*, ileride SDK JNI uclari; sabit liste/version script YOK.
+target_compile_options(game PRIVATE -w -ffunction-sections -fdata-sections -fvisibility=hidden $<$<CONFIG:Debug>:-O1>)
 # 16 KB sayfa hizalamasi: Android 15+ (Play zorunlulugu) 16 KB sayfali cihazlarda .so yuklenebilsin;
 # NDK r28 oncesi varsayilan 4 KB oldugundan acikca verilir (r28+ zaten 16 KB, flag zararsiz).
-target_link_options(game PRIVATE -Wl,--gc-sections -Wl,-z,max-page-size=16384)
+# --pack-dyn-relocs=android: ~250 bin dinamik relocation (.rela.dyn 6 MB) APS2 ile paketlenir (API 23+; minSdk 26 ile uyumlu).
+# RELR (DT_RELR) API 30+, DT_ANDROID_RELR API 28+ ister — minSdk 26 kaldigi surece kullanilmaz.
+target_link_options(game PRIVATE -Wl,--gc-sections -Wl,-z,max-page-size=16384 -Wl,--pack-dyn-relocs=android)
 
 target_link_libraries(game GLESv3 EGL aaudio log android m dl)

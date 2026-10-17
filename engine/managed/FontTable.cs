@@ -206,10 +206,10 @@ public static class Fonts
             if (f != null)
                 return f;
         }
-        return def ? UiPieces.DefaultFont : Resolve(null);
+        return def ? UiPieces.DefaultFont : Resolve((string)null);
     }
 
-    public static Font Default => Resolve(null);
+    public static Font Default => Resolve((string)null); // (string) cast: corelib'de string->span implicit op yok, aday belirsiz kalirdi
 
     // Rich text <font=ad>: tanimli ad -> Font, yoksa null (tag literal kalir). Alloc yok.
     public static Font Resolve(ReadOnlySpan<char> name)

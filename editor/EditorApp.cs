@@ -162,6 +162,7 @@ public unsafe class App
 #endif
         // Apply yolu: stash'li sahne (stage) de kapsama girsin.
         EditorScene.PrefabEditScope = (es, mutate) => WithPrefabEdit(mutate);
+        FontTableStore.EnsureAll(); // host + modul Fonts.asset dosyalari yoksa acilir (sahne yuklenmeden once)
         // Kullanici ayarlari (standart: [Serializable] + ObjectSerializer).
         // Otomatik sahne ACILMAZ: yalniz kullanicinin son actigi sahne (varsa) geri gelir.
         _settingsPath = System.IO.Path.Combine(projectPath, "UserSettings", "EditorSettings.asset");
