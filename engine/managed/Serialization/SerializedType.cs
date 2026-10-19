@@ -34,6 +34,7 @@ public static class SerializedType
         public string[] ShowIfScalars;
         public bool Hidden;            // [HideInInspector]: serilesir, inspector cizmez (editor)
         public bool Sensitive;         // [Sensitive]: RPC/MCP ciktisinda "***", inspector maskeli (editor)
+        public bool DevOnly;           // [DevOnly]: release pak'ina YAZILMAZ (default okunur); dev build/editor: normal (editor)
         public bool FontName;          // [FontName]: string alan = FontTable adi (editor combo / rpc format)
         public string Category;        // [Category]: ayar penceresi grubu (editor); null = General
 
@@ -93,6 +94,7 @@ public static class SerializedType
         {
             f.Hidden = f.Info.GetCustomAttribute<HideInInspectorAttribute>() != null;
             f.Sensitive = f.Info.GetCustomAttribute<SensitiveAttribute>() != null;
+            f.DevOnly = f.Info.GetCustomAttribute<DevOnlyAttribute>() != null;
             f.FontName = f.Kind == Kind.String && f.Info.GetCustomAttribute<FontNameAttribute>() != null;
             f.Category = f.Info.GetCustomAttribute<CategoryAttribute>()?.Name;
             var attr = f.Info.GetCustomAttribute<ShowIfAttribute>();

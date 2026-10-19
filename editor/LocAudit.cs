@@ -7,7 +7,7 @@ using DigitoyEngine;
 namespace DigitoyEditor;
 
 // Ceviri denetimleri (RPC loc.* + pak build uyarilari): key kullanimlari (sahne/prefab "@loc:" + C# Localize.Get/Format
-// string sabitleri), kullanilmayan satirlar, dilde eksikler, glyph kapsami (hucre karakterleri ⊆ font glyph seti).
+// string sabitleri + [Localize] enum uyeleri), kullanilmayan satirlar, dilde eksikler, glyph kapsami (hucre karakterleri ⊆ font glyph seti).
 // Dosya duzeyi tarama (acik doc degil): proje genisi, kaydedilmemis degisiklikler gorunmez.
 public static class LocAudit
 {
@@ -70,6 +70,13 @@ public static class LocAudit
                 foreach (Match m in CodeKey.Matches(raw))
                     Add(m.Groups[1].Value, rel, "line " + line);
             }
+        }
+        // [Localize] enum satirlari: kullanim = enum uyesi (kod taramasi dinamik key'i goremez; sahibi enum'dur).
+        foreach (var e in LocEnumSync.Scan(App.Code?.CodeAssemblies, App.Project))
+        {
+            if (e.Scope != scope) continue;
+            for (int i = 0; i < e.Keys.Count; i++)
+                Add(e.Keys[i], e.Type.Name, "enum " + e.Type.Name + "." + e.Members[i]);
         }
         return map;
     }

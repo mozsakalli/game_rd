@@ -45,6 +45,7 @@ public static class Program
                         case "--app-id": app.Id = args[++i]; break;
                         case "--app-name": app.Name = args[++i]; break;
                         case "--app-version": app.Version = args[++i]; break;
+                        case "--build-number": app.BuildNumber = args[++i]; break;   // unix dakika (editor uretir); Android versionCode = iOS CFBundleVersion
                         case "--orientation": app.Orientation = args[++i]; break;
                         case "--props": app.Props = ReadProps(args[++i]); break;
                         case "--trim": app.Trim = args[++i]; break;            // full | lean (docs/engine-notes.md TRIM)
@@ -390,7 +391,7 @@ public static class Program
 
     // Yayin kimligi (editor PlayerSettings'ten --app-* ile gelir; CLI'dan verilmezse proje adindan turetilir).
     // Props: Android'e ozel ayarlar (editor AndroidBuildProps.Write -> --props; key=value). null = CLI/varsayilan.
-    sealed class AppInfo { public string Id, Name, Version = "1.0", Orientation = "landscape"; public Dictionary<string, string> Props; public string Trim; public bool TrimReport; public string EditorEngine; public string Game; }
+    sealed class AppInfo { public string Id, Name, Version = "1.0", BuildNumber = "1", Orientation = "landscape"; public Dictionary<string, string> Props; public string Trim; public bool TrimReport; public string EditorEngine; public string Game; }
 
     // DigitoyEngine .NET (DE_EDITOR) dll'i: plugin kancalari (Editor.dll referansi) ve ayar YAML okuma. Editor --editor-engine ile
     // kendi dll'ini verir; CLI: dev editor/bin, kurulu <exe>/DigitoyEngine.dll (sdk/aotcompiler iki ust). Yoksa null (kancasiz build).
@@ -450,8 +451,8 @@ public static class Program
         string appName = P("appName", app.Name);
         if (string.IsNullOrWhiteSpace(appName) || appName == "Game") appName = projName;
         string versionName = P("versionName", app.Version);
-        if (!int.TryParse(P("versionCode", "1"), out int versionCode) || versionCode <= 0)
-            throw new Exception("android: versionCode pozitif tam sayi olmali (Player Settings > android.versionCode)");
+        if (!int.TryParse(P("versionCode", app.BuildNumber), out int versionCode) || versionCode <= 0)
+            throw new Exception("android: versionCode pozitif tam sayi olmali (--build-number; editor otomatik uretir)");
         if (!int.TryParse(P("targetSdk", "35"), out int targetSdk) || targetSdk < 26)
             throw new Exception("android: targetSdk >= 26 olmali (minSdk 26: AAudio)");
         string abis = P("abis", "arm64-v8a");          // release ABI'leri (store)
@@ -630,8 +631,8 @@ public static class Program
         string appName = P("appName", app.Name);
         if (string.IsNullOrWhiteSpace(appName) || appName == "Game") appName = projName;
         string version = P("version", app.Version);
-        if (!int.TryParse(P("buildNumber", "1"), out int buildNumber) || buildNumber <= 0)
-            throw new Exception("ios: buildNumber pozitif tam sayi olmali (Player Settings > ios.buildNumber)");
+        if (!int.TryParse(P("buildNumber", app.BuildNumber), out int buildNumber) || buildNumber <= 0)
+            throw new Exception("ios: buildNumber pozitif tam sayi olmali (--build-number; editor otomatik uretir)");
         string minIos = P("minIos", "15.0");
         if (!System.Text.RegularExpressions.Regex.IsMatch(minIos, @"^\d+(\.\d+)?$")) throw new Exception("ios: minIos '15.0' bicminde olmali: " + minIos);
         string team = P("teamId");

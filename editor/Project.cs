@@ -104,11 +104,22 @@ public sealed class Project
         string path = PlayerSettingsPathFor(game);
         if (File.Exists(path))
         {
-            try { ps = ObjectSerializer.Load<PlayerSettings>(path); }
+            try { ps = ObjectSerializer.Load<PlayerSettings>(path, Assets); }
             catch (Exception e) { EditorLog.Error("[project] " + game + "/PlayerSettings okunamadi: " + e.Message); }
         }
         _players[game] = ps;
         return ps;
+    }
+
+    // Asset referanslarinin (boot: IGameBoot) cozumu icin veritabani. Oyun kodu yuklenince/yeniden derlenince (katalog tazelenince)
+    // ayarlar yeniden okunur: [Asset] tipler o anda cozulur (acilista kod yokken null kalirdi). Player instance'i degisir.
+    public AssetDatabase Assets { get; private set; }
+
+    public void BindAssets(AssetDatabase assets)
+    {
+        Assets = assets;
+        _players.Clear();
+        if (Game.Length > 0) Player = PlayerFor(Game);
     }
 
     // Calisilan oyunu degistir (Play/Build/pak baglami). Bilinmeyen ad -> ArgumentException.
@@ -126,7 +137,7 @@ public sealed class Project
     {
         game ??= Game;
         Directory.CreateDirectory(GameDir(game));
-        ObjectSerializer.Save(PlayerFor(game), PlayerSettingsPathFor(game));
+        ObjectSerializer.Save(PlayerFor(game), PlayerSettingsPathFor(game), Assets);
     }
 
     // Yeni oyun: copyFrom verilirse o oyunun PlayerSettings + Plugins/ kopyalanir (ortak alanlar icin sablon), yoksa varsayilan.
@@ -150,6 +161,9 @@ public sealed class Project
             }
             var ps = PlayerFor(name);
             ps.productName = name;
+            // Sahne kumesi kopyalanmaz: yeni oyun kendi sahnelerini secer (unutulursa kaynagin sahneleri build'e girerdi).
+            ps.scenes.Clear();
+            ps.startScene = "";
             SavePlayerSettings(name);
         }
         else

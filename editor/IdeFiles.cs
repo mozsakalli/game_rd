@@ -130,6 +130,7 @@ Build/
 UserSettings/
 # makineye ozel, editor her acilista yeniden uretir
 *.Game.csproj
+*.Editor.csproj
 .vscode/mcp.json
 # Android Studio / Gradle / IDE copu (plugin Android/ modulleri Studio'da acilabilir; Java LS de .gradle/ birakabilir)
 .gradle/

@@ -26,27 +26,31 @@ public static class PlayerBuilder
     public static bool LastOk { get; private set; }
     public static string LastExe { get; private set; } = "";
     public static string LastOutput { get; private set; } = "";
+    // CI/geri alma: build numarasini ezer (null = otomatik unix dakika). RPC player.build(buildNumber) yazar, build sonunda sifirlanir.
+    public static int? BuildNumberOverride;
 
     static Task _task;
 
+    // EDITOR BUILD'LERI HEP DEV (docs/engine-notes.md "Dev build"): [DevOnly] alanlar pak'ta, GameHost.IsDev=true (cihazda test/prod secimi),
+    // ad " (dev)" ekli. MAGAZA (release) build'i yalniz CI/komut satirindan: RPC player.build(dev=false) → ortam secimi dosyada DEGIL build turunde.
     [MenuItem("Project/Build Player (Windows)", 2)]
-    static void BuildMenu() => Start("windows");
+    static void BuildMenu() => Start("windows", dev: true);
 
     // Android: Android Studio projesi uretilir (<proje>/Build/android); APK'yi kullanici Android Studio'da derler.
     [MenuItem("Project/Build Android Project", 2)]
-    static void BuildAndroidMenu() => Start("android");
+    static void BuildAndroidMenu() => Start("android", dev: true);
 
     // iOS: Xcode projesi uretilir (<proje>/Build/ios/Game.xcodeproj); imza + derleme kullanicinin Xcode'unda (yalniz macOS'ta anlamli).
     [MenuItem("Project/Build iOS Project (Xcode)", 2)]
-    static void BuildIosMenu() => Start("ios");
+    static void BuildIosMenu() => Start("ios", dev: true);
 
     // Web: emscripten ile editorde derlenir (toolchain yoksa indirilir) -> <proje>/Build/wasm/{index.html,game.js,game.wasm,game.data}.
     [MenuItem("Project/Build Web (wasm)", 2)]
-    static void BuildWasmMenu() => Start("wasm");
+    static void BuildWasmMenu() => Start("wasm", dev: true);
 
     // Donus: zincir baslatildi (arka plan surecinin sonucu Version/LastOk ile izlenir).
-    // false = on kosul/pak hatasi, loglandi. target: windows | android | ios | wasm
-    public static bool Start(string target = "windows")
+    // false = on kosul/pak hatasi, loglandi. target: windows | android | ios | wasm; dev: varsayilan true (editor); release yalniz CI/RPC.
+    public static bool Start(string target = "windows", bool dev = true)
     {
         if (IsRunning)
         {
@@ -61,20 +65,23 @@ public static class PlayerBuilder
         if (AssetWatcher.Failed)
             return Fail("oyun kodu derlenemiyor; once hatalari giderin (Console)");
         var ps = project.Player;
-        string appArgs = $" --app-id \"{ps.bundleIdentifier}\" --app-name \"{ps.productName}\" --app-version \"{ps.version}\" --orientation {ps.orientation.ToString().ToLowerInvariant()} --trim {(ps.stripCode ? "lean" : "full")}";
+        // Build numarasi: otomatik unix dakika (Android versionCode = iOS CFBundleVersion = pak .project). Elle alan yok.
+        int buildNumber = BuildNumberOverride ?? DigitoyEngine.PlayerSettings.BuildNumberNow();
+        string appName = dev ? ps.productName + " (dev)" : ps.productName;
+        string appArgs = $" --app-id \"{ps.bundleIdentifier}\" --app-name \"{appName}\" --app-version \"{ps.version}\" --build-number {buildNumber} --orientation {ps.orientation.ToString().ToLowerInvariant()} --trim {(ps.stripCode ? "lean" : "full")}";
         // Plugin kancalari/ayar YAML icin editorun .NET DigitoyEngine.dll'i (docs/plugins.md)
         appArgs += $" --editor-engine \"{typeof(DigitoyEngine.GameObject).Assembly.Location}\"";
         // Oyun (docs/plugins.md "Games"): calisilan oyun; pak/cikti Build/<game>/, ayarlar ProjectSettings/Games/<game>/.
         appArgs += $" --game {project.Game}";
         if (target == "android")
         {
-            // Android'e ozel her sey (versionCode, ABI, ikon, imza) tek props dosyasiyla gider; aotcompiler dogrular.
-            try { appArgs += $" --props \"{AndroidBuildProps.Write(project)}\""; }
+            // Android'e ozel her sey (ABI, ikon, imza) tek props dosyasiyla gider; aotcompiler dogrular.
+            try { appArgs += $" --props \"{AndroidBuildProps.Write(project, buildNumber)}\""; }
             catch (Exception e) { return Fail("android.properties yazilamadi: " + e.Message); }
         }
         else if (target == "ios")
         {
-            try { appArgs += $" --props \"{IosBuildProps.Write(project)}\""; }
+            try { appArgs += $" --props \"{IosBuildProps.Write(project, buildNumber)}\""; }
             catch (Exception e) { return Fail("ios.properties yazilamadi: " + e.Message); }
         }
         if (!SdkLayout.TryAotCommand($"player \"{project.Root}\" --target {target}{appArgs}", out string aotFile, out string aotArgs, out string aotErr))
@@ -82,8 +89,13 @@ public static class PlayerBuilder
 
         Failed = false;
         Status = "Building pak...";
-        EditorLog.Info("[player-build] 1/2 asset pack");
-        if (!AssetPackBuilder.Build())
+        EditorLog.Info($"[player-build] 1/2 asset pack (v{ps.version} build {buildNumber}{(dev ? ", DEV" : ", release")})");
+        AssetPackBuilder.BuildNumber = buildNumber;
+        AssetPackBuilder.Dev = dev;
+        bool pakOk;
+        try { pakOk = AssetPackBuilder.Build(); }
+        finally { AssetPackBuilder.BuildNumber = 0; AssetPackBuilder.Dev = true; }
+        if (!pakOk)
             return Fail("game.pak uretilemedi");
 
         string projName = Path.GetFileName(project.Root.TrimEnd('\\', '/'));
@@ -105,6 +117,7 @@ public static class PlayerBuilder
     static bool Fail(string why)
     {
         Failed = true;
+        BuildNumberOverride = null;
         Status = "Player build failed";
         EditorLog.Error("[player-build] " + why);
         return false;
@@ -160,6 +173,7 @@ public static class PlayerBuilder
         LastOk = ok;
         LastExe = ok ? exe : "";
         Failed = !ok;
+        BuildNumberOverride = null;
         Status = ok ? "" : "Player build failed";
         if (ok && exe.EndsWith("CMakeLists.txt"))
             EditorLog.Info($"[player-build] OK -> Android Studio projesi: {Path.GetDirectoryName(Path.GetDirectoryName(Path.GetDirectoryName(exe)))} ({sw.Elapsed.TotalSeconds:F0} s)");

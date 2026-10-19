@@ -20,7 +20,6 @@ fields:
   stripCode: true
   android:
     packageName: ''
-    versionCode: 1
     targetSdk: 35
     includeX86_64: true
     keystorePath: ''
@@ -31,7 +30,6 @@ fields:
     iconBackground: '#1E1E1E'
   ios:
     bundleId: ''
-    buildNumber: 1
     minIos: 15.0
     teamId: ''
     icon: ''

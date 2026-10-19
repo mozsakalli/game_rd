@@ -23,6 +23,10 @@ public static class LocalizationTests
 
     const string TableKey = "Localization.asset";
 
+    // [Localize] enum: motor attribute'u + prefix arg'i.
+    [Localize("error")]
+    public enum TestServerError { InsufficientCoins = 1001, RoomFull = 1002 }
+
     public static void Run(TypeCatalog catalog)
     {
         _pass = _fail = 0;
@@ -228,6 +232,38 @@ public static class LocalizationTests
         LocFormat.NowProvider = prevNow;
         Check(Localize.Get("menu.play") == "Play Now" && Localize.Format("hud.coins", 3) == "3 coins", "global Get/Format (yuklu tablolar)");
 
+        // --- [Localize] enum: slug/humanize, senkron (ekle/sil/prefix sahipligi), runtime key ---
+        Check(Localize.EnumSlug("InsufficientCoins") == "insufficient_coins" && Localize.EnumSlug("HTTPError") == "http_error"
+            && Localize.EnumSlug("ROOM_FULL") == "room_full" && Localize.EnumSlug("Error2x") == "error2x", "enum slug");
+        Check(LocEnumSync.Humanize("InsufficientCoins") == "Insufficient coins" && LocEnumSync.Humanize("HTTPError") == "HTTP error"
+            && LocEnumSync.Humanize("ROOM_FULL") == "Room full", "enum humanize");
+        var enums = LocEnumSync.Scan(new[] { typeof(LocalizationTests).Assembly }, null);
+        var errInfo = enums.Find(e => e.Type == typeof(TestServerError));
+        Check(errInfo != null && errInfo.Prefix == "error" && errInfo.Keys.Contains("error.room_full")
+            && enums.Find(e => e.Type == typeof(LocTestCustom.TestState))?.Prefix == "test_state", "enum tarama: prefix (attribute arg / tip adi)");
+        table.Set("error.stale", "en", "Old"); // sahipli prefix altinda enum'da olmayan satir -> silinir
+        table.Set("errors.keep", "en", "Keep"); // farkli prefix: dokunulmaz
+        var syncRes = new LocEnumSync.Result();
+        bool changed = LocEnumSync.SyncTable(table, enums, syncRes);
+        Check(changed && table.Get("error.room_full", null) == "Room full" && table.Get("error.insufficient_coins", null) == "Insufficient coins"
+            && table.Find("error.stale") < 0 && table.Get("errors.keep", null) == "Keep" && table.EnumPrefix("TestServerError") == "error",
+            "enum sync: ekle + sahipli sil + Enums kaydi");
+        Check(!LocEnumSync.SyncTable(table, enums, new LocEnumSync.Result()), "enum sync idempotent");
+        table.Set("error.room_full", "tr", "Oda dolu");
+        Check(Localize.EnumKey(TestServerError.RoomFull) == "error.room_full" && Localize.Get(TestServerError.RoomFull) == "Room full", "runtime EnumKey/Get (prefix tablodan)");
+        Localize.Language = "tr";
+        Check(Localize.Get(TestServerError.RoomFull) == "Oda dolu" && Localize.Get(TestServerError.InsufficientCoins) == "Insufficient coins", "enum Get dil + fallback");
+        Localize.Language = null;
+        Check(Localize.Get(LocTestCustom.TestState.Idle) == "Idle" && Localize.EnumPrefix("NoSuchEnum") == "no_such_enum", "enum Get: ozel attribute (ad kurali) + kayitsiz prefix tip adindan");
+        // Enum kodda kalmadi -> kaydi ve tum satirlari gider.
+        enums.RemoveAll(e => e.Type == typeof(TestServerError));
+        Check(LocEnumSync.SyncTable(table, enums, new LocEnumSync.Result()) && table.Find("error.room_full") < 0 && table.EnumPrefix("TestServerError") == null
+            && table.Get("errors.keep", null) == "Keep", "enum sync: enum silinince satirlar + kayit duser");
+        var node3 = ObjectSerializer.ToNode(table, null);
+        var table3 = new LocalizationTable();
+        ObjectSerializer.FromNode(table3, node3, null);
+        Check(table3.EnumPrefix("TestState") == "test_state", "Enums kaydi YAML round-trip");
+
         Localize.RegisterTable(TableKey, null);
         Localize.Language = prevLang;
         Console.WriteLine($"[localization] {_pass} PASS, {_fail} FAIL");
@@ -249,5 +285,15 @@ public static class LocalizationTests
         if (cond) _pass++;
         else { _fail++; Console.WriteLine($"[localization] FAIL: {name}"); }
     }
+}
+
+// Ad kurali: motora referanssiz paylasilan DLL'in kendi LocalizeAttribute'u (Preserve gibi) taninir; prefix yok -> slug(tip adi).
+public static class LocTestCustom
+{
+    [AttributeUsage(AttributeTargets.Enum)]
+    sealed class LocalizeAttribute : Attribute { }
+
+    [Localize]
+    public enum TestState { Idle, Busy }
 }
 #endif

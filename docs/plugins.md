@@ -124,7 +124,11 @@ public interface IIosProjectHook     { void OnGenerate(IosProject p); }
 public interface IWasmProjectHook    { void OnGenerate(WasmProject p); }
 ```
 `Assets/**/Editor/**/*.cs` → `<Ad>.Editor.dll` (aotcompiler ve editör aynı Roslyn derlemesini yapar; normal .NET'e karşı; aotcompiler
-`--editor-engine <DigitoyEngine.dll>` ile editörün .NET dll'ini alır, CLI'da dev/kurulu yoldan bulur). Uygulayan tipler ad sırasıyla
+`--editor-engine <DigitoyEngine.dll>` ile editörün .NET dll'ini alır, CLI'da dev/kurulu yoldan bulur). Kanca API'si (bu tipler +
+`PluginSettingsStore`) ayrı **`DigitoyEngine.Build.dll`** ([aotcompiler/hooks/](../aotcompiler/hooks/DigitoyEngine.Build.csproj), kaynak
+`aotcompiler/source/ProjectHooks.cs`); hem aotcompiler hem DigitoyEditor buna ProjectReference verir → Editor.dll derlemesi
+DigitoyEngine.Build + DigitoyEditor + DigitoyEngine'i birlikte referanslar, tipler tek kimlikli (CS0433 yok). Editor/ kodu hem
+build kancası hem `FieldDrawer` içerebilir. Uygulayan tipler ad sırasıyla
 çağrılır — yalnız **canlı plugin'lerin** kancaları + plugin dışı (oyunun kendi) kancalar. **Kanca → plugin eşlemesi**: sınıf adı plugin
 adıyla başlar (`FacebookAndroid`, `FacebookIos`) ya da `[PluginHook("Facebook")]`; eşleşmeyen = oyunun kendi kancası (her zaman çalışır). `p.Settings<T>()` → doğrulanmış ayar nesnesi (dosya yoksa `new T()`; `[Required]` boşsa build hatası, `generated/`'a dokunulmadan).
 Native kaynak kopyası (Gradle modülü include, iOS kaynakları, WASM js) konvansiyonla **otomatik**; kanca yalnız bunun ötesini söyler.
@@ -249,7 +253,47 @@ Facebook kalıbı birebir; motor/editör/aotcompiler **değişmedi**.
   13.6.4'e karşı hatasız**; `:app:dependencies` → applovin 13.6.4 + play-services-ads 25.5.0 + facebook 17.0.0 çakışmasız (`ForceVersion` gerekmedi).
   Cihaz testi (gerçek sdkKey + MAX test unit'leri) ve iOS Faz 2 bekliyor. Sürümler Maven metadata'dan okundu (tahmin değil).
 
-## Sensitive — AI'a gitmeyen alanlar (2026-10-18)
+## IGameBoot — oyun girişi, sahneden bağımsız (2026-10-19)
+Sorun: init (`AppBoot.Ensure`) Login sahnesindeki `LoginFlow` alanlarından tetikleniyordu → Lobby'den Play'de servisler yok; ayarlar
+(`Game.asset`, `Settings.asset`) ayrı dosyalara saçılmıştı. Tartışılan ve REDDEDİLEN yollar: kalıcı Boot sahnesi + `Scene.Persistent`
+(render/input yalnız aktif sahne; aktif-düşüş koruması gerekti → fazla), Boot prefab'ı her sahneye instantiate (GO gereksiz),
+`PlayerSettings` türetme (motor tipinin oyun kodunda türemesi Project yüklemesini kırar, çok derine işler).
+- **Model:** `IGameBoot { void Boot(); }` ([PlayerSettings.cs](../engine/managed/PlayerSettings.cs)); `PlayerSettings.boot` = `[Serializable, Asset]`
+  bir sınıfın `.asset`'i (arayüz tipli alan = polimorfik asset referansı; Inspector asset seçici). Alanlar **gömülü** (GameDefinition,
+  NetworkSettings `[Asset]` değil) → oyun başına TEK dosya `Assets/Games/<Oyun>/Boot.asset`. Sahne/GO/prefab yok.
+- **Çağrı:** `GameHost.RunGameBoot(assets, key)` — release'te `BootWith` katalog+pak hazır, **startScene'den önce**; editörde
+  `PlayMode.SpawnPlayScene` doc spawn'dan önce (açık sahne ne olursa olsun). Hata loglanır, oyun düşmez. `GameHost.GameBoot` nesneyi tutar.
+  `Boot()` içinde `Scene.Active`/GO kullanma; idempotent ol (tekrar Play, hot reload).
+- **Pak:** boot anahtarı kök (nesne + referansları pak'a girer), `ProjectBinary` **v4** `boot` alanı (v3 okunur). Trim: `[Serializable]`
+  pak tipi `Inline` kökü, `Boot()` arayüz dispatch'le erişilebilir → ek kök gerekmedi.
+- **Editör tuzağı (yaşandı):** `Project.Load` PlayerSettings'i oyun kodu derlenmeden okur → `boot` (oyun tipi) null kalıyordu. Çözüm:
+  `Project.BindAssets(assets)` — `RebuildCatalog` sonrası ayarlar `App.Assets` ile yeniden okunur (Player instance değişir; pencere Bind'i yeniler).
+- **İkinci tuzak (yaşandı, eski):** `PluginTests` finally'de `MockHost.Clear()` → açılışta tüm oyun mock'ları siliniyordu ("AppLovin: host'ta
+  kayıtlı değil"); Login'den Play yalnız watcher reload'ı sonrası çalışıyordu. Fix: `MockHost.Unregister(name)`, test yalnız kendi mock'unu kaldırır.
+- digitoyclient: `Shared/Services/ClientBoot.cs` (`game`, `network`, `appVersion` → `AppBoot.Ensure`), `Games/{GinRummy,Yuzbir}/Boot.asset`,
+  `Game.asset`/`Shared/Settings.asset` silindi, `LoginFlow` boot alanları kalktı (hazır değilse hata logu). Doğrulama: Lobby'den Play →
+  `[host] boot: ClientBoot` + `[ads] loaded (Mock)`; Login'den Play eskisi gibi.
+
+
+Proje/plugin `Editor/` kodu `<Ad>.Editor.dll`'e derlenir ve artık **DigitoyEditor.dll'e referans verir** → editörün uzantı noktalarını
+kullanır; motor hiç değişmez. [FieldDrawers.cs](../editor/FieldDrawers.cs):
+- `[CustomFieldDrawer(typeof(Sahip), "alan")] class X : FieldDrawer { Measure(ctx); Draw(ctx, ref y, right) → değişti mi }` — ObjectDrawer o
+  alanı çizmeden önce kayda bakar (Inspector, Player Settings, plugin sayfaları aynı yol). `ctx`: Owner, Field (şema), Path (UI anahtarı),
+  LabelW/Indent, ProjectRoot/LibraryPath (önbellek), `Value/SetValue`. Attribute Editor kodunda; Runtime tipi/alanı dokunulmaz.
+- `EditorUi` public yüz: `Label/Text/RowH/LabelFont/SmallFont/LabelColor/DimColor/WarnColor/ErrorColor/Log/Warn/Error` (Inspector iç üyeleri
+  internal kaldığı için). `Gui.*`/`GuiRenderer` motorun `DigitoyEngine.Editor` namespace'inde (using gerekir).
+- Kayıt: `GameCode.LoadEditorCode` Editor.dll'i yükleyince `[CustomFieldDrawer]` tipleri taranır (mock kaydıyla birlikte), reload'da temizlenir.
+  Instance (tip, alan) başına tek; aynı alan iki nesnede çiziliyorsa durumu `ctx.Path` ile ayır. İstisna Console'a, alan tek satır olarak düşer.
+- Watcher: `Editor/` altındaki `.cs` değişimi de derleme+reload tetikler (önceden yok sayılıyordu → hook/mock/drawer değişikliği için kapat-aç gerekiyordu).
+- IDE: `<Ad>.Editor.csproj` üretilir (`Assets/**/Editor/**`, DigitoyEditor + DigitoyEngine + hook API + `<Ad>.Game.csproj` referansı) → completion.
+- İlk kullanıcı: AppLovin `mediation` listesi ([AppLovinMediationDrawer.cs](../../digitoyclient/Assets/Plugins/AppLovin/Editor/AppLovinMediationDrawer.cs)):
+  AppLovin'in Unity Integration Manager JSON'u (`unity.applovin.com/max/1.0/integration_manager_info`) → 26 network + güncel Android/iOS
+  sürümleri + SDK sürümü; `Library/AppLovin/networks.json` önbelleği (çevrimdışı çalışır, 24 saatte tazelenir, Refresh düğmesi). Satır
+  "Google AdMob — android 25.5.0.0 / ios 13.11.0.0", güncel değilse `Update`, `×`; `Add network…` combosu (ekli olanlar gizli); elle yazım yok.
+  Artefakt adı DownloadUrl'den (`com/applovin/mediation/<x>-adapter`). `sdkVersionAndroid/Ios` için de "latest → Update".
+- TUZAK (otomasyon): utility penceredeki combo popup'ına `ui.click window=…` tıkı gitmiyordu (eşleme yalnız ana pencere için) → düzeltildi.
+
+
 `[Sensitive]` alan attribute'u ([Attributes.cs](../engine/managed/Serialization/Attributes.cs)); isim sezgisi YOK, yalnız attribute. Varsayılan işaretliler:
 `AndroidSettings.keystorePassword/keyPassword` (PlayerSettings.android; eski `UserSettings/AndroidSigning.asset` ilk açılışta buraya taşınır ve
 silinir — 2026-10-18); plugin yazarı Config'inde `[Required, Sensitive] clientToken` gibi işaretler.

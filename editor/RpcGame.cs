@@ -48,7 +48,7 @@ static class RpcGame
         return List(ctx);
     }
 
-    [RpcCommand("game.create", "Yeni oyun: ProjectSettings/Games/<name>/ (copyFrom verilirse o oyunun PlayerSettings + Plugins kopyalanir, yoksa varsayilan). Sahneleri sonra Player Settings > Scenes (ya da prop yazimi) ile ver")]
+    [RpcCommand("game.create", "Yeni oyun: ProjectSettings/Games/<name>/ (copyFrom verilirse o oyunun PlayerSettings + Plugins kopyalanir — kimlik/Display/Build/plugin ayarlari sablon olur; sahne kumesi BOS gelir, Assets kopyalanmaz). Sahneleri sonra Player Settings > Scenes ile ver")]
     static DocNode Create(RpcContext ctx, string name, string copyFrom = "")
     {
         try { App.Project.CreateGame(name, string.IsNullOrEmpty(copyFrom) ? null : copyFrom); }

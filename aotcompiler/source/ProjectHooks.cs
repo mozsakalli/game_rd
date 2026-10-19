@@ -4,6 +4,9 @@ using System.IO;
 using System.Linq;
 using System.Reflection;
 
+// Kanca modellerinin internal setter'lari yalniz aotcompiler'a (kullanici Editor/ kodu salt-okur).
+[assembly: System.Runtime.CompilerServices.InternalsVisibleTo("aotcompiler")]
+
 namespace DigitoyEngine.Build
 {
     // Platform proje uretim kancalari (docs/plugins.md). Assets/**/Editor/**/*.cs -> <Ad>.Editor.dll (normal .NET'e karsi;

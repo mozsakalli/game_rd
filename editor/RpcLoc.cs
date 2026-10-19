@@ -283,7 +283,7 @@ static class RpcLoc
         return r;
     }
 
-    [RpcCommand("loc.unused", "Denetim: unused = tabloda olup hicbir dosyada kullanilmayan key'ler; dangling = kullanilip tabloda olmayanlar")]
+    [RpcCommand("loc.unused", "Denetim: unused = tabloda olup hicbir dosyada kullanilmayan key'ler; dangling = kullanilip tabloda olmayanlar. [Localize] enum satirlari kullanilmis sayilir")]
     static DocNode Unused(RpcContext ctx, string scope = "")
     {
         string sc = Scope(ctx, scope);
@@ -291,6 +291,28 @@ static class RpcLoc
         var r = DocNode.Map();
         r.Add("unused", Strs(LocAudit.Unused(sc)));
         r.Add("dangling", Strs(LocAudit.Dangling(sc, usages)));
+        return r;
+    }
+
+    [RpcCommand("loc.sync", "[Localize] enum'lari tabloyla senkronlar (kod yuklemesinde otomatik de kosar): eksik '<prefix>.<uye>' satirlari acilir (kaynak dil uye adindan), enum'da olmayan prefix satirlari SILINIR (undo'suz). Donus: enums (tip/prefix/kapsam/key sayisi), added, removed, log", Mutates = true)]
+    static DocNode Sync(RpcContext ctx)
+    {
+        var res = LocEnumSync.SyncAll(App.Code?.CodeAssemblies, App.Project);
+        var r = DocNode.Map();
+        var enums = DocNode.Seq();
+        foreach (var e in LocEnumSync.Scan(App.Code?.CodeAssemblies, App.Project))
+        {
+            var m = DocNode.Map();
+            m.Add("type", DocNode.Scal(e.Type.FullName));
+            m.Add("prefix", DocNode.Scal(e.Prefix));
+            m.Add("scope", DocNode.Scal(e.Scope));
+            m.Add("keys", DocNode.Scal(e.Keys.Count.ToString()));
+            enums.Items.Add(m);
+        }
+        r.Add("enums", enums);
+        r.Add("added", DocNode.Scal(res.Added.ToString()));
+        r.Add("removed", DocNode.Scal(res.Removed.ToString()));
+        r.Add("log", Strs(res.Log));
         return r;
     }
 

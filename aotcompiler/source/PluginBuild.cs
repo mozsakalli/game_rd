@@ -66,6 +66,9 @@ public static class PluginBuild
         r.Store = new PluginSettingsStore(projectRoot, r.EngineNet, Game.Name);
         if (sources.Count == 0 || r.EngineNet == null) return r;
         string dll = Path.Combine(workDir, projName + ".Editor.dll");
+        // Editor/ kodu editorun uzanti noktalarini da kullanabilir (FieldDrawer vb.): DigitoyEditor.dll engine .NET dll'inin yanindadir.
+        // Kancalar (IAndroidProjectHook...) icin gerekmez ama ayni dosyalarda yasarlar; eksikse derleme tumden duser (2026-10-19).
+        string editorDll = Path.Combine(Path.GetDirectoryName(engineNetDll) ?? "", "DigitoyEditor.dll");
         var build = new RoslynBuild
         {
             AssemblyName = projName + ".Editor",
@@ -73,6 +76,8 @@ public static class PluginBuild
             References = { engineNetDll, typeof(ProjectHooks).Assembly.Location },
             Defines = new[] { "DE_EDITOR", "DE_GAME" },
         };
+        if (File.Exists(editorDll)) build.References.Add(editorDll);
+        else log("[uyari] DigitoyEditor.dll bulunamadi (" + editorDll + "): Editor/ kodu editor uzanti tiplerini kullaniyorsa derleme duser");
         build.References.AddRange(pluginDlls);
         var res = RoslynCompiler.CompileToFile(build, dll, useCache: true);
         if (!res.Ok) throw new Exception("Editor.dll derlemesi basarisiz (Assets/**/Editor kancalari):\n" + res.Errors);

@@ -40,6 +40,11 @@ static class AssetPackBuilder
     // TEMA: pak TEK temayla piser — ThemeOverride (RPC/CLI) yoksa PlayerSettings.activeTheme. Prefab cache calisilan temayla
     // dolu olabilir: build boyunca build temasiyla yeniden kurulur, sonunda editorun temasina geri doner.
     internal static string ThemeOverride;
+    // Player build sirasinda set edilir (pak .project kaydina yazilir); 0 = asset.buildPak tek basina → "simdi".
+    internal static int BuildNumber;
+    // Dev pak (varsayilan true: asset.buildPak tek basina gelistirme icindir). PlayerBuilder release'te false yapar:
+    // [DevOnly] alanlar pak'a yazilmaz (ObjectBinary.StripDevOnly), .project dev=false -> GameHost.IsDev=false.
+    internal static bool Dev = true;
 
     // Oyun cikti koku (docs/plugins.md "Games"): Build/<game>/ ; aotcompiler ayni kural.
     internal static string GameBuildDir(Project project) => project.BuildDir;
@@ -50,6 +55,7 @@ static class AssetPackBuilder
         string prevTheme = SceneDoc.ActiveTheme;
         SceneDoc.ActiveTheme = ThemeOverride ?? App.Project.Player.activeTheme ?? "";
         assets.InvalidateAllPrefabs();
+        ObjectBinary.StripDevOnly = !Dev; // release: [DevOnly] alanlar pak'a girmez
         try
         {
             if (!string.IsNullOrEmpty(SceneDoc.ActiveTheme))
@@ -58,6 +64,7 @@ static class AssetPackBuilder
         }
         finally
         {
+            ObjectBinary.StripDevOnly = false;
             SceneDoc.ActiveTheme = prevTheme;
             assets.InvalidateAllPrefabs();
         }
@@ -116,6 +123,10 @@ static class AssetPackBuilder
         var unresolved = new List<string>();
         var queue = new Queue<string>();
         foreach (var r0 in roots) { liveWhole.Add(r0); queue.Enqueue(r0); }
+        // Oyun girisi (PlayerSettings.boot, IGameBoot): [Asset] nesnesi de kok (pak'a girer; referanslari gezilir).
+        string bootKey = AssetDatabase.KeyOf(project.Player.boot, assets);
+        if (bootKey.Length > 0) { liveWhole.Add(bootKey); queue.Enqueue(bootKey); }
+        else if (project.Player.boot != null) EditorLog.Warning("[pak] boot nesnesinin asset anahtari yok (kaydedilmemis?); pak'a girmedi");
         while (queue.Count > 0)
         {
             string key = queue.Dequeue();
@@ -306,7 +317,8 @@ static class AssetPackBuilder
         }
 
         // Proje ayarlari: runtime project.yaml okumaz; pismis kayit pak'ta (sahne listesi dahil).
-        items.Add((ProjectBinary.PakKey, "", ProjectBinary.Write(project.Name, project.StartScene, roots, project.Game)));
+        items.Add((ProjectBinary.PakKey, "", ProjectBinary.Write(project.Name, project.StartScene, roots, project.Game, bootKey,
+            project.Player.version, BuildNumber != 0 ? BuildNumber : PlayerSettings.BuildNumberNow(), Dev)));
         // Plugin ayarlari (docs/plugins.md): her Plugin<TSettings> / [ProjectSetting] tipi icin ProjectSettings/Plugins/<Ad>.asset -> DOBJ.
         var pluginSettings = PluginSettingsEditor.CollectForPak(project, assets);
         if (pluginSettings.Count > 0)

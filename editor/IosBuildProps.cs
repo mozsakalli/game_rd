@@ -10,7 +10,7 @@ namespace DigitoyEditor;
 // Imza burada yok: Xcode Signing & Capabilities (teamId yalniz kolaylik; sertifika/profil Xcode'un).
 public static class IosBuildProps
 {
-    public static string Write(Project project)
+    public static string Write(Project project, int buildNumber)
     {
         var ps = project.Player;
         var s = ps.ios ?? new IosSettings();
@@ -20,7 +20,7 @@ public static class IosBuildProps
             new("bundleId", string.IsNullOrWhiteSpace(s.bundleId) ? ps.bundleIdentifier : s.bundleId.Trim()),
             new("appName", ps.productName),
             new("version", ps.version),
-            new("buildNumber", s.buildNumber.ToString()),
+            new("buildNumber", buildNumber.ToString()),
             new("minIos", s.minIos ?? ""),
             new("teamId", s.teamId ?? ""),
             new("orientation", ps.orientation.ToString().ToLowerInvariant()),

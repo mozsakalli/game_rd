@@ -62,10 +62,21 @@ public sealed class ObjectDrawer
         return height;
     }
 
-    // Ust duzey alan vurgusu (varyant modu: tabandan farkli/override alan -> turuncu serit, tema x=8 ile ayni dil).
-    // null = yok. Alan adi -> true ise serit cizilir.
+    // Ust duzey alan vurgusu (tema x=8 ile ayni dil). null = yok. Alan adi -> true ise serit cizilir.
     public Func<string, bool> Highlight;
     public static readonly Color HighlightColor = new(235, 160, 60, 255);
+
+    FieldDrawerContext MakeContext(object owner, SerializedType.FieldSchema field, string path, int indent) => new()
+    {
+        Owner = owner, Field = field, Path = path, LabelW = LabelW, Indent = indent,
+        ProjectRoot = App.Project?.Root, LibraryPath = App.Project?.LibraryPath,
+    };
+
+    static float SafeMeasure(FieldDrawer d, FieldDrawerContext c)
+    {
+        try { return Math.Max(RowH, d.Measure(c)); }
+        catch (Exception e) { EditorLog.Error("[drawer] " + d.GetType().Name + ".Measure: " + e.Message); return RowH; }
+    }
 
     // Alanlari y'den asagi cizer; herhangi bir deger degistiyse true doner.
     // deferredCommit: drag-drop gibi geciktirilmis yazimlar icin (anlik kaydet).
@@ -90,6 +101,9 @@ public sealed class ObjectDrawer
     {
         if (!SerializedType.ShowIfVisible(field, owner))
             return 0;
+        var custom = FieldDrawers.Find(owner?.GetType(), field.Name);
+        if (custom != null)
+            return SafeMeasure(custom, MakeContext(owner, field, path, 0));
         object value = owner == null ? null : field.Get(owner);
         if (field.Kind == SerializedType.Kind.List)
             _listMeasureSchemas[path] = field;
@@ -129,6 +143,19 @@ public sealed class ObjectDrawer
     {
         if (!SerializedType.ShowIfVisible(field, owner))
             return; // [ShowIf] gizli: olcum de 0 verir (yukseklik tutarli)
+        // Proje/plugin Editor kodunun devraldigi alan (FieldDrawers): tum satir ona ait.
+        var custom = FieldDrawers.Find(owner?.GetType(), field.Name);
+        if (custom != null)
+        {
+            var c = MakeContext(owner, field, path, indent);
+            float y0 = y;
+            bool fc;
+            try { fc = custom.Draw(c, ref y, right); }
+            catch (Exception e) { EditorLog.Error("[drawer] " + custom.GetType().Name + ".Draw: " + e.Message); fc = false; }
+            if (y == y0) y += RowH;
+            if (fc) changed = true;
+            return;
+        }
         object value = field.Get(owner);
         if (field.Kind == SerializedType.Kind.List)
             _listMeasureSchemas[path] = field;
@@ -501,6 +528,12 @@ public sealed class ObjectDrawer
         bool acceptable = DragDrop.Active && DragDrop.Kind == DragDrop.Payload.Asset
             && App.Assets != null && App.Assets.IsAssignable(DragDrop.AssetPath, valueType);
         bool hover = acceptable && body.Contains(ev.MousePosition);
+        // Cift tik: asset'i Project panelinde goster (klasoru ac + sec). Tek tik/surukleme davranisi degismez.
+        if (ev.Type == EventType.MouseDown && ev.Button == 0 && ev.ClickCount == 2 && ev.MouseInClip && body.Contains(ev.MousePosition) && asset != null)
+        {
+            string k = AssetDatabase.KeyOf(asset, App.Assets);
+            if (k.Length > 0) { ProjectPanel.Reveal(k); ev.Use(); }
+        }
         if (ev.Type == EventType.Repaint)
         {
             GuiRenderer.DrawRect(body, hover ? new Color(70, 135, 85, 255)

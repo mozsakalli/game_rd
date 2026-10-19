@@ -12,7 +12,7 @@ namespace DigitoyEditor;
 // Imza parolalari PlayerSettings.android'de ([Sensitive]; git'e girer, RPC'de '***'); CI ortam degiskenleri aotcompiler'da ustun gelir.
 public static class AndroidBuildProps
 {
-    public static string Write(Project project)
+    public static string Write(Project project, int buildNumber)
     {
         var ps = project.Player;
         var a = ps.android ?? new AndroidSettings();
@@ -22,7 +22,7 @@ public static class AndroidBuildProps
             new("applicationId", string.IsNullOrWhiteSpace(a.packageName) ? ps.bundleIdentifier : a.packageName.Trim()),
             new("appName", ps.productName),
             new("versionName", ps.version),
-            new("versionCode", a.versionCode.ToString()),
+            new("versionCode", buildNumber.ToString()),
             new("targetSdk", a.targetSdk.ToString()),
             new("abis", "arm64-v8a"),                              // release ABI'leri (store); 64-bit, x86 yok
             new("debugAbis", a.includeX86_64 ? "x86_64" : ""),     // yalniz debug varyantina eklenir (emulator)

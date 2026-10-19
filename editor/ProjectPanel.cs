@@ -86,6 +86,38 @@ public sealed class ProjectPanel : EditorWindow
         _scroll = default;
     }
 
+    // Asset'i Project panelinde goster: klasorune (alt oge ise container'ina) gir, sec, satirina kaydir, paneli one getir.
+    // Inspector referans alanina cift tik + RPC select.asset buradan gelir (Unity "ping" karsiligi).
+    string _revealKey;
+    public static void Reveal(string key)
+    {
+        if (string.IsNullOrEmpty(key) || App.Assets == null) return;
+        string owner = SubAssets.Split(key, out string sid);
+        if (!App.Assets.AllAssets.ContainsKey(owner)) return;
+        var panel = GetWindow<ProjectPanel>();
+        panel.Enter(sid != null && SubAssets.IsContainer(owner) ? owner : AssetTree.Parent(owner));
+        panel._revealKey = key;
+        if (sid != null) Selection.SelectSubAsset(System.IO.Path.Combine(App.Assets.Root, owner), sid);
+        else Selection.AssetPath = System.IO.Path.Combine(App.Assets.Root, owner);
+    }
+
+    // Satirlar yeniden kurulunca bekleyen reveal'in satirini gorunur yap (liste/izgara ayni hesap).
+    void ApplyPendingReveal(bool grid, int cols, float cellH, float viewportH)
+    {
+        if (_revealKey == null) return;
+        string key = _revealKey;
+        _revealKey = null;
+        for (int i = 0; i < _rows.Count; i++)
+        {
+            if (!string.Equals(_rows[i].Key, key, StringComparison.OrdinalIgnoreCase)) continue;
+            float y = grid ? (i / Math.Max(1, cols)) * cellH : i * RowH;
+            float h = grid ? cellH : RowH;
+            if (y < _scroll.y || y + h > _scroll.y + viewportH)
+                _scroll = new Vec2(_scroll.x, Math.Max(0, y - viewportH * 0.5f + h * 0.5f));
+            return;
+        }
+    }
+
     protected override void OnGui()
     {
         var vis = GuiClip.VisibleRect;
@@ -183,6 +215,7 @@ public sealed class ProjectPanel : EditorWindow
         float cellH = cell + GridLabelH + GridGap;
         int rowsCount = grid ? (_rows.Count + cols - 1) / cols : _rows.Count;
         var view = new Rect(0, 0, viewW, grid ? rowsCount * cellH + GridGap : _rows.Count * RowH);
+        ApplyPendingReveal(grid, cols, cellH, vis.height - toolbarH);
         _scroll = Gui.BeginScrollView(new Rect(0, toolbarH, vis.width, vis.height - toolbarH), _scroll, view);
         var clipVis = GuiClip.VisibleRect;
 

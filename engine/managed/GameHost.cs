@@ -44,6 +44,43 @@ public static class GameHost
     public static string Title => _title;
     // Oyun adi (docs/plugins.md "Games"): pak .project kaydindan (ProjectSettings/Games/<ad>). Oyun kodu `GameHost.GameName` ile okur.
     public static string GameName { get; private set; } = "";
+    static string _bootKey = "";
+    // Kullaniciya gorunen surum (PlayerSettings.version) ve build numarasi (unix dakika; magaza sayaci). Pak .project'ten;
+    // editor Play'de PlayerSettings'ten. Oyun kodu sunucuya/crash raporuna buradan verir — kendi kopyasini tutmaz.
+    public static string Version { get; private set; } = "";
+    public static int BuildNumber { get; private set; }
+    // Dev build (player.build dev=true) ya da editor Play: [DevOnly] alanlar dolu, cihazda ortam secimi (test/prod) acik.
+    // Release'te false ve [DevOnly] degerler pak'ta YOK -> yanlislikla test sunucusuna baglanan magaza surumu imkansiz.
+    public static bool IsDev { get; private set; }
+    public static void SetVersion(string version, int buildNumber, bool dev = false) { Version = version ?? ""; BuildNumber = buildNumber; IsDev = dev; }
+    // Boot() kosmus IGameBoot nesnesi (oyun kodu ayarlarina buradan da erisebilir; null = boot yok/basarisiz).
+    public static IGameBoot GameBoot { get; private set; }
+
+    // PlayerSettings.boot: [Asset] nesneyi yukle, IGameBoot.Boot() cagir. Hata oyunu dusurmez (log). Editor Play ayni yolu kullanir.
+    public static void RunGameBoot(AssetDatabase assets, string bootKey)
+    {
+        GameBoot = null;
+        if (string.IsNullOrEmpty(bootKey))
+            return;
+        object obj;
+        try { obj = assets.LoadObject(bootKey); }
+        catch (Exception e) { Console.WriteLine("[host] boot yuklenemedi: " + bootKey + ": " + e.Message); return; }
+        if (obj is not IGameBoot boot)
+        {
+            Console.WriteLine("[host] boot IGameBoot degil: " + bootKey + " = " + (obj?.GetType().Name ?? "null"));
+            return;
+        }
+        try
+        {
+            boot.Boot();
+            GameBoot = boot;
+            Console.WriteLine("[host] boot: " + boot.GetType().Name);
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine("[host] BOOT HATASI " + boot.GetType().Name + ": " + e);
+        }
+    }
     public static bool IsBooted => _assets != null && _bootTask == null;
 
     // Runtime hazir, grafik context'i bu thread'de aktif. Bloklamaz: Boot async kosar, Frame pompalar.
@@ -155,6 +192,9 @@ public static class GameHost
         string name = prj.Name, startScene = prj.StartScene;
         GameName = prj.Game ?? "";
         if (GameName.Length > 0) Console.WriteLine("[host] game: " + GameName);
+        _bootKey = prj.Boot ?? "";
+        SetVersion(prj.Version, prj.BuildNumber, prj.Dev);
+        if (Version.Length > 0) Console.WriteLine("[host] version: " + Version + " (" + BuildNumber + ")" + (IsDev ? " DEV" : ""));
         _title = name;
         SetTitle?.Invoke(name);
         // Plugin ayarlari (docs/plugins.md): pak'ta .plugins blobu varsa (yoksa her plugin varsayilan ayarla).
@@ -249,6 +289,7 @@ public static class GameHost
         _assets = assets;
         Localize.InitLanguage(); // PlayerPrefs > cihaz dili > kaynak dil; baglar yuklemede bu dille yazilir
         Console.WriteLine("[host] dil: " + (Localize.Language ?? "(kaynak)"));
+        RunGameBoot(assets, _bootKey); // oyun girisi: servisler/statikler, sahneden ONCE (docs/plugins.md "IGameBoot")
         var op = SceneLoader.LoadAsync(startScene, assets, catalog);
         int lastDone = -1;
         while (!op.IsDone)

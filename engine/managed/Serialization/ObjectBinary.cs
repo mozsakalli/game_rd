@@ -95,6 +95,10 @@ public static class ObjectBinary
         => b[p] | (b[p + 1] << 8) | (b[p + 2] << 16) | (b[p + 3] << 24);
 
 #if DE_EDITOR
+    // RELEASE pak'i pisirilirken true (AssetPackBuilder): [DevOnly] alanlar DocNode'dan dusurulur -> default'la okunur; deger
+    // (test sunucu URL'si gibi) ikiliye/pak'a HIC girmez. Dev build ve editor: false.
+    public static bool StripDevOnly;
+
     // Alan haritasindan (YAML "fields:" / ObjectSerializer.ToNode) pisirir. assetRefs: referanslanan
     // asset anahtarlari (ham guid/yol) — pak builder bagimlilik kenari yazar.
     public static byte[] Bake(string typeName, DocNode fields, TypeCatalog catalog, Action<string> warn = null,
@@ -109,9 +113,24 @@ public static class ObjectBinary
     public static byte[] Bake(object obj, AssetDatabase assets, Action<string> warn = null)
         => Bake(obj.GetType().Name, SerializedType.Build(obj.GetType()), ObjectSerializer.ToNode(obj, assets), warn, null);
 
+    // [DevOnly] alanlari (ic ice nesneler dahil) cikarilmis kopya; StripDevOnly kapaliysa aynen.
+    static DocNode StripDev(DocNode fields, SerializedType.FieldSchema[] schema)
+    {
+        if (!StripDevOnly || fields?.Fields == null || schema == null) return fields;
+        var r = DocNode.Map();
+        foreach (var kv in fields.Fields)
+        {
+            var f = SerializedType.Find(schema, kv.Key);
+            if (f != null && f.DevOnly) continue;
+            r.Add(kv.Key, f != null && f.Kind == SerializedType.Kind.Object && f.Nested != null ? StripDev(kv.Value, f.Nested) : kv.Value);
+        }
+        return r;
+    }
+
     static byte[] Bake(string typeName, SerializedType.FieldSchema[] schema, DocNode fields, Action<string> warn,
         List<string> assetRefs)
     {
+        fields = StripDev(fields, schema);
         var strs = new Dictionary<string, int>();
         assetRefs ??= new List<string>();
         int Str(string s)

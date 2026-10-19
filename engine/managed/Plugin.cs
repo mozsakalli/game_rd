@@ -280,6 +280,7 @@ public abstract partial class Plugin
         readonly Queue<(string, string)> _inbox = new();
 
         public void Register(PluginMockBase mock) => _mocks[mock.PluginName] = mock;
+        public void Unregister(string plugin) => _mocks.Remove(plugin);
         public void Clear() { _mocks.Clear(); _inbox.Clear(); }
         public int Count => _mocks.Count;
 

@@ -5,6 +5,13 @@ namespace DigitoyEngine;
 
 public enum ScreenOrientation { Landscape, Portrait, Auto }
 
+// Oyunun giris noktasi (PlayerSettings.boot): [Serializable, Asset] sinif uygular; GameHost/editor Play, sahneden once Boot() cagirir.
+// Icinde Scene.Active/GameObject KULLANMA (henuz sahne yok); servisleri kur, baglantiyi baslat, statikleri doldur. Idempotent olmali.
+public interface IGameBoot
+{
+    void Boot();
+}
+
 // Unity PlayerSettings karsiligi: BIR OYUNUN yayin kimligi ve calisma zamani varsayilanlari.
 // Proje = ortak Assets/ + N oyun (docs/plugins.md "Games"): her oyunun TAM ayar dosyasi
 // ProjectSettings/Games/<ad>/PlayerSettings.asset (git'e girer; kullanici ayarlari UserSettings/EditorSettings'ten
@@ -17,8 +24,14 @@ public class PlayerSettings
     // Scenes/Games/Plugins ozel sayfalar). Serilesmeyi etkilemez.
     public string companyName = "DefaultCompany";
     public string productName = "Game";
+    // Kullaniciya gorunen surum: TEK kaynak (Android versionName, iOS CFBundleShortVersionString, runtime GameHost.Version).
     public string version = "0.1.0";
     public string bundleIdentifier = "com.defaultcompany.game"; // mobil/masaustu paket kimligi
+
+    // BUILD NUMARASI: elle alan YOK. Build aninda unix DAKIKA (int): monoton, Play Store tavani (2.1 milyar) 2000+ yil uzak,
+    // iOS CFBundleVersion'a sigar; Android ve iOS AYNI sayiyi alir (tek build kimligi). Ayni dakikada iki magaza yuklemesi yapma.
+    // CI/geri alma icin --build-number ile ezilir.
+    public static int BuildNumberNow() => (int)(DateTimeOffset.UtcNow.ToUnixTimeSeconds() / 60);
 
     // Unity Build Settings > Scenes In Build karsiligi: pak'a girecek sahneler (Assets'e
     // goreli). Pak builder yalniz bu sahnelerden erisilen asset'leri paketler; listede
@@ -26,6 +39,12 @@ public class PlayerSettings
     // (pencere zorlar; builder eksikse uyarip ekler). Ikisi de ozel bolumle cizilir.
     [HideInInspector] public List<string> scenes = new();
     [HideInInspector] public string startScene = "Scenes/Main.scene"; // Assets'e goreli ilk sahne
+
+    // OYUN GIRISI (docs/plugins.md "IGameBoot"): oyunun TEK ayar+baslatma nesnesi — [Serializable, Asset] bir sinif, IGameBoot uygular,
+    // alanlari gomulu (NetworkSettings, GameDefinition... ayri dosya degil). GameHost pak acilip katalog kurulunca, startScene'den
+    // ONCE Boot() cagirir; editor Play de acik sahneden bagimsiz ayni cagriyi yapar (Lobby'den Play = servisler hazir).
+    // Sahne yok; sahneyle ilgisi yok. Bos = boot yok. Boot() idempotent olmali (tekrar Play, hot reload).
+    public IGameBoot boot;
 
     // TEMA (docs/engine-notes.md TEMA): sahne/prefab dosyalarindaki isimli override katmanlari. themes = bu OYUNUN
     // ad listesi (serbest metin: xmas, kurban...; taban "default" listede YAZILMAZ; adlar oyunlar arasi ortak sozluk —
@@ -93,7 +112,7 @@ public class PlayerSettings
 public class AndroidSettings
 {
     public string packageName = "";        // bos = bundleIdentifier (applicationId)
-    public int versionCode = 1;            // Play Store her yuklemede artis ister (versionName = PlayerSettings.version)
+    // versionCode YOK: build numarasi otomatik (PlayerSettings.BuildNumber: unix dakika; Android versionCode + iOS CFBundleVersion ayni sayi).
     public int targetSdk = 35;
     public bool includeX86_64 = true;      // emulator ABI'si YALNIZ debug APK'ya girer; release her zaman yalniz arm64-v8a
     public string keystorePath = "";       // proje kokune goreli ya da mutlak .keystore/.jks; bos = debug imza
@@ -110,7 +129,7 @@ public class AndroidSettings
 public class IosSettings
 {
     public string bundleId = "";           // bos = bundleIdentifier
-    public int buildNumber = 1;            // CFBundleVersion; App Store her yuklemede artis ister (CFBundleShortVersionString = PlayerSettings.version)
+    // buildNumber YOK: CFBundleVersion otomatik (PlayerSettings.BuildNumber); CFBundleShortVersionString = PlayerSettings.version.
     public string minIos = "15.0";         // IPHONEOS_DEPLOYMENT_TARGET
     public string teamId = "";             // Apple Developer Team ID (10 karakter); bos = Xcode'da secilir
     public string icon = "";               // Assets'e goreli PNG (1024x1024, opak, kose yuvarlatma YOK); bos = engine varsayilani

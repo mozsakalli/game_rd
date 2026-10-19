@@ -90,11 +90,13 @@ static class RpcCommands
             "Baglanmamasi gereken metin (nick, skor): loc.unbind(go, comp, field) -> prop '' (bilerek kapali). Diger string alanlar icin loc.bind(go, comp, field, key?)",
             "Parametreli metin sablonu tabloda ('{0} coins'); kod key bilmeden comp.Format(args) cagirir. Play'de args gelmeden sablon gorunmez",
             "Ceviri dongusu: loc.languages -> loc.addLanguage(code) (yalniz katalog) -> loc.missing(lang) -> cevir -> loc.set(entries) (tek undo). Dil degistir: loc.setLanguage(lang) (edit + Play aninda). Denetim: loc.unused, loc.usages(key), loc.glyphCheck",
-            "Tabloyu asset.write ile YAZMA: loc.set/loc.rename/loc.remove kullan (undo'lu, canli)"));
+            "Tabloyu asset.write ile YAZMA: loc.set/loc.rename/loc.remove kullan (undo'lu, canli)",
+            "KOD TARAFI (sunucu hata kodu, durum etiketi gibi 'kod -> metin'): enum'a [Localize(\"error\")] koy (kisa adi LocalizeAttribute olan her attribute tanilir; paylasilan DLL kendi attribute'unu tanimlayabilir, motora referans gerekmez). Editor her kod yuklemesinde / loc.sync ile tabloya '<prefix>.<uye_slug>' satirlarini acar (kaynak dil uye adindan), enum'da olmayanlari SILER (prefix enum'a aittir; elle satir acma). Runtime: Localize.Get(enumDegeri) / Localize.Format(enumDegeri, args); sunucu metin degil enum int'i + arg gonderir"));
         r.Add("games", Lines(
             "PROJE = ORTAK Assets + N OYUN (ProjectSettings/Games/<ad>/PlayerSettings.asset + Plugins/<Ad>.asset: her oyunun TAM ayarlari — kimlik, sahneler, startScene, temalar, plugin config). Oyun kodu ortak ve hep derlenir; pak/trim/plugin canliligi o oyunun sahne kumesinden turer. Konvansiyon: oyuna ozel asset Assets/Games/<Ad>/, ortak Assets/Shared/",
             "game.list -> game.set(name): CALISILAN oyun (toolbar combosu) = Play/Build/pak baglami; gecis o oyunun son sahnesini/temasini/cihazini geri getirir ve oyun kodunu taze ALC ile yukler (statikler sifir). Bir oyunu duzenlemek icin gecis GEREKMEZ: Player Settings penceresi oyun sekmeleriyle her oyunu duzenler",
-            "game.create(name, copyFrom) yeni oyun (ortak alanlar icin mevcut oyundan kopya); game.remove(name). Build ciktisi Build/<game>/; player.build calisilan oyunu kurar; ayni projede ikinci editor: DigitoyEditor.exe <proje> --game <ad>"));
+            "game.create(name, copyFrom) yeni oyun (ortak alanlar icin mevcut oyundan kopya); game.remove(name). Build ciktisi Build/<game>/; player.build calisilan oyunu kurar; ayni projede ikinci editor: DigitoyEditor.exe <proje> --game <ad>",
+            "OYUN GIRISI: PlayerSettings.boot = [Serializable, Asset] bir sinifin .asset'i (IGameBoot uygular; alanlari GOMULU: NetworkSettings, GameDefinition... ayri dosya degil). GameHost ve editor Play sahneden ONCE Boot() cagirir -> Lobby'den Play'de de servisler hazir. Boot() icinde sahne/GO yok; idempotent olmali. Login sahnesine init alani/ref koyma"));
         r.Add("themes", Lines(
             "TEMA (xmas, kurban...): sahne/prefab DOSYASININ ICINDE isimli override katmani (themes: {xmas: {overrides, removed, added}}); sahne kopyasi/kod dali YOK. Tema listesi OYUNA ait (PlayerSettings.themes; adlar oyunlar arasi ortak sozluk). Build tek temayla piser (PlayerSettings.activeTheme ya da asset.buildPak/player.build theme=...), diger temalar ve asset'leri pak'a girmez. Runtime tema bilmez",
             "Akis: theme.add(name) -> theme.set(name) (calisilan tema = dil gibi: edit + Play; undo yigini temizlenir; bu baglanti icin BEYAN) -> normal prop.set/comp.add/scene.addGo/scene.removeGo: HEPSI o temanin katmanina yazilir, taban dokunulmaz -> scene.save. theme.set('') tabana doner. Beyan etmeden tema acikken mutasyon = hata (tema kapisi); tek istekte theme:'ad' arg'i da gecer",
@@ -946,7 +948,7 @@ static class RpcCommands
         return null;
     }
 
-    [RpcCommand("select.asset", "Project panelinde asset secer (Assets'e goreli yol ya da guid; bos = temizle) — Inspector import ayarlari/onizlemeyi gosterir")]
+    [RpcCommand("select.asset", "Project panelinde asset secer ve gosterir (klasorune gider; Assets'e goreli yol ya da guid; bos = temizle) — Inspector import ayarlari/onizlemeyi gosterir")]
     static DocNode SelectAsset(RpcContext ctx, string path = "")
     {
         if (string.IsNullOrEmpty(path))
@@ -955,9 +957,10 @@ static class RpcCommands
             return null;
         }
         string rel = App.Assets.ResolvePath(path);
-        if (!App.Assets.Exists(rel))
+        string owner = SubAssets.Split(rel, out _);
+        if (!App.Assets.Exists(owner))
             throw new RpcError("asset yok: " + path);
-        Selection.AssetPath = System.IO.Path.Combine(App.Assets.Root, rel);
+        ProjectPanel.Reveal(rel);
         return null;
     }
 
@@ -2077,13 +2080,14 @@ static class RpcCommands
         return theme;
     }
 
-    [RpcCommand("player.build", "game.pak + aotcompiler ile player uretir (target: windows=exe | android=Android Studio projesi | ios=Xcode projesi (Build/ios) | wasm=Build/wasm web cikti); sonuc build bitince doner. theme: pak temasi (bos = PlayerSettings.activeTheme)")]
-    static DocNode PlayerBuild(string target = "windows", string theme = null)
+    [RpcCommand("player.build", "game.pak + aotcompiler ile player uretir (target: windows=exe | android=Android Studio projesi | ios=Xcode projesi (Build/ios) | wasm=Build/wasm web cikti); sonuc build bitince doner. theme: pak temasi (bos = PlayerSettings.activeTheme). buildNumber: 0 = otomatik (unix dakika; Android versionCode = iOS CFBundleVersion). dev: varsayilan TRUE (editor/menu hep dev: [DevOnly] alanlar pak'ta, GameHost.IsDev, cihazda test/prod secimi). MAGAZA/CI = dev=false ([DevOnly] degerler ikiliye girmez, daima prod)")]
+    static DocNode PlayerBuild(string target = "windows", string theme = null, int buildNumber = 0, bool dev = true)
     {
         int v0 = PlayerBuilder.Version;
         AssetPackBuilder.ThemeOverride = ThemeArg(theme); // PlayerBuilder pak'i senkron kurar, sonra temizlenir
+        PlayerBuilder.BuildNumberOverride = buildNumber > 0 ? buildNumber : null;
         bool started;
-        try { started = PlayerBuilder.Start(target); }
+        try { started = PlayerBuilder.Start(target, dev); }
         finally { AssetPackBuilder.ThemeOverride = null; }
         if (!started)
         {

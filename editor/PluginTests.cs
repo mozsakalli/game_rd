@@ -51,8 +51,9 @@ public static class PluginTests
         var prevLoader = Plugin.SettingsLoader;
         try
         {
+            // Yalniz KENDI plugin'imizin instance/mock'una dokunulur: oyun mock'lari (CompileAndLoad'da kaydedildi) silinmez
+            // (eski Clear() acilista tum oyun mock'larini ucuruyordu -> "AppLovin: host'ta kayitli degil").
             Plugin.ResetAll();
-            Plugin.MockHost.Instance.Clear();
             Plugin.Host = Plugin.MockHost.Instance;
             Plugin.SettingsLoader = null;
 
@@ -119,7 +120,7 @@ public static class PluginTests
         finally
         {
             Plugin.ResetAll();
-            Plugin.MockHost.Instance.Clear();
+            Plugin.MockHost.Instance.Unregister("TestPlugin");
             Plugin.LoadSettingsBlob(null, null);
             Plugin.Host = prevHost;
             Plugin.SettingsLoader = prevLoader;

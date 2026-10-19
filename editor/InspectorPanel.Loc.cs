@@ -144,10 +144,19 @@ public sealed partial class InspectorPanel
             _locKeyText = keyNode.Scalar ?? "";
         }
         string keyBuf = _locKeyPath == path ? _locKeyText : key;
-        if (Gui.Button(new Rect(w - 66, y, 62, 18), "Rename") && keyBuf != key && keyBuf.Length > 0)
+        // Yazilan key tabloda VARSA eylem "Use" = bu alani o satira bagla (RebindLocExisting: eski satir kullanilmiyorsa ve
+        // en fazla tek dilde doluysa duser); yoksa "Rename" = satiri yeniden adlandir.
+        bool keyExists = keyBuf != key && keyBuf.Length > 0 && LocTableStore.Get(scope)?.Find(keyBuf) >= 0;
+        if (Gui.Button(new Rect(w - 66, y, 62, 18), keyExists ? "Use" : "Rename") && keyBuf != key && keyBuf.Length > 0)
         {
-            if (LocTableStore.Get(scope)?.Find(keyBuf) >= 0)
-                EditorLog.Warning($"[loc] key zaten var: {keyBuf}");
+            if (keyExists)
+            {
+                es.RebindLocExisting(g, cd, f, key, keyBuf);
+                _locKeyPath = null;
+                _locSuggestPath = null;
+                ResetDocTextBuffers();
+                return;
+            }
             else
             {
                 es.History.Push(new LocRenameOp { Scope = scope, OldKey = key, NewKey = keyBuf });

@@ -109,6 +109,7 @@ public static class Localize
             if (_registered.TryGetValue(key, out var old))
                 _loaded.Remove(old);
             _registered.Remove(key);
+            _loadedByKey.Remove(key);
         }
         else
             _registered[key] = table;
@@ -127,12 +128,20 @@ public static class Localize
                 return null;
             t = assets.LoadObject(key, typeof(LocalizationTable)) as LocalizationTable;
         }
-        if (t != null && !_loaded.Contains(t))
+        if (t == null)
+            return null;
+        // Ayni anahtarin onceki instance'i (kod reload'inda AssetDatabase nesne cache'i duser, tablo yeniden yuklenir)
+        // listeden duser: Get(key) bayat tabloyu once tarayip eski metin dondurmesin.
+        if (_loadedByKey.TryGetValue(key, out var prev) && !ReferenceEquals(prev, t))
+            _loaded.Remove(prev);
+        _loadedByKey[key] = t;
+        if (!_loaded.Contains(t))
             _loaded.Add(t);
         return t;
     }
 
     static readonly List<LocalizationTable> _loaded = new();
+    static readonly Dictionary<string, LocalizationTable> _loadedByKey = new(StringComparer.Ordinal);
     public static IReadOnlyList<LocalizationTable> LoadedTables => _loaded;
 
     // Kod yolu: tablo + key -> gecerli dildeki metin (fallback kaynak dil), yoksa null.
@@ -165,6 +174,78 @@ public static class Localize
                 return FormatString(s, args, _language, _loaded[i]);
         }
         return "[MISSING:" + key + "]";
+    }
+
+    // ---------------- [Localize] enum ----------------
+    // Enum degeri -> key "<prefix>.<slug(Uye)>" (LocalizeAttribute, engine-notes "LOCALIZATION: [Localize] ENUM"). Prefix yuklu
+    // tablolarin Enums kaydindan (editor senkronu yazar); kayit yoksa slug(tip adi). Runtime attribute OKUMAZ (AOT'ta
+    // reflection yuzeyi: yalniz Type.Name + Enum.ToString, ikisi de her enum icin kok). Sicak yol degil (hata mesaji,
+    // durum etiketi): cagri basina kucuk string allocu kabul; prefix onbellegi string anahtarli (ALC'yi rehin almaz).
+    public static string EnumKey(Enum value)
+    {
+        if (value == null)
+            return null;
+        return EnumPrefix(value.GetType().Name) + "." + EnumSlug(value.ToString());
+    }
+
+    public static string Get(Enum value) => Get(EnumKey(value));
+    public static string Format(Enum value, params object[] args) => Format(EnumKey(value), args);
+
+    static readonly Dictionary<string, string> _enumPrefix = new(StringComparer.Ordinal);
+    static int _enumPrefixLoaded = -1;
+
+    public static string EnumPrefix(string typeName)
+    {
+        if (_enumPrefixLoaded != _loaded.Count) // tablo yuklendi/dustu: onbellek bayat
+        {
+            _enumPrefix.Clear();
+            _enumPrefixLoaded = _loaded.Count;
+        }
+        if (_enumPrefix.TryGetValue(typeName, out var p))
+            return p;
+        p = null;
+        for (int i = 0; i < _loaded.Count && p == null; i++)
+            p = _loaded[i].EnumPrefix(typeName);
+        p ??= EnumSlug(typeName);
+        _enumPrefix[typeName] = p;
+        return p;
+    }
+
+    // C# tanimlayicisi -> kucuk snake_case: "InsufficientCoins" -> "insufficient_coins", "HTTPError" -> "http_error",
+    // "ROOM_FULL" -> "room_full". Editor ve runtime AYNI fonksiyonu kullanir (key'ler birebir eslesmeli); yalniz ASCII.
+    public static string EnumSlug(string ident)
+    {
+        if (string.IsNullOrEmpty(ident))
+            return "";
+        var sb = new StringBuilder(ident.Length + 4);
+        bool lastUnderscore = true;
+        for (int i = 0; i < ident.Length; i++)
+        {
+            char ch = ident[i];
+            if (ch == '_' || !(ch < 128 && (char.IsLetter(ch) || char.IsDigit(ch))))
+            {
+                if (!lastUnderscore) { sb.Append('_'); lastUnderscore = true; }
+                continue;
+            }
+            if (IsEnumWordStart(ident, i) && !lastUnderscore)
+                sb.Append('_');
+            sb.Append(char.ToLowerInvariant(ch));
+            lastUnderscore = false;
+        }
+        while (sb.Length > 0 && sb[sb.Length - 1] == '_')
+            sb.Length--;
+        return sb.ToString();
+    }
+
+    // Kelime siniri: kucuk/rakam -> buyuk ("tCo"), ya da buyuk -> buyuk+kucuk ("PEr": kisaltma sonu).
+    internal static bool IsEnumWordStart(string s, int i)
+    {
+        if (i == 0 || !char.IsUpper(s[i]))
+            return false;
+        char prev = s[i - 1];
+        if (char.IsLower(prev) || char.IsDigit(prev))
+            return true;
+        return char.IsUpper(prev) && i + 1 < s.Length && char.IsLower(s[i + 1]);
     }
 
     // ---------------- Binding ----------------

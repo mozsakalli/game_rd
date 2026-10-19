@@ -30,6 +30,7 @@ public static class ObjectBinaryTests
     {
         public string Name = "grunt";
         public int Hp = 10;
+        [DevOnly] public string DebugUrl = "";
     }
 
     [Serializable, Asset]
@@ -173,6 +174,17 @@ public static class ObjectBinaryTests
         // --- Katalog degisince cache duser ---
         db2.Catalog = new TypeCatalog();
         Check(db2.LoadObject("Defs/L1.asset") == null, "katalog reload -> cache temiz");
+
+        // --- [DevOnly] alan: release pak'inda (StripDevOnly) yazilmaz -> default; dev'de aynen ---
+        var devE = new ObjTestEnemy { Name = "d", DebugUrl = "http://test" };
+        var bDev = ObjectBinary.Bake(devE, db);
+        Check(((ObjTestEnemy)ObjectBinary.Read(bDev, catalog, db)).DebugUrl == "http://test", "[DevOnly] alan dev pak'ta kalir");
+        ObjectBinary.StripDevOnly = true;
+        byte[] bRel;
+        try { bRel = ObjectBinary.Bake(devE, db); }
+        finally { ObjectBinary.StripDevOnly = false; }
+        var relE = (ObjTestEnemy)ObjectBinary.Read(bRel, catalog, db);
+        Check(relE.DebugUrl == "" && relE.Name == "d" && !Encoding.UTF8.GetString(bRel).Contains("http://test"), "[DevOnly] alan release pak'ina girmez (bayt duzeyinde yok)");
 
         // --- Olmayan anahtar sonradan gelir: null sonuc / basarisiz ensure YAPISKAN KALMAZ ---
         // (kaynak senkron tamamlanir: in-flight/memo sirasi hatasi burada ortaya cikar)

@@ -99,7 +99,8 @@ static unsafe class UiAutomation
     {
         var ev = new GuiInput.Queued { Type = type, Button = button, ClickCount = clicks, Mods = mods };
         Vec2 ppx = default;
-        bool popup = _target == IntPtr.Zero && GuiPopup.Active && GuiPopup.TryMapFromHost(_window, logical, out ppx);
+        // Popup (combo listesi) ayri OS penceresi: tik hedef pencerenin (ana ya da utility) mantiksal noktasindan eslenir.
+        bool popup = GuiPopup.Active && GuiPopup.TryMapFromHost(_target != IntPtr.Zero ? _target : _window, logical, out ppx);
         float k = Scale;
         if (popup)
             ev.Mouse = ppx;

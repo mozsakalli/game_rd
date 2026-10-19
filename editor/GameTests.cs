@@ -59,6 +59,7 @@ public static class GameTests
             // --- 3) CreateGame (kopya) / RemoveGame / son oyun korunur ---
             p2.CreateGame("mini", "gin");
             Check(p2.HasGame("mini") && p2.PlayerFor("mini").productName == "mini" && p2.PlayerFor("mini").bundleIdentifier == "com.x.gin", "CreateGame: kopya + ad");
+            Check(p2.PlayerFor("mini").scenes.Count == 0 && p2.PlayerFor("mini").startScene == "", "CreateGame: sahne kumesi kopyalanmaz");
             Check(File.Exists(p2.PluginSettingsPathFor("mini", "Facebook")), "CreateGame: plugin ayarlari kopyalanir");
             bool threw = false;
             try { p2.CreateGame("a b", null); } catch (ArgumentException) { threw = true; }
@@ -79,10 +80,13 @@ public static class GameTests
             Check(p4.GameNames().Count == 1 && p4.Game == "Fresh_Proj" && File.Exists(p4.PlayerSettingsPath), "bos proje: klasor adiyla ilk oyun");
 
             // --- 5) ProjectBinary game alani + eski (bos) uyum ---
-            var b3 = ProjectBinary.Write("G", "S", new[] { "S", "T" }, "okey");
-            Check(ProjectBinary.TryRead(b3, out ProjectBinary.Record rec) && rec.Game == "okey" && rec.Scenes.Length == 2, "ProjectBinary game");
+            var b3 = ProjectBinary.Write("G", "S", new[] { "S", "T" }, "okey", "Games/Okey/Boot.asset", "1.2.3", 29800000, dev: true);
+            Check(ProjectBinary.TryRead(b3, out ProjectBinary.Record rec) && rec.Game == "okey" && rec.Scenes.Length == 2 && rec.Boot == "Games/Okey/Boot.asset"
+                && rec.Version == "1.2.3" && rec.BuildNumber == 29800000 && rec.Dev, "ProjectBinary game + boot + version + buildNumber + dev");
             var bEmpty = ProjectBinary.Write("G", "S", null);
-            Check(ProjectBinary.TryRead(bEmpty, out var rec2) && rec2.Game == "", "ProjectBinary game bos");
+            Check(ProjectBinary.TryRead(bEmpty, out var rec2) && rec2.Game == "" && rec2.Boot == "" && rec2.Version == "" && rec2.BuildNumber == 0 && !rec2.Dev, "ProjectBinary bos alanlar");
+            int bn = PlayerSettings.BuildNumberNow();
+            Check(bn > 29_000_000 && bn < 2_100_000_000, "build numarasi unix dakika, Play Store tavaninin altinda");
 
             // --- 6) Editor durumu: oyun basina stash/restore ---
             var es = new EditorSettings { lastScene = "Assets/A.scene", workingTheme = "xmas", sceneCamZoom = 2f, deviceName = "ipad" };

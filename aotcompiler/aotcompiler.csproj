@@ -28,6 +28,13 @@
     <!-- selftest ayri host projesiyle derlenir (Main cakismasi) -->
     <Compile Remove="tests\**\*.cs" />
     <Compile Remove="obj\**\*.cs" />
+    <!-- kanca API'si ayri assembly (hooks/DigitoyEngine.Build): editorle TEK tip kimligi -->
+    <Compile Remove="source\ProjectHooks.cs" />
+    <Compile Remove="hooks\**\*.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="hooks\DigitoyEngine.Build.csproj" />
   </ItemGroup>
 
 </Project>

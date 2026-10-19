@@ -877,6 +877,7 @@ public unsafe class App
 #endif
         _editScene.UnloadLive();
         _stashedScene?.UnloadLive(); // stage arkasindaki sahne de eski tipleri tutmasin
+        LocTableStore.Flush(); // bekleyen tablo yazimlari diske: RebuildCatalog [Asset] cache'ini dusurur, tablo diskten yeniden yuklenir
         _assets.ScanMetas(createMissing: true); // yeni eklenen dosyalar guid alsin
         _gameCode.LoadCompiled(_project, _assets, job);
         RebuildCatalog();
@@ -909,6 +910,7 @@ public unsafe class App
             _catalog.RegisterAlias(r.Key, r.Value); // typemap rename'leri: eski ad cozulur
         Scene.Active.Catalog = _catalog;
         _assets.Catalog = _catalog; // [Asset] nesne cache'i eski tiplerle birlikte duser
+        _project.BindAssets(_assets); // PlayerSettings asset referanslari (boot) taze katalogla yeniden cozulur
 
         // SceneView araclari: builtin'ler + oyun/plugin assembly'lerinin [EditorTool]'lari.
         EditorTools.Rebuild(editorAndCode);
@@ -929,6 +931,10 @@ public unsafe class App
                     AssetTypes.Add(t);
         }
         AssetTypes.Sort((a, b) => string.CompareOrdinal(a.Name, b.Name));
+
+        // [Localize] enum'lar -> ceviri tablosu satirlari (ekle/sil); hata startup'i kesmez.
+        try { LocEnumSync.SyncAll(code, _project); }
+        catch (Exception e) { EditorLog.Warning("[loc] enum sync basarisiz: " + e.Message); }
     }
 
     internal static readonly System.Collections.Generic.List<Type> AssetTypes = new();

@@ -1,4 +1,4 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <!-- DigitoyEditor: gercek editor uygulamasi (exe). Motoru referanslar; bir
        PROJE klasoru acar (Projects/Sandbox gibi), sahneyi doc olarak yukler,
@@ -32,7 +32,8 @@
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.12.0" />
     <!-- Ortak in-process Roslyn derleyicisi (aotcompiler ile AYNI dosya): oyun kodu hot-reload -->
     <Compile Include="..\aotcompiler\source\RoslynCompiler.cs" Link="Build\RoslynCompiler.cs" />
-    <Compile Include="..\aotcompiler\source\ProjectHooks.cs" Link="Build\ProjectHooks.cs" />
+    <!-- Plugin kanca API'si: aotcompiler ile AYNI assembly (kopya degil) -> kullanici Editor/ kodu tek tip kimligi gorur -->
+    <ProjectReference Include="..\aotcompiler\hooks\DigitoyEngine.Build.csproj" />
   </ItemGroup>
 
   <!-- Native motor kutuphanesi cikti klasorune kopyalanir (P/Invoke burada arar). -->

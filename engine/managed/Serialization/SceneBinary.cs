@@ -846,12 +846,13 @@ public static unsafe class SceneBinary
 
 // Proje ayarlari (release): pak icinde ".project" anahtariyla pismis kayit;
 // runtime project.yaml OKUMAZ. Duzen (v3): i32 magic "DPRJ", i32 version, str name,
-// str startScene, i32 nScenes, str[] scenes (build'e dahil sahneler; startScene ilk), [v3] str game (ProjectSettings/Games/<ad>).
+// str startScene, i32 nScenes, str[] scenes (build'e dahil sahneler; startScene ilk), [v3] str game (ProjectSettings/Games/<ad>),
+// [v4] str boot (IGameBoot asset anahtari; bos = yok).
 public static class ProjectBinary
 {
     public const string PakKey = ".project";
     public const int Magic = 0x4A525044; // "DPRJ"
-    public const int Version = 3;
+    public const int Version = 4;
 
     public sealed class Record
     {
@@ -859,6 +860,10 @@ public static class ProjectBinary
         public string StartScene;
         public string[] Scenes = Array.Empty<string>();
         public string Game = ""; // oyun adi (docs/plugins.md "Games"); eski pak'larda bos
+        public string Boot = ""; // [v4] IGameBoot asset anahtari (PlayerSettings.boot); bos = yok
+        public string Version = ""; // [v4] PlayerSettings.version (kullaniciya gorunen surum)
+        public int BuildNumber;     // [v4] build numarasi (unix dakika; Android versionCode = iOS CFBundleVersion)
+        public bool Dev;            // [v4] dev build: [DevOnly] alanlar pak'ta, cihazda ortam secimi acik (GameHost.IsDev)
     }
 
     public static bool TryRead(byte[] data, out string name, out string startScene)
@@ -892,6 +897,13 @@ public static class ProjectBinary
             rec.Scenes = new[] { rec.StartScene };
         if (version >= 3)
             rec.Game = Str(data, ref pos);
+        if (version >= 4)
+        {
+            rec.Boot = Str(data, ref pos);
+            rec.Version = Str(data, ref pos);
+            rec.BuildNumber = I32(data, ref pos);
+            rec.Dev = I32(data, ref pos) != 0;
+        }
         return true;
     }
 
@@ -912,7 +924,7 @@ public static class ProjectBinary
     }
 
 #if DE_EDITOR
-    public static byte[] Write(string name, string startScene, IReadOnlyList<string> scenes = null, string game = "")
+    public static byte[] Write(string name, string startScene, IReadOnlyList<string> scenes = null, string game = "", string boot = "", string version = "", int buildNumber = 0, bool dev = false)
     {
         var strs = new List<byte[]> { Encoding.UTF8.GetBytes(name ?? ""), Encoding.UTF8.GetBytes(startScene ?? "") };
         int nScenes = scenes?.Count ?? 0;
@@ -920,7 +932,11 @@ public static class ProjectBinary
             strs.Add(Encoding.UTF8.GetBytes(scenes[i] ?? ""));
         var variantBytes = Encoding.UTF8.GetBytes(game ?? "");
         strs.Add(variantBytes);
-        int size = 8 + 4;
+        var bootBytes = Encoding.UTF8.GetBytes(boot ?? "");
+        strs.Add(bootBytes);
+        var versionBytes = Encoding.UTF8.GetBytes(version ?? "");
+        strs.Add(versionBytes);
+        int size = 8 + 4 + 4 + 4;
         foreach (var s in strs)
             size += 2 + s.Length;
         var b = new byte[size];
@@ -933,6 +949,10 @@ public static class ProjectBinary
         for (int i = 0; i < nScenes; i++)
             PutStr(b, ref p, strs[2 + i]);
         PutStr(b, ref p, variantBytes);
+        PutStr(b, ref p, bootBytes);
+        PutStr(b, ref p, versionBytes);
+        Put(b, ref p, buildNumber);
+        Put(b, ref p, dev ? 1 : 0);
         return b;
     }
 

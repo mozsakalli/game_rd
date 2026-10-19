@@ -1,5 +1,93 @@
 # DigitoyEngine R&D (game_rd)
 
+## LOCALIZATION: [Localize] ENUM — kod→metin kümeleri (sunucu hata kodu) tablodan, otomatik senkron (2026-10-19, [localization] 60 PASS, RPC e2e)
+- SORU: sunucu hata kodu gönderiyor, istemci dinamik çevrilmiş metin gösterecek. KARAR: sunucu **metin değil enum int'i + arg**
+  gönderir; cümle istemcide tablodan (`{0}` yerleşimi dile göre). Enum'a `[Localize("error")]` → key `error.<slug(Üye)>`
+  (`InsufficientCoins` → `error.insufficient_coins`). **AD KURALI** (`[Preserve]` gibi): kısa adı `LocalizeAttribute` olan her
+  attribute tanınır (base zinciri dahil; ilk string ctor arg'ı = prefix) → sunucu+istemci ortak DLL kendi attribute'unu tanımlar,
+  motora referans yok. Motorda da `DigitoyEngine.LocalizeAttribute` var ([Attributes.cs](../engine/managed/Serialization/Attributes.cs)).
+- EDİTÖR [`LocEnumSync`](../editor/LocEnumSync.cs): her kod yüklemesinde (`RebuildCatalog` sonu) + RPC `loc.sync`. Yüklü oyun/plugin
+  assembly'leri taranır (`CustomAttributeData`, tip çözümü gerekmez); eksik satır açılır, **kaynak-dil hücresi üye adından**
+  (`Humanize`: "Insufficient coins", "HTTP error", "Room full"; diğer diller boş → `loc.missing`); **prefix enum'a aittir**: enum'da
+  olmayan `prefix.*` satırları ve enum'u kodda kalmayan kaydın tüm satırları SİLİNİR (**undo'suz**, kullanıcı kararı: "enum uçunca
+  metni de gereksiz"; üye rename = çeviri kaybı, kabul). Tablo `Enums[{Type, Prefix}]` kaydı (YAML/DOBJ'a girer) = runtime'ın prefix
+  kaynağı. Prefix çakışması (iki enum aynı prefix) → ikincisi uyarıyla atlanır. Kapsam: plugin dll `Assets/Modules/<ad>/` altındaysa
+  modül tablosu, aksi halde host (oyun assembly'si tek dosya → hep host). `LocAudit.AllUsages` enum üyelerini kullanım sayar
+  (`loc.unused` dinamik key sorunu kapandı; `loc.usages` → "enum ServerError.RoomFull").
+- RUNTIME ([Localize.cs](../engine/managed/Localization/Localize.cs)): `Localize.Get(Enum)` / `Format(Enum, args)` /
+  `EnumKey(Enum)`; prefix = yüklü tabloların `Enums` kaydı, yoksa `EnumSlug(tip adı)`. Reflection yüzeyi yalnız `Type.Name` +
+  `Enum.ToString()` (her enum için zaten trim kökü, `TrimAnalysis` 119) — attribute okunmaz, codegen yok. Sıcak yol değil: çağrı
+  başına küçük string allocu kabul; prefix önbelleği string anahtarlı (`_loaded.Count` değişince düşer; Type tutmaz → ALC pin yok).
+  `EnumSlug` editör+runtime ORTAK (key'ler birebir): lower→Upper ve Upper→Upper+lower sınırı ("HTTPError"→"http_error"), `_` korunur.
+  AOT publish bu turda ÇALIŞTIRILMADI (corelib `Enum.ToString` üye adı döner; sorun çıkarsa buraya).
+- YAN DÜZELTMELER (bağlı): (1) `Localize.Table()` aynı anahtarın eski instance'ını `_loaded`'dan düşürür (`_loadedByKey`) — kod
+  reload'ında `AssetDatabase.Catalog` set edilince [Asset] cache düşüyor, tablo yeniden yükleniyor, eski instance listede kalıp
+  `Get(key)`'e bayat metin veriyordu. (2) `ApplyCompiledGame` reload'dan önce `LocTableStore.Flush()` — bekleyen (1 sn gecikmeli)
+  tablo yazımı cache düşünce kayboluyordu (gözlendi: "+3" iki kez; şimdi tek).
+- Doğrulama: Sandbox'a `asset.write` ile enum → `code.build` → `loc.list` 3 satır/kaynak dolu, `loc.sync` idempotent, üye silme →
+  satır düştü, dosya silme → satırlar + `Enums` kaydı düştü; tablo diff'i temiz (yalnız boş `Enums:` alanı). `rpc.guide`
+  "localization" bölümüne kod tarafı kuralı eklendi.
+- SONRAKİ: Localization penceresine "Sync enums" butonu yok (RPC/otomatik yeterli görüldü); sunucu ile enum listesini senkron tutma
+  (ortak DLL) oyun tarafının işi.
+- (Aynı gün küçük) INSPECTOR KEY SATIRI: yazılan key tabloda **varsa** buton `Use` = alanı o satıra bağla (`RebindLocExisting`;
+  eski satır açık doc'ta kullanılmıyorsa ve ≤1 dilde doluysa düşer, aksi halde kalır → `loc.unused`), yoksa `Rename`. Önce yalnız
+  Rename vardı ve mevcut key "zaten var" diye reddediliyordu (digitoyclient `login.guest_login` ↔ `yuzbir.login.guest_login`
+  birleştirmesi yapılamıyordu). Kullanıcı elden doğruladı.
+
+## KANCA API'Sİ TEK ASSEMBLY — DigitoyEngine.Build.dll (2026-10-19)
+- SORUN: `Assets/**/Editor/` kodu artık DigitoyEditor.dll kullanıyor (FieldDrawer). aotcompiler'ın Editor.dll derlemesi DigitoyEditor'ü
+  referanslamıyordu → CS0246; referans eklenince CS0433: hook tipleri (`IAndroidProjectHook`, `AndroidProject`...) hem aotcompiler.exe'de
+  hem DigitoyEditor.dll'de (editör `ProjectHooks.cs`'i linked Compile olarak kopyalıyordu).
+- KARAR: `aotcompiler/hooks/DigitoyEngine.Build.csproj` — yalnız `ProjectHooks.cs`, BCL'den başka bağımlılık yok. aotcompiler ve
+  DigitoyEditor **ProjectReference**; linked Compile silindi. `InternalsVisibleTo("aotcompiler")` (model setter'ları internal kalır).
+  `PluginBuild.Prepare` artık DigitoyEngine.Build + DigitoyEditor + DigitoyEngine referanslar. Doğrulandı: digitoyclient Editor.dll
+  (AppLovinMediationDrawer dahil) aotcompiler'da derlendi; editör startup testleri yeşil.
+- KURAL: kanca/plugin build API'sine tip eklerken yeri `ProjectHooks.cs`; aotcompiler/editör arasında kaynak kopyalama YASAK.
+
+## DEV BUILD / ORTAM SEÇİMİ — dosyada değil build türünde (2026-10-19, Faz 1)
+- SORUN (Unity'de de yaşanan): `useTestServer` checkbox'ı asset'te → mağaza build'inde elle hatırlanıyor; cihazda ortam değiştirmek iş çıkarıyor.
+- KARAR: `[DevOnly]` attribute'u **alanlara** da uygulanır ([Attributes.cs](../engine/managed/Serialization/Attributes.cs);
+  `FieldSchema.DevOnly`). Release pak'ı pişirilirken `ObjectBinary.StripDevOnly=true` → `[DevOnly]` alanlar DocNode'dan düşer, **değer
+  pak'a/ikiliye hiç girmez** (ObjectBinaryTests bayt düzeyinde). `ProjectBinary` v4 `dev` bayrağı → `GameHost.IsDev`; editör Play hep dev.
+  **Editör/menü build'leri HEP dev** (kullanıcı kararı: release = CI, komut satırı); `player.build(dev=true)` varsayılan, MAĞAZA yalnız
+  `player.build(dev=false)` (CI). Dev build adı " (dev)" ekli.
+  `asset.buildPak` tek başına dev sayılır (geliştirme), `AssetPackBuilder.Dev` release'te PlayerBuilder tarafından false yapılır.
+- digitoyclient: `NetworkSettings { prodServerUrl; [DevOnly] testServerUrl; }`, `useTestServer` silindi; `DevEnv` (PlayerPrefs: test|prod|custom,
+  yalnız `IsDev`), `RemoteUrl` release'te daima prod. Cihazda: `DevEnvSwitch` component'i (sürüm etiketine 5 tık → test→prod→custom döngüsü;
+  release'te no-op) + `LoginFlow` etiketi "0.1.0 · test" gösterir, ortam değişince bağlantı sıfırlanıp akış baştan. **Yapılacak:** iki
+  Login sahnesinde VersionLabel GO'suna `DevEnvSwitch` eklenmeli (comp.add) — henüz eklenmedi.
+- SINIR (Faz 1): `StripDevOnly` yalnız `ObjectBinary.Bake` yolunda (.asset DOBJ + plugin blobu); sahne component alanları (`SceneBinary.Bake`)
+  kapsam dışı. `[DevOnly]` METOT kesimi hâlâ `--trim lean`'e bağlı (dev bayrağına değil). Pak girişleri zlib'li olduğu için ham string taraması
+  kanıt değil; kanıt ObjectBinaryTests. Kullanımda sorun çıkarsa dönülecek.
+
+## SÜRÜM = TEK KAYNAK, BUILD NUMARASI OTOMATİK (2026-10-19)
+- (Aynı gün küçük) **Referans alanında çift tık = Project panelinde göster** (`ProjectPanel.Reveal(key)`: klasör/container'a gir, seç,
+  satıra kaydır; Unity "ping"). `select.asset` RPC'si de aynı yolu kullanır; `#id` alt öğeyi container içinde seçer.
+- KARAR (kullanıcı): `PlayerSettings.version` tek görünen sürüm; `android.versionCode` ve `ios.buildNumber` alanları **silindi**,
+  `ClientBoot.appVersion` kopyası silindi. Build numarası = **unix dakika** (`PlayerSettings.BuildNumberNow()`, int): monoton, Play Store
+  tavanı 2.1 milyar (saniye 2036'da aşardı, dakika ~2000 yıl), iOS `CFBundleVersion`'a sığar; Android ve iOS AYNI sayıyı alır → tek build
+  kimliği. Kural: aynı dakikada iki mağaza yüklemesi yapma. CI/geri alma: `player.build(buildNumber)` / aotcompiler `--build-number`.
+- Akış: `PlayerBuilder` sayıyı üretir → `--build-number` + props (`versionCode`/`buildNumber`) → pak `.project` v4 (`version`,
+  `buildNumber`, `boot`) → `GameHost.Version/BuildNumber` (editör Play'de `SetVersion(Player.version, şimdi)`). Oyun kodu
+  `Platform.AppVersion = GameHost.Version` (AppBoot); sürümü hiçbir asset'e yazmaz.
+- Doğrulama: Yüzbir Login `VersionLabel = 0.1.0`; Sandbox android projesi `versionName=0.1.0 versionCode=29873113`. GameTests 25.
+
+## IGameBoot — OYUN GİRİŞİ SAHNEDEN BAĞIMSIZ (2026-10-19)
+- KARAR (kullanıcı, uzun eleme): kalıcı sahne / Boot prefab / PlayerSettings türetme reddedildi → `IGameBoot` + `PlayerSettings.boot`
+  (`[Asset]` nesne, alanları gömülü, oyun başına tek `Boot.asset`); `GameHost`/editör Play startScene'den önce `Boot()` çağırır.
+  Tam tasarım + yaşanan iki tuzak (Project.Load'da oyun tipi yok → `BindAssets`; `PluginTests` `MockHost.Clear()` oyun mock'larını siliyordu)
+  [docs/plugins.md](plugins.md) "IGameBoot". `ProjectBinary` v4 (`boot`).
+- KURAL: `[Asset]` tipli PlayerSettings alanı eklerken Project'in ayarları katalogdan sonra yeniden okuduğunu unutma (`BindAssets`).
+
+## EDİTÖR UZANTI NOKTASI: FieldDrawers + Editor.dll → DigitoyEditor referansı (2026-10-19)
+- KARAR (kullanıcı): "bir settings için engine koduna müdahale etmeyelim" → alan-özel çizici altyapısı **editörde**
+  ([FieldDrawers.cs](../editor/FieldDrawers.cs)), plugin Editor kodu DigitoyEditor.dll'e referans verir. Motor değişmedi.
+  Tam tasarım [docs/plugins.md](plugins.md) "FieldDrawers". İlk kullanıcı AppLovin mediation listesi (resmi katalogdan seç, elle yazım yok).
+- Yan düzeltmeler: watcher `Editor/` kodunu da derler (önceden kapat-aç gerekiyordu); `<Ad>.Editor.csproj` üretimi; `ui.click` popup
+  eşlemesi utility pencerelerde de ([UiAutomation.cs](../editor/UiAutomation.cs) — derleme bekliyor, editör açıktı).
+- NOT: `EditorUi` public yüzü dar tutuldu (Label/Text/renkler/log); uzantı yazarı daha fazlasına ihtiyaç duyarsa oraya eklenir, internal
+  açılmaz. Plugin Editor kodu `using DigitoyEngine.Editor;` ister (Gui/Rect orada).
+
 ## KAYDEDİLMEMİŞ SAHNE BEKÇİSİ — GUI'de Save/Discard/Cancel, RPC'de UNSAVED (2026-10-18)
 - Sorun: dirty sahne Project panelinde `.scene` çift tık / File→Open Project / pencere X ile sessizce yok oluyordu; popup yalnız
   prefab stage çıkışında soruluyordu.

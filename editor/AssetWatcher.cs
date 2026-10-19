@@ -83,9 +83,9 @@ public static class AssetWatcher
             _lastEventAt = now;
             if (full.EndsWith(".cs", StringComparison.OrdinalIgnoreCase) || full.EndsWith(".dll", StringComparison.OrdinalIgnoreCase))
             {
-                // .dll = managed plugin: script gibi derleme+reload (ALC'ye birlikte yuklenir)
-                if (!full.Replace('\\', '/').Contains("/Editor/"))
-                    _codeDirty = true;
+                // .dll = managed plugin: script gibi derleme+reload (ALC'ye birlikte yuklenir).
+                // /Editor/ kodu (kanca, mock, FieldDrawer) ayni ALC'de Editor.dll olarak yasar: o da derleme+reload ister.
+                _codeDirty = true;
             }
             else
             {

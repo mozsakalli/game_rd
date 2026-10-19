@@ -71,11 +71,13 @@ public sealed class AddComponentMenuAttribute : Attribute
     public AddComponentMenuAttribute(string path) => Path = path;
 }
 
-// AOT trim (docs/engine-notes.md TRIM): isaretli metot lean profilde GOVDESIZ derlenir (void -> hicbir sey, Task ->
+// AOT trim (docs/engine-notes.md TRIM): isaretli METOT lean profilde GOVDESIZ derlenir (void -> hicbir sey, Task ->
 // CompletedTask, diger -> default) ve cagirdigi hicbir sey erisilebilir sayilmaz. Dev/test kancalari icin
 // (sahne dokumu, autoload modul, net probe): release ikilisine girmez, full profilde oldugu gibi kalir.
 // Donus tipi yalniz void / Task / skaler-referans olabilir (Task<T> DESTEKLENMEZ: durum alanla tasinir).
-[AttributeUsage(AttributeTargets.Method)]
+// ALAN: release pak'ina yazilmaz (default okunur) -> test sunucu URL'si gibi degerler magaza ikilisine HIC girmez; dev build'de
+// (player.build dev=true) ve editorde normal. Runtime karari GameHost.IsDev.
+[AttributeUsage(AttributeTargets.Method | AttributeTargets.Field)]
 public sealed class DevOnlyAttribute : Attribute
 {
 }
@@ -129,6 +131,19 @@ public sealed class CategoryAttribute : Attribute
 [AttributeUsage(AttributeTargets.Field)]
 public sealed class SensitiveAttribute : Attribute
 {
+}
+
+// Cevrilen enum (docs/engine-notes.md "LOCALIZATION: [Localize] ENUM"): sunucu hata kodlari gibi "kod -> metin" kumeleri.
+// Editor, yuklu assembly'lerdeki isaretli enum'lari tarar ve kapsam tablosuna "<prefix>.<slug(Uye)>" satirlarini
+// acar (kaynak dil hucresi uye adindan turetilir), enum'da olmayan satirlari SILER (undo'suz; prefix enum'a aittir).
+// Runtime: Localize.Get(enumDegeri) / Format(enumDegeri, args). Prefix bos = slug(tip adi).
+// AD KURALI ([Preserve] gibi): kisa adi "LocalizeAttribute" olan HER attribute tanilir — motora referans vermeyen
+// paylasilan DLL (sunucu+istemci ortak enum) kendi LocalizeAttribute'unu tanimlayabilir; ilk ctor arg'i string = prefix.
+[AttributeUsage(AttributeTargets.Enum)]
+public sealed class LocalizeAttribute : Attribute
+{
+    public string Prefix { get; }
+    public LocalizeAttribute(string prefix = null) { Prefix = prefix; }
 }
 
 // Unity ScriptableObject'in tip-duzeyi karsiligi (miras yerine attribute): isaretli [Serializable]

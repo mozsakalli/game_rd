@@ -103,6 +103,16 @@ static class PlayMode
 
     static void SpawnPlayScene()
     {
+        // Surum: oyun kodu GameHost.Version/BuildNumber okur (release'te pak'tan). Editorde build numarasi = "simdi".
+        GameHost.SetVersion(App.Project?.Player?.version, PlayerSettings.BuildNumberNow(), dev: true);
+        // Oyun girisi (PlayerSettings.boot, IGameBoot): acik sahne ne olursa olsun once servisler/statikler. Sahneden bagimsiz.
+        var boot = App.Project?.Player?.boot;
+        if (boot != null)
+        {
+            string key = AssetDatabase.KeyOf(boot, App.Assets);
+            GameHost.RunGameBoot(App.Assets, key);
+            if (GameHost.GameBoot == null) EditorLog.Warning("[play] boot calismadi: " + key + " (Console/stdout)");
+        }
         var doc = App.EditScene.Doc;
         var s = Scene.Create(doc.Name + " (Oyun)");
         doc.InstantiateInto(s, App.Catalog, App.Assets); // aktif sahne = oyun

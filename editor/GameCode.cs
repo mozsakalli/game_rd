@@ -147,6 +147,59 @@ public sealed class GameCode
         string path = Path.Combine(project.Root, asmName + ".csproj");
         string text = sb.ToString();
         // Icerik ayniysa dokunma (IDE'nin yeniden yukleme tetiklenmesin).
+        if (!(File.Exists(path) && File.ReadAllText(path) == text))
+            File.WriteAllText(path, text);
+        WriteIdeEditorProject(project, engineDll);
+    }
+
+    // <Ad>.Editor.csproj: Assets/**/Editor/**/*.cs (plugin kancalari, mock'lar, FieldDrawer'lar) — DigitoyEditor + aotcompiler hook
+    // API + oyun projesine referans; IDE completion icin (LoadEditorCode ile ayni kapsam/define).
+    static void WriteIdeEditorProject(Project project, string engineDll)
+    {
+        string asmName = project.Name + ".Editor";
+        string editorDll = typeof(App).Assembly.Location;
+        string hooksDll = typeof(DigitoyEngine.Build.ProjectHooks).Assembly.Location;
+        var sb = new StringBuilder();
+        sb.AppendLine("<!-- DigitoyEditor tarafindan uretilir; elle duzenleme bir sonraki acilista ezilir. -->");
+        sb.AppendLine("<Project>");
+        sb.AppendLine("  <PropertyGroup>");
+        sb.AppendLine("    <BaseIntermediateOutputPath>Library/IdeBuild/obj-editor/</BaseIntermediateOutputPath>");
+        sb.AppendLine("    <BaseOutputPath>Library/IdeBuild/bin-editor/</BaseOutputPath>");
+        sb.AppendLine("  </PropertyGroup>");
+        sb.AppendLine("  <Import Project=\"Sdk.props\" Sdk=\"Microsoft.NET.Sdk\" />");
+        sb.AppendLine("  <PropertyGroup>");
+        sb.AppendLine("    <TargetFramework>net10.0</TargetFramework>");
+        sb.AppendLine("    <OutputType>Library</OutputType>");
+        sb.AppendLine($"    <AssemblyName>{asmName}</AssemblyName>");
+        sb.AppendLine("    <RootNamespace></RootNamespace>");
+        sb.AppendLine("    <LangVersion>latest</LangVersion>");
+        sb.AppendLine("    <Nullable>disable</Nullable>");
+        sb.AppendLine("    <ImplicitUsings>disable</ImplicitUsings>");
+        sb.AppendLine("    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>");
+        sb.AppendLine("    <DefineConstants>DEBUG;TRACE;DE_EDITOR;DE_GAME</DefineConstants>");
+        sb.AppendLine("    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>");
+        sb.AppendLine("    <EnableDefaultItems>false</EnableDefaultItems>");
+        sb.AppendLine("    <GenerateAssemblyInfo>false</GenerateAssemblyInfo>");
+        sb.AppendLine("    <AppendTargetFrameworkToOutputPath>false</AppendTargetFrameworkToOutputPath>");
+        sb.AppendLine("  </PropertyGroup>");
+        sb.AppendLine("  <ItemGroup>");
+        sb.AppendLine("    <Compile Include=\"Assets/**/Editor/**/*.cs\" />");
+        sb.AppendLine("  </ItemGroup>");
+        sb.AppendLine("  <ItemGroup>");
+        sb.AppendLine($"    <ProjectReference Include=\"{project.Name}.Game.csproj\" Private=\"false\" />");
+        foreach (var (name, hint) in new[] { ("DigitoyEngine", engineDll), ("DigitoyEditor", editorDll), (Path.GetFileNameWithoutExtension(hooksDll), hooksDll) })
+        {
+            sb.AppendLine($"    <Reference Include=\"{name}\">");
+            sb.AppendLine($"      <HintPath>{hint}</HintPath>");
+            sb.AppendLine("      <Private>false</Private>");
+            sb.AppendLine("    </Reference>");
+        }
+        sb.AppendLine("    <Reference Include=\"Assets/**/*.dll\" Private=\"false\" />");
+        sb.AppendLine("  </ItemGroup>");
+        sb.AppendLine("  <Import Project=\"Sdk.targets\" Sdk=\"Microsoft.NET.Sdk\" />");
+        sb.AppendLine("</Project>");
+        string path = Path.Combine(project.Root, asmName + ".csproj");
+        string text = sb.ToString();
         if (File.Exists(path) && File.ReadAllText(path) == text)
             return;
         File.WriteAllText(path, text);
@@ -311,6 +364,7 @@ public sealed class GameCode
     public void LoadEditorCode(Project project)
     {
         EditorAssembly = null;
+        FieldDrawers.Clear();
         var sources = new List<string>();
         foreach (var f in RoslynCompiler.SourcesUnder(project.AssetsPath))
             if (f.Replace('\\', '/').Contains("/Editor/")) sources.Add(f);
@@ -321,7 +375,8 @@ public sealed class GameCode
         {
             AssemblyName = project.Name + ".Editor",
             SourceFiles = sources,
-            References = { typeof(DigitoyEngine.GameObject).Assembly.Location, typeof(DigitoyEngine.Build.ProjectHooks).Assembly.Location },
+            // Editor kodu editorun uzanti noktalarini kullanabilir (FieldDrawers, Gui, EditorLog): DigitoyEditor.dll referansi.
+            References = { typeof(DigitoyEngine.GameObject).Assembly.Location, typeof(DigitoyEngine.Build.ProjectHooks).Assembly.Location, typeof(App).Assembly.Location },
             Defines = new[] { "DEBUG", "TRACE", "DE_EDITOR", "DE_GAME" },
         };
         if (GameDllPath != null) build.References.Add(GameDllPath);
@@ -345,6 +400,7 @@ public sealed class GameCode
             try { DigitoyEngine.Plugin.MockHost.Instance.Register((DigitoyEngine.PluginMockBase)Activator.CreateInstance(t)); mocks++; }
             catch (Exception e) { EditorLog.Error("[gamecode] mock kurulamadi " + t.Name + ": " + e.Message); }
         }
-        Console.WriteLine($"[gamecode] editor kodu: {sources.Count} dosya, {mocks} plugin mock");
+        int drawers = FieldDrawers.Register(EditorAssembly);
+        Console.WriteLine($"[gamecode] editor kodu: {sources.Count} dosya, {mocks} plugin mock, {drawers} field drawer");
     }
 }

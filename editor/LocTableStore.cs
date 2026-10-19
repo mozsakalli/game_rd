@@ -213,7 +213,7 @@ public static class LocTableStore
         Touch(scope);
     }
 
-    static void Touch(string scope)
+    internal static void Touch(string scope)
     {
         _dirty.Add(scope);
         _lastEdit = DigitoyEngine.GLFW.GetTime();

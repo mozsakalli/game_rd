@@ -17,12 +17,26 @@ public sealed class LocalizationTable
 {
     public List<string> Languages = new() { "en" };
     public List<LocEntry> Entries = new();
+    // [Localize] enum kayitlari (editor LocEnumSync yazar): tip kisa adi -> key prefix'i. "<Prefix>.*" satirlari o
+    // enum'a AITTIR (elle acilan satir bir sonraki senkronda silinir). Runtime prefix'i buradan okur (attribute okumaz).
+    public List<LocEnum> Enums = new();
 
     [NonSerialized] Dictionary<string, int> _index;
     [NonSerialized] List<LocEntry> _indexedList;
     [NonSerialized] int _indexedCount;
 
     public string SourceLanguage => Languages != null && Languages.Count > 0 ? Languages[0] : "en";
+
+    // Enum tipinin (kisa ad) prefix'i; kayit yoksa null.
+    public string EnumPrefix(string typeName)
+    {
+        if (Enums == null || string.IsNullOrEmpty(typeName))
+            return null;
+        for (int i = 0; i < Enums.Count; i++)
+            if (Enums[i] != null && string.Equals(Enums[i].Type, typeName, StringComparison.Ordinal))
+                return Enums[i].Prefix;
+        return null;
+    }
 
     public int LanguageIndex(string code)
     {
@@ -145,4 +159,11 @@ public sealed class LocEntry
 {
     public string Key = "";
     public List<string> Values = new(); // LocalizationTable.Languages sirasinda
+}
+
+[Serializable]
+public sealed class LocEnum
+{
+    public string Type = "";   // enum kisa adi (namespace'siz; Type.Name ile eslesir)
+    public string Prefix = ""; // key prefix'i ("error" -> "error.room_full")
 }

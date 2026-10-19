@@ -1,0 +1,20 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Plugin build kancalari API'si (docs/plugins.md): IAndroidProjectHook/IIosProjectHook/IWasmProjectHook + proje modelleri +
+       PluginSettingsStore. TEK assembly: hem aotcompiler (kancalari calistirir) hem DigitoyEditor (Editor.dll derlemesine referans
+       verir) buna baglanir -> kullanici Editor/ kodu iki ayri kopyayla (CS0433) karsilasmaz. Yalniz BCL'e bagimli. -->
+  <PropertyGroup>
+    <OutputType>Library</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>disable</ImplicitUsings>
+    <AssemblyName>DigitoyEngine.Build</AssemblyName>
+    <RootNamespace>DigitoyEngine.Build</RootNamespace>
+    <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\source\ProjectHooks.cs" Link="ProjectHooks.cs" />
+  </ItemGroup>
+
+</Project>
