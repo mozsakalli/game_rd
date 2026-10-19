@@ -471,7 +471,7 @@ public sealed partial class InspectorPanel
         {
             GuiRenderer.DrawRect(body, hover ? new Color(70, 135, 85, 255)
                 : acceptable ? new Color(52, 74, 58, 255) : new Color(45, 48, 58, 255), 0);
-            GuiRenderer.DrawTextIn(body, DocRefDisplay(kind, node.Scalar ?? ""), SmallFont,
+            GuiRenderer.DrawTextIn(body, ObjectDrawer.Ellipsize(DocRefDisplay(kind, node.Scalar ?? ""), body.width - 8, SmallFont), SmallFont,
                 RefTextColor, false, 2);
             if (hover)
                 DragDrop.RegisterTarget(() =>

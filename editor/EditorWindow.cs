@@ -40,15 +40,21 @@ public abstract class EditorWindow
     // Menu gibi tip'i runtime'da bilen cagiranlar icin (parametresiz ctor sart).
     public static EditorWindow GetWindow(Type type)
     {
+        var w = EnsureRegistered(type);
+        w.Show();
+        return w;
+    }
+
+    // Yalniz kayit, gosterim YOK: layout yuklenmeden once dosyadaki basliklarin cozulmesi icin.
+    // (GetWindow utility pencereyi hemen acardi; LoadLayout dugumleri sifirlayinca o pencere
+    // baska panelin leaf'ini sahipleniyordu.)
+    public static EditorWindow EnsureRegistered(Type type)
+    {
         if (_open.TryGetValue(type, out var w))
-        {
-            w.Show();
             return w;
-        }
         var win = (EditorWindow)Activator.CreateInstance(type);
         win.PanelId = GuiDock.RegisterPanel(win.Title, win.DrawPanel, win.Utility);
         _open[type] = win;
-        win.Show();
         return win;
     }
 

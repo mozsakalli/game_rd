@@ -845,19 +845,20 @@ public static unsafe class SceneBinary
 }
 
 // Proje ayarlari (release): pak icinde ".project" anahtariyla pismis kayit;
-// runtime project.yaml OKUMAZ. Duzen (v2): i32 magic "DPRJ", i32 version, str name,
-// str startScene, i32 nScenes, str[] scenes (build'e dahil sahneler; startScene ilk).
+// runtime project.yaml OKUMAZ. Duzen (v3): i32 magic "DPRJ", i32 version, str name,
+// str startScene, i32 nScenes, str[] scenes (build'e dahil sahneler; startScene ilk), [v3] str game (ProjectSettings/Games/<ad>).
 public static class ProjectBinary
 {
     public const string PakKey = ".project";
     public const int Magic = 0x4A525044; // "DPRJ"
-    public const int Version = 2;
+    public const int Version = 3;
 
     public sealed class Record
     {
         public string Name;
         public string StartScene;
         public string[] Scenes = Array.Empty<string>();
+        public string Game = ""; // oyun adi (docs/plugins.md "Games"); eski pak'larda bos
     }
 
     public static bool TryRead(byte[] data, out string name, out string startScene)
@@ -889,6 +890,8 @@ public static class ProjectBinary
         }
         else
             rec.Scenes = new[] { rec.StartScene };
+        if (version >= 3)
+            rec.Game = Str(data, ref pos);
         return true;
     }
 
@@ -909,12 +912,14 @@ public static class ProjectBinary
     }
 
 #if DE_EDITOR
-    public static byte[] Write(string name, string startScene, IReadOnlyList<string> scenes = null)
+    public static byte[] Write(string name, string startScene, IReadOnlyList<string> scenes = null, string game = "")
     {
         var strs = new List<byte[]> { Encoding.UTF8.GetBytes(name ?? ""), Encoding.UTF8.GetBytes(startScene ?? "") };
         int nScenes = scenes?.Count ?? 0;
         for (int i = 0; i < nScenes; i++)
             strs.Add(Encoding.UTF8.GetBytes(scenes[i] ?? ""));
+        var variantBytes = Encoding.UTF8.GetBytes(game ?? "");
+        strs.Add(variantBytes);
         int size = 8 + 4;
         foreach (var s in strs)
             size += 2 + s.Length;
@@ -927,6 +932,7 @@ public static class ProjectBinary
         Put(b, ref p, nScenes);
         for (int i = 0; i < nScenes; i++)
             PutStr(b, ref p, strs[2 + i]);
+        PutStr(b, ref p, variantBytes);
         return b;
     }
 

@@ -237,7 +237,7 @@ namespace DigitoyEngine.Build
         }
     }
 
-    // Plugin ayar deposu: ProjectSettings/Plugins/<Name>.asset (YAML; ObjectSerializer bicimi: type + fields) -> tipli nesne.
+    // Plugin ayar deposu: ProjectSettings/Games/<game>/Plugins/<Name>.asset (YAML; ObjectSerializer bicimi: type + fields) -> tipli nesne.
     // aotcompiler/editor .NET'te: reflection ile alanlar; [Required] bos string/null -> hata (canli plugin icin build durur).
     // YAML okuma: engine'in Yaml/ObjectSerializer'i DE_EDITOR'lu .NET DigitoyEngine.dll'inde (editor); aotcompiler'da o dll
     // yuklenmis olur (Editor.dll referansi) -> reflection ile cagirilir (derleme zamani bagimlilik yok).
@@ -248,13 +248,14 @@ namespace DigitoyEngine.Build
         readonly Dictionary<string, object> _cache = new Dictionary<string, object>();
         public readonly List<string> Errors = new List<string>();
 
-        public PluginSettingsStore(string projectRoot, Assembly engineNetDll)
+        // game: ProjectSettings/Games/<game>/Plugins/ (docs/plugins.md "Games"); bos = eski tek dosya yolu ProjectSettings/Plugins/.
+        public PluginSettingsStore(string projectRoot, Assembly engineNetDll, string game = "")
         {
-            _dir = Path.Combine(projectRoot, "ProjectSettings", "Plugins");
+            _dir = string.IsNullOrEmpty(game)
+                ? Path.Combine(projectRoot, "ProjectSettings", "Plugins")
+                : Path.Combine(projectRoot, "ProjectSettings", "Games", game, "Plugins");
             _engineNet = engineNetDll;
         }
-
-        public static string PathFor(string projectRoot, string name) => Path.Combine(projectRoot, "ProjectSettings", "Plugins", name + ".asset");
 
         public T Load<T>(string name) where T : class, new() => (T)Load(name, typeof(T));
 
@@ -265,8 +266,8 @@ namespace DigitoyEngine.Build
             string path = Path.Combine(_dir, name + ".asset");
             if (File.Exists(path))
             {
-                var ser = _engineNet?.GetType("DigitoyEngine.ObjectSerializer");
-                var m = ser?.GetMethod("LoadInto", new[] { typeof(object), typeof(string), _engineNet.GetType("DigitoyEngine.AssetDatabase") });
+                var os = _engineNet?.GetType("DigitoyEngine.ObjectSerializer");
+                var m = os?.GetMethod("LoadInto");
                 if (m == null) throw new Exception("ObjectSerializer.LoadInto bulunamadi (DigitoyEngine .NET dll DE_EDITOR ile derlenmis olmali)");
                 m.Invoke(null, new object[] { o, path, null });
             }

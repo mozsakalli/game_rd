@@ -27,10 +27,21 @@ static class RpcCommands
             foreach (var l in lines) s.Items.Add(DocNode.Scal(l));
             return s;
         }
+        // CANLI DURUM: AI baglandiginda hangi oyun/tema/sahnede oldugunu bilsin (kazara yanlis yere yazmasin).
+        {
+            var st = DocNode.Map();
+            st.Add("workingGame", DocNode.Scal(App.Project?.Game ?? ""));
+            st.Add("workingTheme", DocNode.Scal(string.IsNullOrEmpty(SceneDoc.ActiveTheme) ? "default" : SceneDoc.ActiveTheme));
+            st.Add("openScene", DocNode.Scal(App.EditScene?.Path != null && App.Project != null ? System.IO.Path.GetRelativePath(App.Project.AssetsPath, App.EditScene.Path).Replace('\\', '/') : ""));
+            st.Add("note", DocNode.Scal(string.IsNullOrEmpty(SceneDoc.ActiveTheme)
+                ? "Tema default: mutasyonlar TABANA yazilir."
+                : "Calisilan tema '" + SceneDoc.ActiveTheme + "' (editorde secili): mutasyonlar bu KATMANA gider ve tema kapisi theme:'" + SceneDoc.ActiveTheme + "' ya da theme.set beyani ister. Tabani duzenleyeceksen kullaniciya sor, sonra theme.set('')."));
+            r.Add("state", st);
+        }
         r.Add("workflow", Lines(
             "1. scene.tree (KOMPAKT hiyerarsi: id, ad, component tipleri; root/depth ile kademeli gez) ya da scene.new/scene.open. Detay: scene.dump(go, props) alt agac/alan degerleri, prop.get(go, comp). Tum sahne scene.dump(props=true) BUYUK, gerekmedikce cagirma",
             "2. comp.types → comp.schema(type): alanlar, default, enum degerleri, format. Tahmin etme, semaya bak",
-            "3. TOPLU kur: scene.apply(objects) — GO + components + props + children tek istekte (tek undo, atomik). Kucuk rotus: prop.set/transform.set",
+            "3. TOPLU kur: scene.apply(objects) — GO + components + props + children tek istekte (tek undo, atomik). Kucuk rotus: prop.set/transform.set. PREFAB: prefab.create(id, path) sahnedeki GO'yu prefab yapar (instance'a baglanir); prefab.instantiate(prefab, parent, pos) sahneye instance ekler (edit.batch icinde de); prefab.open/close prefab'in kendisini duzenler (tum instance'lar alir)",
             "4. view.device(name) → sim.run(frames, describe=true) → METIN ozete bak (render.describe: rect/text/click; rect merkezi = input.tap koordinati) → input.tap(x,y) → tekrar describe. Gorsel ton/suphe: screenshot=true ya da render.screenshot (koordinat = region.x + px * toScreen)",
             "5. Hata donerse yol+sebep verir ve hicbir sey uygulanmaz; duzelt, tekrar gonder. scene.diff = son dump'tan beri ne degisti",
             "6. scene.save YALNIZ kullanici isterse (her sey undo'lu kalir). scene.open/scene.new/prefab.open/project.open acik sahne kaydedilmemisse 'UNSAVED:' hatasi doner ve hicbir sey yapmaz: kullaniciya sor → scene.save (kaydet) ya da force=true (at). Korkutmadan once scene.tree'deki dirty alanina bakabilirsin"));
@@ -55,25 +66,43 @@ static class RpcCommands
             "render.describe = ekranin METIN ozeti (gorunur renderer'lar, rect 'x y w h' mantiksal, text, sprite, fill, click): hizli degerlendirme ve tiklama hedefi icin ONCE bunu kullan; rect merkezi dogrudan input.tap. pixels=N kaba renk izgarasi (ekran bos mu). Goruntu yalniz gorsel kalite/suphe icin",
             "Screenshot VARSAYILAN KUCULTULMUS (maxSize=1024, jpg): tiklama koordinati = region.x + px * toScreen (sonuctaki carpan; region yoksa 0). Detay gerekirse render.screenshot(region='x y w h') ile bolgeyi tam cozunurlukte al; scale=1, maxSize=0, format=png → piksel == koordinat",
             "input.tap donusu: hit (degdi mi), target (hiyerarsi yolu), handlers (kosan handler sayisi) — 0 ise davranis kodu yok demektir"));
+        // Ice aktarilabilir bicimler: importer kaydindan CANLI (yeni [AssetImporter] otomatik girer; elle liste yok).
+        var fmts = new List<string>();
+        foreach (var e in ImportPipeline.Entries)
+            fmts.Add(string.Join("/", e.Extensions) + " (" + e.Type.Name + (e.AssetType != null ? " " + e.AssetType : "") + ")");
+        r.Add("assets", Lines(
+            "ICE AKTARILABILIR bicimler (kayitli importer'lar, kesin kaynak asset.importers): " + string.Join(", ", fmts) + ". Bu listede olan bir uzanti icin 'importer yok' DEME",
+            "Ekleme = dosyayi Assets/ altina kopyala (dosya sistemi; asset.write yalniz metin icindir). Editor watcher otomatik import eder; asset.reimport(path) zorlar; sonuc/uyari log.tail",
+            "Container asset (psd/psb katmanlari, font glyph'leri): alt oge referansi 'Dosya.psb#id' (id = kalici kimlik, asset.info(path) listeler; 'n:ad' biciminde kararsiz id'den kacin). Referans degerinde guid ya da Assets'e goreli yol; '#id' eki ile alt oge",
+            "asset.info(path): tip, guid, gorsel width/height, alt ogeler, atlas uyeligi. asset.list(filter,type): arama. asset.validate: kirik/kararsiz referans taramasi",
+            "Import hatasi (desteklenmeyen alt bicim, bozuk dosya) log.tail'de gorunur: kullaniciya bildir, dosyayi kendin donusturmeye kalkma"));
         r.Add("rules", Lines(
+            "TEMA KAPISI: her mutasyon (prop.set, scene.apply, edit.batch, comp.*, transform.set, go.setActive, scene.addGo/removeGo/rename/reparent, loc.bind/unbind, ui.dropAsset; rpc.describe 'mutates') calisilan temaya yazar. Tema default degilse istek theme:'<ad>' tasimali YA DA bu baglanti theme.set('<ad>') ile beyan etmis olmali; aksi halde HATA, hicbir sey degismez. Insan toolbar'dan temayi degistirirse beyan duser → yine hata. Ise baslarken rpc.guide 'state'e bak; tabani duzenleyeceksen ve tema acik ise kullaniciya sor, sonra theme.set('')",
             "Sahne/prefab YAML'ini ASLA dogrudan yazma (asset.write ile bile): scene.apply/edit.batch/prop.set kullan — undo'lu, dogrulanir, canli patch",
             "Sahneye dokunmadan ONCE yanindaki <sahne>.intent.md'yi oku (asset.read); is sonunda APPEND et (asset.write): prompt + yapi + invariantlar + dogrulama",
             "Asset bilgisi (yol/guid/tip, gorsel width/height, atlas uyeligi) icin asset.list/asset.info — ogrenmek icin kod yazip calistirma",
             "Animasyon siniri: doc'ta yazilabilen koreografi (intro, giris/cikis, idle loop) = MovieClip; Tween yalniz runtime'da hesaplanan tepkisel hareket ve authored degeri Start'ta ezemez",
             "Motor API'si icin engine.api(type, filter) (public tipler, uyeler, protected override kancalari) — proje disina cikma",
-            "Play'de doc degisirse oyun sahnesi bayatlar; sim.run/input.* otomatik yeniden baslatir ('restarted'), screenshot 'stale' doner"));
+            "Play'de doc degisirse oyun sahnesi bayatlar; sim.run/input.* otomatik yeniden baslatir ('restarted'), screenshot 'stale' doner",
+            "GIZLILIK: [Sensitive] alanlar (parola/token/client secret; plugin Config'leri, PlayerSettings.android parolalari) her yanitta '***' gorunur (agac, dosya icerigi, log). Bu degerleri OKUYAMAZSIN ve asla tahmin etme; gercek degeri kullanici editorde girer. '***' degerini geri yazma denemesi reddedilir — hassas alani degistirmen gerekmiyorsa dokunma"));
         r.Add("localization", Lines(
             "TUM oyun metinleri cevrilir. LayoutBox.text / TextSprite.Text'e prop.set ile metin yazinca otomatik baglanir: doc'ta 'text@loc: key' (key baglamdan: sahne.go_adi), kapsam tablosu Assets/Localization.asset (modul: Modules/<ad>/Localization.asset) kendiliginden olusur",
             "Baglanmamasi gereken metin (nick, skor): loc.unbind(go, comp, field) -> prop '' (bilerek kapali). Diger string alanlar icin loc.bind(go, comp, field, key?)",
             "Parametreli metin sablonu tabloda ('{0} coins'); kod key bilmeden comp.Format(args) cagirir. Play'de args gelmeden sablon gorunmez",
             "Ceviri dongusu: loc.languages -> loc.addLanguage(code) (yalniz katalog) -> loc.missing(lang) -> cevir -> loc.set(entries) (tek undo). Dil degistir: loc.setLanguage(lang) (edit + Play aninda). Denetim: loc.unused, loc.usages(key), loc.glyphCheck",
             "Tabloyu asset.write ile YAZMA: loc.set/loc.rename/loc.remove kullan (undo'lu, canli)"));
+        r.Add("games", Lines(
+            "PROJE = ORTAK Assets + N OYUN (ProjectSettings/Games/<ad>/PlayerSettings.asset + Plugins/<Ad>.asset: her oyunun TAM ayarlari — kimlik, sahneler, startScene, temalar, plugin config). Oyun kodu ortak ve hep derlenir; pak/trim/plugin canliligi o oyunun sahne kumesinden turer. Konvansiyon: oyuna ozel asset Assets/Games/<Ad>/, ortak Assets/Shared/",
+            "game.list -> game.set(name): CALISILAN oyun (toolbar combosu) = Play/Build/pak baglami; gecis o oyunun son sahnesini/temasini/cihazini geri getirir ve oyun kodunu taze ALC ile yukler (statikler sifir). Bir oyunu duzenlemek icin gecis GEREKMEZ: Player Settings penceresi oyun sekmeleriyle her oyunu duzenler",
+            "game.create(name, copyFrom) yeni oyun (ortak alanlar icin mevcut oyundan kopya); game.remove(name). Build ciktisi Build/<game>/; player.build calisilan oyunu kurar; ayni projede ikinci editor: DigitoyEditor.exe <proje> --game <ad>"));
         r.Add("themes", Lines(
-            "TEMA (xmas, kurban...): sahne/prefab DOSYASININ ICINDE isimli override katmani (themes: {xmas: {overrides, removed, added}}); sahne kopyasi/kod dali YOK. Build tek temayla piser (PlayerSettings.activeTheme ya da asset.buildPak/player.build theme=...), diger temalar ve asset'leri pak'a girmez. Runtime tema bilmez",
-            "Akis: theme.add(name) -> theme.set(name) (calisilan tema = dil gibi: edit + Play; undo yigini temizlenir) -> normal prop.set/comp.add/scene.addGo/scene.removeGo: HEPSI o temanin katmanina yazilir, taban dokunulmaz -> scene.save. theme.set('') tabana doner",
+            "TEMA (xmas, kurban...): sahne/prefab DOSYASININ ICINDE isimli override katmani (themes: {xmas: {overrides, removed, added}}); sahne kopyasi/kod dali YOK. Tema listesi OYUNA ait (PlayerSettings.themes; adlar oyunlar arasi ortak sozluk). Build tek temayla piser (PlayerSettings.activeTheme ya da asset.buildPak/player.build theme=...), diger temalar ve asset'leri pak'a girmez. Runtime tema bilmez",
+            "Akis: theme.add(name) -> theme.set(name) (calisilan tema = dil gibi: edit + Play; undo yigini temizlenir; bu baglanti icin BEYAN) -> normal prop.set/comp.add/scene.addGo/scene.removeGo: HEPSI o temanin katmanina yazilir, taban dokunulmaz -> scene.save. theme.set('') tabana doner. Beyan etmeden tema acikken mutasyon = hata (tema kapisi); tek istekte theme:'ad' arg'i da gecer",
             "Ortak parca (avatar cercevesi) temalanacaksa katmani EN IC prefab'a koy (prefab stage'de theme.set + duzenle): tum tuketiciler (masa, leaderboard, sahne) otomatik alir. Tema modunda kardes sirasi degistirilemez; theme.check yetim override'lari listeler; theme.setBuild(name) build temasi"));
         r.Add("editorUi", Lines(
             "Editor GUI otomasyonu: ui.panels (panel/tab rect'leri, pencere boyutu) -> ui.screenshot (tum pencere, piksel == koordinat) -> ui.click/ui.drag/ui.scroll/ui.type/ui.key. Jest frame'e yayilir; sonraki komut jest bitince kosar (ui.wait gerekmez, animasyon icin istege bagli)",
+            "Menu ve ayri pencereler: ui.menu() yollari listeler, ui.menu('Project/Player Settings') ogeyi calistirir (utility pencere acilir). ui.windows acik utility/detached pencereleri verir; ui.screenshot/click/type/key/drag/scroll window='Player Settings' ile o pencereyi hedefler (koordinat o pencerenin mantiksal px'i).",
+            "Asset'i Inspector alanina birakmak icin KOORDINATSIZ yol: ui.fields (secili nesnenin cizili alanlari: yol/tip/rect) -> ui.dropAsset(asset, field). Liste basligi ('a:sources') sona ekler, eleman ('a:sources[0]') atar; asset 'x.psb#id' alt oge olabilir. ui.drag ile panelden panele surukleme KULLANMA (kirilgan).",
             "Combo: ui.click ile ac, acilan listedeki ogeye ui.click (popup ayri pencere ama koordinat ana pencere uzayinda; satir 20px). Metin: alana ui.click, sonra ui.type; '\\n' Enter. Ctrl+Z: ui.key('z','ctrl')",
             "Fare/klavye simulasyonu icin dis araclar (SendInput vb.) kullanma; insan girdisi gorulurse otomasyon kuyrugu atilir"));
         return r;
@@ -588,7 +617,7 @@ static class RpcCommands
 
     // --- yapisal mutasyonlar ---
 
-    [RpcCommand("scene.addGo", "Yeni GameObject ekler, id doner. insertBefore = onune gelecegi kardes id (0 = sona). Paralel cagrilarda varis sirasi belirsizdir: sira onemliyse ardisik cagir veya insertBefore ver")]
+    [RpcCommand("scene.addGo", "Yeni GameObject ekler, id doner. insertBefore = onune gelecegi kardes id (0 = sona). Paralel cagrilarda varis sirasi belirsizdir: sira onemliyse ardisik cagir veya insertBefore ver", Mutates = true)]
     static DocNode AddGo(RpcContext ctx, int parent = 0, string name = "", int insertBefore = 0)
     {
         if (parent != 0)
@@ -604,21 +633,21 @@ static class RpcCommands
         return r;
     }
 
-    [RpcCommand("scene.removeGo", "GameObject'i (alt agaciyla) siler")]
+    [RpcCommand("scene.removeGo", "GameObject'i (alt agaciyla) siler", Mutates = true)]
     static DocNode RemoveGo(RpcContext ctx, int id)
     {
         ctx.Scene.RemoveGameObject(RequireGo(ctx, id));
         return null;
     }
 
-    [RpcCommand("scene.rename", "GameObject'i yeniden adlandirir")]
+    [RpcCommand("scene.rename", "GameObject'i yeniden adlandirir", Mutates = true)]
     static DocNode Rename(RpcContext ctx, int id, string name)
     {
         ctx.Scene.SetName(RequireGo(ctx, id), name);
         return null;
     }
 
-    [RpcCommand("scene.reparent", "GameObject'i parent'a tasir (0 = kok) ve/veya kardes sirasini degistirir: insertBefore = onune gelecegi kardes id (0 = sona). Ayni parent + insertBefore = yalniz siralama. Liste sirasi = hiyerarsi = ayni SortingOrder'da cizim sirasi (sonraki ustte)")]
+    [RpcCommand("scene.reparent", "GameObject'i parent'a tasir (0 = kok) ve/veya kardes sirasini degistirir: insertBefore = onune gelecegi kardes id (0 = sona). Ayni parent + insertBefore = yalniz siralama. Liste sirasi = hiyerarsi = ayni SortingOrder'da cizim sirasi (sonraki ustte)", Mutates = true)]
     static DocNode ReparentGo(RpcContext ctx, int id, int parent, int insertBefore = -1)
     {
         var g = RequireGo(ctx, id);
@@ -635,7 +664,7 @@ static class RpcCommands
         return null;
     }
 
-    [RpcCommand("comp.add", "Component ekler, index doner")]
+    [RpcCommand("comp.add", "Component ekler, index doner", Mutates = true)]
     static DocNode CompAdd(RpcContext ctx, int go, string type)
     {
         var g = RequireGo(ctx, go);
@@ -647,7 +676,7 @@ static class RpcCommands
         return r;
     }
 
-    [RpcCommand("comp.remove", "Component'i index'iyle kaldirir")]
+    [RpcCommand("comp.remove", "Component'i index'iyle kaldirir", Mutates = true)]
     static DocNode CompRemove(RpcContext ctx, int go, int comp)
     {
         var g = RequireGo(ctx, go);
@@ -657,7 +686,7 @@ static class RpcCommands
 
     // --- property mutasyonlari ---
 
-    [RpcCommand("prop.set", "Component alanina deger yazar (kanonik doc formati; null = default'a don). prop ic ice yol alabilir: 'Tracks[0].Keys[1].Value' — liste index'i eleman sayisina esitse SONA EKLER, ic ice yolda null liste elemanini SILER")]
+    [RpcCommand("prop.set", "Component alanina deger yazar (kanonik doc formati; null = default'a don). prop ic ice yol alabilir: 'Tracks[0].Keys[1].Value' — liste index'i eleman sayisina esitse SONA EKLER, ic ice yolda null liste elemanini SILER", Mutates = true)]
     static DocNode PropSet(RpcContext ctx, int go, int comp, string prop, DocNode value = null)
     {
         var g = RequireGo(ctx, go);
@@ -670,6 +699,14 @@ static class RpcCommands
     // prop.set cekirdegi (scene.apply de kullanir): sema dogrulamasi + ic ice yol + SetProp.
     static void SetPropPath(RpcContext ctx, SceneDoc.GoDoc g, SceneDoc.CompDoc cd, string prop, DocNode value)
     {
+        // [Sensitive] alana maske degerini geri yazma (yolun son parcasi alan adi)
+        if (value?.Scalar != null)
+        {
+            int dot = prop.LastIndexOf('.');
+            string leaf = dot >= 0 ? prop.Substring(dot + 1) : prop;
+            int br = leaf.IndexOf('[');
+            RpcRedact.GuardInput(br >= 0 ? leaf.Substring(0, br) : leaf, value.Scalar);
+        }
         var entry = ctx.Catalog.Find(cd.Type)
             ?? throw new RpcError($"component tipi katalogda yok: '{cd.Type}'");
         int cut = prop.IndexOfAny(new[] { '.', '[' });
@@ -760,17 +797,20 @@ static class RpcCommands
                     throw new RpcError($"'{path}': renk '#RRGGBBAA' hex olmali (orn. '#ff8800ff'; isim/rgb() yok), gelen '{s}'");
                 return;
             case SerializedType.Kind.Asset:
-                if (s.Length == 0)
-                    return;
-                string guid = ctx.Assets.PathToGuid(s) ?? ctx.Assets.PathToGuid(s.Replace('\\', '/'));
-                if (guid != null)
                 {
-                    n.Scalar = guid; // yol → kanonik guid (yeniden adlandirmaya dayanikli)
+                    if (s.Length == 0)
+                        return;
+                    // Kanonik biçim: guid / guid#id (yol ya da yol#id girilirse çevrilir; alt öğe index'te var olmalı).
+                    string rel = ctx.Assets.ResolvePath(s.Replace('\\', '/'));
+                    string owner = SubAssets.Split(rel, out string subId);
+                    string guid = ctx.Assets.PathToGuid(owner);
+                    if (guid == null)
+                        throw new RpcError($"'{path}': asset yok: '{s}' (asset.list ile ara; guid ya da Assets'e goreli yol)");
+                    if (subId != null && !SubAssets.TryGetEntry(owner, subId, out _))
+                        throw new RpcError($"'{path}': alt oge yok: '{owner}#{subId}' (container icerigi: Project panelinde klasor gibi acin)");
+                    n.Scalar = subId == null ? guid : guid + "#" + subId;
                     return;
                 }
-                if (!ctx.Assets.Exists(s))
-                    throw new RpcError($"'{path}': asset yok: '{s}' (asset.list ile ara; guid ya da Assets'e goreli yol)");
-                return;
             case SerializedType.Kind.GoRef:
                 if (s.Length == 0 || s == "0")
                     return;
@@ -885,7 +925,7 @@ static class RpcCommands
             path, end, value, fullPath);
     }
 
-    [RpcCommand("transform.set", "Pos/rot/scale yazar ('x y z' formati; bos = dokunma)")]
+    [RpcCommand("transform.set", "Pos/rot/scale yazar ('x y z' formati; bos = dokunma)", Mutates = true)]
     static DocNode TransformSet(RpcContext ctx, int go, string pos = "", string rot = "", string scale = "")
     {
         var g = RequireGo(ctx, go);
@@ -921,14 +961,14 @@ static class RpcCommands
         return null;
     }
 
-    [RpcCommand("go.setActive", "GameObject aktifligini degistirir")]
+    [RpcCommand("go.setActive", "GameObject aktifligini degistirir", Mutates = true)]
     static DocNode SetActive(RpcContext ctx, int id, bool active)
     {
         ctx.Scene.SetActive(RequireGo(ctx, id), active);
         return null;
     }
 
-    [RpcCommand("comp.setEnabled", "Component enabled durumunu degistirir")]
+    [RpcCommand("comp.setEnabled", "Component enabled durumunu degistirir", Mutates = true)]
     static DocNode SetEnabled(RpcContext ctx, int go, int comp, bool enabled)
     {
         var g = RequireGo(ctx, go);
@@ -945,7 +985,7 @@ static class RpcCommands
     {
         "scene.addGo", "scene.removeGo", "scene.rename", "scene.reparent", "scene.apply",
         "comp.add", "comp.remove", "comp.setEnabled", "prop.set", "transform.set",
-        "go.setActive", "select.set",
+        "go.setActive", "select.set", "prefab.instantiate",
     };
 
     // Grup govdesi: zaten acik bir batch'in icindeysek (edit.batch → scene.apply) ic ice
@@ -970,7 +1010,7 @@ static class RpcCommands
         ctx.Scene.EndBatch();
     }
 
-    [RpcCommand("edit.batch", "Birden cok mutasyon komutunu TEK istekte, TEK undo adiminda, ATOMIK kosar (hata → hepsi geri alinir, hicbiri uygulanmaz). ops: [{cmd, args, as?}] — izinli cmd'ler: scene.addGo/removeGo/rename/reparent/apply, comp.add/remove/setEnabled, prop.set, transform.set, go.setActive, select.set. as='btn' sonucu adlandirir; sonraki args'ta '$btn' → o sonucun id'si (comp.add icin index), '$btn.alan' → sonucun alani, CompRef icin '$btn:Sprite:0'. Donus: her op'un sonucu sirayla")]
+    [RpcCommand("edit.batch", "Birden cok mutasyon komutunu TEK istekte, TEK undo adiminda, ATOMIK kosar (hata → hepsi geri alinir, hicbiri uygulanmaz). ops: [{cmd, args, as?}] — izinli cmd'ler: scene.addGo/removeGo/rename/reparent/apply, comp.add/remove/setEnabled, prop.set, transform.set, go.setActive, select.set. as='btn' sonucu adlandirir; sonraki args'ta '$btn' → o sonucun id'si (comp.add icin index), '$btn.alan' → sonucun alani, CompRef icin '$btn:Sprite:0'. Donus: her op'un sonucu sirayla", Mutates = true)]
     static DocNode EditBatch(RpcContext ctx, DocNode ops)
     {
         if (ops == null || !ops.IsSeq)
@@ -1052,7 +1092,7 @@ static class RpcCommands
         return n;
     }
 
-    [RpcCommand("scene.apply", "Bildirimsel alt agac: GO'lari component+prop+cocuklariyla TEK istekte kurar/gunceller (tek undo, atomik). objects: [{name, id?, parent?, insertBefore?, active?, layer?, pos, rot, scale, components:[{type, index?, enabled?, props:{Alan: deger, 'Tracks[0].Path': deger}}], children:[...]}]. Prop degeri null = default'a don (ic ice yolda liste elemanini siler). id verilirse MEVCUT GO guncellenir (component: index varsa o, yoksa ayni tipten ilki, o da yoksa eklenir); id yoksa yeni GO. parent/insertBefore ve prop degerlerinde '$Ad' = bu apply'da daha once gecen GO'nun id'si ('$Ad:Sprite:0' CompRef). Donus: girdiyle ayni yapida {name,id,components:[index..],children:[..]}")]
+    [RpcCommand("scene.apply", "Bildirimsel alt agac: GO'lari component+prop+cocuklariyla TEK istekte kurar/gunceller (tek undo, atomik). objects: [{name, id?, parent?, insertBefore?, active?, layer?, pos, rot, scale, components:[{type, index?, enabled?, props:{Alan: deger, 'Tracks[0].Path': deger}}], children:[...]}]. Prop degeri null = default'a don (ic ice yolda liste elemanini siler). id verilirse MEVCUT GO guncellenir (component: index varsa o, yoksa ayni tipten ilki, o da yoksa eklenir); id yoksa yeni GO. parent/insertBefore ve prop degerlerinde '$Ad' = bu apply'da daha once gecen GO'nun id'si ('$Ad:Sprite:0' CompRef). Donus: girdiyle ayni yapida {name,id,components:[index..],children:[..]}", Mutates = true)]
     static DocNode SceneApply(RpcContext ctx, DocNode objects, int parent = 0)
     {
         if (objects == null)
@@ -1365,6 +1405,45 @@ static class RpcCommands
         App.TryExitPrefabStage();
         _diffBaseline.Clear();
         return null;
+    }
+
+    [RpcCommand("prefab.create", "Sahnedeki GO'yu (alt agaciyla) Assets'e goreli path'e .prefab olarak yazar ve o GO'yu instance'a BAGLAR (editorde Hierarchy→Project surukleme ile ayni). GO zaten bir prefab instance'inin parcasiysa ret (variant yok). Donus {path, guid}", Mutates = true)]
+    static DocNode PrefabCreate(RpcContext ctx, int id, string path)
+    {
+        var g = RequireGo(ctx, id);
+        if (!path.EndsWith(".prefab", StringComparison.OrdinalIgnoreCase)) path += ".prefab";
+        string full = GuardAssetPath(path);
+        if (File.Exists(full))
+            throw new RpcError($"dosya zaten var: {path}");
+        Directory.CreateDirectory(Path.GetDirectoryName(full));
+        if (!ctx.Scene.CreatePrefabAsset(g, full))
+            throw new RpcError("prefab olusturulamadi (Console'a bak: instance node'undan prefab yapilamaz)");
+        string rel = Path.GetRelativePath(ctx.Assets.Root, full).Replace('\\', '/');
+        var r = DocNode.Map();
+        r.Add("path", DocNode.Scal(rel));
+        r.Add("guid", DocNode.Scal(ctx.Assets.PathToGuid(rel) ?? ""));
+        r.Add("id", DocNode.Scal(g.Id.ToString(CultureInfo.InvariantCulture)));
+        return r;
+    }
+
+    [RpcCommand("prefab.instantiate", "Prefab'i (Assets'e goreli yol ya da guid) sahneye instance olarak ekler (editorde Project→Hierarchy surukleme ile ayni): parent 0 = kok, pos 'x y z' (bos = prefab'in kendi pozu). Instance kok adi benzersizlestirilir; override'lar sonra prop.set ile. Prefab stage'de kendini/iceren prefab'i sokmak ret (dongu). Donus {id, name}", Mutates = true)]
+    static DocNode PrefabInstantiate(RpcContext ctx, string prefab, int parent = 0, string pos = "")
+    {
+        if (parent != 0)
+            RequireGo(ctx, parent);
+        string rel = ctx.Assets.ResolvePath(prefab);
+        if (!rel.EndsWith(".prefab", StringComparison.OrdinalIgnoreCase) && !ctx.Assets.Exists(rel) && ctx.Assets.Exists(rel + ".prefab")) rel += ".prefab";
+        string guid = ctx.Assets.PathToGuid(rel) ?? throw new RpcError($"prefab yok: {prefab} (asset.list type=Prefab)");
+        if (!rel.EndsWith(".prefab", StringComparison.OrdinalIgnoreCase))
+            throw new RpcError($"prefab degil: {rel}");
+        Vec3? at = pos.Length > 0 ? ParseV3(pos, "pos") : null;
+        var root = ctx.Scene.InstantiatePrefab(guid, parent, at);
+        if (root == null)
+            throw new RpcError("instantiate basarisiz (Console'a bak: dongu ya da prefab okunamadi)");
+        var r = DocNode.Map();
+        r.Add("id", DocNode.Scal(root.Id.ToString(CultureInfo.InvariantCulture)));
+        r.Add("name", DocNode.Scal(root.Name));
+        return r;
     }
 
     [RpcCommand("play.start", "Play moduna gecer")]
@@ -1748,6 +1827,7 @@ static class RpcCommands
     static DocNode AssetWrite(RpcContext ctx, string path, string content)
     {
         string full = GuardAssetPath(path);
+        RpcRedact.GuardText(content); // "token: ***" dosyaya girmesin
         Directory.CreateDirectory(Path.GetDirectoryName(full));
         File.WriteAllText(full, content);
         var r = DocNode.Map();
@@ -1788,6 +1868,30 @@ static class RpcCommands
         return r;
     }
 
+    [RpcCommand("asset.validate", "Asset referanslarini dogrular (sahne/prefab/.asset): kirik guid / alt oge, eski 'yol#id' bicimi, kararsiz id. Sonuc: issues[{file,line,value,problem,severity}]")]
+    static DocNode AssetValidate(RpcContext ctx)
+    {
+        var issues = ReferenceValidator.Validate(ctx.Assets);
+        var seq = DocNode.Seq();
+        int err = 0;
+        foreach (var it in issues)
+        {
+            var m = DocNode.Map();
+            m.Add("file", DocNode.Scal(it.File));
+            m.Add("line", DocNode.Scal(it.Line.ToString(CultureInfo.InvariantCulture)));
+            m.Add("value", DocNode.Scal(it.Value));
+            m.Add("problem", DocNode.Scal(it.Problem));
+            m.Add("severity", DocNode.Scal(it.Sev.ToString().ToLowerInvariant()));
+            if (it.Sev == ReferenceValidator.Severity.Error) err++;
+            seq.Items.Add(m);
+        }
+        var r = DocNode.Map();
+        r.Add("errors", DocNode.Scal(err.ToString(CultureInfo.InvariantCulture)));
+        r.Add("warnings", DocNode.Scal((issues.Count - err).ToString(CultureInfo.InvariantCulture)));
+        r.Add("issues", seq);
+        return r;
+    }
+
     [RpcCommand("asset.info", "Tek asset'in bilgisi (yol ya da guid): tip/bayt/guid; gorselde width/height (dosya basligindan, yukleme gerekmez) + atlas bolgesi; import ayarlari (varsa)")]
     static DocNode AssetInfo(RpcContext ctx, string path)
     {
@@ -1796,6 +1900,24 @@ static class RpcCommands
         if (!ctx.Assets.AllAssets.ContainsKey(rel))
             throw new RpcError($"asset yok: {path} (asset.list ile ara)");
         var r = AssetEntry(ctx, rel, AssetTypeName(rel));
+        // Container: alt ogeler (Project panelinde klasor gibi acilanlar); referans anahtari "<yol>#<id>".
+        var subIdx = SubAssets.IndexOf(rel);
+        if (subIdx.Entries.Count > 0)
+        {
+            var subs = DocNode.Seq();
+            foreach (var e in subIdx.Entries)
+            {
+                var m = DocNode.Map();
+                m.Add("id", DocNode.Scal(e.Id));
+                m.Add("name", DocNode.Scal(e.Name));
+                m.Add("type", DocNode.Scal(e.Type));
+                m.Add("width", DocNode.Scal(e.Width.ToString(CultureInfo.InvariantCulture)));
+                m.Add("height", DocNode.Scal(e.Height.ToString(CultureInfo.InvariantCulture)));
+                if (!e.Stable) m.Add("stable", DocNode.Scal("false"));
+                subs.Items.Add(m);
+            }
+            r.Add("subAssets", subs);
+        }
         var importer = ImportPipeline.ImporterFor(rel);
         if (importer?.SettingsType != null)
         {
@@ -2024,6 +2146,7 @@ static class RpcCommands
         for (int i = Math.Max(0, snap.Count - count); i < snap.Count; i++)
         {
             var e = DocNode.Map();
+            e.Add("time", DocNode.Scal(snap[i].TimeText));
             e.Add("sev", DocNode.Scal(snap[i].Sev.ToString()));
             e.Add("msg", DocNode.Scal(snap[i].Message));
             seq.Items.Add(e);

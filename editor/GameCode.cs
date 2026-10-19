@@ -70,6 +70,7 @@ public sealed class GameCode
     public static CompileJob CompileOnly(Project project)
     {
         var job = new CompileJob();
+        // Tum Assets kodu her zaman derlenir (oyun bagimsiz; docs/plugins.md "Games"): pak/trim sahne kumesinden turer.
         job.Scripts.AddRange(RoslynCompiler.SourcesUnder(project.AssetsPath, "/Editor/")); // editor-yalniz kod oyun assembly'sine girmez
         job.Plugins.AddRange(PluginDlls(project));
         if (job.Scripts.Count == 0)

@@ -135,6 +135,7 @@ public static class SerializationTests
 
         LayoutBoxFourValues(catalog);
         BakedTolerance(catalog, doc);
+        SubAssetRefKeys();
 
         Scene.SetActive(prev);
         Scene.Unload(s3);
@@ -145,6 +146,35 @@ public static class SerializationTests
 
     static bool Same(Vec4 a, Vec4 b)
         => a.x == b.x && a.y == b.y && a.z == b.z && a.w == b.w;
+
+    // Alt oge referansi: doc'ta "guid#sub" yazilir (sahip tasinsa kirilmaz), okurken "yol#sub"e cozulur;
+    // guid'siz/yabanci anahtar ve eski "yol#sub" bicimi oldugu gibi gecer.
+    static void SubAssetRefKeys()
+    {
+        string root = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "de_sertests_" + Guid.NewGuid().ToString("N"), "Assets");
+        System.IO.Directory.CreateDirectory(System.IO.Path.Combine(root, "Shared"));
+        try
+        {
+            System.IO.File.WriteAllBytes(System.IO.Path.Combine(root, "Shared", "sheet.png"), new byte[] { 1 });
+            var assets = new AssetDatabase(root);
+            assets.ScanMetas(createMissing: true);
+            string guid = assets.PathToGuid("Shared/sheet.png");
+            Check(guid != null, "alt oge: sahip guid");
+            Check(assets.ToRefKey("Shared/sheet.png#spinner") == guid + "#spinner", "alt oge: yol#sub -> guid#sub");
+            Check(assets.ToRefKey("Shared/sheet.png") == guid, "alt oge: yol -> guid");
+            Check(assets.ResolvePath(guid + "#spinner") == "Shared/sheet.png#spinner", "alt oge: guid#sub -> yol#sub");
+            Check(assets.ResolvePath("Shared/sheet.png#spinner") == "Shared/sheet.png#spinner", "alt oge: eski yol#sub aynen");
+            Check(assets.ToRefKey("nope.png#x") == "nope.png#x" && assets.ResolvePath("nope#x") == "nope#x", "alt oge: guid'siz aynen");
+            // Sprite alani yazimi: IAsset.Name = "yol#sub" -> doc skalari "guid#sub".
+            var spr = Sprite.FromTexture(null, "Shared/sheet.png#spinner");
+            var node = SerializedType.WriteValue(spr, SerializedType.Kind.Asset, null, null, null, assets);
+            Check(node.Scalar == guid + "#spinner", "alt oge: WriteValue guid#sub");
+        }
+        finally
+        {
+            try { System.IO.Directory.Delete(System.IO.Path.GetDirectoryName(root), recursive: true); } catch { }
+        }
+    }
 
     static void LayoutBoxFourValues(TypeCatalog catalog)
     {

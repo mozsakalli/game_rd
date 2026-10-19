@@ -83,6 +83,43 @@ public static class GuiDock
         }
     }
 
+    // Otomasyon: detached/utility native pencereler (RPC ui.windows / window parametresi). Title = leaf'in aktif
+    // panel basligi (utility: tek panel). W/H mantiksal px; Window = NativeWindow (handle + paylasilan FBO).
+    public readonly struct WindowInfo
+    {
+        public readonly string Title;
+        public readonly NativeWindow Window;
+        public readonly float W, H;
+        public WindowInfo(string title, NativeWindow win, float w, float h) { Title = title; Window = win; W = w; H = h; }
+    }
+
+    public static void ListWindows(List<WindowInfo> result)
+    {
+        result.Clear();
+        for (int i = 0; i < _winCount; i++)
+        {
+            ref DockWin w = ref _wins[i];
+            if (!w.Used || w.Win == null) continue;
+            int leaf = w.Root;
+            string title = "";
+            if (leaf >= 0 && _nodes[leaf].Used && _nodes[leaf].TabCount > 0)
+                title = _panels[_tabs[leaf * MaxTabsPerLeaf + Math.Clamp(_nodes[leaf].Active, 0, _nodes[leaf].TabCount - 1)]].Title;
+            float k = NativeWindow.ScreenScale(w.Win.Handle);
+            GLFW.GetWindowSize(w.Win.Handle, out int ww, out int wh);
+            result.Add(new WindowInfo(title, w.Win, ww / k, wh / k));
+        }
+    }
+
+    public static bool TryFindWindow(string title, out WindowInfo info)
+    {
+        var list = new List<WindowInfo>();
+        ListWindows(list);
+        foreach (var w in list)
+            if (string.Equals(w.Title, title, StringComparison.OrdinalIgnoreCase)) { info = w; return true; }
+        info = default;
+        return false;
+    }
+
     // --- Dock agaci (struct havuzu; tab listeleri ayri duz dizide) ---
 
     const byte TypeLeaf = 0, TypeSplitH = 1, TypeSplitV = 2;
@@ -242,6 +279,16 @@ public static class GuiDock
               .Append(sww).Append(' ').Append(swh).Append(' ');
             WriteNode(sb, w.Root);
         }
+        // Ana pencere: konum (sanal masaustu, coklu monitor) + boyut (ekran birimi) + maximize bayragi.
+        IntPtr main = NativeWindow.MainWindow;
+        if (main != IntPtr.Zero)
+        {
+            GLFW.GetWindowPos(main, out int mx, out int my);
+            GLFW.GetWindowSize(main, out int mw, out int mh);
+            int max = GLFW.GetWindowAttrib(main, GLFWConst.MAXIMIZED) != 0 ? 1 : 0;
+            sb.Append(" M ").Append(mx).Append(' ').Append(my).Append(' ')
+              .Append(mw).Append(' ').Append(mh).Append(' ').Append(max);
+        }
         try
         {
             System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path));
@@ -299,20 +346,34 @@ public static class GuiDock
         }
         _root = root;
         // v2: pencere kayitlari — acilamayan/bozuk pencere sessizce atlanir
-        // (panelleri asagidaki 'kayip panel' toplayicisi ilk leaf'e alir).
+        // (panelleri asagida 'yetim' listesinden ilk leaf'e alinir). "M": ana pencere geometrisi.
+        var orphans = new System.Collections.Generic.List<int>();
         while (v2)
         {
             while (pos < s.Length && s[pos] == ' ')
                 pos++;
-            if (pos >= s.Length || s[pos] != 'W')
+            if (pos >= s.Length)
+                break;
+            if (s[pos] == 'M')
+            {
+                pos += 2; // "M "
+                if (ParseInt(s, ref pos, out int mx) && ParseInt(s, ref pos, out int my)
+                    && ParseInt(s, ref pos, out int mw) && ParseInt(s, ref pos, out int mh)
+                    && ParseInt(s, ref pos, out int mmax))
+                    ApplyMainWindow(mx, my, mw, mh, mmax != 0);
+                continue;
+            }
+            if (s[pos] != 'W')
                 break;
             pos += 2; // "W "
             if (!ParseInt(s, ref pos, out int wx) || !ParseInt(s, ref pos, out int wy)
                 || !ParseInt(s, ref pos, out int ww) || !ParseInt(s, ref pos, out int wh))
                 break;
             int wroot = ParseNode(s, ref pos, out bool wok);
-            if (!wok || wroot < 0)
+            if (!wok)
                 break;
+            if (wroot < 0)
+                continue; // tum sekmeleri taninmayan pencere: atla
             ClampToVisible(ref wx, ref wy, ref ww, ref wh); // ekran disi kayit kurtarilir
             int wi = AllocWin();
             var win = wi >= 0
@@ -320,6 +381,7 @@ public static class GuiDock
                 : null;
             if (win == null)
             {
+                CollectPanels(wroot, orphans);
                 FreeSubtree(wroot); // paneller agacsiz kaldi: asagida ilk leaf'e toplanir
                 continue;
             }
@@ -328,17 +390,46 @@ public static class GuiDock
             _wins[wi].Win = win;
             _wins[wi].Root = wroot;
         }
-        // Dosyada gecmeyen paneller ilk leaf'e (kaybolmasinlar).
+        // Dosyada gecmeyen paneller KAPALI kalir (kullanici kapattigi gibi acilir; menuden tekrar
+        // acilir). Yalniz penceresi acilamayan yetimler ilk leaf'e alinir (kaybolmasinlar).
         int first = FindFirstLeaf(_root);
-        for (int p = 0; p < _panelCount; p++)
+        foreach (int p in orphans)
         {
-            if (!_panels[p].Used || _panels[p].Utility || FindLeafWithPanelAll(p) >= 0)
+            if (FindLeafWithPanelAll(p) >= 0)
                 continue;
             ref Node n = ref _nodes[first];
             if (n.TabCount < MaxTabsPerLeaf)
                 _tabs[first * MaxTabsPerLeaf + n.TabCount++] = p;
         }
         return true;
+    }
+
+    static void CollectPanels(int ni, System.Collections.Generic.List<int> into)
+    {
+        if (ni < 0 || !_nodes[ni].Used)
+            return;
+        if (_nodes[ni].Type == TypeLeaf)
+        {
+            for (int i = 0; i < _nodes[ni].TabCount; i++)
+                into.Add(_tabs[ni * MaxTabsPerLeaf + i]);
+            return;
+        }
+        CollectPanels(_nodes[ni].A, into);
+        CollectPanels(_nodes[ni].B, into);
+    }
+
+    // Ana pencere geometrisi: once gorunur monitore kirp, sonra uygula; maximize en son
+    // (restore geometrisi kirpilmis dikdortgen olur).
+    static void ApplyMainWindow(int x, int y, int w, int h, bool maximized)
+    {
+        IntPtr main = NativeWindow.MainWindow;
+        if (main == IntPtr.Zero)
+            return;
+        ClampToVisible(ref x, ref y, ref w, ref h);
+        GLFW.SetWindowPos(main, x, y);
+        GLFW.SetWindowSize(main, w, h);
+        if (maximized)
+            GLFW.MaximizeWindow(main);
     }
 
     // Kayitli pencere konumunu gorunur bir monitore ceker: eski/bug'li kayitlar
@@ -394,8 +485,12 @@ public static class GuiDock
                 if (pid >= 0 && count < MaxTabsPerLeaf)
                     ids[count++] = pid;
             }
+            // Tum sekmeleri taninmayan leaf: hata degil, "bos" (-1). Ust split tek cocugu yukari ceker.
             if (count == 0)
+            {
+                ok = true;
                 return -1;
+            }
             int ni = Leaf(ids.Slice(0, count));
             _nodes[ni].Active = Math.Clamp(active, 0, count - 1);
             ok = true;
@@ -421,6 +516,8 @@ public static class GuiDock
                 return -1;
             pos++;
             ok = true;
+            if (a < 0) return b; // bos cocuk: diger yukari (ikisi de bossa -1)
+            if (b < 0) return a;
             return Split(t == 'H', ratio, a, b);
         }
     }

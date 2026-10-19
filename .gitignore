@@ -17,9 +17,10 @@ Projects/*/UserSettings/
 Projects/*/*.Game.csproj
 Projects/*/.vscode/mcp.json
 
-# --- Android Studio / Gradle (uretilen projelerin icinde) ---
+# --- Android Studio / Gradle (uretilen projelerin icinde; Java LS plugin Android/ klasorlerine de .gradle/ birakabilir) ---
 .gradle/
 .cxx/
+.kotlin/
 local.properties
 *.iml
 .idea/

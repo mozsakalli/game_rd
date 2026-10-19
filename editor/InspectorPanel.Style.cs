@@ -25,6 +25,8 @@ public sealed partial class InspectorPanel
     static readonly Color HeaderHighlight = new(76, 81, 95, 255);
     static readonly Color ArrowColor = new(196, 200, 210, 255);
     internal static readonly Color RefTextColor = new(196, 200, 210, 255);
+    internal static readonly Color MissingRefColor = new(235, 120, 120, 255);   // kirik asset referansi
+    internal static readonly Color UnstableRefColor = new(230, 200, 120, 255);  // ad tabanli alt oge id'si (rename kirar)
 
     // Etiket sutunu: Unity gibi genisligin ~%40'i, mantikli sinirlarla.
     internal static float LabelWidthFor(float contentWidth)

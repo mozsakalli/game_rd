@@ -22,6 +22,9 @@ public sealed class RpcCommandAttribute : Attribute
 {
     public readonly string Name;
     public readonly string Help;
+    // Doc'u DEGISTIREN komut (prop.set, scene.apply...): RpcHost tema kapisindan gecer — calisilan tema default degilse
+    // istek theme:'<ad>' tasimali ya da baglanti theme.set ile o temayi beyan etmis olmali (yanlis katmana kazara yazim yok).
+    public bool Mutates { get; set; }
 
     public RpcCommandAttribute(string name, string help = "")
     {
@@ -48,6 +51,7 @@ public static class RpcRegistry
         public string Help;
         public MethodInfo Method;
         public ParameterInfo[] Params;
+        public bool Mutates;
     }
 
     static readonly Dictionary<string, Entry> _byName = new();
@@ -74,6 +78,7 @@ public static class RpcRegistry
                         Help = attr.Help,
                         Method = m,
                         Params = m.GetParameters(),
+                        Mutates = attr.Mutates,
                     };
                 }
         }
@@ -94,6 +99,8 @@ public static class RpcRegistry
             var cmd = DocNode.Map();
             if (e.Help.Length > 0)
                 cmd.Add("help", DocNode.Scal(e.Help));
+            if (e.Mutates)
+                cmd.Add("mutates", DocNode.Scal("true")); // tema kapisi: calisilan tema default degilse theme:'<ad>' ister (rpc.guide themes)
             var ps = DocNode.Seq();
             foreach (var p in e.Params)
             {
@@ -256,6 +263,34 @@ public static class RpcHost
         public TcpClient Tcp;
         public NetworkStream Stream;
         public readonly object WriteLock = new();
+        // Bu baglantinin theme.set ile BEYAN ettigi tema (null = beyan yok). Tema kapisi: calisilan tema default degilse
+        // mutasyon ancak beyan == calisilan tema (ya da istekte theme:'ad') ise gecer; insan toolbar'dan degistirirse uyusmaz → hata.
+        public string DeclaredTheme;
+    }
+
+    [ThreadStatic] static Client _current; // Execute suresince istegi yapan baglanti (theme.set beyani buraya yazar)
+
+    internal static void DeclareTheme(string theme)
+    {
+        if (_current != null) _current.DeclaredTheme = theme ?? "";
+    }
+
+    // Tema kapisi (docs/engine-notes.md TEMA): yanlis katmana KAZARA yazim olmasin. theme arg'i varsa calisilan temayla
+    // birebir eslesmeli ('default' = taban); yoksa ve calisilan tema default degilse baglanti o temayi beyan etmis olmali.
+    static void GuardTheme(Client from, JsonElement? args)
+    {
+        string active = SceneDoc.ActiveTheme ?? "";
+        string arg = null;
+        if (args.HasValue && args.Value.ValueKind == JsonValueKind.Object && args.Value.TryGetProperty("theme", out var te) && te.ValueKind == JsonValueKind.String)
+        {
+            arg = te.GetString().Trim();
+            if (string.Equals(arg, "default", StringComparison.OrdinalIgnoreCase)) arg = "";
+        }
+        string activeLabel = active.Length == 0 ? "default" : active;
+        if (arg != null && !string.Equals(arg, active, StringComparison.OrdinalIgnoreCase))
+            throw new RpcError($"theme:'{(arg.Length == 0 ? "default" : arg)}' istendi ama calisilan tema '{activeLabel}' — yazim o katmana gider; once theme.set('{arg}') cagir (ya da kullaniciya sor)");
+        if (active.Length > 0 && arg == null && !string.Equals(from.DeclaredTheme, active, StringComparison.OrdinalIgnoreCase))
+            throw new RpcError($"calisilan tema '{active}' (editorde secili): bu degisiklik TABANA degil '{active}' KATMANINA yazilir. Niyetin buysa istege theme:'{active}' ekle ya da theme.set('{active}') ile beyan et; taban icin theme.set('') (kullanicinin temasini degistirmeden once sor)");
     }
 
     readonly struct Request
@@ -531,8 +566,13 @@ public static class RpcHost
             if (entry == null)
                 return Error(hasId, id, $"bilinmeyen komut: '{cmd}' (rpc.describe ile listele)");
             JsonElement? args = root.TryGetProperty("args", out var argsEl) ? argsEl : null;
+            if (entry.Mutates)
+                GuardTheme(from, args);
             _deferredPoll = null;
-            var result = RpcRegistry.Invoke(entry, ctx, args);
+            _current = from;
+            DocNode result;
+            try { result = RpcRegistry.Invoke(entry, ctx, args); }
+            finally { _current = null; }
             if (_deferredPoll != null)
             {
                 _pending.Add(new Pending { From = from, HasId = hasId, Id = id, Poll = _deferredPoll });
@@ -558,6 +598,7 @@ public static class RpcHost
 
     static string Ok(bool hasId, long id, DocNode result)
     {
+        result = RpcRedact.Apply(result); // [Sensitive] alanlar AI'a gitmez (tek cikis noktasi)
         using var ms = new MemoryStream();
         using (var w = new Utf8JsonWriter(ms))
         {

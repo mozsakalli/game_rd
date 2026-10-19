@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Threading.Tasks;
@@ -42,6 +42,8 @@ public static class GameHost
     public static float MaxDeltaTime = 0.1f;
 
     public static string Title => _title;
+    // Oyun adi (docs/plugins.md "Games"): pak .project kaydindan (ProjectSettings/Games/<ad>). Oyun kodu `GameHost.GameName` ile okur.
+    public static string GameName { get; private set; } = "";
     public static bool IsBooted => _assets != null && _bootTask == null;
 
     // Runtime hazir, grafik context'i bu thread'de aktif. Bloklamaz: Boot async kosar, Frame pompalar.
@@ -50,6 +52,7 @@ public static class GameHost
         if (string.IsNullOrEmpty(root))
             root = "..";  // exe Build/ icinde game.pak'in yaninda; proje koku bir ust klasor
         AssetDatabase.LogWarning = m => Console.WriteLine("[warn] " + m);
+        Sokol.LogError = m => Console.WriteLine("[error] " + m);
         Sokol.Setup();
         _cb = new CommandBuffer();
         _gameCams = new System.Collections.Generic.List<Camera>
@@ -117,6 +120,7 @@ public static class GameHost
             _gameCams[i].Encode(_cb, fbw, fbh);
         _cb.Submit();
         Sokol.Commit();
+        Sokol.PollErrors(); // GPU validation/havuz hatalari sessiz kalmaz
         return true;
     }
 
@@ -132,15 +136,25 @@ public static class GameHost
 
     static async Task<bool> Boot(string root)
     {
-        string pak = root + "/Build/game.pak";
-        var pakSource = await PakSource.OpenAsync(pak);
+        // Pak yeri: once exe'nin yani (./game.pak — cikti Build/<game>/ icinde; docs/plugins.md "Games"),
+        // yoksa <root>/Build/game.pak (klasik: exe Build/ icinde, root ".."; mobil/wasm host'lari bu yolu verir).
+        string pak = "./game.pak";
+        var pakSource = root == ".." ? await PakSource.OpenAsync(pak) : null;
+        if (pakSource == null)
+        {
+            pak = root + "/Build/game.pak";
+            pakSource = await PakSource.OpenAsync(pak);
+        }
         if (pakSource == null)
             throw new Exception("game.pak acilamadi: " + pak);
         _source = pakSource;
         var assets = new AssetDatabase(_source); // guid tablosu pak'tan, ScanMetas yok
         Console.WriteLine("[host] pak: " + pak);
-        if (!ProjectBinary.TryRead(await _source.ReadBytesAsync(ProjectBinary.PakKey), out string name, out string startScene))
-            throw new Exception("pak'ta proje kaydi yok (" + ProjectBinary.PakKey + ") — pak'i yeniden build edin");
+        if (!ProjectBinary.TryRead(await _source.ReadBytesAsync(ProjectBinary.PakKey), out ProjectBinary.Record prj))
+            throw new Exception("pak'ta proje kaydi yok (" + ProjectBinary.PakKey + ") â€” pak'i yeniden build edin");
+        string name = prj.Name, startScene = prj.StartScene;
+        GameName = prj.Game ?? "";
+        if (GameName.Length > 0) Console.WriteLine("[host] game: " + GameName);
         _title = name;
         SetTitle?.Invoke(name);
         // Plugin ayarlari (docs/plugins.md): pak'ta .plugins blobu varsa (yoksa her plugin varsayilan ayarla).
@@ -256,6 +270,7 @@ public static class GameHost
     public static void InitLoose(AssetSource source, string title, AssetDatabase assets, string startScene, int fbw, int fbh, float scale)
     {
         AssetDatabase.LogWarning = m => Console.WriteLine("[warn] " + m);
+        Sokol.LogError = m => Console.WriteLine("[error] " + m);
         Sokol.Setup();
         _cb = new CommandBuffer();
         _gameCams = new System.Collections.Generic.List<Camera>

@@ -261,7 +261,7 @@ public sealed partial class FontImporter
         int rows = (n + cols - 1) / cols;
         var gridRect = new Rect(x0, y, cols * PvCellW, rows * PvCellH);
         var ev = Event.Current;
-        if (ev.Type == EventType.MouseDown && ev.Button == 0 && gridRect.Contains(ev.MousePosition))
+        if (ev.Type == EventType.MouseDown && ev.Button == 0 && ev.MouseInClip && gridRect.Contains(ev.MousePosition))
         {
             int c = (int)((ev.MousePosition.x - x0) / PvCellW), r = (int)((ev.MousePosition.y - y) / PvCellH);
             int idx = r * cols + c;

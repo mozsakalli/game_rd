@@ -1,5 +1,266 @@
 # DigitoyEngine R&D (game_rd)
 
+## KAYDEDİLMEMİŞ SAHNE BEKÇİSİ — GUI'de Save/Discard/Cancel, RPC'de UNSAVED (2026-10-18)
+- Sorun: dirty sahne Project panelinde `.scene` çift tık / File→Open Project / pencere X ile sessizce yok oluyordu; popup yalnız
+  prefab stage çıkışında soruluyordu.
+- KARAR (kullanıcı): tek bekçi [App.ConfirmUnsaved(then)](../editor/EditorApp.cs) — önce prefab stage (mevcut `TryExitPrefabStage`
+  zinciri), sonra sahne; dirty ise mevcut editör popup'ı [SaveChangesPopup](../editor/SaveChangesPopup.cs) (Save/Discard/Cancel),
+  seçimden sonra `then` koşar (eylem ertelenir). Çağıranlar: `OpenScene`, `ProjectSwitcher.Open`, ana döngü kapanış isteği
+  (`WindowShouldClose` → bayrak geri alınır, onaydan sonra `_closeConfirmed` ile çıkar). OS mesaj kutusu (Win32 MessageBox / NSAlert)
+  istenirse `sokol_shim.c`'ye `de_dialog_message` eklenir; şimdilik gerek görülmedi.
+- RPC zaten korumalıydı ([GuardUnsaved](../editor/RpcCommands.cs): `scene.open/new`, `prefab.open`, `project.open` → `UNSAVED:` hatası,
+  `force=true` → `DiscardAllChanges`); force dirty'yi düşürdüğü için GUI bekçisi RPC'yi kilitlemez. Canlı doğrulama (Sandbox):
+  dirty → `scene.open` UNSAVED, sahne değişmedi; `force=true` → açıldı, popup yok.
+- Gözlem (açık iş): `scene.tree.scene` dosya adı değil doc `Name`; Login.scene'in adı "Main" olunca yanıltıyor.
+
+## APPLOVIN MAX FAZ 1 — plugin modeli ikinci SDK'da doğrulandı (2026-10-18; Android, interstitial+rewarded, AdMob adapter)
+- Motor/editör/aotcompiler'a dokunmadan Facebook kalıbıyla yazıldı ([docs/plugins.md](plugins.md) "AppLovin"). Kritik kararlar:
+  **bağımlılıklar hook'ta** (Config'teki `sdkVersion` + `mediation[]` listesi → `p.Dependency`; Unity Integration Manager'ın karşılığı
+  düzenlenebilir bir liste), **platform seçimi host'ta** (init mesajı iki platformun unit haritasını taşır; managed platform API'sine
+  ihtiyaç duymadı), **retry/durum managed'da** (host ince, davranış platformlar arası aynı).
+- Ölçüm: Gradle 8.9 ile Kotlin köprüsü gerçek SDK 13.6.4'e karşı derlendi; `:app:dependencies` applovin 13.6.4 + play-services-ads 25.5.0
+  + facebook 17.0.0 çakışmasız → `ForceVersion` henüz gerekmedi. Sürümler Maven metadata'dan (`repo1.maven.org/.../maven-metadata.xml`).
+- TUZAK: digitoyclient'ta `player.build` ön-var olan 515 AOT-uyum hatası (Shared corelib dışı API) yüzünden koşmaz → doğrulama Sandbox
+  kopyasıyla yapıldı; cihaz testi gerçek sdkKey ister. Gradle için `Build/<game>/android/local.properties` (sdk.dir) gerekir — kabuk
+  üretmiyor, Android Studio ilk açılışta yazar; CLI'dan derleyen elle koyar (gitignore'lu).
+- Sonraki: iOS (SPM core + adapter kapsamı → gerekirse xcframework), banner (LayoutBox rect → native overlay), adapter listesini genişletme.
+
+## RPC TEMA KAPISI — AI kazara yanlış katmana yazmasın (2026-10-18)
+- KARAR (kullanıcı): "her istekte tema zorunlu" yerine **beyan modeli**: `[RpcCommand(..., Mutates = true)]` ile işaretli doc
+  mutasyonları (prop.set, scene.apply, edit.batch, comp.*, transform.set, go.setActive, scene.addGo/removeGo/rename/reparent,
+  loc.bind/unbind, ui.dropAsset) [RpcHost.GuardTheme](../editor/RpcHost.cs)'den geçer: çalışılan tema default değilse istek
+  `theme:'<ad>'` taşımalı YA DA aynı bağlantı `theme.set('<ad>')` ile beyan etmiş olmalı (`Client.DeclaredTheme`, `[ThreadStatic] _current`);
+  aksi halde hata, hiçbir şey değişmez. `theme:` arg'ı çalışılan temayla uyuşmazsa da hata (sessiz geçiş YOK). İnsan toolbar'dan
+  temayı değiştirince beyan düşer. `rpc.describe` → `mutates: true`; `rpc.guide` → `state {workingGame, workingTheme, openScene, note}`
+  (MCP köprüsü guide'ı initialize'da gömdüğü için AI bağlanır bağlanmaz durumu görür) + rules "TEMA KAPISI".
+- Canlı doğrulama (digitoyclient): beyansız → ret; `theme:'xmas'` → geçti; `theme:'default'` xmas açıkken → ret; aynı bağlantıda
+  `theme.set` sonrası → geçti. Oyun (Game) için kapı yok: sahne düzenlemeleri oyun-bağımsız, `game.set` yalnız Play/Build bağlamı.
+- Perf HUD: varsayılan kapalı, `Window/Perf HUD` (EditorSettings.perfHud), açıkken Game View sol üstü (toolbar combolarıyla çakışmaz).
+
+## GAMES: PROJE = ORTAK ASSETS + N OYUN — VARYANT MODELİ KALDIRILDI (2026-10-18; GameTests 23 PASS, Sandbox/digitoyclient uçtan uca)
+- KARAR (kullanıcı, uzun tartışma): "varyant = taban + override" kafa karıştırıcı ve ayarların %90'ı zaten oyuna göre farklı →
+  **her oyun TAM `PlayerSettings` + `Plugins/`** (`ProjectSettings/Games/<ad>/`), en az bir oyun zorunlu, "varsa/yoksa" modu yok.
+  Paket/submodule/çoklu asset kökü yolları da tartışıldı ve REDDEDİLDİ ("birkaç kodu reuse edeceğiz diye" ikinci mekanizma; junction =
+  git çift izleme + watcher körlüğü; Unity cache/lock/resolver acısı). Kod ortak ve HEP derlenir (`excludeFolders` kalktı; pak/trim
+  zaten sahne kümesinden türer). Tema listesi OYUNA ait oldu (proje-üstü dosya kalmadı); adlar ortak sözlük, `theme.check undeclared`.
+- Tam tasarım/dosyalar [docs/plugins.md](plugins.md) "Games". Özet: [Project](../editor/Project.cs) (`Games/*` keşfi, `Game`, `PlayerFor`,
+  `CreateGame` kopya, `RemoveGame`, **DocNode düzeyinde otomatik geçiş**: taban+overlay birleşimi → tam dosya, nötr taban oyun olmaz),
+  toolbar "Game" combosu + `App.SetWorkingGame` (editör durumu oyun başına `EditorSettings.games[]` stash/restore; **taze ALC** → statikler
+  sıfır, `AppBoot.IsReady` tuzağı bitti), `--game <ad>` CLI (süreçte sabit, dosyaya yazılmaz → aynı projede ikinci editör), Player Settings
+  oyun SEKMELERİ (düzenlenen ≠ çalışılan; "Games" sayfası Work on/Remove/Add-copy), RPC `game.*`, `PlayerBuilder --game`, `Build/<game>/`,
+  aotcompiler `Game.cs` + `PluginSettingsStore(…, game)` (`ObjectSerializer.LoadInto`), `ProjectBinary.Record.Game` → `GameHost.GameName`.
+- SİLİNEN: `VariantStore.cs`, `aotcompiler/Variant.cs`, `VariantTests.cs`; `PlayerSettings.variants/activeVariant/excludeFolders/IsExcluded`;
+  `Project.BasePlayer/Variant/SaveBasePlayerSettings`; turuncu varyant şeridi; `GameHost.Variant`. Eski YAML alanları okunurken atlanır.
+- TUZAK: DocNode tabanlı geçiş `themes:` (null) → `themes: ''` yazar; ObjectSerializer boş listeye çözer, zararsız. Oyun kimliği = proje
+  klasörü adı (productName görünen ad). `PluginSettingsStore.PathFor` kalktı (plugin yazarları `Plugin.Settings` kullanır, yol bilmez).
+
+## ASSETDATABASE: SENKRON TAMAMLANAN OKUMA "YAPIŞKAN NULL" BIRAKIYORDU (2026-10-18; digitoyclient Yuzbir Lobby bulunamadı)
+- BELİRTİ: editör açıkken sonradan oluşturulan `.scene` dosyası Play'de `sahne bulunamadi`; disk/`asset.read` sağlam; editör
+  yeniden başlayınca çalışıyor. ÖLÇÜM: `PreloadAsync` null; kaynak `LooseFileSource`, dosya kilitsiz.
+- NEDEN: [AssetDatabase.PreloadAsync](../engine/managed/AssetDatabase.cs) "önce başlat, sonra `_blobLoads[k]=task`" sırası;
+  dosya yokken `ReadBytesAsync` HAZIR null task döner → `await` senkron sürer → `Remove(k)` atamadan ÖNCE koşar → tamamlanmış
+  null task kalıcı in-flight kaydı = anahtar o oturumda bir daha okunmuyor. `_ensured` memo'su da aynı sırayla yazılıyordu
+  (başarısız ensure yapışkan). FIX: TCS önce kaydedilir, iş sonra başlar, yalnız KENDİ kaydını siler; başarısız ensure memo'dan
+  düşer (kaynak sonradan gelirse yeniden denenir); okuma istisnası uyarı + null. Test: ObjectBinaryTests "sonradan gelen dosya".
+- KURAL: "başlat → sözlüğe kaydet" deseni async'te YASAK — senkron tamamlanma her zaman mümkün; önce kaydet (TCS) sonra başlat.
+- (Aynı gün sonrası) `AppBoot.IsReady`/`Game.Current` statik tuzağı: oyun geçişi artık taze ALC yüklediği için kapandı ("GAMES" bölümü);
+  aynı oyunda Play→Stop→Play statikleri hâlâ korur (Unity domain reload yok; bilinçli).
+
+## PLAYER SETTINGS: SOL KATEGORİ LİSTESİ + `ui.menu`/`ui.windows`/`window=` RPC (2026-10-18)
+- [PlayerSettingsWindow](../editor/PlayerSettingsWindow.cs) Unity Project Settings düzeni: sol 170 px kategori listesi, sağ içerik.
+  Kategoriler `PlayerSettings` alanlarındaki yeni `[Category("Ad")]` attribute'undan (yalnız editör; `FieldSchema.Category`,
+  işaretsiz = General); `ObjectDrawer.Filter` (üst düzey alan süzgeci, Measure+Draw aynı) ile sayfa başına alt küme çizilir.
+  Android/iOS iç nesneleri ayrı drawer'la düz (foldout'suz); Scenes, Themes & Variants (+ varyant listesi), her plugin
+  ("Plugin:<Ad>", sol listede PLUGINS altında; `[Required]` eksikse kırmızı nokta) ayrı sayfa. Seçim `EditorSettings.playerSettingsPage`.
+  Varyant override şeridi alan bazlı sürer; iç nesne (android/ios) bir bütün override olduğundan sayfa bilgi satırında belirtilir.
+  Sayfa seçimi MouseDown + `HotControl==0` (IMGUI: kontrol sayısı değişir). Yeni ayar = alan + `[Category]`; yeni plugin otomatik.
+- RPC: `ui.menu(path)` `[MenuItem]` yolunu çalıştırır (boş = liste; `EditorMenu.Invoke` → `Poll` kuyruğu, Win32 ile aynı nokta),
+  `ui.windows` açık utility/detached pencereler, `ui.screenshot/click/drag/scroll/type/key(window="Player Settings")` o pencereyi
+  hedefler (koordinat o pencerenin mantıksal px'i; `UiAutomation.SetTarget` → `GuiInput.Inject(handle)` pencere slotu; screenshot
+  paylaşılan FBO'dan `de_sokol_read_fbo(fbo,…)` — eski `de_sokol_read_framebuffer` onu `fbo=0` ile çağırır). Hedef yoksa hata
+  (sessizce ana pencereye düşmez). Doğrulandı: ui.menu → ui.windows → window screenshot → tıklamayla sayfa geçişi → Fullscreen
+  toggle YAML'a yazdı. ÖLÇÜLEN TUZAK (dokunulmadı): utility pencere mantıksal boyutu `UtilityWidth×ScreenScale` çıkıyor (780→1170 @1.5);
+  `OpenUtility` `k` ile çarpıyor ama Windows'ta GLFW boyutu zaten fiziksel değil mantıksal gibi davranıyor — ayrı iş.
+- Sonraki: aynı `Filter`/kategori aracı Inspector'da LayoutBox gibi kalabalık component'ler için (kullanıcı notu).
+- `rpc.guide` **assets** bölümü (aynı gün): oyun AI'ı "psb importer yok" diyordu — `asset.importers` doğruydu ama kılavuz
+  importer'lardan hiç bahsetmiyordu. Biçim listesi `ImportPipeline.Entries`'ten CANLI üretilir (yeni `[AssetImporter]` kılavuza
+  kendiliğinden girer; elle liste/tip-özel metin yok) + ekleme yolu (Assets/'e kopyala → watcher), `Dosya.psb#id` alt öğe,
+  asset.info/validate. `IdeFiles` copilot-instructions şablonuna ve digitoyclient'taki mevcut dosyaya "bakmadan importer yok deme" satırı.
+
+## İLK GERÇEK PLUGIN: FACEBOOK LOGIN ANDROID'DE ÇALIŞTI (2026-10-18; digitoyclient, cihaz ANE-LX1)
+- `digitoyclient/Assets/Plugins/Facebook/` (Sandbox örneği + core.upm `Auth/Facebook.cs` davranışı: `_loginInProgress`,
+  süresi dolmamış cached token'da SDK ekranı açmayan `status` isteği, `Logout`). Bağlama `Server.LoginAsync(LoginType.Facebook)`
+  → `Plugin.Get<Facebook>().Login()`; karar kaydı digitoyclient `docs/decisions.md`.
+- ÖLÇÜLDÜ: `player.build android` → `plugin: Facebook [canli]`, hook resString'leri, `Plugins.kt`, `:plugins:Facebook` include;
+  Gradle 8.9 `assembleDebug` OK; cihazda `FacebookActivity`/`CustomTabActivity` açıldı, iptal `FacebookAuthCancelled` olarak
+  managed'a düştü, placeholder App ID ile SDK "invalid app id" (beklenen). **Motor/aotcompiler/kabuk değişikliği gerekmedi.**
+- TUZAKLAR: (1) `Build/android`'de `gradlew` yok (Studio kendi dağıtımıyla); CLI'dan `~/.gradle/wrapper/dists/gradle-8.9` +
+  `JAVA_HOME=Android Studio\jbr`. (2) Yarım kalmış `app/.cxx` (`.c.o unknown file type`) → klasörü sil, yeniden derle.
+  (3) `[Required]` ayar boşsa build düşer → kimlik gelene kadar PLACEHOLDER değer; gerçek App ID/Client Token oyun başına
+  varyant overlay'ine girecek (varyant henüz tanımsız). (4) SDK uyarısı: API 30+ için `<queries>` paket görünürlüğü
+  (FB native app ile login) plugin manifest'ine eklenmeli — sonraki tur.
+- Doğrulanmamış: iOS/WASM tarafı (plugins.md "Durum").
+- `.gradle/` SIZINTISI (ÖLÇÜLDÜ, redhat.java `.log`: "No previous Gradle project at …\Plugins\Facebook\Android, it must be
+  synchronized"): VS Code Java LS plugin `Android/build.gradle.kts`'yi kök proje sanıp kendi Gradle'ıyla `.gradle/` yazıyor. Üç
+  savunma: [IdeFiles](../editor/IdeFiles.cs) proje köküne `.vscode/settings.json` (`java.import.gradle.enabled:false`, yalnız yoksa;
+  varsa eksik anahtara uyarı) + `.gitignore` şablonuna Gradle/Studio çöpü; aotcompiler `CopyTree` araç çöpünü atlar (sahte `.gradle`
+  ile doğrulandı: `generated/plugins/Facebook`'a girmedi). game_rd kökündeki settings.json zaten aynı anahtarı taşıyordu;
+  digitoyclient'ta yoktu → sıfır projede tekrar yaşanmasın diye editöre alındı.
+
+## ATLASGROUP TEK ÜYE LİSTESİ + THUMBNAIL YÖNÜ (2026-10-18)
+- `Sprite : ISpriteSource` (marker; runtime etkisi yok): tek sprite kendini üreten kaynaktır. AtlasGroup üyeliği iki
+  kavram: `folders` = KURAL (klasör/container öneki; wildcard eklenecekse yalnız `AssetTree.SpriteMembers`'a),
+  `sources` = ÜYE (png, `x.psb#id` katmanı, font/PSB bütünü — tek `List<ISpriteSource>`). `sprites` alanı kaldırıldı
+  (importer v9 eski `sprites`/`fonts` anahtarlarını da okur). `AssetDatabase.LoadAsset` arayüz alanında alt öğe tipini
+  `SubAssetTypeResolver`'dan çözer (release'te null → eski davranış).
+- THUMBNAIL YÖNÜ (kullanıcı fark etti, ölçüldü): png ve PSD katmanı ters, glyph düz çıkıyordu. Motor dokuları satır 0
+  ALTTA; MTSDF glyph rasteri satır 0 üstte. Thumbnail sayfası `v0=1,v1=0` ile çizildiğinden SDF dışı kaynaklar
+  [ThumbnailCache.Build](../editor/ThumbnailCache.cs)'de satır sırası çevrilir; disk önbellek adı `v2:` ile değişti.
+  Runtime çizim zaten doğruydu (Logo.psb#17 sahnede düz).
+- `asset.info` artık container alt öğelerini (`subAssets[{id,name,type,w,h}]`) döner — AI önce bunu okur, sonra `#id`.
+- INSPECTOR TAŞMA (kullanıcı): liste elemanı satırında uzun asset yolu `x ▲ ▼ x` butonlarının altına giriyordu. İki
+  neden: `DrawTextIn` kırpmaz (→ `ObjectDrawer.Ellipsize` ile "…"; ProjectPanel/Inspector.Fields aynı yardımcıyı kullanır)
+  ve dar panelde `LabelW`(≥110)+rezerv(66) değer alanını 20 px'e çökertiyordu (→ `DrawValue` değer alanı ≥90 px kalacak
+  şekilde etiket sütununu geri çeker). KURAL: kutuya metin yazarken kırp/kısalt; sabit minimum sütun genişliği verme.
+- Y-YÖN SÖZLEŞMESİ (backend'den bağımsız, CPU veri düzeni): png/PSD katmanı/atlas Color bölgesi "satır 0 ALTTA" (stbi
+  flip), MTSDF glyph "satır 0 ÜSTTE"; her yol UV düzeyinde kapalı (SpriteRenderer quad / TextSprite V takası). GL↔Metal
+  farkı yalnız RENDER TARGET'ta (`_flipRenderTargets`, readback) — dokulara dokunmaz. Atlas sayfası karışık düzenlidir:
+  Inspector önizlemesi Color bölgelerini kendi kutusunda çevirip düz gösterir (veri değişmedi). Sayfayı tek düzene
+  indirmek (Color'ı da üstte yazmak) mümkün ama runtime UV kuralına dokunur; şimdilik yapılmadı.
+
+## PAK CANLILIĞI ALT ÖĞE DÜZEYİNDE + SEMANTİK DROP RPC (2026-10-18)
+- KURAL (kullanıcı): release pak'a YALNIZ kök sahnelerden gezilerek erişilen şey girer; geliştirme çöpü asla. Eskiden
+  canlılık dosya düzeyindeydi (`guid#30` → sahip canlı → importer 14 katmanın hepsini paketliyordu).
+- [AssetPackBuilder](../editor/AssetPackBuilder.cs) Faz 1: `guid#id` → `liveSubs`, düz `guid` → `liveWhole` (tüm alt
+  öğeler), alt öğe tüketicisi (atlas) `memberConsumers` ile canlıya çekilir. Importer'a verilen predicate anahtar
+  düzeyinde: atlas → `SubLive(k)`; diğerleri → `SubLive(k) && !atlasCovered(k)` (çift piksel yok; tüm canlı
+  katmanlar atlas'taysa sahip yalnız `main` gönderir). `ImportContext.IsLive("sahip#id")` artık geçerli.
+- GARANTİ importer'dan bağımsız: `VerifyLiveness` filtreli çıktıdaki her SpriteTable bölgesini predicate'e karşı
+  denetler; canlı olmayan bölge = **build iptal** (importer `ctx.IsLive`'a uymadıysa uyarı değil hata).
+- `ImportPipeline.BuildArtifacts` kısayolu (Library çıktısını aynen kullanma) artık `DependencyContext.Member` bildirimleri
+  ve container index girişleri kısmen ölüyse de filtreli koşar. AtlasImporter `Member(key)` bildirir; `sources`'taki
+  AtlasMembers container'larda bölge bazlı canlılık (font bütün).
+- AtlasGroup `sprites` listesi: Project'ten liste BAŞLIĞINA bırak → sona ekler (ObjectDrawer genel: her asset listesi).
+- OTOMASYON: `DragDrop.EndFrame` fiziksel fare "bırakık" görünce yükü ilk frame'de temizliyordu → `ui.drag` ile drop
+  hiç çalışamazdı. Şimdi `UiAutomation.MouseReleased` sentetik durumu kullanır. Yeni koordinatsız RPC:
+  `ui.fields` ([FieldRegistry](../editor/FieldRegistry.cs): ObjectDrawer çizdiği asset alanı/liste başlığını global
+  rect ile kaydeder) + `ui.dropAsset(asset, field)` (yükü koy → hedefe hover → `DragDrop.ApplyNow`). rpc.guide güncel.
+
+## PSD/PSB IMPORTER (2026-10-18, container asset adım 4/4 — uçtan uca tamam)
+- [PsdReader](../editor/PsdReader.cs): saf C#, PSD+PSB (v2 64-bit uzunluk), 8-bit RGB/Gray, raw+RLE; `luni` ad, `lyid`
+  kimlik, `lsct` grup (grup yolu + gizli grup → çocuk gizli). 16/32-bit, CMYK, ZIP → hata (kaynak 8-bit RGB'ye çevrilmeli).
+  Çıktı satır 0 üstte; importer motor düzenine (satır 0 altta) çevirir.
+- [PsdImporter](../editor/PsdImporter.cs) (`.psd/.psb`, Settings: importHidden/groupPathNames/trim/padding/maxSize):
+  Unity'nin mozaik/karakter modu YOK — dosya sprite KAYNAĞI. Çıktı: `main` = [LayerSheet](../engine/managed/LayerSheet.cs)
+  (doküman düzeni: katman konumları, ISpriteSource), `sprites`+`pageN` (Standalone yedek sayfa; atlas'a girmeyen katman
+  buradan çizilir), `index` (AtlasMembers=true, kullanıcı sırası, `Stable` = lyid var). Id = `lyid` (sayısal → artifact
+  adıyla çakışmaz); yoksa `n:<ad>` + Stable=false + uyarı.
+- Doğrulama (`Common.psb`, 14 katman): adlar/boyutlar Unity meta ile birebir, thumbnail'ler doğru yönde, `prop.set
+  Sprite="Test/Common.psb#30"` → doc `guid#30`, AtlasGroup `folders: [Test/Common.psb]` → 14 bölge gruba girdi, runtime
+  çizim atlas sayfasından. RPC `prop.set` asset doğrulaması artık `yol#id`/`guid#id` kabul eder ve index'te arar.
+- Sonraki olası adımlar (yapılmadı): Project panelinde sağ tık "Place layers as GameObjects" (LayerSheet konumlarıyla);
+  AtlasGroup `sprites` listesine Project panelinden sürükleme UX'i (ObjectDrawer liste drop'u zaten çalışıyor olmalı — denenmedi).
+
+## ASSET REFERANSI DEĞİŞMEZLERİ (2026-10-18, kullanıcı kararı: "kırılgan, karışan yapı olmasın") — adım 3/4
+- A. TEK BİÇİM: doc/DOBJ/pak'ta referans yalnız `guid` ya da `guid#id`. Yol biçimi yalnız OKUNUR (eski doküman, elle giriş,
+  RPC); yazarken `ToRefKey` GUID'e çevirir.
+- B. `id` KALICI KİMLİK, görünen ad değil (PSD `lyid`, font codepoint). Importer `Entry.Stable=false` ile ad tabanlı yedeği
+  işaretler (Inspector sarı). Alt öğenin kendi GUID'i/meta'sı YOK; sahibiyle taşınır.
+- C. KIRIK REFERANS GÖRÜNÜR: runtime sahibi yüklü ama id yok → boş sprite + tek uyarı; editör alanı kırmızı
+  `(missing) …`; **Project > Validate References** / `asset.validate` tüm YAML'ları tarar (kırık guid, kırık alt öğe,
+  eski `yol#id`, kararsız id). Şema okumaz; 32-hex + `#` desenleri.
+- D. ÜYELİK ≠ REFERANS: atlas üyeliği yol-önekiyle ([AssetTree.SpriteMembers](../editor/AssetTree.cs): klasör ya da
+  container yolu), çizim referansı GUID'le. Container taşınırsa yalnız paket değişir. AtlasGroup üç tipli üyelik:
+  `folders` (önek), `sources` (bütün ISpriteSource), `sprites` (`List<Sprite>`: png ya da `guid#id`). Index
+  `AtlasMembers=false` üreticinin (font) girişleri öneğe girmez. Kısmi üyelikte sahip `DependsOn` (kendi sayfası
+  pak'a girer), tam kapsamda `Absorbs` (`CoversAllMembers`).
+- E. TEK ÇÖZÜM NOKTASI: `AssetDatabase.ResolvePath/ToRefKey` + `SubAssets.Split`; başka yerde `IndexOf('#')` yazılmaz
+  (istisna: artifact anahtarı `asset#artifact` — ImportPipeline/AtlasSystem). '#' ad uzayı ORTAK: alt öğe id'si asla
+  `main/sprites/index/sheet/pageN` gibi artifact adı olamaz (importer sorumluluğu).
+- `AssetTree`: OS klasörü ve container tek gezinme tabanı (List/Parent/IsContainerPath/SpriteMembers); dosya işlemleri
+  klasör-özel kalır. Project paneli ve AtlasGroup yalnız buradan sorar.
+
+## GPU KAYNAK HAVUZU + HATA GÖRÜNÜRLÜĞÜ (2026-10-18, thumbnail'ler sokol assert'ine çarptı)
+- sokol_gfx kaynakları `sg_setup`'ta SABİT havuzlarda ayırır (varsayılan image 128 / view 256); dolunca `sg_make_*`
+  id 0 döner, biz kontrol etmeden view açınca debug'da assert, release'te bozuk çizim. Slot maliyeti ölçüldü (GL):
+  image 76 B, view 96 B, buffer 60 B, pipeline 1.2 KB, shader 3.4 KB; frame maliyeti yok → [sokol_shim.c](../engine/native/sokol_shim.c)
+  havuzlar image 16384 / view 32768 / buffer 4096 / pipeline 1024 / shader 512 (`de_sokol_pool_sizes` managed'a bildirir).
+- KARAR: sokol'da kalınır (tek API ile GL/GLES/WebGL2/Metal; C, bağımlılıksız, AOT/wasm dostu). Havuz = GPU kaynak
+  BÜTÇESİ; tüm sokol çağrıları `de_sokol_*` + managed `Sokol` sınıfı arkasında kalır (backend değişimi mümkün).
+- [Sokol.cs](../engine/managed/Sokol.cs): `MakeImage/MakeView/MakeBuffer/Destroy*` sarmalayıcı — canlı sayaç
+  (`LiveImages/Views/Buffers`), id==0 yakalanır (kaynak atlanır + 120 frame'de bir hata), image==0 ile view açılmaz,
+  %75 doluluktA `Resources.ScheduleCollect`. `PollErrors()` her frame (editor loop + GameHost.Frame): şimdeki ERROR
+  sayacı (`de_sokol_error_count`) değiştiyse son iki mesaj Console'a — validation hataları artık SESSİZ KALMAZ.
+  Toolbar HUD `img N/M` (%75 üstü kırmızı). RenderQueue: `TexView==0` batch atlanır.
+- KURAL: çok sayıda küçük görsel (thumbnail, glyph önizleme) = ATLAS; bin ayrı doku hiçbir backend'de iyi değil.
+- Bulunan tuzak: `Texture.FromRgba` IMMUTABLE image üretir; sonradan `UpdateImage` sokol'da yasak (validation).
+  Güncellenecek doku `CreateDynamicRgba` + frame'de en fazla bir `UpdateRgba`.
+
+## CONTAINER ASSET + THUMBNAIL (2026-10-18, adım 2/4)
+- Sözleşme: importer `"index"` artifact'i (`SubAssetIndex`, Editor scope) yayar → asset container olur; Project paneli
+  klasör gibi gezer, alt öğe `yol#id` / `guid#id` ile seçilir-sürüklenir; `IsAssignable` alt öğe tipini index'ten
+  (`AssetDatabase.SubAssetTypeResolver` → [SubAssets](../editor/SubAssets.cs)) alır. Sprite üreticisi için
+  `SubAssetIndex.FromSpriteTable` tek satır (FontImporter örnek; PSD aynı yoldan gelecek). Tip-özel kod yok.
+- [ThumbnailCache](../editor/ThumbnailCache.cs): 1024² dinamik sayfalarda 128² hücre (64/sayfa, 32 sayfa), LRU hücre,
+  frame başına 2 decode + 8 disk okuma; disk önbelleği `Library/Thumbs/<guid>-<fnv(key)>-<fnv(stamp)>.png` (stamp =
+  import .stamp → `ImportPipeline.PeekStamp`, hash yok). MTSDF glyph thumb = median(r,g,b) eşiği (yalnız R yanlış şekil verir).
+- `ImportPipeline.PeekArtifact/PeekStamp`: damga hesaplamadan (kaynağı SHA256'lamadan) mevcut artifact'i okur — liste/ikon
+  gibi sık sorgular için; `EnsureImported` her çağrıda kaynağı hash'ler, klasör listesinde kullanma.
+- Project paneli: liste/ızgara (`EditorSettings.projectGrid/projectCell`), container satırı `>` köşesi/çift tık ile girilir,
+  tek tık seçer; `Selection.SelectSubAsset(owner, id)` → Inspector üstte alt öğe başlığı + sahibin ayarları.
+
+## [Sensitive] — RPC/MCP çıkışında maskeleme (2026-10-18; RedactTests 12 PASS, canlı RPC doğrulandı)
+- Tek attribute + tek çıkış noktası (`RpcHost.Ok` → `RpcRedact.Apply`); alan adı bazlı küme (editör+motor+oyun/plugin assembly'leri,
+  reload'da tazelenir). Ağaç + metin (YAML/JSON/properties satır içi) `***`; `prop.set`/`asset.write` ile maske geri yazımı reddedilir.
+  Inspector `••••` + Show/Hide. Detay [docs/plugins.md](plugins.md) "Sensitive". Reddedilen: isim sezgisi (sahte güven), case-case komut filtreleri.
+- TUZAK: regex kelime sınırı: `signing.keyPassword=` için `.` ön-ek kabul edilmeli (properties dosyaları).
+- KARAR (kullanıcı): `UserSettings/AndroidSigning.asset` (gitignore'lu parola dosyası) KALDIRILDI → `AndroidSettings.keystorePassword/
+  keyPassword` `[Sensitive]` olarak PlayerSettings.android'de (git'e girer, varyantla override edilebilir). İlk açılışta eski dosya
+  taşınır ve silinir (Sandbox'ta doğrulandı). `AndroidSigning` sınıfı/Player Settings "Android Signing (local)" bölümü yok. H5.1 notu
+  (engine-notes/platform-hosts) bu kararla GEÇERSİZ; CI env üstünlüğü (`DE_ANDROID_*`) aotcompiler'da duruyor.
+
+## BUILD VARYANTI — tek kaynak ağacı, oyun başına ayrı APK (2026-10-18; VariantTests 13 PASS, Sandbox okey uçtan uca)
+- KARAR (kullanıcı): tek APK'da tüm oyunlar + runtime geçiş UZUN VADE; bugün oyunlar tamamen izole (FB id'den sunucu kimliğine) →
+  hibrit: digitoyclient `Shared/ + Games/<Oyun>/` tek repo, **build'de varyant seç → o oyunun APK'sı**. Reddedilenler: `Plugin<TConfig,
+  TGameConfig>` oyun-başı katman + `Game.Current` (SDK kimlikleri APK başına tek; kırılgan), modül yolu (vmint hız/boyut ölçülmemiş; tek
+  APK kararı yokken gereksiz), ayrı proje/oyun (Shared senkronu). Tema **proje-üstü**: varyant override edemez (kullanıcı kararı).
+- Tam tasarım/dosyalar [docs/plugins.md](plugins.md) "Varyant". Özet: `VariantStore` (taban + kısmi overlay, tema `SaveOverlay`
+  disipliniyle), `Project.Player/BasePlayer/Variant`, toolbar Variant combosu, Player Settings turuncu şerit + Variants bölümü,
+  `excludeFolders` (editör+aotcompiler aynı filtre), `--variant`, `Build/<variant>/`, `Library/aot/<variant>/`, `.project` v3 `variant`,
+  `GameHost.Variant`, desktop host pak önce `./game.pak`.
+- TUZAK: CoreLib `string.Trim(char)`/`TrimStart(char)` yok → engine'de `while(StartsWith)` (PlayerSettings.IsExcluded). Varyant
+  `excludeFolders` plugin klasörünü dışlarsa Shared'daki `Plugin.Get<T>` derlenmez = beklenen; dışlama oyun klasörleri içindir.
+  `Run in Browser` statik kökü varyantsız kaldı.
+- digitoyclient `02-engine-gaps.md` A1 bu işle karşılandı (sahne listesi varyantta override EDİLEBİLİR — 2026-10-16 "filtrelenmez"
+  kararı tek-APK içindi, hibritte oyun başına küme doğru); A2 `Variant.Current` → `GameHost.Variant` (string; GameDefinition ref ileride).
+
+## ALT ÖĞE REFERANSI `guid#sub` (2026-10-18, container asset temeli — adım 1/4)
+- Hedef: PSB gibi "içinde birden çok sprite taşıyan" asset'ler editörde klasör gibi gezilsin, alt öğe sürüklenip
+  referans verilsin, hangi parçanın hangi atlasa gireceğine kullanıcı karar versin. **Tip-özel kod yalnız importer'da**;
+  Project/Inspector/Atlas/DragDrop iki genel artifact'i okur (`"index"` SubAssetIndex + thumb PNG) — sonraki adımlar.
+- Bu adım: alt öğe referansı doc'ta `sahipGuid#subId` (önceden `yol#sub` → taşıma/rename kırıyordu). Tek boğaz:
+  [AssetDatabase.ResolvePath](../engine/managed/AssetDatabase.cs) `guid#sub → yol#sub`, `ToRefKey` tersi;
+  `SerializedType.WriteValue` `ToRefKey` kullanır. Eski `yol#sub` okunmaya devam eder. Pak builder: `main`'i olmayan
+  her canlı asset guid stub'ı alır (sahip guid'i release'te çözülsün; eskiden yalnız absorbe görsel).
+- Bilinen sınır (adım 2'de): `ImportTypeOf("x.psb#sub")` null — `#` sonrası uzantı sanılıyor; alt öğe tipi index'ten gelecek.
+- `subId` importer'ın KALICI kimliği (PSD `lyid`, glyph codepoint); görünen ad ayrı. Test: SerializationTests.SubAssetRefKeys.
+
+## EDİTÖR LAYOUT + CONSOLE (2026-10-18)
+- LAYOUT "SİL BAŞTAN" NEDENİ: `GuiDock.LoadLayout` panelleri BAŞLIKLA bulur; dosyada geçen ama `LoadLayout`'tan önce kayıtlı
+  OLMAYAN panel (Console) düşüyordu, tek başına leaf'teyse `ParseNode -1` → tüm yerleşim geçersiz → varsayılan. FIX:
+  [EditorApp](../editor/EditorApp.cs) `[MenuItem]`'li tüm `EditorWindow` tiplerini `LoadLayout` öncesi `EditorWindow.EnsureRegistered`
+  ile kaydeder (GÖSTERMEZ — `GetWindow` utility pencereyi hemen açıyor, `LoadLayout` düğümleri sıfırlayınca o pencere başka panelin
+  leaf'ini sahipleniyordu: "Player Settings" içinde Hierarchy). KURAL: yeni dock paneli = `[MenuItem("Window/…")]` yeter, kayıt otomatik.
+- Parser dayanıklı: tanınmayan başlıklı leaf = boş (-1, ok), split tek çocuğu yukarı çeker. Dosyada GEÇMEYEN panel artık
+  KAPALI kalır (kullanıcı nasıl kapattıysa öyle); yalnız penceresi açılamayan yetimler ilk leaf'e alınır.
+- Ana pencere `Layout.txt` sonunda `M x y w h max` (sanal masaüstü koordinatı → çoklu monitör; `ClampToVisible` sonra
+  `SetWindowPos/Size`, en son `MaximizeWindow`). Floating pencereler zaten mutlak `W` kaydıyla monitörünü koruyordu.
+- IMGUI MOUSE KURALI: ham `ev.Type == MouseDown && rect.Contains(mouse)` yazıyorsan **`ev.MouseInClip` ŞART** — scroll view'ın
+  görünür alanı dışına taşan satırlar altındaki splitter/kontrolün tıkını yiyor ("üstteki kontrol alttakine eziliyor").
+  `GetTypeForControl` bunu zaten yapar; ham `Type` okuyan kod kendi bakmalı. Console/Project/RenderDebug/FontImporter düzeltildi.
+- Console: Unity tarzı tek satır + "…", seçim → alt detay bölmesi (splitter'lı), Copy butonu / Ctrl+C / çift tık = panoya.
+  Satır fontu `FontSize-2` (Project/Hierarchy ile aynı), zaman sütunu `TextSize` ile ölçülür (sabit px font ölçeğiyle kayar).
+
 ## TRIM: [Preserve] UNITY KURALI (2026-10-17, digitoyclient Common.dll serializer'ları kesiliyordu → RX type=null)
 - Unity spec (ScriptReference/Scripting.PreserveAttribute, Manual/managed-code-stripping-preserving): linker **kısa adı
   `PreserveAttribute` olan HER attribute'u** (ya da alt sınıfını) namespace/assembly bağımsız tanır; kapsam: tip → tip + default

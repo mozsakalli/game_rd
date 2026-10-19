@@ -184,8 +184,9 @@ Aynı kural `Build/ios/`, `Build/wasm/` için.
   `fdopen`; handle'a `base` offset eklendi, tüm okumalar `base + offset` (stdio backend aynı, ayrı dosya yok). Sıkıştırılmış asset (fd yok) → açılamadı.
   `asset:` öneki olmayan yollar (modül pak'ları, writable) eskisi gibi `fopen`.
 - **H5.1 Android yayın ayarları BİTTİ (kabuk v2)**: `PlayerSettings.android` (`AndroidSettings`: packageName, versionCode, targetSdk, includeX86_64,
-  keystorePath, keyAlias, iconForeground/iconBackground — git'e girer). **Parolalar** `UserSettings/AndroidSigning.asset` (gitignore'lu; Player Settings
-  penceresi "Android Signing (local)") ya da CI için `DE_ANDROID_KEYSTORE_PASS` / `DE_ANDROID_KEY_PASS` (üstün gelir). Akış: editör `AndroidBuildProps.Write`
+  keystorePath, keyAlias, iconForeground/iconBackground — git'e girer). **Parolalar** ~~`UserSettings/AndroidSigning.asset`~~ → (2026-10-18)
+  `AndroidSettings.keystorePassword/keyPassword` `[Sensitive]` (PlayerSettings'te, RPC'de `***`; docs/plugins.md "Sensitive") ya da CI için
+  `DE_ANDROID_KEYSTORE_PASS` / `DE_ANDROID_KEY_PASS` (üstün gelir). Akış: editör `AndroidBuildProps.Write`
   → `Library/Build/android.properties` → `aotcompiler player --target android --props <dosya>` → ön doğrulama (applicationId regex, versionCode>0,
   targetSdk≥26, keystore/alias/parola bütünlüğü, ikon dosyaları; hata → generated/ silinmez) → `generated/app.properties` (applicationId, appName,
   versionName/Code, targetSdk, abis, orientation), `generated/res/` (adaptive icon: `mipmap-anydpi-v26/ic_launcher*.xml` + foreground PNG ya da şablon

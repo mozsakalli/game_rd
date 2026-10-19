@@ -7,17 +7,18 @@ using DigitoyEngine;
 namespace DigitoyEditor;
 
 // Plugin ayarlari (docs/plugins.md): oyun/plugin assembly'lerindeki Plugin<TSettings> turevleri (TSettings) ve
-// [ProjectSetting] siniflari -> ProjectSettings/Plugins/<Ad>.asset (ObjectSerializer YAML, git'e girer).
-// Ad = plugin sinifinin kisa adi (Plugin<T>) ya da tipin kisa adi ([ProjectSetting]). Player Settings penceresi
+// [ProjectSetting] siniflari -> ProjectSettings/Games/<oyun>/Plugins/<Ad>.asset (ObjectSerializer YAML, git'e girer; oyun basina
+// TAM dosya). Ad = plugin sinifinin kisa adi (Plugin<T>) ya da tipin kisa adi ([ProjectSetting]). Player Settings penceresi
 // ObjectDrawer ile cizer; AssetPackBuilder pak .plugins blobuna DOBJ olarak pisirir; aotcompiler kancalari YAML'dan okur.
 public static class PluginSettingsEditor
 {
     public sealed class Entry
     {
         public string Name;          // dosya adi / plugin adi
+        public string Game;          // ProjectSettings/Games/<Game>
         public Type SettingsType;
         public Type PluginType;      // null = [ProjectSetting]
-        public object Instance;      // yuklenmis (ya da varsayilan) nesne
+        public object Instance;      // dosyadan okunmus ya da varsayilan nesne
         public bool Referenced;      // oyun kodunda Plugin.Get<Ad>() geciyor mu (metin tarama; bilgi amacli)
         public string Path;
     }
@@ -25,9 +26,13 @@ public static class PluginSettingsEditor
     static readonly Dictionary<string, Entry> _cache = new();
     static Assembly[] _cachedFor;
 
-    // Mevcut oyun assembly kumesine gore giris listesi (reload'da yeniden kurulur; instance'lar dosyadan tazelenir).
-    public static List<Entry> Entries(Project project, AssetDatabase assets)
+    // Oyun degisti / reload: giris cache'i duser (dosyalar yeniden okunur).
+    public static void Invalidate() { _cache.Clear(); _cachedFor = null; }
+
+    // Oyunun giris listesi (game bos = calisilan oyun). Reload'da yeniden kurulur; instance'lar dosyadan tazelenir.
+    public static List<Entry> Entries(Project project, AssetDatabase assets, string game = null)
     {
+        game = string.IsNullOrEmpty(game) ? project.Game : game;
         var code = App.Code?.CodeAssemblies ?? Array.Empty<Assembly>();
         if (!ReferenceEquals(_cachedFor, code)) { _cache.Clear(); _cachedFor = code; }
         var list = new List<Entry>();
@@ -41,10 +46,10 @@ public static class PluginSettingsEditor
                 if (typeof(Plugin).IsAssignableFrom(t))
                 {
                     var ts = SettingsTypeOf(t);
-                    if (ts != null) list.Add(Get(project, assets, t.Name, ts, t));
+                    if (ts != null) list.Add(Get(project, assets, game, t.Name, ts, t));
                 }
                 else if (t.IsDefined(typeof(ProjectSettingAttribute), false) && t.GetConstructor(Type.EmptyTypes) != null)
-                    list.Add(Get(project, assets, t.Name, t, null));
+                    list.Add(Get(project, assets, game, t.Name, t, null));
             }
         }
         list.Sort((a, b) => string.CompareOrdinal(a.Name, b.Name));
@@ -59,16 +64,20 @@ public static class PluginSettingsEditor
         return null;
     }
 
-    static Entry Get(Project project, AssetDatabase assets, string name, Type settingsType, Type pluginType)
+    static Entry Get(Project project, AssetDatabase assets, string game, string name, Type settingsType, Type pluginType)
     {
-        if (_cache.TryGetValue(name, out var e) && e.SettingsType == settingsType)
+        string key = game + "/" + name;
+        if (_cache.TryGetValue(key, out var e) && e.SettingsType == settingsType)
             return e;
-        e = new Entry { Name = name, SettingsType = settingsType, PluginType = pluginType, Path = DigitoyEngine.Build.PluginSettingsStore.PathFor(project.Root, name) };
+        e = new Entry { Name = name, Game = game, SettingsType = settingsType, PluginType = pluginType, Path = project.PluginSettingsPathFor(game, name) };
         e.Instance = Activator.CreateInstance(settingsType);
-        try { if (File.Exists(e.Path)) ObjectSerializer.LoadInto(e.Instance, e.Path, assets); }
-        catch (Exception ex) { EditorLog.Warning($"[plugin] {name} ayarlari okunamadi: {ex.Message}"); }
+        try
+        {
+            if (File.Exists(e.Path)) ObjectSerializer.LoadInto(e.Instance, e.Path, assets);
+        }
+        catch (Exception ex) { EditorLog.Warning($"[plugin] {game}/{name} ayarlari okunamadi: {ex.Message}"); }
         e.Referenced = pluginType == null || IsReferenced(project, name);
-        _cache[name] = e;
+        _cache[key] = e;
         return e;
     }
 

@@ -138,6 +138,18 @@ public sealed partial class AtlasImporter
             _pvMaterial ??= new Material { SortMode = SortMode.Ui };
             _pvMaterial.MainTexture = page;
             GuiRenderer.DrawRegion(img, _pvMaterial, Color.White, 0f, 1f, 1f, 0f, 1); // v: ust = 1 (satir 0 altta)
+            // Color bolgeleri sayfada PNG duzeninde (satir 0 ALTTA) durur, SDF glyph rasteri satir 0 ustte: tum sayfayi
+            // tek yonle cizince renkli sprite'lar bas asagi gorunur (runtime UV ile dogru cizer). Onizlemede her Color
+            // bolgesi kendi dikdortgeninde dikey cevrilerek ustune yeniden cizilir.
+            float iw = page.Width > 0 ? 1f / page.Width : 0f, ih = page.Height > 0 ? 1f / page.Height : 0f;
+            for (int i = 0; i < regions.Count; i++)
+            {
+                var r = regions[i];
+                if (r.Page != _pvPage || r.Kind != RegionKind.Color || r.W <= 0 || r.H <= 0) continue;
+                var rr = RegionRect(in img, page, in r, sx, sy, false);
+                GuiRenderer.DrawRect(rr, PvBg, 1);
+                GuiRenderer.DrawRegion(rr, _pvMaterial, Color.White, r.X * iw, r.Y * ih, (r.X + r.W) * iw, (r.Y + r.H) * ih, 1);
+            }
             if (_pvRegions)
                 for (int i = 0; i < regions.Count; i++)
                 {

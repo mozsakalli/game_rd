@@ -217,7 +217,7 @@ static class RpcLoc
         return r;
     }
 
-    [RpcCommand("loc.bind", "Alani cevirir: key bos = otomatik (ayni metin varsa o satir, yoksa baglamdan key + satir), key verilirse o satira baglar (yoksa acilir). Alan string olmali, metin bos olmamali")]
+    [RpcCommand("loc.bind", "Alani cevirir: key bos = otomatik (ayni metin varsa o satir, yoksa baglamdan key + satir), key verilirse o satira baglar (yoksa acilir). Alan string olmali, metin bos olmamali", Mutates = true)]
     static DocNode Bind(RpcContext ctx, int go, int comp, string field, string key = "")
     {
         var g = ctx.Scene.FindGo(go) ?? throw new RpcError("GameObject yok: " + go);
@@ -255,7 +255,7 @@ static class RpcLoc
         return Key(ctx, go, comp, field);
     }
 
-    [RpcCommand("loc.unbind", "Alanin cevirisini BILEREK kapatir (nick gibi): prop '' olur, otomatik bag bir daha acilmaz; metin authored haliyle kalir")]
+    [RpcCommand("loc.unbind", "Alanin cevirisini BILEREK kapatir (nick gibi): prop '' olur, otomatik bag bir daha acilmaz; metin authored haliyle kalir", Mutates = true)]
     static DocNode Unbind(RpcContext ctx, int go, int comp, string field)
     {
         var g = ctx.Scene.FindGo(go) ?? throw new RpcError("GameObject yok: " + go);

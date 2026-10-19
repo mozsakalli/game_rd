@@ -64,6 +64,8 @@ public static class PlayerBuilder
         string appArgs = $" --app-id \"{ps.bundleIdentifier}\" --app-name \"{ps.productName}\" --app-version \"{ps.version}\" --orientation {ps.orientation.ToString().ToLowerInvariant()} --trim {(ps.stripCode ? "lean" : "full")}";
         // Plugin kancalari/ayar YAML icin editorun .NET DigitoyEngine.dll'i (docs/plugins.md)
         appArgs += $" --editor-engine \"{typeof(DigitoyEngine.GameObject).Assembly.Location}\"";
+        // Oyun (docs/plugins.md "Games"): calisilan oyun; pak/cikti Build/<game>/, ayarlar ProjectSettings/Games/<game>/.
+        appArgs += $" --game {project.Game}";
         if (target == "android")
         {
             // Android'e ozel her sey (versionCode, ABI, ikon, imza) tek props dosyasiyla gider; aotcompiler dogrular.
@@ -85,13 +87,14 @@ public static class PlayerBuilder
             return Fail("game.pak uretilemedi");
 
         string projName = Path.GetFileName(project.Root.TrimEnd('\\', '/'));
+        string bdir = AssetPackBuilder.GameBuildDir(project);
         // Basari olcutu: windows -> exe; android -> uretilen proje (CMakeLists); ios -> app.xcconfig; wasm -> game.wasm
         string result = target switch
         {
-            "android" => Path.Combine(project.Root, "Build", "android", "generated", "cpp", "CMakeLists.txt"),
-            "ios" => Path.Combine(project.Root, "Build", "ios", "generated", "app.xcconfig"),
-            "wasm" => Path.Combine(project.Root, "Build", "wasm", "game.wasm"),
-            _ => Path.Combine(project.Root, "Build", projName + ".exe"),
+            "android" => Path.Combine(bdir, "android", "generated", "cpp", "CMakeLists.txt"),
+            "ios" => Path.Combine(bdir, "ios", "generated", "app.xcconfig"),
+            "wasm" => Path.Combine(bdir, "wasm", "game.wasm"),
+            _ => Path.Combine(bdir, projName + ".exe"),
         };
         Status = target switch { "android" => "Building android project...", "ios" => "Building iOS project...", "wasm" => "Building web (wasm)...", _ => "Building player..." };
         EditorLog.Info($"[player-build] 2/2 aotcompiler player {project.Root} --target {target}" + (SdkLayout.Installed ? " (kurulu sdk)" : ""));

@@ -56,6 +56,17 @@ static class DragDrop
         _dropFrame = Time.frameCount;
     }
 
+    // Otomasyon (ui.dropAsset): son frame'de kayitli hedef varsa hemen uygula. Hedef yoksa false (yuk cagiranda temizlenir).
+    public static bool ApplyNow()
+    {
+        if (!Active || _dropApply == null || Time.frameCount - _dropFrame > 1)
+            return false;
+        _dropApply.Invoke();
+        _dropApply = null;
+        Clear();
+        return true;
+    }
+
     // EditorApp frame sonunda cagirir: sol tus birakildiysa kayitli hedefe uygula.
     public static void EndFrame(bool mouseReleased)
     {

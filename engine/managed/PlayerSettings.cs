@@ -5,14 +5,16 @@ namespace DigitoyEngine;
 
 public enum ScreenOrientation { Landscape, Portrait, Auto }
 
-// Unity PlayerSettings karsiligi: oyunun YAYIN kimligi ve calisma zamani varsayilanlari.
-// Proje-genis tek kayit: ProjectSettings/PlayerSettings.asset (git'e girer; kullanici
-// ayarlari UserSettings/EditorSettings'ten ayridir). Standart: [Serializable] saf veri
-// + ObjectSerializer; editor Project > Player Settings penceresiyle duzenlenir.
-// Release'te YAML okunmaz: AssetPackBuilder gereken alanlari pak'a piser (ProjectBinary).
+// Unity PlayerSettings karsiligi: BIR OYUNUN yayin kimligi ve calisma zamani varsayilanlari.
+// Proje = ortak Assets/ + N oyun (docs/plugins.md "Games"): her oyunun TAM ayar dosyasi
+// ProjectSettings/Games/<ad>/PlayerSettings.asset (git'e girer; kullanici ayarlari UserSettings/EditorSettings'ten
+// ayridir). Taban/overlay yok. Standart: [Serializable] saf veri + ObjectSerializer; editor Project > Player Settings
+// penceresi (oyun sekmeleri) ile duzenlenir. Release'te YAML okunmaz: AssetPackBuilder gereken alanlari pak'a piser (ProjectBinary).
 [Serializable]
 public class PlayerSettings
 {
+    // [Category]: Player Settings penceresi sol listesi (General/Display/Themes/Build; Android/iOS ic nesneleri ve
+    // Scenes/Games/Plugins ozel sayfalar). Serilesmeyi etkilemez.
     public string companyName = "DefaultCompany";
     public string productName = "Game";
     public string version = "0.1.0";
@@ -25,42 +27,43 @@ public class PlayerSettings
     [HideInInspector] public List<string> scenes = new();
     [HideInInspector] public string startScene = "Scenes/Main.scene"; // Assets'e goreli ilk sahne
 
-    // TEMA (docs/engine-notes.md TEMA): sahne/prefab dosyalarindaki isimli override katmanlari. themes = proje-geneli
-    // ad listesi (serbest metin: xmas, kurban...; taban "default" listede YAZILMAZ). activeTheme = BUILD temasi: pak tek
-    // temayla piser, digerleri ve asset'leri pak'a girmez (bos = taban). Editor "Working theme" EditorSettings'te (kullanici).
-    public List<string> themes = new();
-    public string activeTheme = "";
+    // TEMA (docs/engine-notes.md TEMA): sahne/prefab dosyalarindaki isimli override katmanlari. themes = bu OYUNUN
+    // ad listesi (serbest metin: xmas, kurban...; taban "default" listede YAZILMAZ; adlar oyunlar arasi ortak sozluk —
+    // Shared prefab'taki katman adini listesine alan her oyunda etkin). activeTheme = BUILD temasi: pak tek temayla piser,
+    // digerleri ve asset'leri pak'a girmez (bos = taban). Editor "Working theme" oyun basina EditorSettings'te (kullanici).
+    [Category("Themes")] public List<string> themes = new();
+    [Category("Themes")] public string activeTheme = "";
 
     // Masaustu pencere varsayilanlari (mantiksal/point birim).
-    public int defaultWidth = 1280;
-    public int defaultHeight = 720;
-    public bool fullscreen;
-    public bool resizableWindow = true;
+    [Category("Display")] public int defaultWidth = 1280;
+    [Category("Display")] public int defaultHeight = 720;
+    [Category("Display")] public bool fullscreen;
+    [Category("Display")] public bool resizableWindow = true;
 
     // 0 = platform varsayilani (vsync).
-    public int targetFrameRate;
+    [Category("Display")] public int targetFrameRate;
 
     // Mobil ekran yonu (Android manifest / iOS Info.plist; proje kabugu ilk uretimde yazilir).
     // Editor Game View cihaz profili de buna gore doner (view.device).
-    public ScreenOrientation orientation = ScreenOrientation.Landscape;
+    [Category("Display")] public ScreenOrientation orientation = ScreenOrientation.Landscape;
 
     // Dinamik modul (Build > Module): bu proje bir host oyuna karsi modul olarak publish ediliyorsa, host'un AOT
     // player assembly'si (player/bin/Release/net9.0/DigitoyPlayer.dll gibi) — host tipleri "provided" sayilir,
     // modul kodu onlara isimle baglanir. Bos = yalniz engine API'si.
-    public string moduleHostDll = "";
+    [Category("Build")] public string moduleHostDll = "";
 
     // Kod/meta budama (Unity "Managed Stripping Level" karsiligi; docs/engine-notes.md TRIM). true (varsayilan) = lean build:
     // erisilemeyen kod emit edilmez, interpreter (vmint) derlenmez, reflection meta yalniz kok kumeye (pak component tipleri
     // + alanlari + [Preserve]) -> kucuk ikili (Android libgame.so 10.7 -> 4.5 MB). false = full: tam meta + vmint; yalniz
     // dinamik modul yukleyen HOST ya da autoload gelistirme (scene-dump-test) icin. Release = true; modulden erisilecek
     // API [Preserve] ile kok yapilir (Unity mantigi), ayri "modul yuzeyi" kavrami yok.
-    public bool stripCode = true;
+    [Category("Build")] public bool stripCode = true;
 
     // Android'e ozel yayin ayarlari (Build Android Project -> generated/app.properties; kabuk Gradle her build okur).
-    public AndroidSettings android = new();
+    [Category("Android")] public AndroidSettings android = new();
 
     // iOS'a ozel yayin ayarlari (Build iOS Project -> generated/app.xcconfig; Xcode kabugu her build okur).
-    public IosSettings ios = new();
+    [Category("iOS")] public IosSettings ios = new();
 
     // Build kokleri: scenes + startScene (tekil, sira korunur, startScene listede yoksa basa).
     public List<string> BuildScenes()
@@ -73,11 +76,19 @@ public class PlayerSettings
                 list.Add(s.Trim());
         return list;
     }
+
+    // Oyun adi dogrulamasi (ProjectSettings/Games/<ad> klasor adi): harf/rakam/_/-.
+    public static bool IsValidGameName(string v)
+    {
+        if (string.IsNullOrWhiteSpace(v)) return false;
+        foreach (char c in v) if (!(char.IsLetterOrDigit(c) || c == '_' || c == '-')) return false;
+        return true;
+    }
 }
 
-// Android yayin ayarlari (PlayerSettings.android; git'e girer). SIFRELER BURADA DEGIL: keystore/key parolasi
-// editor UserSettings/AndroidSigning.asset'te (gitignore'lu) ya da DE_ANDROID_KEYSTORE_PASS / DE_ANDROID_KEY_PASS
-// ortam degiskenlerinde; build sirasinda Build/android/keystore.properties'e yazilir (Gradle konvansiyonu, gitignore'lu).
+// Android yayin ayarlari (PlayerSettings.android; git'e girer, varyantla override edilebilir). Imza parolalari da burada,
+// [Sensitive]: RPC/MCP ciktisinda '***' (AI okuyamaz), inspector maskeli. CI'da DE_ANDROID_KEYSTORE_PASS / DE_ANDROID_KEY_PASS
+// ortam degiskenleri ustun gelir; build sirasinda Build/android/keystore.properties'e yazilir (Gradle konvansiyonu, gitignore'lu).
 [Serializable]
 public class AndroidSettings
 {
@@ -87,6 +98,8 @@ public class AndroidSettings
     public bool includeX86_64 = true;      // emulator ABI'si YALNIZ debug APK'ya girer; release her zaman yalniz arm64-v8a
     public string keystorePath = "";       // proje kokune goreli ya da mutlak .keystore/.jks; bos = debug imza
     public string keyAlias = "";
+    [Sensitive] public string keystorePassword = "";
+    [Sensitive] public string keyPassword = "";   // bos = keystorePassword
     public string iconForeground = "";     // Assets'e goreli PNG (adaptive icon on plani, 432x432 onerilir); bos = engine varsayilani
     public string iconBackground = "#1E1E1E"; // "#RRGGBB" renk ya da Assets'e goreli PNG
 }

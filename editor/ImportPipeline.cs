@@ -98,11 +98,20 @@ public sealed class DependencyContext
     public object Settings;
     internal readonly List<string> Deps = new();
     internal readonly List<string> Absorbed = new();
+    internal readonly List<string> Members = new();
 
     public void DependsOn(string assetPath)
     {
         if (!string.IsNullOrEmpty(assetPath) && !Deps.Contains(assetPath))
             Deps.Add(assetPath);
+    }
+
+    // Ciktida TEK TEK yer alan alt oge anahtari ("sahip#id"): pak build'inde biri bile canli degilse importer
+    // filtreyle yeniden kosar (Library ciktisi aynen kullanilamaz). Stamp'e girmez (sahip DependsOn ile girer).
+    public void Member(string key)
+    {
+        if (!string.IsNullOrEmpty(key) && !Members.Contains(key))
+            Members.Add(key);
     }
 
     // Girdi bu importer'in ciktisinda yasar (bagimlilik + yutma): girdinin bagimsiz
@@ -261,6 +270,36 @@ public static class ImportPipeline
         return File.Exists(p) ? p : null;
     }
 
+    // Import damgasi metni (hash YOK, yalniz .stamp dosyasi okunur); import edilmemisse null.
+    // Turev onbellekleri (thumbnail) gecerlilik anahtari olarak kullanir: damga degisti = kaynak/ayar degisti.
+    public static string PeekStamp(string rel)
+    {
+        string guid = App.Assets?.PathToGuid(rel);
+        if (guid == null)
+            return null;
+        string p = Path.Combine(_artifactsRoot, guid, StampFile);
+        return File.Exists(p) ? File.ReadAllText(p) : null;
+    }
+
+    // UCUZ bakis (damga/hash YOK): daha once import edilmis asset'in artifact'ini oldugu gibi okur; bayat
+    // olabilir (watcher reimport'u AssetChangeVersion ile cache'leri dusurur). Hic import edilmemisse bir kez
+    // import eder. Liste/ikon gibi her frame'e yakin sorgular icin (EnsureImported kaynagi her cagrida hash'ler).
+    public static byte[] PeekArtifact(string rel, string name)
+    {
+        if (ImporterFor(rel) == null)
+            return null;
+        string guid = App.Assets?.PathToGuid(rel);
+        if (guid == null)
+            return null;
+        string dir = Path.Combine(_artifactsRoot, guid);
+        if (!File.Exists(Path.Combine(dir, StampFile)))
+            dir = EnsureImported(rel);
+        if (dir == null)
+            return null;
+        string p = Path.Combine(dir, name);
+        return File.Exists(p) ? File.ReadAllBytes(p) : null;
+    }
+
     // Artifact klasorundeki adlar ve kapsamlari (pak builder kapsama gore paketler).
     // Manifest (.artifacts) yoksa (eski import) hepsi Runtime sayilir.
     public static IEnumerable<(string Name, ArtifactScope Scope)> ArtifactNames(string rel)
@@ -300,20 +339,20 @@ public static class ImportPipeline
 
     // Importer'in bildirdigi girdiler (deps) ve yuttuklari (absorbed). Importer'siz
     // anahtar icin bos. Stamp hesabindaki ayni cagri; tek kaynak.
-    public static (List<string> Deps, List<string> Absorbed) DependenciesOf(string rel)
+    public static (List<string> Deps, List<string> Absorbed, List<string> Members) DependenciesOf(string rel)
     {
         var e = ImporterFor(rel);
         if (e == null)
-            return (new List<string>(), new List<string>());
+            return (new List<string>(), new List<string>(), new List<string>());
         var dctx = new DependencyContext { AssetPath = rel, SourcePath = FullPath(rel), Settings = LoadSettings(rel, e) };
         e.Instance.CollectDependencies(dctx);
-        return (dctx.Deps, dctx.Absorbed);
+        return (dctx.Deps, dctx.Absorbed, dctx.Members);
     }
 
     // Projedeki tum importer'li asset'ler taranir: yutulan girdi -> tuketici anahtari.
     // Builder bu haritayla "uye erisildi => tuketici de erisildi" kenarini yazar;
-    // hangi importer'in yuttugunu bilmez.
-    public static Dictionary<string, string> AbsorbedByMap()
+    // hangi importer'in yuttugunu bilmez. memberConsumers: alt oge anahtari ("sahip#id") -> tuketici (atlas).
+    public static Dictionary<string, string> AbsorbedByMap(Dictionary<string, string> memberConsumers = null)
     {
         var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         var assets = App.Assets;
@@ -327,6 +366,9 @@ public static class ImportPipeline
             var dctx = new DependencyContext { AssetPath = rel, SourcePath = FullPath(rel), Settings = LoadSettings(rel, e) };
             try { e.Instance.CollectDependencies(dctx); }
             catch (Exception ex) { EditorLog.Warning($"[import] bagimlilik toplanamadi {rel}: {ex.Message}"); continue; }
+            if (memberConsumers != null)
+                foreach (var m in dctx.Members)
+                    memberConsumers.TryAdd(m, rel);
             foreach (var a in dctx.Absorbed)
             {
                 if (map.TryGetValue(a, out var other) && other != rel)
@@ -349,8 +391,16 @@ public static class ImportPipeline
         bool filtered = false;
         if (isLive != null)
         {
-            foreach (var d in DependenciesOf(rel).Deps)
+            var deps = DependenciesOf(rel);
+            foreach (var d in deps.Deps)
                 if (!isLive(d)) { filtered = true; break; }
+            // Alt oge duzeyi: bildirilen uyeler (atlas) ya da kendi index girisleri (container) kismen canli degilse yeniden kos.
+            if (!filtered)
+                foreach (var m in deps.Members)
+                    if (!isLive(m)) { filtered = true; break; }
+            if (!filtered)
+                foreach (var se in SubAssets.IndexOf(rel).Entries)
+                    if (!isLive(rel + "#" + se.Id)) { filtered = true; break; }
         }
         if (!filtered)
         {

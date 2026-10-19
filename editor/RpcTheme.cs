@@ -16,7 +16,7 @@ static class RpcTheme
         return s;
     }
 
-    [RpcCommand("theme.list", "Proje temalari (PlayerSettings.themes; taban 'default' = bos ad), calisilan tema, build temasi, acik dosyanin katmanlari")]
+    [RpcCommand("theme.list", "Calisilan oyunun temalari (PlayerSettings.themes; taban 'default' = bos ad), calisilan tema, build temasi, acik dosyanin katmanlari")]
     static DocNode List(RpcContext ctx)
     {
         var r = DocNode.Map();
@@ -43,11 +43,12 @@ static class RpcTheme
         return r;
     }
 
-    [RpcCommand("theme.set", "Calisilan temayi degistirir (toolbar combosu): acik sahne deltaya sikisir, tema uygulanir, prefab cache yenilenir. Bos = default. Undo yigini temizlenir, kaydedilmemis degisiklik korunur")]
+    [RpcCommand("theme.set", "Calisilan temayi degistirir (toolbar combosu) ve bu baglanti icin BEYAN eder: sonraki mutasyonlar o katmana yazilabilir (tema kapisi, rpc.guide themes). Acik sahne deltaya sikisir, tema uygulanir, prefab cache yenilenir. Bos = default. Undo yigini temizlenir, kaydedilmemis degisiklik korunur")]
     static DocNode Set(RpcContext ctx, string name = "")
     {
         try { App.SetWorkingTheme(name); }
         catch (ArgumentException e) { throw new RpcError(e.Message); }
+        RpcHost.DeclareTheme(SceneDoc.ActiveTheme ?? "");
         return List(ctx);
     }
 
@@ -96,21 +97,26 @@ static class RpcTheme
         return List(ctx);
     }
 
-    [RpcCommand("theme.check", "Acik dosyanin tema katmanlarinda yetim hedefler (tabanda olmayan node'a override/removed): name bos = tum katmanlar")]
+    [RpcCommand("theme.check", "Acik dosyanin tema katmanlarinda yetim hedefler (tabanda olmayan node'a override/removed): name bos = tum katmanlar. undeclared: dosyadaki katman adi calisilan oyunun tema listesinde yok (yazim hatasi ya da baska oyunun temasi — zararsiz, bu oyunda atil)")]
     static DocNode Check(RpcContext ctx, string name = "")
     {
         var es = ctx.Scene ?? throw new RpcError("no open scene");
         var doc = es.ThemeMode ? es.Base : es.Doc;
         var r = DocNode.Map();
         var list = DocNode.Seq();
+        var undeclared = DocNode.Seq();
+        var declared = App.ThemeNames();
         foreach (var kv in doc.Themes)
         {
             if (name.Length > 0 && !string.Equals(kv.Key, name, StringComparison.OrdinalIgnoreCase))
                 continue;
             foreach (var o in doc.ThemeOrphans(kv.Key))
                 list.Items.Add(DocNode.Scal(kv.Key + ": " + o));
+            if (!declared.Contains(kv.Key))
+                undeclared.Items.Add(DocNode.Scal(kv.Key));
         }
         r.Add("orphans", list);
+        r.Add("undeclared", undeclared);
         r.Add("ok", DocNode.Scal(list.Items.Count == 0 ? "true" : "false"));
         return r;
     }

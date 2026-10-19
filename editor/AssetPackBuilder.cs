@@ -41,6 +41,9 @@ static class AssetPackBuilder
     // dolu olabilir: build boyunca build temasiyla yeniden kurulur, sonunda editorun temasina geri doner.
     internal static string ThemeOverride;
 
+    // Oyun cikti koku (docs/plugins.md "Games"): Build/<game>/ ; aotcompiler ayni kural.
+    internal static string GameBuildDir(Project project) => project.BuildDir;
+
     internal static bool Build(string outPath, IReadOnlyList<(string Key, byte[] Data)> extra)
     {
         var assets = App.Assets;
@@ -66,7 +69,7 @@ static class AssetPackBuilder
         var catalog = App.Catalog;
         var project = App.Project;
         string root = assets.Root;
-        outPath ??= Path.Combine(project.Root, "Build", "game.pak");
+        outPath ??= Path.Combine(GameBuildDir(project), "game.pak");
 
         // Kokler: Scenes In Build (+ startScene). Eksik kok = build iptal (sessiz bos pak yok).
         var roots = project.Player.BuildScenes();
@@ -101,11 +104,18 @@ static class AssetPackBuilder
         }
 
         // ---- Faz 1: erisilebilirlik (worklist) ----
-        var absorbedBy = ImportPipeline.AbsorbedByMap(); // yutulan girdi -> tuketici
-        var live = new HashSet<string>(StringComparer.Ordinal);
+        // Canlilik ALT OGE duzeyinde: "guid#id" yalniz o parcayi, duz "guid" sahibin tamamini canli yapar. Sahne
+        // koklerinden erisilmeyen hicbir sey (gelistirme copu dahil) pak'a girmez — importer'dan bagimsiz garanti:
+        // predicate importer'a verilir, cikti asagida DOGRULANIR.
+        var memberConsumers = new Dictionary<string, string>(StringComparer.Ordinal); // "sahip#id" -> atlas
+        var absorbedBy = ImportPipeline.AbsorbedByMap(memberConsumers); // yutulan girdi -> tuketici
+        var live = new HashSet<string>(StringComparer.Ordinal);        // sahip duzeyi (pak'a giren asset'ler)
+        var liveWhole = new HashSet<string>(StringComparer.Ordinal);   // butunuyle referanslanan sahipler
+        var liveSubs = new HashSet<string>(StringComparer.Ordinal);    // "sahip#id" referanslari
         var baked = new Dictionary<string, byte[]>(StringComparer.Ordinal);
         var unresolved = new List<string>();
-        var queue = new Queue<string>(roots);
+        var queue = new Queue<string>();
+        foreach (var r0 in roots) { liveWhole.Add(r0); queue.Enqueue(r0); }
         while (queue.Count > 0)
         {
             string key = queue.Dequeue();
@@ -146,19 +156,40 @@ static class AssetPackBuilder
                 AddDep(key, consumer); // uye yuklenmeden once tuketici (sayfa) hazir olmali
                 queue.Enqueue(consumer);
             }
+            // Butunuyle canli container: tum alt ogelerinin tuketicileri (atlas) de canli.
+            if (liveWhole.Contains(key))
+                foreach (var e in SubAssets.IndexOf(key).Entries)
+                    EnqueueSubConsumer(key, key + "#" + e.Id);
+        }
+        void EnqueueSubConsumer(string owner, string subKey)
+        {
+            if (memberConsumers.TryGetValue(subKey, out var atlas))
+            {
+                AddDep(owner, atlas);
+                queue.Enqueue(atlas);
+            }
         }
         void EnqueueRefs(string key, List<string> refs)
         {
             foreach (var r in refs)
             {
-                string p = assets.ResolvePath(r); // guid -> yol (yol ise aynen)
-                int hash = p.IndexOf('#');
-                if (hash > 0)
-                    p = p.Substring(0, hash); // alt bolge ("x.ttf#U+0041"): sahibi canli olsun yeter
+                string p = SubAssets.Split(assets.ResolvePath(r), out string subId); // guid#id -> sahip yolu + id
                 if (!assets.AllAssets.ContainsKey(p))
                 {
                     unresolved.Add($"{p} <- {key}");
                     continue;
+                }
+                if (subId == null)
+                {
+                    if (liveWhole.Add(p) && live.Contains(p)) // daha once yalniz parcayla canliydi: tuketicileri simdi ekle
+                        foreach (var e in SubAssets.IndexOf(p).Entries)
+                            EnqueueSubConsumer(p, p + "#" + e.Id);
+                }
+                else
+                {
+                    string sk = p + "#" + subId;
+                    if (liveSubs.Add(sk))
+                        EnqueueSubConsumer(p, sk);
                 }
                 AddDep(key, p);
                 queue.Enqueue(p);
@@ -166,6 +197,31 @@ static class AssetPackBuilder
         }
         foreach (var u in unresolved)
             EditorLog.Warning($"[pak] cozulemeyen referans: {u}");
+
+        // Atlas kapsami: canli gruplarin uyesi olan canli alt ogeler sahibin kendi sayfasina GIRMEZ (cift piksel yok).
+        var atlasCovered = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var rel in live)
+        {
+            if (!AtlasSystem.IsAtlasGroupAsset(Path.Combine(root, rel)))
+                continue;
+            foreach (var m in AtlasImporter.MemberKeys(rel))
+                if (SubLive(m)) atlasCovered.Add(m);
+        }
+        bool SubLive(string subKey)
+        {
+            string owner = SubAssets.Split(subKey, out string id);
+            if (!live.Contains(owner)) return false;
+            return id == null || liveWhole.Contains(owner) || liveSubs.Contains(subKey);
+        }
+        if (liveSubs.Count > 0 || atlasCovered.Count > 0)
+            EditorLog.Info($"[pak] alt oge canliligi: {liveSubs.Count} parca referansli, {atlasCovered.Count} atlas kapsaminda" +
+                (liveSubs.Count <= 8 ? ": " + string.Join(", ", liveSubs) : ""));
+        // Importer predicate'i: atlas uye alir (canli), diger importer'lar canli VE atlas'in kapsamadigi parcayi.
+        Func<string, bool> LivenessFor(string rel)
+        {
+            bool isAtlas = AtlasSystem.IsAtlasGroupAsset(Path.Combine(root, rel));
+            return k => SubLive(k) && (isAtlas || !atlasCovered.Contains(k));
+        }
 
         // ---- Faz 2: veri (yalniz canli kume, deterministik sira) ----
         bool IsLive(string p) => live.Contains(p);
@@ -186,11 +242,18 @@ static class AssetPackBuilder
                 // Importer'li kaynak: pak'a ARTIFACT'ler girer, kaynak degil (ttf disarida
                 // kalir). "main" asset anahtariyla, digerleri "<anahtar>#<ad>" ile. Kapsam:
                 // Editor girmez; Standalone yalniz asset yutulmamissa (fontun kendi sheet'i).
-                var arts = ImportPipeline.BuildArtifacts(key, IsLive);
+                var liveness = LivenessFor(key);
+                var arts = ImportPipeline.BuildArtifacts(key, liveness);
                 if (arts == null)
                 {
                     EditorLog.Warning($"[pak] import basarisiz, atlandi: {key}");
                     continue;
+                }
+                // GARANTI: importer canli olmayan alt ogeyi pakete sokamaz. Sprite tablolari denetlenir; ihlal = build iptal.
+                if (!VerifyLiveness(key, arts, liveness, out string violation))
+                {
+                    EditorLog.Error($"[pak] {key}: importer canli olmayan parca uretti: {violation} — build iptal (importer ctx.IsLive'a uymali)");
+                    return false;
                 }
                 data = null;
                 foreach (var (name, bytes, scope) in arts)
@@ -217,14 +280,11 @@ static class AssetPackBuilder
                 // Atlas main'i de tablo: sayfalar main'den once (AddDep(key, key#page) zaten var).
                 if (data == null)
                 {
-                    if (isImage && absorbed)
-                    {
-                        // Pikseller tuketicinin sayfasinda; guid->yol eslemesi icin bos stub girisi
-                        // kalir (sahne guid'le referanslar, LoadSprite bolge tablosundan baglar).
-                        items.Add((key, assets.PathToGuid(key), Array.Empty<byte>()));
-                        continue;
-                    }
-                    EditorLog.Warning($"[pak] 'main' artifact yok, atlandi: {key}");
+                    // Pikseller/bolgeler tuketicinin sayfasinda ya da main yok: guid->yol eslemesi icin bos stub
+                    // girisi kalir (sahne "guid" / "guid#sub" referanslar; ResolvePath sahibi buradan cozer).
+                    if (!absorbed)
+                        EditorLog.Warning($"[pak] 'main' artifact yok, yalniz guid stub'i yazildi: {key}");
+                    items.Add((key, assets.PathToGuid(key), Array.Empty<byte>()));
                     continue;
                 }
                 if (isImage)
@@ -246,7 +306,7 @@ static class AssetPackBuilder
         }
 
         // Proje ayarlari: runtime project.yaml okumaz; pismis kayit pak'ta (sahne listesi dahil).
-        items.Add((ProjectBinary.PakKey, "", ProjectBinary.Write(project.Name, project.StartScene, roots)));
+        items.Add((ProjectBinary.PakKey, "", ProjectBinary.Write(project.Name, project.StartScene, roots, project.Game)));
         // Plugin ayarlari (docs/plugins.md): her Plugin<TSettings> / [ProjectSetting] tipi icin ProjectSettings/Plugins/<Ad>.asset -> DOBJ.
         var pluginSettings = PluginSettingsEditor.CollectForPak(project, assets);
         if (pluginSettings.Count > 0)
@@ -290,6 +350,29 @@ static class AssetPackBuilder
             foreach (var gap in LocAudit.GlyphCheck(scope))
                 EditorLog.Warning($"[loc] {scope}: {gap.Font} fontunda {gap.Codepoints.Count} karakter yok: {LocAudit.CodepointsText(gap.Codepoints, 20)} (keys: {gap.Keys.Count})");
         }
+    }
+
+    // Build garantisi: importer ciktisindaki sprite tablolari (Runtime/Standalone) yalniz CANLI alt oge/uye icerebilir.
+    // Importer'dan bagimsiz: builder kokten gezerek buldugu canliligi tabloya karsi dogrular.
+    static bool VerifyLiveness(string key, List<(string Name, byte[] Data, ArtifactScope Scope)> arts,
+        Func<string, bool> liveness, out string violation)
+    {
+        violation = null;
+        foreach (var (name, bytes, scope) in arts)
+        {
+            if (scope == ArtifactScope.Editor || !SpriteTable.IsTable(bytes))
+                continue;
+            if (ObjectBinary.Read(bytes, App.Catalog, null) is not SpriteTable table)
+                continue;
+            foreach (var r in table.Regions)
+            {
+                if (liveness(r.Name))
+                    continue;
+                violation = $"{name}: {r.Name}";
+                return false;
+            }
+        }
+        return true;
     }
 
     static bool IsSceneLike(string key)

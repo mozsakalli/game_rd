@@ -7,15 +7,40 @@ namespace DigitoyEditor;
 
 // Oyun projesinin IDE/AI dosyalari (proje koku). Her acilista yazilir; icerik ayniysa dokunulmaz.
 //  .vscode/mcp.json               -> bu editorun mcp-bridge'ine isaret eder (MAKINEYE OZEL yol; gitignore'lu, acilista yenilenir)
+//  .vscode/settings.json          -> yalniz YOKSA: Java LS Gradle import'u KAPALI (plugin Android/build.gradle.kts'yi kok proje sanip
+//                                    Assets icine .gradle/ birakiyordu) + yaml iliskilendirmeleri. Varsa ve anahtar eksikse uyari.
 //  .github/copilot-instructions.md -> oyun-tarafi AI kurallari (sablon; yalniz YOKSA yazilir, kullanici duzenler, git'e girer)
-//  .gitignore                      -> yalniz yoksa (Library/Build/UserSettings + makineye ozel IDE dosyalari)
+//  .gitignore                      -> yalniz yoksa (Library/Build/UserSettings + makineye ozel IDE dosyalari + Gradle/Studio copu)
 static class IdeFiles
 {
     public static void Write(Project project)
     {
         WriteIfChanged(Path.Combine(project.Root, ".vscode", "mcp.json"), McpJson());
+        WriteVsCodeSettings(Path.Combine(project.Root, ".vscode", "settings.json"));
         WriteIfMissing(Path.Combine(project.Root, ".github", "copilot-instructions.md"), Instructions(project));
         WriteIfMissing(Path.Combine(project.Root, ".gitignore"), GitIgnore);
+    }
+
+    const string GradleImportKey = "\"java.import.gradle.enabled\"";
+    const string VsCodeSettings = @"{
+    // DigitoyEditor sablonu (yalniz yoksa yazilir; kullaniciya ait).
+    // Java LS, Assets/Plugins/<Ad>/Android/build.gradle.kts'yi kok Gradle projesi sanip Assets icine .gradle/ birakiyor -> kapali.
+    ""java.import.gradle.enabled"": false,
+    ""java.autobuild.enabled"": false,
+    ""files.associations"": {
+        ""*.scene"": ""yaml"",
+        ""*.prefab"": ""yaml"",
+        ""*.asset"": ""yaml"",
+        ""*.meta"": ""yaml""
+    }
+}
+";
+
+    static void WriteVsCodeSettings(string path)
+    {
+        if (!File.Exists(path)) { WriteIfMissing(path, VsCodeSettings); return; }
+        if (!File.ReadAllText(path).Contains(GradleImportKey))
+            EditorLog.Warning($"{path}: {GradleImportKey}: false yok — VS Code Java LS plugin Android klasorlerine .gradle/ birakabilir");
     }
 
     // Kurulu: <exe>/tools/mcp-bridge/mcp-bridge.dll; dev: <repo>/tools/mcp-bridge/bin/Debug/net10.0/mcp-bridge.dll (yoksa yazilmaz).
@@ -59,6 +84,9 @@ sahne/kod/sim araçları kullanılır; `rpc_describe` tüm araçların şemasın
 ## Döngü
 - `view_device(name)` → `sim_run(frames, screenshot=true)` → görüntüyü incele → `input_tap/input_drag` → `render_screenshot`.
 - Yeni component tipi kullanmadan ÖNCE `comp_schema`. Kod: `asset_write` + `code_build` (hatalar satır/kolonla döner).
+- ASSET EKLEME: hangi dosya biçimlerinin içe aktarılabildiği `rpc_guide` "assets" bölümünde (canlı importer listesi) ve
+  `asset_importers`'ta — bakmadan "importer yok" deme. Dosya `Assets/` altına kopyalanınca otomatik import edilir;
+  `asset_info(path)` tip/boyut/alt öğe (psd/psb katmanı `Dosya.psb#id`) verir.
 - MOTOR API'Sİ: motor kaynağı bu projede YOKTUR ve proje dışına çıkma. `engine_api` kullan: `engine_api()` tip listesi
   (filter ile daralt), `engine_api(type="Component")` üyeler + override kancaları, `engine_api(type="Transform")`
   tween extension'ları dahil. Sık kullanılanlar: Component (Awake/Start/Update + OnPointerClick/Down/Up/DragStart/Drag(PointerEvent e),
@@ -70,7 +98,9 @@ sahne/kod/sim araçları kullanılır; `rpc_describe` tüm araçların şemasın
   `.Cancel()`, `OnDisable`'da iptal + taban değeri geri yaz. Elle döngü yalnız tek ease'e sığmayan parametrik eğriler
   (sönümlü shake vb.) için. Aynı kanala (örn. localScale) iki component yazmasın; feedback'i tek sahipte topla.
 - KOORDİNAT: input ve screenshot (scale=1) MANTIKSAL nokta, sol-üst orijin, y aşağı; screenshot pikseli == tıklama koordinatı.
-  Yön `ProjectSettings/PlayerSettings.asset` orientation'dan; sim ona sadık.
+  Yön çalışılan oyunun `ProjectSettings/Games/<ad>/PlayerSettings.asset` orientation'ından; sim ona sadık.
+- OYUNLAR: proje = ortak Assets + N oyun (`ProjectSettings/Games/<ad>/`). `game.list/set` çalışılan oyun (Play/Build bağlamı);
+  Player Settings penceresi oyun sekmeleriyle her oyunu düzenler. Oyuna özel içerik `Assets/Games/<Ad>/`, ortak `Assets/Shared/`.
 
 ## Konvansiyonlar
 - Sahne = kaynak (YAML); runtime durumu sahneye sızmaz, oyun durumu düz C# serviste yaşar.
@@ -101,6 +131,13 @@ UserSettings/
 # makineye ozel, editor her acilista yeniden uretir
 *.Game.csproj
 .vscode/mcp.json
+# Android Studio / Gradle / IDE copu (plugin Android/ modulleri Studio'da acilabilir; Java LS de .gradle/ birakabilir)
+.gradle/
+.cxx/
+.kotlin/
+.idea/
+*.iml
+local.properties
 ";
 
     static void WriteIfChanged(string path, string text)

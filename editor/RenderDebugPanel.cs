@@ -88,7 +88,7 @@ public sealed class RenderDebugPanel : EditorWindow
         {
             var row = new Rect(0, i * rowH, view.width, rowH - 1);
             // Satir tiklamasi: replay'i bu draw'a kadar oynat.
-            if (ev.Type == EventType.MouseDown && row.Contains(ev.MousePosition))
+            if (ev.Type == EventType.MouseDown && ev.MouseInClip && row.Contains(ev.MousePosition))
             {
                 RenderDebug.MaxDraws = i + 1;
                 ev.Use();

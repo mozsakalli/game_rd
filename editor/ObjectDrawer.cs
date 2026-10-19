@@ -29,6 +29,7 @@ public sealed class ObjectDrawer
     readonly Dictionary<string, SerializedType.FieldSchema> _listMeasureSchemas = new();
     readonly Dictionary<string, char[]> _strBufs = new();
     readonly Dictionary<string, int> _strLens = new();
+    readonly HashSet<string> _revealed = new(); // [Sensitive] alanlardan "Show" ile acilanlar (path)
 
     // Hedef nesneyi baglar (tip semasi bir kez kurulur). Metin tamponlari sifirlanir,
     // foldout durumu korunur (ayni tipin alanlari ayni yolda kalir).
@@ -46,6 +47,9 @@ public sealed class ObjectDrawer
         ResetTextBuffers();
     }
 
+    // Ust duzey alan suzgeci (kategorili ayar penceresi): null = hepsi. Olcum ve cizim ayni suzgeci kullanir.
+    public Func<SerializedType.FieldSchema, bool> Filter;
+
     // Tum alanlarin toplam yuksekligi (scroll icerigi icin; Draw ile birebir).
     public float Measure()
     {
@@ -53,9 +57,15 @@ public sealed class ObjectDrawer
             return RowH;
         float height = 0;
         foreach (var field in Schema)
-            height += MeasureField(Target, field, KeyPrefix + field.Name);
+            if (Filter == null || Filter(field))
+                height += MeasureField(Target, field, KeyPrefix + field.Name);
         return height;
     }
+
+    // Ust duzey alan vurgusu (varyant modu: tabandan farkli/override alan -> turuncu serit, tema x=8 ile ayni dil).
+    // null = yok. Alan adi -> true ise serit cizilir.
+    public Func<string, bool> Highlight;
+    public static readonly Color HighlightColor = new(235, 160, 60, 255);
 
     // Alanlari y'den asagi cizer; herhangi bir deger degistiyse true doner.
     // deferredCommit: drag-drop gibi geciktirilmis yazimlar icin (anlik kaydet).
@@ -65,7 +75,14 @@ public sealed class ObjectDrawer
             return false;
         bool changed = false;
         foreach (var field in Schema)
+        {
+            if (Filter != null && !Filter(field))
+                continue;
+            float y0 = y;
             DrawSchemaField(Target, field, KeyPrefix + field.Name, 0, ref y, right, ref changed, deferredCommit);
+            if (Highlight != null && y > y0 && Event.Current.Type == EventType.Repaint && Highlight(field.Name))
+                GuiRenderer.DrawRect(new Rect(8, y0 + 1, 2, y - y0 - 2), HighlightColor);
+        }
         return changed;
     }
 
@@ -127,6 +144,34 @@ public sealed class ObjectDrawer
             if (next != null) { field.Set(owner, next); changed = true; }
             return;
         }
+        // [Sensitive] string: maskeli ("••••"), "Show" ile acilir ve duzenlenir (RPC/MCP ciktisinda zaten "***").
+        if (field.Sensitive && field.Kind == SerializedType.Kind.String)
+        {
+            float labelX = 12 + indent * 12;
+            InspectorPanel.DrawFieldLabel(new Rect(labelX, y, Math.Max(20, LabelW - indent * 12), 18), field.Name);
+            float valueX = 12 + LabelW;
+            bool shown = _revealed.Contains(path);
+            var valueRect = new Rect(valueX, y, Math.Max(20, right - valueX - 50), 18);
+            if (shown)
+            {
+                bool fc = false;
+                DrawString(valueRect, value as string ?? "", v => field.Set(owner, v), path, ref fc);
+                if (fc) changed = true;
+            }
+            else if (Event.Current.Type == EventType.Repaint)
+            {
+                string s = value as string ?? "";
+                GuiRenderer.DrawTextIn(valueRect, s.Length == 0 ? "(empty)" : new string('\u2022', Math.Min(12, s.Length)),
+                    InspectorPanel.LabelFont, InspectorPanel.LabelDimColor);
+            }
+            if (Gui.Button(new Rect(right - 46, y, 46, 18), shown ? "Hide" : "Show"))
+            {
+                if (shown) { _revealed.Remove(path); _strBufs.Remove(path); _strLens.Remove(path); }
+                else _revealed.Add(path);
+            }
+            y += RowH;
+            return;
+        }
         DrawValue(field.Name, field.Kind, field.FieldType, field.ElementType,
             field.Nested, field, value, v => field.Set(owner, v), path,
             indent, ref y, right, 0, ref fieldChanged, deferredCommit);
@@ -153,8 +198,12 @@ public sealed class ObjectDrawer
         }
 
         float labelX = 12 + indent * 12;
-        var labelRect = new Rect(labelX, y, Math.Max(20, LabelW - indent * 12), 18);
-        float valueX = 12 + LabelW;
+        // Dar panel / genis sag rezerv (liste butonlari): deger alani en az MinValueW kalsin, etiket sutunu geri cekilsin
+        // (yoksa deger 20 px'e cokup butonlarin altina giriyordu).
+        const float MinValueW = 90f;
+        float labelW = Math.Min(LabelW, Math.Max(40f, right - rightReserve - MinValueW - 12));
+        var labelRect = new Rect(labelX, y, Math.Max(20, labelW - indent * 12), 18);
+        float valueX = 12 + labelW;
         var valueRect = new Rect(valueX, y, Math.Max(20, right - valueX - rightReserve), 18);
         InspectorPanel.DrawFieldLabel(labelRect, label);
 
@@ -233,6 +282,7 @@ public sealed class ObjectDrawer
                     break;
                 }
             case SerializedType.Kind.Asset:
+                FieldRegistry.Note(path, valueRect, "asset", valueType);
                 DrawAssetRef(valueRect, value, valueType, setValue, deferredCommit);
                 break;
             case SerializedType.Kind.Blob:
@@ -297,6 +347,34 @@ public sealed class ObjectDrawer
         InspectorPanel.DrawFieldLabel(new Rect(labelX + 22, y, Math.Max(20, LabelW - 22), 18),
             InspectorPanel.Nicify(label) + "  [" + count + "]");
         bool add = Gui.Button(new Rect(right - rightReserve - 20, y, 18, 18), "+");
+        var headerZone = new Rect(labelX + 22, y, Math.Max(20, right - rightReserve - 24 - (labelX + 22)), 18);
+        FieldRegistry.Note(path, headerZone, "list", elementType);
+        // Asset listesi: baslik satirina suruklenen asset (png, "sahip#id" alt oge...) dogrudan SONA eklenir
+        // (once '+' ile bos eleman acmak gerekmez). Kontrol sayisi degismez (salt drop bolgesi).
+        if (schema.ElementKind == SerializedType.Kind.Asset && DragDrop.Active && DragDrop.Kind == DragDrop.Payload.Asset
+            && App.Assets != null && App.Assets.IsAssignable(DragDrop.AssetPath, elementType))
+        {
+            var zone = headerZone;
+            var ev = Event.Current;
+            bool hover = zone.Contains(ev.MousePosition);
+            if (ev.Type == EventType.Repaint)
+            {
+                GuiRenderer.DrawRect(zone, hover ? new Color(70, 135, 85, 160) : new Color(52, 74, 58, 120), 0);
+                if (hover)
+                {
+                    var captured = value;
+                    DragDrop.RegisterTarget(() =>
+                    {
+                        var v = AddElement(captured, listType, elementType);
+                        var l = (IList)v;
+                        l[l.Count - 1] = SerializedType.Parse(DragDrop.AssetGuid, SerializedType.Kind.Asset, elementType, App.Assets);
+                        setValue(v);
+                        ResetTextBuffers();
+                        deferredCommit?.Invoke();
+                    });
+                }
+            }
+        }
         y += RowH;
         var list = value as IList;
         int removeIndex = -1;
@@ -428,8 +506,38 @@ public sealed class ObjectDrawer
             GuiRenderer.DrawRect(body, hover ? new Color(70, 135, 85, 255)
                 : acceptable ? new Color(52, 74, 58, 255) : new Color(45, 48, 58, 255), 0);
             string key = AssetDatabase.KeyOf(asset, App.Assets);
-            GuiRenderer.DrawTextIn(body, key.Length > 0 ? key : "(none)", InspectorPanel.SmallFont,
-                InspectorPanel.RefTextColor, false, 2);
+            // Kucuk resim (varsa) + etiket; alt oge: "sahipAdi / gorunenAd" (index'ten), yoksa anahtar.
+            var text = body;
+            if (key.Length > 0 && ThumbnailCache.Draw(key, new Rect(body.x + 2, body.y + 1, body.height - 2, body.height - 2), 1))
+                text = new Rect(body.x + body.height, body.y, body.width - body.height, body.height);
+            string label = key.Length > 0 ? key : "(none)";
+            var textColor = InspectorPanel.RefTextColor;
+            if (key.Length > 0)
+            {
+                // Kirik referans gorunur olsun: sahip yok -> kirmizi; alt oge index'te yok -> kirmizi; id ad tabanli -> sari.
+                string owner = SubAssets.Split(key, out string sid);
+                bool ownerExists = App.Assets.AllAssets.ContainsKey(owner);
+                if (!ownerExists)
+                {
+                    label = "(missing) " + key;
+                    textColor = InspectorPanel.MissingRefColor;
+                }
+                else if (sid != null)
+                {
+                    if (SubAssets.TryGetEntry(owner, sid, out var se))
+                    {
+                        label = System.IO.Path.GetFileName(owner) + " / " + se.Name;
+                        if (!se.Stable)
+                            textColor = InspectorPanel.UnstableRefColor;
+                    }
+                    else if (SubAssets.IsContainer(owner))
+                    {
+                        label = "(missing) " + key;
+                        textColor = InspectorPanel.MissingRefColor;
+                    }
+                }
+            }
+            GuiRenderer.DrawTextIn(text, Ellipsize(label, text.width - 8, InspectorPanel.SmallFont), InspectorPanel.SmallFont, textColor, false, 2);
             if (hover)
                 DragDrop.RegisterTarget(() =>
                 {
@@ -452,6 +560,19 @@ public sealed class ObjectDrawer
     {
         _strBufs.Clear();
         _strLens.Clear();
+    }
+
+    // Kutuya sigmayan metni sondan "…" ile kisaltir (TextIn kirpmaz; uzun yol komsu butonlarin altina tasiyordu).
+    internal static string Ellipsize(string s, float maxW, float font)
+    {
+        var f = Gui.Font;
+        if (string.IsNullOrEmpty(s) || f == null || maxW <= 0 || f.TextSize(s, font).x <= maxW)
+            return s;
+        float dots = f.TextSize("…", font).x;
+        int n = s.Length;
+        while (n > 1 && f.TextSize(s.AsSpan(0, n), font).x + dots > maxW)
+            n--;
+        return s.Substring(0, n) + "…";
     }
 
     static object AddElement(object value, Type listType, Type elementType)

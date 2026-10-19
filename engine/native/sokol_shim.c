@@ -374,15 +374,21 @@ SOKOL_API void de_sokol_destroy_buffer(unsigned int buffer)
 // yalnizca son ERROR (+GL info log'u) de_last_err'de tutulur, Shader derleme hatasi oradan okur.
 #include <stdio.h>
 static char de_last_err[2048]; // son ERROR + onu izleyen INFO detayi (GL compile log)
+static char de_prev_err[512];  // bir onceki ERROR (validation madde mesaji)
 static int de_last_err_pending;
+static unsigned int de_err_count;
 static void de_sokol_log(const char *tag, uint32_t level, uint32_t item_id,
                          const char *msg, uint32_t line, const char *file, void *user)
 {
     (void)user; (void)tag; (void)item_id; (void)line; (void)file;
     if (level <= 1)
     {
+        // Validation: once madde mesaji, sonra genel "VALIDATION_FAILED" gelir — ikisi de kalsin (son iki hata).
+        if (de_err_count > 0 && de_last_err[0])
+            snprintf(de_prev_err, sizeof de_prev_err, "%s", de_last_err);
         snprintf(de_last_err, sizeof de_last_err, "%s", msg ? msg : "");
         de_last_err_pending = 1; // GL info log'u hemen ardindan INFO olarak gelir
+        de_err_count++;          // managed host frame basinda sayaci okur, degistiyse son mesaji loglar
     }
     else if (level == 3 && de_last_err_pending)
     {
@@ -393,11 +399,38 @@ static void de_sokol_log(const char *tag, uint32_t level, uint32_t item_id,
 }
 
 SOKOL_API const char *de_sokol_last_error(void) { return de_last_err; }
+SOKOL_API const char *de_sokol_prev_error(void) { return de_prev_err; }
+// Toplam ERROR/PANIC sayisi (validation, havuz tukenmesi...). Managed bunu izler: sessiz hata kalmaz.
+SOKOL_API unsigned int de_sokol_error_count(void) { return de_err_count; }
+
+// Kaynak havuzu boyutlari (sg_desc): managed butce/istatistik icin okur. Slot = kucuk struct (GL: image 76 B,
+// view 96 B, buffer 60 B, pipeline 1.2 KB, shader 3.4 KB — olculdu); frame maliyeti yok. Editorde binlerce
+// doku/onizleme olabilir: image/view bol tutulur (~1 MB + 3 MB).
+#define DE_POOL_BUFFERS 4096
+#define DE_POOL_IMAGES 16384
+#define DE_POOL_SAMPLERS 256
+#define DE_POOL_SHADERS 512
+#define DE_POOL_PIPELINES 1024
+#define DE_POOL_VIEWS 32768
+SOKOL_API void de_sokol_pool_sizes(int *images, int *views, int *buffers)
+{
+    if (images) *images = DE_POOL_IMAGES;
+    if (views) *views = DE_POOL_VIEWS;
+    if (buffers) *buffers = DE_POOL_BUFFERS;
+}
 
 SOKOL_API void de_sokol_setup(void)
 {
     sg_desc d = {0};
     d.logger.func = de_sokol_log;
+    // Havuzlar: sokol varsayilanlari (128 image / 256 view) editor + karmasik sahnede dolar; dolunca
+    // make_* gecersiz id doner. Slot dizileri ucuz (GPU maliyeti yok); managed taraf ayrica id==0'i yakalar.
+    d.buffer_pool_size = DE_POOL_BUFFERS;
+    d.image_pool_size = DE_POOL_IMAGES;
+    d.sampler_pool_size = DE_POOL_SAMPLERS;
+    d.shader_pool_size = DE_POOL_SHADERS;
+    d.pipeline_pool_size = DE_POOL_PIPELINES;
+    d.view_pool_size = DE_POOL_VIEWS;
 #if defined(SOKOL_METAL)
     // Metal ortami: device host'tan; swapchain ve offscreen RT'ler ayni RGBA8/
     // DEPTH_STENCIL formatinda tutulur -> pipeline'lar tek varsayilan formatla eslesir.
@@ -662,9 +695,10 @@ SOKOL_API int de_sokol_read_image(unsigned int img, int w, int h, void *rgba)
     return 1;
 }
 
-// Varsayilan framebuffer (pencere) okuma: editor UI screenshot'i (RPC ui.screenshot). sg_commit SONRASI,
-// SwapBuffers ONCESI cagrilir (arka tampon = bu frame'in tamamlanmis goruntusu). GL satir 0 = ALT.
-SOKOL_API int de_sokol_read_framebuffer(int w, int h, void *rgba)
+// Framebuffer okuma: fbo=0 varsayilan (pencere arka tamponu), >0 paylasilan FBO (detached/utility pencere icerigi,
+// NativeWindow.Camera.Framebuffer). Editor UI screenshot'i (RPC ui.screenshot). sg_commit SONRASI, SwapBuffers ONCESI
+// cagrilir (arka tampon = bu frame'in tamamlanmis goruntusu). GL satir 0 = ALT.
+SOKOL_API int de_sokol_read_fbo(unsigned int fbo, int w, int h, void *rgba)
 {
     static de_pfn_bindfb_t bindfb;
     static de_pfn_readpix_t readpix;
@@ -686,17 +720,30 @@ SOKOL_API int de_sokol_read_framebuffer(int w, int h, void *rgba)
         return 0;
     int prevFb = 0;
     getint(0x8CA6 /*GL_FRAMEBUFFER_BINDING*/, &prevFb);
-    bindfb(0x8D40 /*GL_FRAMEBUFFER*/, 0);
+    bindfb(0x8D40 /*GL_FRAMEBUFFER*/, fbo);
     pixstore(0x0D05 /*GL_PACK_ALIGNMENT*/, 1);
     readpix(0, 0, w, h, 0x1908 /*GL_RGBA*/, 0x1401 /*GL_UNSIGNED_BYTE*/, rgba);
     bindfb(0x8D40, (unsigned int)prevFb);
     sg_reset_state_cache();
     return 1;
 }
+
+SOKOL_API int de_sokol_read_framebuffer(int w, int h, void *rgba)
+{
+    return de_sokol_read_fbo(0, w, h, rgba);
+}
 #else
 SOKOL_API int de_sokol_read_image(unsigned int img, int w, int h, void *rgba)
 {
     (void)img;
+    (void)w;
+    (void)h;
+    (void)rgba;
+    return 0;
+}
+SOKOL_API int de_sokol_read_fbo(unsigned int fbo, int w, int h, void *rgba)
+{
+    (void)fbo;
     (void)w;
     (void)h;
     (void)rgba;

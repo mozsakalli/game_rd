@@ -10,7 +10,7 @@ cehennemine girmeden, bir plugin eklemek "klasör at + Kotlin/Swift sınıfı ya
 2. **Core protokolü = iki yönde UTF-8 string.** JSON mu düz metin mi — plugin'in kararı. Core parse etmez, `id/method` bilmez.
 3. **Çözücü biz değiliz.** Android bağımlılığı Gradle (plugin = gerçek Gradle library modülü), iOS bağımlılığı SPM. İkinci bir
    çözücü (EDM4U, CocoaPods) yok. Trim platformun işi (R8 / dead-strip), SDK kendi `consumer-rules.pro`'sunu taşır.
-4. **Ayar = C# `[Serializable]` sınıf.** JSON şema yok. Editör `ObjectDrawer` ile otomatik çizer, `ProjectSettings/Plugins/<Ad>.asset`.
+4. **Ayar = C# `[Serializable]` sınıf.** JSON şema yok. Editör `ObjectDrawer` ile otomatik çizer, `ProjectSettings/Games/<oyun>/Plugins/<Ad>.asset`.
 5. **Build bilgisi runtime'a girmez.** `Editor/` içindeki `I*ProjectHook` sınıfları üretir; `Runtime/` yalnız API + ayar tipi.
 6. **Plugin hatası oyunu düşürmez** — core'un çağırdığı her yolda garanti; SDK'nın kendi thread'inden çağırdığı yazar kodunda sınır var
    (aşağıda "Garanti sınırları").
@@ -30,6 +30,10 @@ Plugin adı = C# sınıfının **kısa adı** (`Facebook`); host sınıfı aynı
 `Runtime/`'da `#if` ve `DllImport` **kullanılmaz**: platform özgüllüğü tamamen motorun köprüsünde; plugin C#'ı her hedefte (editör,
 Windows, desteklenmeyen platform) aynen derlenir. Host'ta plugin yoksa `Send` sessizce düşer (`Available == false`, bir kez uyarı).
 `Android/ iOS/ WASM/` içeriği asset değildir (importer dışlar).
+TUZAK (2026-10-18): VS Code Java LS (redhat.java) `Android/build.gradle.kts`'yi kök Gradle projesi sanıp senkronize eder ve
+klasöre `.gradle/` bırakır → editör proje köküne `.vscode/settings.json` (`java.import.gradle.enabled: false`) yazar (yalnız yoksa;
+varsa ve anahtar eksikse uyarı), `.gitignore` şablonu Gradle/Studio çöpünü dışlar, aotcompiler `CopyTree` `.gradle/ build/ .idea/
+.cxx/ .kotlin/ *.iml local.properties`'i `generated/`'a kopyalamaz.
 
 ## Managed yüzey (engine/managed/Plugin.cs)
 ```csharp
@@ -43,7 +47,7 @@ public abstract class Plugin
 }
 public abstract class Plugin<TSettings> : Plugin where TSettings : class, new()
 {
-    public TSettings Settings { get; }                 // pak'tan (ProjectBinary) ya da editörde ProjectSettings/Plugins/<Ad>.asset; yoksa new()
+    public TSettings Settings { get; }                 // pak'tan (ProjectBinary) ya da editörde ProjectSettings/Games/<oyun>/Plugins/<Ad>.asset; yoksa new()
 }
 ```
 `await` core'da yok: isteyen plugin `TaskCompletionSource` + `Wait.Timeout` + kendi `id` alanıyla kurar (Http/NativeAsync deseni).
@@ -108,9 +112,9 @@ Türev `- (instancetype)init { return [super initWithName:@"Ads"]; }` + dosya so
 
 ## Ayarlar
 `Plugin<TSettings>`'in `TSettings`'i (ya da plugin'siz `[ProjectSetting]` attribute'lu `[Serializable]` sınıf) → Player Settings penceresi
-"Plugins" bölümünde `ObjectDrawer` ile çizilir → `ProjectSettings/Plugins/<Ad>.asset` (git'e girer). Tek attribute: `[Required]`
-(boş → kırmızı + build hatası). TUZAK: iç içe ayar sınıfına `Settings` adı verilemez (`Plugin<T>.Settings` özelliğiyle çakışır) → `Config`. **Secret kavramı yok**: Facebook App ID / Client Token / AdMob ID gibi değerler APK/IPA içinde zaten okunabilir,
-Unity'de de düz metindir. Gerçekten gizli olan tek şey imza parolasıdır ve o `UserSettings/AndroidSigning.asset`'te (ayrı mekanizma).
+"Plugins" bölümünde `ObjectDrawer` ile çizilir → `ProjectSettings/Games/<oyun>/Plugins/<Ad>.asset` (git'e girer). Tek attribute: `[Required]`
+(boş → kırmızı + build hatası). TUZAK: iç içe ayar sınıfına `Settings` adı verilemez (`Plugin<T>.Settings` özelliğiyle çakışır) → `Config`. **Secret dosyası yok**: tüm ayarlar (imza parolası dahil) `ProjectSettings/` altında git'e girer; gizlilik yalnız AI'a karşı
+`[Sensitive]` ile (aşağıda). Facebook App ID / Client Token / AdMob ID zaten APK/IPA içinde okunabilir, Unity'de de düz metindir.
 Ayarlar pak'a olduğu gibi girer (küçük; managed'ın da host'un da işine yarar).
 
 ## Build kancaları (`DigitoyEngine.Build`, aotcompiler/source; editör Link ile alır)
@@ -183,6 +187,83 @@ bağlar, yoksa yalnız logcat/NSLog/console. Unhandled managed exception ayrıca
   `Get<T>` ile referans edilmeyenler "not referenced by game code" etiketiyle soluk. `[Required]` boş → kırmızı (yalnız canlı plugin'de build hatası).
 - Mock yoksa `Available=false` → plugin API'si "unavailable" sonucu döner; Play ölmez.
 
+## Games — tek proje, N bağımsız oyun (2026-10-18; varyant modelinin yerini aldı)
+Hedef (digitoyclient): Gin/Yüzbir/Okey tek repoda, kod ve ortak asset paylaşır, ama **ayrı store/FB/sunucu kimlikleri** → oyun başına
+ayrı APK. **Proje = ortak `Assets/` + N oyun tanımı (N ≥ 1).** Mod yok ("varyant varsa/yoksa" yok), taban/overlay yok: her oyunun TAM
+ayar dosyası kendi klasöründe. Eski "varyant" modeli (kök PlayerSettings + `Variants/` kısmi overlay + korunan alan + turuncu şerit +
+`excludeFolders`) kaldırıldı — ayarların %90'ı oyuna göre farklıyken diff katmanı gereksiz karmaşıklıktı; tema (%5 fark) katman olarak kalır.
+
+```
+ProjectSettings/Games/<ad>/PlayerSettings.asset   oyunun TÜM ayarları: kimlik, scenes/startScene, themes/activeTheme, Display, Build, android/ios
+ProjectSettings/Games/<ad>/Plugins/<Ad>.asset      oyunun plugin Config'i (appId vb.)
+UserSettings/EditorSettings.asset  workingGame + games[]   kullanıcı: çalışılan oyun + oyun başına son sahne/tema/kamera/cihaz
+Assets/Shared/, Assets/Games/<Ad>/                konvansiyon (zorunlu değil): ortak / oyuna özel içerik
+```
+- Oyun listesi = `Games/*` klasörleri (`PlayerSettings.IsValidGameName`: harf/rakam/_/-). Oyun yoksa editör proje klasörü adıyla üretir.
+  Eski yerleşim ilk açılışta otomatik taşınır ([Project.MigrateLegacy](../editor/Project.cs), DocNode düzeyinde: taban + overlay alan
+  birleşimi → tam dosya; sahnesiz nötr taban oyun olmaz; `variants/activeVariant/excludeFolders` yazılmaz; eski dosyalar silinir).
+- **Tema listesi oyuna ait** (`themes/activeTheme` PlayerSettings içinde). Adlar oyunlar arası ortak sözlük (xmas, ramazan); Shared prefab'taki
+  katman adını listesine alan her oyunda etkin, almayanda atıl. `theme.check` → `undeclared` (dosyadaki katman adı oyunun listesinde yok).
+- **Kod ortak ve hep derlenir** (dışlama yok): yüzbirdeki kırılma gin'de çalışırken görünür. Pak/trim/plugin canlılığı o oyunun
+  `scenes/startScene` kümesinden türer → diğer oyunun asset'i/kodu APK'ya girmez.
+- **Çalışılan oyun** (`Project.Game`, toolbar "Game" combosu, `game.set`) = Play/Build/pak bağlamı. Geçiş = çalışma alanı geçişi
+  ([App.SetWorkingGame](../editor/EditorApp.cs)): editör durumu `EditorSettings.games[]`'e saklanır/geri gelir (son sahne, working theme, kamera,
+  cihaz, yön), plugin ayar cache düşer, **oyun kodu taze ALC ile yeniden yüklenir** (statikler sıfır — `AppBoot.IsReady`/`Game.Current`
+  tuzağı yok). Açık sahnede kaydedilmemiş değişiklik varsa sahne değiştirilmez (uyarı). `DigitoyEditor.exe <proje> --game <ad>`: o süreçte
+  oyun sabit, EditorSettings'e yazılmaz → aynı projede ikinci editör başka oyunda (iki AI paralel).
+- **Player Settings penceresi**: üstte oyun sekmeleri (düzenlenen oyun; `EditorSettings.playerSettingsGame`), çalışılan oyun "(working)".
+  Düzenlemek için çalışılan oyunu değiştirmek GEREKMEZ. "Games" sayfası: Work on / Remove / Add (seçili sekmenin kopyası — ortak alanlar
+  için şablon). Plugin sayfaları sekmenin oyununa yazar (`PluginSettingsEditor.Entries(project, assets, game)`).
+- **RPC**: `game.list/set/create/remove`; `player.build` çalışılan oyunu kurar; tema komutları oyunun listesine yazar.
+- **Build**: `PlayerBuilder` → `--game <ad>` (zorunlu; aotcompiler [Game.cs](../aotcompiler/source/Game.cs): boşsa tek oyunlu projede o, çok
+  oyunluda hata). Çıktı `Build/<game>/{game.pak, <Ad>.exe, android/, ios/, wasm/}`, AOT cache `Library/aot/<game>/<target>`.
+  `PluginSettingsStore(root, engineNet, game)` → `Games/<game>/Plugins/` (`ObjectSerializer.LoadInto` reflection ile). Pak `.project` v3 son
+  alan artık oyun adı → `GameHost.GameName` (eski pak'ta boş). Desktop host pak'ı önce exe'nin yanında arar (`./game.pak`).
+  TUZAK: `Run in Browser` statik kökü hâlâ `Build/wasm`.
+- **Test**: `GameTests` (23): eski yerleşimden geçiş (taban+2 overlay+plugin birleşimi), keşif, SetGame/kayıt, CreateGame kopya, RemoveGame
+  (son oyun korunur), bilinmeyen/boş proje, ProjectBinary game, EditorSettings stash/restore + round-trip. Uçtan uca: Sandbox → `Games/Sandbox/`
+  geçişi, `player.build windows` → `Build/Sandbox/Sandbox.exe`, `[host] game: Sandbox`; digitoyclient → `Games/{ginrummy,yuzbir}`,
+  `game.set` + Yüzbir login→lobby, `Build/yuzbir/game.pak`.
+
+## AppLovin MAX — Faz 1: Android, interstitial + rewarded, AppLovin + AdMob adapter (2026-10-18)
+Kaynak: digitoyclient `Assets/Plugins/AppLovin/` (örnek kopyası `Projects/Sandbox/Assets/Plugins/AppLovin/` + `Scripts/PluginProbe.cs`).
+Facebook kalıbı birebir; motor/editör/aotcompiler **değişmedi**.
+- **Runtime/AppLovin.cs** `Plugin<AppLovin.Config>`: `Config` = `[Required, Sensitive] sdkKey`, `AdUnits android/ios` (interstitial/rewarded),
+  `admobAppIdAndroid/Ios`, `testDeviceIds`, `verboseLogging`, `sdkVersionAndroid/Ios`, `List<Adapter> mediation {network, android, ios}`.
+  API: `Init()` (bir kez; başarıda unit'ler yüklenir), `Interstitial`/`Rewarded : FullscreenAd` (`Load`, `IsReady`, `Task<ShowResult> Show(placement)`
+  → `Shown|Rewarded|NotReady|Failed|Unavailable|Timeout|Busy`), `SetPrivacy`, `ShowMediationDebugger`, `OnLoaded/OnLoadFailed/OnRevenue` (ILRD).
+  **Oto-retry managed'da** (2^n s, ≤64 s), hidden'da yeniden yükleme managed'da → host ince. Platform seçimi HOST'ta: init mesajı
+  `units.android` + `units.ios` taşır, host kendininkini alır (managed platform bilmez). Protokol dosya başlığında.
+- **Editor/AppLovinHooks.cs**: `AppLovinAndroid` → `ResString admob_app_id`, `Dependency applovin-sdk:<sdkVersionAndroid>` + her adapter için
+  `com.applovin.mediation:<network>-adapter:<android>`, network'e göre ek `MavenRepo` (pangle/mintegral/ironsource/chartboost…). **Bağımlılıklar
+  library modülünde değil hook'ta** (Config'e bağlı liste app seviyesine) — sürüm güncelleme = Config'i düzenle, "Integration Manager" yok.
+  `AppLovinIos` iskelet (SPM core, GADApplicationIdentifier, NSUserTrackingUsageDescription, SKAdNetwork tek giriş) — Faz 2'de adapter'lar.
+  `AppLovinMock`: init ok, load→loaded, show→displayed/revenue/rewarded/hidden; `NoFill/FailShow/SkipReward` anahtarları.
+- **Android/**: library modülü (`compileOnly applovin-sdk` yalnız derleme için), manifest `com.google.android.gms.ads.APPLICATION_ID` + `AD_ID`,
+  Kotlin `AppLovinPlugin : DEPlugin("AppLovin")` (`AppLovinSdkInitializationConfiguration` sdkKey mesajdan, `MaxInterstitialAd`/`MaxRewardedAd`
+  listener → `send(event)`, `MaxAdRevenueListener`). SDK 13'te `setIsAgeRestrictedUser` yok (bayrak yok sayılır).
+- **Kullanım**: digitoyclient `Shared/Services/AdService.cs` (`ShowRewarded(placement) → Task<bool>`, oyun kodu AppLovin tipini bilmez), `AppBoot`
+  `AdService.I.Init().Forget()`. Config oyun başına `Games/<ad>/Plugins/AppLovin.asset`.
+- **Doğrulama**: editör mock ile `[ads] loaded interstitial/rewarded (Mock)`; Sandbox `player.build android` → `plugins.deps.gradle.kts`'te
+  applovin-sdk + google-adapter, `plugin_strings.xml` admob id, `Plugins.kt` kaydı; Gradle 8.9 `:plugins:AppLovin:compileDebugKotlin` **gerçek SDK
+  13.6.4'e karşı hatasız**; `:app:dependencies` → applovin 13.6.4 + play-services-ads 25.5.0 + facebook 17.0.0 çakışmasız (`ForceVersion` gerekmedi).
+  Cihaz testi (gerçek sdkKey + MAX test unit'leri) ve iOS Faz 2 bekliyor. Sürümler Maven metadata'dan okundu (tahmin değil).
+
+## Sensitive — AI'a gitmeyen alanlar (2026-10-18)
+`[Sensitive]` alan attribute'u ([Attributes.cs](../engine/managed/Serialization/Attributes.cs)); isim sezgisi YOK, yalnız attribute. Varsayılan işaretliler:
+`AndroidSettings.keystorePassword/keyPassword` (PlayerSettings.android; eski `UserSettings/AndroidSigning.asset` ilk açılışta buraya taşınır ve
+silinir — 2026-10-18); plugin yazarı Config'inde `[Required, Sensitive] clientToken` gibi işaretler.
+- **RPC/MCP çıkış filtresi** ([RpcRedact.cs](../editor/RpcRedact.cs)): editör + motor + oyun/plugin assembly'lerindeki `[Sensitive]` alan adları kümesi
+  (reload'da `RebuildCatalog` tazeler); `RpcHost.Ok` **her** yanıtı (deferred dahil) süzer: DocNode ağacında hassas anahtarın değeri `***`,
+  tüm string skalerlerde satır içi `key: v` / `"key": v` / `key=v` → `***` (asset.read YAML, log.tail, scene.dump metinleri). Kapsam alan adı
+  bazlı: aynı adlı masum alanlar da maskelenir (kabul; yanlış-negatiften iyi).
+- **Girdi**: `prop.set`/`scene.apply` hassas alana `***` yazma → hata; `asset.write` içeriğinde `key: ***` satırı → hata (maske dosyaya girmesin).
+  Gerçek değer yazmak serbest (AI yazabilir, okuyamaz).
+- **Inspector**: `ObjectDrawer` hassas string'i `••••` çizer, "Show/Hide" ile açılır-düzenlenir.
+- `rpc.guide` rules'a kural eklendi. `RedactTests` (12 PASS); canlı: `asset.write` → `asset.read` `clientToken: ***`, maskeyi geri yazma reddi.
+- SINIR: pak/APK içeriğine girer (cihazda zaten okunabilir). `UserSettings/` secret dosyası KALDIRILDI (kullanıcı kararı): imza parolaları
+  dahil her ayar `ProjectSettings/`'te git'e girer (oyun başına Games/<ad>/); gizlilik yalnız AI'a karşı. MCP köprüsü pass-through.
+
 ## Bilinen sınırlar
 İki SDK'nın uyumsuz transitive sürümü hiçbir araçla çözülmez → `ForceVersion` tek satır. CocoaPods-only SDK → xcframework düşür. Kabuğu değiştirmeyi
 dayatan SDK (özel Activity tabanı, SceneDelegate) → kullanıcı kabuğu elle düzenler (kabuk zaten kullanıcıya ait).
@@ -196,5 +277,10 @@ dayatan SDK (özel Activity tabanı, SceneDelegate) → kullanıcı kabuğu elle
   TrimAnalysis'ten, Editor.dll, üretim), `Program.cs` Emit* entegrasyonu; kabuklar Android v3 / iOS v2.
 - Editör: `GameCode.LoadEditorCode` (Editor.dll + mock kaydı), `PluginSettingsEditor` + Player Settings ▸ Plugins, pak blobu, `PluginTests` (19 PASS).
 - Örnekler: `Projects/Sandbox/Assets/Plugins/{Facebook,Crashlytics}` + `Scripts/PluginProbe.cs`. Üç hedef üretimi Windows'ta doğrulandı
-  (Plugins.kt, gradle dosyaları, Package.swift, Info.plist, plugins.js). **Cihaz/Studio/Xcode/tarayıcı doğrulaması bekliyor.**
+  (Plugins.kt, gradle dosyaları, Package.swift, Info.plist, plugins.js).
+- **Android cihaz doğrulaması (2026-10-18, digitoyclient `Assets/Plugins/Facebook`, ANE-LX1):** gerçek `facebook-login:17.0.0` ile
+  `:dehost` + `:plugins:Facebook` Gradle library modülü derlendi, `Plugins.kt`/`plugin_strings.xml`/`CustomTabActivity` intent-filter üretildi,
+  `Plugin.Send → PluginHost.dispatch → LoginManager` açıldı, `onActivityResult` forward'ı ve `send → inbox → OnMessage` yanıt yolu çalıştı
+  (iptal → `FacebookAuthCancelled`; placeholder App ID ile SDK "invalid app id" = beklenen). Motor/aotcompiler/kabukta değişiklik gerekmedi.
+  iOS/Xcode/tarayıcı doğrulaması hâlâ bekliyor.
 - Kalan: WASM `onerror` ekranı/sendBeacon örneği; editörde "referenced" etiketi kaba metin taraması (kesin kaynak build logu).

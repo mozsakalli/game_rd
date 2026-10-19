@@ -65,6 +65,7 @@ static class PlayMode
             return;
         }
         LocTableStore.Flush(); // oyun sahnesi tabloyu dosyadan/pak'tan degil canli instance'tan okur; yine de tutarli dursun
+        EditorLog.Marker("PLAY START");
         SpawnPlayScene();
         State = PlayState.Playing;
         EditorWindow.GetWindow<GameViewPanel>(); // Game tab'i one
@@ -86,6 +87,7 @@ static class PlayMode
         DestroyPlayScene();
         Plugin.ResetAll(); // plugin instance'lari Play omurlu (bekleyen Task'lar GC'ye)
         PlayerPrefs.Save(); // oyun kodunun kaydetmedigi prefs Stop'ta diske (release'teki Shutdown muadili)
+        EditorLog.Marker("PLAY STOP");
         EditorWindow.GetWindow<SceneViewPanel>(); // Scene tab'i one
     }
 
@@ -95,8 +97,8 @@ static class PlayMode
         if (PlayScene == null)
             return;
         DestroyPlayScene();
+        EditorLog.Marker("HOT RELOAD");
         SpawnPlayScene();
-        System.Console.WriteLine("[play] hot reload");
     }
 
     static void SpawnPlayScene()

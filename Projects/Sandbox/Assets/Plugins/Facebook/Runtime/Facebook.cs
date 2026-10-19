@@ -15,7 +15,7 @@ public sealed class Facebook : Plugin<Facebook.Config>
     public sealed class Config
     {
         [Required] public string appId = "";
-        [Required] public string clientToken = "";
+        [Required, Sensitive] public string clientToken = "";
         public string displayName = "";
         public bool autoLogAppEvents = true;
     }

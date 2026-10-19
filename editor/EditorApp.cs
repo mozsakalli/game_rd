@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Reflection;
 using DigitoyEngine;
 using DigitoyEngine.Editor;
 
@@ -88,11 +89,30 @@ public unsafe class App
 #if DE_EDITOR
         var dbg = EditorWindow.GetWindow<RenderDebugPanel>();
 #endif
+        var console = EditorWindow.EnsureRegistered(typeof(ConsolePanel)) as ConsolePanel;
+        // Layout dosyasi panelleri BASLIKLA bulur: dosyada gecen her pencere LoadLayout'tan ONCE
+        // kayitli olmali, yoksa sekmesi dusur (tek basina leaf'teyse tum yerlesim gecersiz sayilir).
+        // Menuden acilabilen tum EditorWindow tipleri burada pesin kaydedilir (gosterilmez).
+        foreach (var type in typeof(App).Assembly.GetTypes())
+        {
+            if (!type.IsAbstract && typeof(EditorWindow).IsAssignableFrom(type)
+                && type.GetCustomAttribute<MenuItemAttribute>() != null)
+                EditorWindow.EnsureRegistered(type);
+        }
         // Kullanici yerlesimi proje altindan (UserSettings gitignore'lanir);
         // yoksa/bozuksa asagidaki varsayilan agac kurulur.
         // Proje: CLI arg > kullanici tercihlerinde son acilan (hala varsa) > Projects/Sandbox. Acilan proje recent'a yazilir.
-        string projectPath = ProjectSwitcher.ResolveStartupProject(
-            Environment.GetCommandLineArgs() is { Length: > 1 } cli ? cli[1] : null, DefaultProjectPath);
+        // `--game <ad>`: bu surecte calisilan oyun sabit (EditorSettings'e yazilmaz) → ayni projede ikinci editor baska oyunda.
+        string cliProject = null;
+        {
+            var cli = Environment.GetCommandLineArgs();
+            for (int i = 1; i < cli.Length; i++)
+            {
+                if (cli[i] == "--game" && i + 1 < cli.Length) { _fixedGame = cli[++i].Trim(); continue; }
+                if (!cli[i].StartsWith("--") && cliProject == null) cliProject = cli[i];
+            }
+        }
+        string projectPath = ProjectSwitcher.ResolveStartupProject(cliProject, DefaultProjectPath);
         projectPath = System.IO.Path.GetFullPath(projectPath);
         { var prefs = EditorPrefs.Load(); prefs.Touch(projectPath); prefs.Save(); }
         _window = window;
@@ -102,9 +122,9 @@ public unsafe class App
         if (!GuiDock.LoadLayout(_layoutPath))
         {
 #if DE_EDITOR
-            int bottom = GuiDock.Leaf(stackalloc int[] { project.PanelId, clip.PanelId, dbg.PanelId });
+            int bottom = GuiDock.Leaf(stackalloc int[] { project.PanelId, clip.PanelId, dbg.PanelId, console.PanelId });
 #else
-            int bottom = GuiDock.Leaf(stackalloc int[] { project.PanelId, clip.PanelId });
+            int bottom = GuiDock.Leaf(stackalloc int[] { project.PanelId, clip.PanelId, console.PanelId });
 #endif
             int center = GuiDock.Split(horizontal: false, 0.68f,
                 GuiDock.Leaf(stackalloc int[] { _sceneView.PanelId, gameView.PanelId }), bottom);
@@ -119,23 +139,41 @@ public unsafe class App
         EditorMenu.Build(window, typeof(App).Assembly);
 
         // Proje ac + oyun kodunu Assets'ten derle/yukle + katalog kur + sahne yukle.
-        _project = Project.Load(projectPath);
+        // Calisilan oyun: --game > EditorSettings.workingGame (eski workingVariant) > ilk oyun. Project cozumu icin erkenden okunur.
+        string earlyGame = _fixedGame ?? "";
+        if (earlyGame.Length == 0)
+        {
+            try
+            {
+                string esp = System.IO.Path.Combine(projectPath, "UserSettings", "EditorSettings.asset");
+                if (System.IO.File.Exists(esp))
+                {
+                    var f = Yaml.Parse(System.IO.File.ReadAllText(esp)).Get("fields");
+                    earlyGame = f?.GetScalar("workingGame", "") ?? "";
+                    if (earlyGame.Length == 0) earlyGame = f?.GetScalar("workingVariant", "") ?? "";
+                }
+            }
+            catch { }
+        }
+        _project = Project.Load(projectPath, earlyGame);
         _assets = new AssetDatabase(AssetsPath);
         _assets.ScanMetas(createMissing: true); // GUID kimligi: eksik .meta uretilir
         ImportPipeline.Init(_project);
         _assets.ArtifactResolver = ImportPipeline.ResolveArtifact; // import'lu asset'ler Library'den
         _assets.ArtifactPathResolver = ImportPipeline.ResolveArtifactPath;
+        AssetDatabase.SubAssetTypeResolver = SubAssets.TypeOf; // "yol#id" atanabilirligi index'ten
         Audio.Source = _assets.Source; // muzik anahtarlari loose dosyadan
         PlayerPrefs.SetRoot(_project.LibraryPath); // oyun PlayerPrefs'i proje-yerel (Library/prefs.dat; git'e girmez)
         AssetDatabase.LogWarning = EditorLog.Warning;
+        Sokol.LogError = EditorLog.Error; // GPU kaynak/validation hatalari Console paneline
         PixelEffect.LogError = EditorLog.Error; // fx derleme hatalari Console paneline
         Debug.OnInfo = EditorLog.Info;          // oyun kodunun Debug.Log* cagrilari Console paneline (stdout'a EditorLog akitir)
         Debug.OnWarning = EditorLog.Warning;
         Debug.OnError = EditorLog.Error;
-        // Plugin ayarlari (docs/plugins.md): editorde ProjectSettings/Plugins/<Ad>.asset (pak blobu yerine).
+        // Plugin ayarlari (docs/plugins.md): editorde ProjectSettings/Games/<oyun>/Plugins/<Ad>.asset (pak blobu yerine).
         Plugin.SettingsLoader = (name, into) =>
         {
-            string p = DigitoyEngine.Build.PluginSettingsStore.PathFor(_project.Root, name);
+            string p = _project.PluginSettingsPathFor(_project.Game, name);
             if (!System.IO.File.Exists(p)) return false;
             ObjectSerializer.LoadInto(into, p, _assets);
             return true;
@@ -169,6 +207,8 @@ public unsafe class App
         PrefabTests.Run(_catalog);
         ThemeTests.Run(_catalog);
         PluginTests.Run();
+        GameTests.Run();
+        RedactTests.Run();
 #endif
         // Apply yolu: stash'li sahne (stage) de kapsama girsin.
         EditorScene.PrefabEditScope = (es, mutate) => WithPrefabEdit(mutate);
@@ -183,6 +223,14 @@ public unsafe class App
         }
         catch { }
         PlayMode.HotReload = Settings.hotReload;
+        // Oyun basina editor durumu: dosyadaki canli alanlar son calisilan oyuna (workingGame) ait; baska oyunla acildiysa
+        // (--game ya da bilinmeyen ad dustu) o kaydi saklayip hedef oyununkini getir.
+        if (Settings.workingGame.Length > 0 && !string.Equals(Settings.workingGame, _project.Game, StringComparison.OrdinalIgnoreCase))
+        {
+            Settings.StashGame(Settings.workingGame);
+            Settings.RestoreGame(_project.Game);
+        }
+        if (_fixedGame == null) Settings.workingGame = _project.Game;
         Gui.FontSize = Math.Clamp(Settings.uiFontSize, 10f, 24f);
         GameOutput.SetDevice(Settings.deviceW, Settings.deviceH, Settings.devicePixelRatio, Settings.deviceName);
         GameOutput.Orientation = Settings.gameViewOrientation;
@@ -203,9 +251,16 @@ public unsafe class App
         // AI/otomasyon komut kanali (localhost, satir-bazli JSON); ayni port Build/wasm'i HTTP ile de sunar.
         RpcHost.Start(staticRoot: System.IO.Path.Combine(projectPath, "Build", "wasm"));
 
-        while (GLFW.WindowShouldClose(window) == GLFWConst.FALSE)
+        while (true)
         {
             GLFW.PollEvents();
+            // Kapanis istegi (X / RequestClose): kaydedilmemis sahne/stage varsa sor, kapanisi ertele.
+            if (GLFW.WindowShouldClose(window) != GLFWConst.FALSE)
+            {
+                if (_closeConfirmed || ConfirmUnsaved(() => { _closeConfirmed = true; RequestClose(); }))
+                    break;
+                GLFW.SetWindowShouldClose(window, GLFWConst.FALSE);
+            }
             EditorMenu.Poll(); // biriken menu komutlarini calistir
             AssetWatcher.Tick(GLFW.GetTime()); // dosya degisiklikleri + biten derlemeler
             LocTableStore.Tick(GLFW.GetTime()); // bekleyen ceviri tablosu yazimlari (bosta)
@@ -301,7 +356,7 @@ public unsafe class App
             EditorPopup.UpdateActive();
 
             // Surukle-birak: sol tus birakildiysa kayitli hedefe uygula/temizle.
-            DragDrop.EndFrame(GLFW.GetMouseButton(window, 0) == GLFWConst.RELEASE);
+            DragDrop.EndFrame(UiAutomation.MouseReleased(GLFW.GetMouseButton(window, 0) == GLFWConst.RELEASE));
 
             // Tum GUI pass'leri bitti: yeni raster glyph'ler varsa atlasi GPU'ya yukle
             // (encode'dan once, frame'de bir kez — sokol dinamik image kurali).
@@ -354,6 +409,7 @@ public unsafe class App
             GuiDock.PresentWindows();
             ColorPickerWindow.Present();
             EditorPopup.PresentActive();
+            Sokol.PollErrors(); // sokol ERROR'lari (validation/havuz) Console'a; sessiz kalmaz
         }
 
         RpcHost.Stop();
@@ -428,9 +484,12 @@ public unsafe class App
         }
         // Working language: edit projeksiyonu + Play bu dili gorur; inspector bu dilin hucresini duzenler.
         DrawLanguageCombo(new Rect(_screenW - 96, 3, 90, 20));
-        // Working theme (dil gibi): edit projeksiyonu + Play; duzenlemeler bu temanin katmanina yazilir.
+        // Working theme (dil gibi): edit projeksiyonu + Play; duzenlemeler bu temanin katmanina yazilir. Liste oyunun.
         if (Project.Player.themes.Count > 0)
             DrawThemeCombo(new Rect(_screenW - 96 - 6 - 110, 3, 110, 20));
+        // Working game (docs/plugins.md "Games"): Play + Player Build + pak bu oyunun ayarlariyla; oyun degisimi = calisma alani.
+        if (_gameNames.Length > 1 || Project.GameNames().Count > 1)
+            DrawGameCombo(new Rect(_screenW - 96 - 6 - 110 - 6 - 110, 3, 110, 20));
         // Arka plan is durumu (derleme, player build vs.): non-modal, toolbar'da yasar.
         if (e.Type == EventType.Repaint)
         {
@@ -445,7 +504,6 @@ public unsafe class App
         GuiDock.DockSpace(new Rect(0, ToolbarH, _screenW, _screenH - ToolbarH));
         if (e.Type == EventType.Repaint)
             DragDrop.DrawGhost(e.MousePosition); // surukleme hayaleti en ustte
-        DrawPerfHud();
     }
 
     // Toolbar dil combosu: host tablosunun dilleri (tablo yoksa yalniz "en"); secim EditorSettings'e kalici.
@@ -470,7 +528,7 @@ public unsafe class App
     // --- Working theme (docs/engine-notes.md TEMA) ---
     static string[] _themeNames = System.Array.Empty<string>();
 
-    // Combo listesi: "default" (taban) + PlayerSettings.themes.
+    // Combo listesi: "default" (taban) + calisilan oyunun PlayerSettings.themes'i.
     internal static List<string> ThemeNames()
     {
         var list = new List<string> { "" };
@@ -478,6 +536,73 @@ public unsafe class App
             if (!string.IsNullOrWhiteSpace(t) && !list.Contains(t.Trim()))
                 list.Add(t.Trim());
         return list;
+    }
+
+    // --- Working game (docs/plugins.md "Games") ---
+    static string[] _gameNames = System.Array.Empty<string>();
+    static string _fixedGame; // --game ile sabitlenmis (EditorSettings'e yazilmaz)
+    internal static bool GameFixedByCli => _fixedGame != null;
+
+    static void DrawGameCombo(in Rect rect)
+    {
+        var names = Project.GameNames();
+        if (_gameNames.Length != names.Count)
+            _gameNames = new string[names.Count];
+        int idx = 0;
+        for (int i = 0; i < names.Count; i++)
+        {
+            _gameNames[i] = names[i];
+            if (string.Equals(names[i], Project.Game, System.StringComparison.OrdinalIgnoreCase))
+                idx = i;
+        }
+        int next = Gui.ComboBox(rect, idx, _gameNames);
+        if (next != idx && next >= 0 && next < names.Count)
+            SetWorkingGame(names[next]);
+    }
+
+    // Oyun gecisi = calisma alani gecisi: eski oyunun editor durumu saklanir, yeni oyunun son sahnesi/temasi/cihazi/kamerasi
+    // geri gelir, plugin ayar cache'i duser, oyun kodu yeniden yuklenir (taze ALC → statikler sifir; AppBoot gibi tuzaklar yok).
+    internal static void SetWorkingGame(string game)
+    {
+        game = (game ?? "").Trim();
+        if (string.Equals(game, Project.Game, System.StringComparison.OrdinalIgnoreCase))
+            return;
+        if (!Project.HasGame(game))
+            throw new System.ArgumentException("unknown game: " + game + " (ProjectSettings/Games/)");
+        if (InPrefabStage && !TryExitPrefabStage(() => SetWorkingGame(game)))
+            return;
+        PlayMode.Stop();
+        SaveSettings(); // canli alanlar (kamera/cihaz) tazelensin
+        Settings.StashGame(Project.Game);
+        Project.SetGame(game);
+        Settings.RestoreGame(game);
+        if (_fixedGame == null) Settings.workingGame = game;
+        PluginSettingsEditor.Invalidate();
+        // Tema: yeni oyunun listesinde yoksa taban.
+        string theme = ThemeNames().Contains(Settings.workingTheme ?? "") ? Settings.workingTheme : "";
+        Settings.workingTheme = theme;
+        WithPrefabEdit(() => SceneDoc.ActiveTheme = theme);
+        GameOutput.SetDevice(Settings.deviceW, Settings.deviceH, Settings.devicePixelRatio, Settings.deviceName);
+        GameOutput.Orientation = Settings.gameViewOrientation;
+        if (Settings.sceneCamZoom > 0)
+            _sceneView.SetView(new Vec2(Settings.sceneCamX, Settings.sceneCamY), Settings.sceneCamZoom);
+        // Son sahne: kaydedilmemis degisiklik varsa acik sahneye dokunulmaz (kullanici kaydedip kendisi acar).
+        string last = Settings.lastScene.Length > 0 ? System.IO.Path.Combine(Project.Root, Settings.lastScene) : null;
+        if (last != null && System.IO.File.Exists(last) && !string.Equals(last, _editScene.Path, System.StringComparison.OrdinalIgnoreCase))
+        {
+            if (_editScene.Dirty)
+                EditorLog.Warning("[game] open scene has unsaved changes; last scene of '" + game + "' not opened (" + Settings.lastScene + ")");
+            else
+            {
+                _editScene.Load(last, _catalog, _assets);
+                Selection.DocId = 0;
+            }
+        }
+        _editScene.ResetHistoryKeepDirty();
+        Selection.Clear();
+        SaveSettings();
+        AssetWatcher.RequestBuild();
+        EditorLog.Info("[game] working game: " + game);
     }
 
     static void DrawThemeCombo(in Rect rect)
@@ -534,9 +659,19 @@ public unsafe class App
         _lastAllocTotal = total;
     }
 
-    static void DrawPerfHud()
+    // Zero-alloc perf HUD: frame ms (EMA), alloc/frame, canli GO sayisi, image havuzu. Varsayilan KAPALI (Window/Perf HUD;
+    // EditorSettings.perfHud); acikken Game View sol ustune cizilir (toolbar combolariyla cakismasin).
+    [MenuItem("Window/Perf HUD", 20)]
+    static void TogglePerfHud()
     {
-        if (Event.Current.Type != EventType.Repaint)
+        Settings.perfHud = !Settings.perfHud;
+        SaveSettings();
+        EditorLog.Info("[perf] HUD " + (Settings.perfHud ? "on" : "off"));
+    }
+
+    internal static void DrawPerfHud(in Rect at)
+    {
+        if (!Settings.perfHud || Event.Current.Type != EventType.Repaint)
             return;
         Span<char> tmp = stackalloc char[96];
         int n = 0;
@@ -545,9 +680,14 @@ public unsafe class App
         AppendInt(tmp, ref n, (int)_allocPerFrame);
         Append(tmp, ref n, " B/f  ");
         AppendInt(tmp, ref n, Scene.Active.RootCount);
-        Append(tmp, ref n, " go");
-        GuiRenderer.DrawTextIn(new Rect(_screenW - 320, 4, 316, 18), tmp.Slice(0, n), Gui.FontSize - 2f,
-            new Color(160, 220, 160, 255));
+        Append(tmp, ref n, " go  img ");
+        AppendInt(tmp, ref n, Sokol.LiveImages);
+        Append(tmp, ref n, "/");
+        AppendInt(tmp, ref n, Sokol.ImagePool);
+        // Havuzun %75'i asilinca kirmizi: tukenmeden gorulsun.
+        bool hot = Sokol.LiveImages >= Sokol.ImagePool * 3 / 4 || Sokol.LiveViews >= Sokol.ViewPool * 3 / 4;
+        GuiRenderer.DrawTextIn(at, tmp.Slice(0, n), Gui.FontSize - 2f,
+            hot ? new Color(235, 120, 120, 255) : new Color(160, 220, 160, 255));
     }
 
     static void AppendInt(Span<char> dst, ref int n, int value)
@@ -568,11 +708,33 @@ public unsafe class App
             _editScene.Load(_editScene.Path, _catalog, _assets);
     }
 
+    // Acik sahneyi/stage'i yikacak GUI eylemlerinin bekcisi (sahne ac, proje degistir, pencere kapat).
+    // Temizse hemen true. Prefab stage dirty ise once o sorulur, sonra sahne; her soru Save/Discard/Cancel
+    // popup'i acar ve 'then' secimden sonra kosar (false doner, eylem ertelenir). RPC force yolu
+    // DiscardAllChanges ile dirty'yi dusurdugunden popup'siz gecer.
+    internal static bool ConfirmUnsaved(Action then)
+    {
+        if (InPrefabStage && !TryExitPrefabStage(() => ConfirmUnsavedThen(then)))
+            return false;
+        if (!_editScene.Dirty)
+            return true;
+        SaveChangesPopup.Show(_editScene.Path != null ? System.IO.Path.GetFileName(_editScene.Path) : "(untitled)",
+            onSave: () => { _editScene.Save(); then?.Invoke(); },
+            onDiscard: () => { _editScene.DiscardChanges(); then?.Invoke(); });
+        return false;
+    }
+
+    static void ConfirmUnsavedThen(Action then)
+    {
+        if (ConfirmUnsaved(then))
+            then?.Invoke();
+    }
+
     // Sahne acmanin tek bogazi: Play durur, doc yuklenir, son-sahne kaydi guncellenir.
-    // Prefab stage'deyken once stage kapanir (dirty ise Save/Discard/Cancel sorulur, acilis ertelenir).
+    // Stage/sahne dirty ise Save/Discard/Cancel sorulur, acilis ertelenir.
     internal static void OpenScene(string path)
     {
-        if (InPrefabStage && !TryExitPrefabStage(() => OpenScene(path)))
+        if (!ConfirmUnsaved(() => OpenScene(path)))
             return;
         PlayMode.Stop();
         _editScene.Load(path, _catalog, _assets);
@@ -685,6 +847,7 @@ public unsafe class App
             Settings.sceneCamY = _sceneView.Center.y;
             Settings.sceneCamZoom = _sceneView.Zoom;
         }
+        Settings.StashGame(_project?.Game); // oyun kaydi canli alanlarla senkron (ikinci editor --game ile ayni dosyayi paylasir)
         try
         {
             System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(_settingsPath));
@@ -741,6 +904,7 @@ public unsafe class App
         Array.Copy(code, 0, editorAndCode, 1, code.Length);
 
         _catalog = TypeCatalog.FromAssemblies(all);
+        RpcRedact.Rebuild(code); // [Sensitive] alan kumesi (editor + motor + oyun/plugin tipleri)
         foreach (var r in _gameCode.Renames)
             _catalog.RegisterAlias(r.Key, r.Value); // typemap rename'leri: eski ad cozulur
         Scene.Active.Catalog = _catalog;
@@ -800,6 +964,7 @@ public unsafe class App
             + (dirty ? "*" : "") + (playing ? "  (Playing)" : ""));
     }
     // Proje degistirme: pencereyi kapat (cikis yolu RPC/layout/ayarlari kaydeder); yeni surec zaten baslatildi.
+    static bool _closeConfirmed; // ConfirmUnsaved onayladi: bir sonraki WindowShouldClose sorgusuz cikar
     internal static void RequestClose() => GLFW.SetWindowShouldClose(_window, GLFWConst.TRUE);
 
     static string AssetsPath => _project.AssetsPath;

@@ -234,13 +234,24 @@ public static unsafe class Sokol
     extern public static uint MakeStreamBuffer(int byteSize, bool isIndex);
 
     [DllImport(Lib, EntryPoint = "de_sokol_destroy_buffer")]
-    extern public static void DestroyBuffer(uint buffer);
+    extern static void de_destroy_buffer(uint buffer);
+    public static void DestroyBuffer(uint buffer)
+    {
+        if (buffer == 0) return;
+        LiveBuffers--;
+        de_destroy_buffer(buffer);
+    }
 
     // --- Kurulum / durum ---
 
     // GL context AKTIF olduktan sonra cagrilir; sokol GL fonksiyonlarini kendi yukler.
     [DllImport(Lib, EntryPoint = "de_sokol_setup")]
-    extern public static void Setup();
+    extern static void de_setup();
+    public static void Setup()
+    {
+        de_setup();
+        ReadPoolSizes();
+    }
 
     // macOS/iOS (Metal): ana pencereye CAMetalLayer takar + MTLDevice kurar.
     // Setup'tan ONCE, GLFW penceresi (GLFW_NO_API) olusturulduktan SONRA cagrilir.
@@ -292,10 +303,67 @@ public static unsafe class Sokol
     extern public static void Dispatch(int numGroupsX, int numGroupsY, int numGroupsZ);
 
     // --- Kaynak olustur / guncelle / yok et ---
+    // Ham extern'ler ozel; public sarmalayicilar canli sayaci tutar, havuz tukenmesini (id == 0) YAKALAR
+    // (sokol assert/bozuk cizim yerine: kaynak atlanir + tek seferlik hata) ve havuz dolmaya yaklasinca
+    // toplama planlar. Cagiran kod imza degismeden ayni adlari kullanir.
+
+    public static int LiveImages, LiveViews, LiveBuffers;
+    public static int ImagePool = 128, ViewPool = 256, BufferPool = 128; // Setup'ta shim'den okunur
+    public static Action<string> LogError; // host baglar (editor: Console; player: stdout)
+    static int _failLogFrame = -1000;
+    static uint _seenErrCount;
+
+    static void Fail(string what, int live, int pool)
+    {
+        if (Time.frameCount - _failLogFrame < 120)
+            return; // seli engelle
+        _failLogFrame = Time.frameCount;
+        string detail = System.Runtime.InteropServices.Marshal.PtrToStringAnsi(LastError());
+        LogError?.Invoke($"[gpu] {what} olusturulamadi (canli {live}/{pool}) — kaynak atlandi. {detail}");
+    }
+
+    // Host frame basinda cagirir: sokol ERROR sayaci degistiyse son mesaji loglar (validation/havuz hatalari sessiz kalmaz).
+    public static void PollErrors()
+    {
+        uint n = ErrorCount();
+        if (n == _seenErrCount)
+            return;
+        uint delta = n - _seenErrCount;
+        _seenErrCount = n;
+        string detail = System.Runtime.InteropServices.Marshal.PtrToStringAnsi(LastError());
+        string prev = System.Runtime.InteropServices.Marshal.PtrToStringAnsi((IntPtr)de_sokol_prev_error());
+        if (!string.IsNullOrEmpty(prev) && prev != detail)
+            detail = prev + " | " + detail; // validation: madde mesaji + genel "VALIDATION_FAILED"
+        LogError?.Invoke($"[gpu] sokol hata ({delta} yeni, toplam {n}): {detail}");
+    }
+
+    [DllImport(Lib, EntryPoint = "de_sokol_prev_error")]
+    extern static unsafe byte* de_sokol_prev_error();
+
+    internal static void ReadPoolSizes()
+    {
+        int i = 0, v = 0, b = 0;
+        de_sokol_pool_sizes(&i, &v, &b);
+        if (i > 0) ImagePool = i;
+        if (v > 0) ViewPool = v;
+        if (b > 0) BufferPool = b;
+    }
+
+    [DllImport(Lib, EntryPoint = "de_sokol_pool_sizes")]
+    extern static void de_sokol_pool_sizes(int* images, int* views, int* buffers);
+    [DllImport(Lib, EntryPoint = "de_sokol_error_count")]
+    extern static uint ErrorCount();
 
     // bufferType: 0=vertex,1=index. dynamism: 0=immutable(data), 1=dynamic, 2=stream.
     [DllImport(Lib, EntryPoint = "de_sokol_make_buffer")]
-    extern public static uint MakeBuffer(void* data, int size, int bufferType, int dynamism);
+    extern static uint de_make_buffer(void* data, int size, int bufferType, int dynamism);
+    public static uint MakeBuffer(void* data, int size, int bufferType, int dynamism)
+    {
+        uint id = de_make_buffer(data, size, bufferType, dynamism);
+        if (id == 0) { Fail("buffer", LiveBuffers, BufferPool); return 0; }
+        LiveBuffers++;
+        return id;
+    }
 
     [DllImport(Lib, EntryPoint = "de_sokol_update_buffer")]
     extern public static void UpdateBuffer(uint buffer, void* data, int size);
@@ -305,12 +373,28 @@ public static unsafe class Sokol
 
     // usage: 0=immutable(data), 1=dynamic, 2=color_attachment, 3=depth_stencil_attachment.
     [DllImport(Lib, EntryPoint = "de_sokol_make_image")]
-    extern public static uint MakeImage(
+    extern static uint de_make_image(
         int width, int height, int pixelFormat, int numMipmaps, int sampleCount,
         int usage, void* data, int dataSize);
+    public static uint MakeImage(
+        int width, int height, int pixelFormat, int numMipmaps, int sampleCount,
+        int usage, void* data, int dataSize)
+    {
+        if (LiveImages >= ImagePool * 3 / 4)
+            Resources.ScheduleCollect(1); // butce: kullanilmayan geri-yuklenebilir dokular sonraki frame basinda birakilir
+        uint id = de_make_image(width, height, pixelFormat, numMipmaps, sampleCount, usage, data, dataSize);
+        if (id == 0) { Fail("image", LiveImages, ImagePool); return 0; }
+        LiveImages++;
+        return id;
+    }
 
     [DllImport(Lib, EntryPoint = "de_sokol_update_image")]
-    extern public static void UpdateImage(uint image, void* data, int size);
+    extern static void de_update_image(uint image, void* data, int size);
+    public static void UpdateImage(uint image, void* data, int size)
+    {
+        if (image != 0)
+            de_update_image(image, data, size);
+    }
 
     [DllImport(Lib, EntryPoint = "de_sokol_make_sampler")]
     extern public static uint MakeSampler(
@@ -319,10 +403,25 @@ public static unsafe class Sokol
 
     // viewType: 0=texture, 1=color_attachment, 2=depth_stencil_attachment.
     [DllImport(Lib, EntryPoint = "de_sokol_make_view")]
-    extern public static uint MakeView(uint imageId, int viewType);
+    extern static uint de_make_view(uint imageId, int viewType);
+    public static uint MakeView(uint imageId, int viewType)
+    {
+        if (imageId == 0)
+            return 0; // image olusmadi: view denemesi assert'e duser
+        uint id = de_make_view(imageId, viewType);
+        if (id == 0) { Fail("view", LiveViews, ViewPool); return 0; }
+        LiveViews++;
+        return id;
+    }
 
     [DllImport(Lib, EntryPoint = "de_sokol_destroy_image")]
-    extern public static void DestroyImage(uint id);
+    extern static void de_destroy_image(uint id);
+    public static void DestroyImage(uint id)
+    {
+        if (id == 0) return;
+        LiveImages--;
+        de_destroy_image(id);
+    }
     [DllImport(Lib, EntryPoint = "de_sokol_destroy_sampler")]
     extern public static void DestroySampler(uint id);
     [DllImport(Lib, EntryPoint = "de_sokol_destroy_shader")]
@@ -339,7 +438,13 @@ public static unsafe class Sokol
     [DllImport(Lib, EntryPoint = "de_sokol_destroy_pipeline")]
     extern public static void DestroyPipeline(uint id);
     [DllImport(Lib, EntryPoint = "de_sokol_destroy_view")]
-    extern public static void DestroyView(uint id);
+    extern static void de_destroy_view(uint id);
+    public static void DestroyView(uint id)
+    {
+        if (id == 0) return;
+        LiveViews--;
+        de_destroy_view(id);
+    }
 
     // --- Shader builder (artimli; string'ler null-sonlu UTF8 byte*) ---
 

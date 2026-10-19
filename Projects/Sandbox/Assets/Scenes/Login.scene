@@ -188,7 +188,7 @@ objects:
   - id: 9
     parent: 0
     name: LOGOSPRITE
-    pos: -34.821045 123.881714 0
+    pos: 622.26306 305.84344 0
     rot: 0 0 0
     scale: 1 1 1
     components:
@@ -573,7 +573,7 @@ objects:
         textAlign: Center
         textAlignV: Center
         textWeight: 0.42666748
-        anchoredPos: -15.708206 51.341724
+        anchoredPos: 236.55942 65.2751
         Effects:
           - 024d1c3d0b9d4dcc8dbde2792d7664ab
         FxParams: 0.56666255 0.10000001 0.39999998 -0.066668704
@@ -800,7 +800,6 @@ objects:
     scale: 1 1 1
     components:
       - type: LayoutBox
-        text: Play Now
         text@loc: login.play_button
   - id: 30
     parent: 0
@@ -810,6 +809,5 @@ objects:
     scale: 1 1 1
     components:
       - type: TextSprite
-        Text: Trying
         Font: fd5600eb13f947c7af4439bb29c33b96
         Text@loc: login.deneme

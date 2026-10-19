@@ -6,26 +6,16 @@ using DigitoyEngine;
 
 namespace DigitoyEditor;
 
-// Android imza parolalari: KULLANICIYA ait, UserSettings/AndroidSigning.asset (gitignore'lu). PlayerSettings.android
-// (git'e girer) yalniz keystore yolu + alias tutar. Ortam degiskenleri (DE_ANDROID_KEYSTORE_PASS / DE_ANDROID_KEY_PASS)
-// aotcompiler tarafinda bunlara ustun gelir (CI). Gui'de maskeli alan yok: duz metin, pencerede "git'e girmez" notu.
-[Serializable]
-public class AndroidSigning
-{
-    public string keystorePassword = "";
-    public string keyPassword = "";      // bos = keystorePassword
-}
-
 // Editor -> aotcompiler Android verisi: CLI bayraklari cogaltmak yerine tek key=value dosyasi
 // (<proje>/Library/Build/android.properties; `aotcompiler player --target android --props <dosya>`).
 // aotcompiler bunu generated/app.properties (Gradle her build okur) + Build/android/keystore.properties'e ayirir.
+// Imza parolalari PlayerSettings.android'de ([Sensitive]; git'e girer, RPC'de '***'); CI ortam degiskenleri aotcompiler'da ustun gelir.
 public static class AndroidBuildProps
 {
     public static string Write(Project project)
     {
         var ps = project.Player;
         var a = ps.android ?? new AndroidSettings();
-        var sign = project.AndroidSigning ?? new AndroidSigning();
 
         var kv = new List<KeyValuePair<string, string>>
         {
@@ -42,8 +32,8 @@ public static class AndroidBuildProps
                 ? a.iconBackground.Trim() : ResolveAsset(project, a.iconBackground)),
             new("signing.storeFile", ResolveProject(project, a.keystorePath)),
             new("signing.keyAlias", a.keyAlias ?? ""),
-            new("signing.storePassword", sign.keystorePassword ?? ""),
-            new("signing.keyPassword", sign.keyPassword ?? ""),
+            new("signing.storePassword", a.keystorePassword ?? ""),
+            new("signing.keyPassword", a.keyPassword ?? ""),
         };
 
         var sb = new StringBuilder();

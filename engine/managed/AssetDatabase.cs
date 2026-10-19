@@ -161,6 +161,8 @@ public sealed class AssetDatabase
         [".ttf"] = typeof(Font),
         [".otf"] = typeof(Font),
         [".fx"] = typeof(PixelEffect),
+        [".psd"] = typeof(LayerSheet), // katmanli goruntu: katmanlar "x.psd#id" sprite'lari (PsdImporter)
+        [".psb"] = typeof(LayerSheet),
         [".mp3"] = typeof(AudioClip),
         [".ogg"] = typeof(AudioClip),
         [".wav"] = typeof(AudioClip),
@@ -206,11 +208,23 @@ public sealed class AssetDatabase
     }
 
     // Bu asset verilen alana atanabilir mi (alan tipi, asset'in yuklenebilir tipi).
+    // Alt oge ("yol#id"): tipi sahibin index'inden gelir (editor SubAssetTypeResolver baglar; release sormaz).
     public bool IsAssignable(string relPath, Type fieldType)
     {
+        if (relPath == null)
+            return false;
+        int h = relPath.IndexOf('#');
+        if (h > 0)
+        {
+            var st = SubAssetTypeResolver?.Invoke(relPath.Substring(0, h), relPath.Substring(h + 1));
+            return st != null && fieldType.IsAssignableFrom(st);
+        }
         var t = ImportTypeOf(relPath) ?? AssetClassOf(relPath);
         return t != null && fieldType.IsAssignableFrom(t);
     }
+
+    // Editor baglar: (sahip yolu, alt oge id) -> runtime tipi (SubAssetIndex.Entry.Type'tan).
+    public static Func<string, string, Type> SubAssetTypeResolver;
 
     // .asset dosyasinin [Asset] tipi (editor: YAML "type:" basligi; release: DOBJ tip adi). Yoksa null.
     public Type AssetClassOf(string relPath)
@@ -272,8 +286,31 @@ public sealed class AssetDatabase
     readonly Dictionary<object, string> _objectKeys = new();
 
     // Anahtar guid ise yola cevirir; degilse oldugu gibi (insan elle yol da yazabilir).
+    // Alt oge: "guid#sub" -> "yol#sub" (sahip guid'le tasinir; sub kimligi importer'in kalici id'si).
     public string ResolvePath(string keyOrGuid)
-        => keyOrGuid != null && _guidToPath.TryGetValue(keyOrGuid, out var p) ? p : keyOrGuid;
+    {
+        if (keyOrGuid == null)
+            return null;
+        if (_guidToPath.TryGetValue(keyOrGuid, out var p))
+            return p;
+        int h = keyOrGuid.IndexOf('#');
+        if (h > 0 && _guidToPath.TryGetValue(keyOrGuid.Substring(0, h), out var owner))
+            return owner + keyOrGuid.Substring(h);
+        return keyOrGuid;
+    }
+
+    // Serilestirme anahtari: yol (ya da "yol#sub") -> "guid" / "guid#sub"; guid'siz kaynak oldugu gibi.
+    public string ToRefKey(string key)
+    {
+        if (string.IsNullOrEmpty(key))
+            return key;
+        if (_pathToGuid.TryGetValue(key, out var g))
+            return g;
+        int h = key.IndexOf('#');
+        if (h > 0 && _pathToGuid.TryGetValue(key.Substring(0, h), out var og))
+            return og + key.Substring(h);
+        return key;
+    }
 
     public bool Exists(string keyOrGuid)
     {
@@ -288,9 +325,13 @@ public sealed class AssetDatabase
         if (type.IsInterface)
         {
             // Polimorfik referans (IAsset, ISpriteSource...): somut tip yolun uzantisindan / .asset basligindan;
-            // alan arayuzunu tasimayan asset null (sessiz — bozuk referans, alan bos kalir).
+            // alt oge ("x.psb#id") icin sahibin index'inden (editor resolver). Alan arayuzunu tasimayan asset null
+            // (sessiz — bozuk referans, alan bos kalir).
             string path = ResolvePath(keyOrGuid);
-            var concrete = ImportTypeOf(path) ?? AssetClassOf(path);
+            int h = path?.IndexOf('#') ?? -1;
+            var concrete = h > 0
+                ? SubAssetTypeResolver?.Invoke(path.Substring(0, h), path.Substring(h + 1))
+                : ImportTypeOf(path) ?? AssetClassOf(path);
             if (concrete == null || !type.IsAssignableFrom(concrete))
                 return null;
             type = concrete;
@@ -473,7 +514,12 @@ public sealed class AssetDatabase
         // Alt bolge ("hero.ttf#U+0041"): ureticinin kendi tablosu henuz yuklenmemisse tembel yukle.
         bool sub = key.IndexOf('#') > 0;
         if (sub && !_regions.ContainsKey(key))
+        {
             EnsureOwnTable(OwnerOf(key));
+            // Sahip yuklendi ama id yok: kirik alt oge referansi — sessiz bos sprite yerine tek uyari (yine bos cizer).
+            if (!_regions.ContainsKey(key) && _tables.ContainsKey(OwnerOf(key) + "#sprites"))
+                LogWarning?.Invoke($"[assets] alt oge yok (kirik referans): {key}");
+        }
         // Tablo uyesi: kaynak png hic yuklenmez, sayfaya baglanir.
         if (_regions.TryGetValue(key, out var reg))
         {
@@ -540,18 +586,25 @@ public sealed class AssetDatabase
             _blobs[k] = art;
             return Completed(art);
         }
-        var task = LoadBlobAsync(k);
-        _blobLoads[k] = task;
-        return task;
+        // In-flight kaydi okuma BASLAMADAN yazilir: kaynak senkron tamamlanirsa (dosya yok → hazir null task)
+        // await senkron surer; eski sira "once baslat, sonra kaydet" idi → Remove atamadan once kosuyor, tamamlanmis
+        // (null) task kalici kaliyordu = anahtar o oturumda bir daha okunmuyor (editorde sonradan olusan sahne).
+        var tcs = new TaskCompletionSource<byte[]>();
+        _blobLoads[k] = tcs.Task;
+        _ = LoadBlobInto(k, tcs);
+        return tcs.Task;
     }
 
-    async Task<byte[]> LoadBlobAsync(string k)
+    async Task LoadBlobInto(string k, TaskCompletionSource<byte[]> tcs)
     {
-        var bytes = await _source.ReadBytesAsync(k);
-        _blobLoads.Remove(k);
+        byte[] bytes = null;
+        try { bytes = await _source.ReadBytesAsync(k); }
+        catch (Exception e) { LogWarning?.Invoke("[assets] okuma hatasi: " + k + ": " + e.Message); }
+        if (_blobLoads.TryGetValue(k, out var cur) && ReferenceEquals(cur, tcs.Task))
+            _blobLoads.Remove(k);
         if (bytes != null)
             _blobs[k] = bytes;
-        return bytes;
+        tcs.TrySetResult(bytes);
     }
 
     // Tampondan duser (hot reload / bellek geri alma); yuklu nesneler etkilenmez.
@@ -575,26 +628,38 @@ public sealed class AssetDatabase
                 progress.Pending++;
             return t;
         }
-        var task = EnsureCore(k, progress);
-        _ensured[k] = task;
-        return task;
+        // Memo okuma baslamadan yazilir (PreloadAsync ile ayni neden: senkron tamamlanma).
+        var tcs = new TaskCompletionSource<bool>();
+        _ensured[k] = tcs.Task;
+        _ = EnsureInto(k, progress, tcs);
+        return tcs.Task;
     }
 
-    async Task<bool> EnsureCore(string k, LoadProgress progress)
+    async Task EnsureInto(string k, LoadProgress progress, TaskCompletionSource<bool> tcs)
     {
         progress?.Begin();
-        var deps = _source.GetDependencies(k);
-        var depTasks = new List<Task<bool>>(deps.Length);
-        foreach (var d in deps)
-            depTasks.Add(EnsureLoadedAsync(d, progress));
-        bool ok = true;
-        foreach (var t in depTasks)
-            ok &= await t;
-        ok &= await LoadNodeAsync(k);
+        bool ok = false;
+        try
+        {
+            var deps = _source.GetDependencies(k);
+            var depTasks = new List<Task<bool>>(deps.Length);
+            foreach (var d in deps)
+                depTasks.Add(EnsureLoadedAsync(d, progress));
+            ok = true;
+            foreach (var t in depTasks)
+                ok &= await t;
+            ok &= await LoadNodeAsync(k);
+        }
+        catch (Exception e) { LogWarning?.Invoke("[assets] yukleme hatasi: " + k + ": " + e.Message); ok = false; }
         if (!ok)
+        {
             LogWarning?.Invoke("[assets] yuklenemedi: " + k);
+            // Basarisizlik memo'lanmaz: kaynak sonradan gelirse (editorde yeni dosya) yeniden denenir.
+            if (_ensured.TryGetValue(k, out var cur) && ReferenceEquals(cur, tcs.Task))
+                _ensured.Remove(k);
+        }
         progress?.End();
-        return ok;
+        tcs.TrySetResult(ok);
     }
 
     async Task<bool> LoadNodeAsync(string k)

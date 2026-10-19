@@ -341,13 +341,21 @@ public sealed partial class InspectorPanel : EditorWindow
             }
         }
         float previewH = importer != null && rel != null ? importer.Instance.PreviewHeight(rel) : 0f;
-        float contentHeight = 4 + HeaderH + 6 + _aDrawer.Measure() + 8 + (previewH > 0 ? previewH + 8 : 0);
+        // Alt oge secimi (container icinden): sahibin ayarlarinin USTUNDE kucuk resim + kimlik basligi.
+        string sub = Selection.AssetSub;
+        float subH = sub != null && rel != null ? SubHeaderH + 6 : 0f;
+        float contentHeight = 4 + subH + HeaderH + 6 + _aDrawer.Measure() + 8 + (previewH > 0 ? previewH + 8 : 0);
         _assetScroll = Gui.BeginScrollView(new Rect(0, 0, vis.width, vis.height), _assetScroll,
             new Rect(0, 0, vis.width - 20, contentHeight));
         float w = vis.width - 24;
         LabelW = LabelWidthFor(w);
         _aDrawer.LabelW = LabelW;
         float y = 4;
+        if (subH > 0)
+        {
+            DrawSubAssetHeader(rel, sub, y, w + 12);
+            y += subH;
+        }
         DrawHeaderBar(y, 0, w + 12);
         if (Event.Current.Type == EventType.Repaint)
             GuiRenderer.DrawTextIn(new Rect(8, y, w - 8 - (_aIsMeta ? 130 : 0), HeaderH),
@@ -388,6 +396,29 @@ public sealed partial class InspectorPanel : EditorWindow
         }
         Gui.EndScrollView();
         return true;
+    }
+
+    const float SubHeaderH = 72f;
+
+    // Alt oge basligi: kucuk resim + ad/kimlik/tip/boyut. Salt bilgi (alt ogenin kendi ayari yok; sahibininki altta).
+    void DrawSubAssetHeader(string ownerRel, string id, float y, float w)
+    {
+        if (Event.Current.Type != EventType.Repaint)
+            return;
+        GuiRenderer.DrawRect(new Rect(2, y, w, SubHeaderH), new Color(40, 44, 56, 255), 0);
+        var thumb = new Rect(8, y + 6, SubHeaderH - 12, SubHeaderH - 12);
+        GuiRenderer.DrawRect(thumb, new Color(30, 32, 40, 255), 1);
+        string key = ownerRel + "#" + id;
+        ThumbnailCache.Draw(key, new Rect(thumb.x + 2, thumb.y + 2, thumb.width - 4, thumb.height - 4), 2);
+        float tx = thumb.xMax + 10, tw = w - tx - 4;
+        if (SubAssets.TryGetEntry(ownerRel, id, out var e))
+        {
+            GuiRenderer.DrawTextIn(new Rect(tx, y + 6, tw, 20), e.Name, HeaderFont, HeaderTextColor, false, 2);
+            GuiRenderer.DrawTextIn(new Rect(tx, y + 26, tw, 18), $"{e.Type}  ·  {e.Width}x{e.Height}", SmallFont, LabelColor, false, 2);
+        }
+        else
+            GuiRenderer.DrawTextIn(new Rect(tx, y + 6, tw, 20), id + "  (not in index)", HeaderFont, HeaderTextColor, false, 2);
+        GuiRenderer.DrawTextIn(new Rect(tx, y + 46, tw, 18), key, SmallFont, RefTextColor, false, 2);
     }
 
     // Secili asset'in Assets'e goreli anahtari (Selection tam yol tutar).

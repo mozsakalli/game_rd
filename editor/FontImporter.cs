@@ -66,7 +66,7 @@ public sealed class SvgGlyph
 //             sayfasina tasir, runtime (gruba alinmamis font) buradan baglar. Standalone.
 //   report  : Editor-only metin (eksik codepoint'ler, custom glyph'ler, uyarilar, doluluk) — Inspector onizlemesi okur.
 // Pak'a ttf girmez, runtime bake yok.
-[AssetImporter(".ttf", ".otf", Version = 17, Settings = typeof(FontImportSettings))]
+[AssetImporter(".ttf", ".otf", Version = 19, Settings = typeof(FontImportSettings))]
 public sealed unsafe partial class FontImporter : AssetImporter
 {
     const int SheetMaxSize = 4096;
@@ -410,6 +410,10 @@ public sealed unsafe partial class FontImporter : AssetImporter
         ctx.AddArtifact("main", fontAsset);
         ctx.AddArtifact("sheet", page.EncodePng(), ArtifactScope.Standalone);
         ctx.AddArtifact("sprites", table, ArtifactScope.Standalone);
+        // Container sozlesmesi: glyph'ler Project panelinde gezilir / Sprite alanina suruklenir (codepoint sirali).
+        var subIndex = SubAssetIndex.FromSpriteTable(table, ctx.AssetPath); // AtlasMembers=false: glyph'ler butun olarak 'sources' ile gider
+        subIndex.Entries.Sort((a, b) => string.CompareOrdinal(a.Id, b.Id));
+        ctx.AddArtifact(SubAssetIndex.ArtifactName, subIndex, ArtifactScope.Editor);
 
         // Rapor (anahtar=deger satirlari; Inspector onizlemesi okur).
         report.Append("glyphs=").Append(n).Append('\n');

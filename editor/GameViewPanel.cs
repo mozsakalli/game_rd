@@ -89,6 +89,7 @@ public sealed class GameViewPanel : EditorWindow
                 GuiClip.Push(vis); // 1:1 panelden tasarsa kirpilir (Push orijini vis'e tasir)
                 GuiRenderer.DrawTexture(new Rect(dst.x - vis.x, dst.y - vis.y, dst.width, dst.height), GameOutput.EnsureTarget());
                 GuiClip.Pop();
+                App.DrawPerfHud(new Rect(vis.x + 6, vis.y + 4, 356, 18)); // Window/Perf HUD acikken; toolbar'la cakismaz
                 break;
         }
     }

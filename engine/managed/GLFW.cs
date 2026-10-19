@@ -68,6 +68,9 @@ public static class GLFW
     [DllImport(Lib, EntryPoint = "glfwSetWindowPos")]
     extern public static void SetWindowPos(IntPtr window, int xpos, int ypos);
 
+    [DllImport(Lib, EntryPoint = "glfwMaximizeWindow")]
+    extern public static void MaximizeWindow(IntPtr window);
+
     [DllImport(Lib, EntryPoint = "glfwShowWindow")]
     extern public static void ShowWindow(IntPtr window);
 

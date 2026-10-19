@@ -50,6 +50,7 @@ public static class Program
                         case "--trim": app.Trim = args[++i]; break;            // full | lean (docs/engine-notes.md TRIM)
                         case "--trim-report": app.TrimReport = true; break;  // <aot dizini>/trim-report.md
                         case "--editor-engine": app.EditorEngine = args[++i]; break; // DigitoyEngine .NET dll (DE_EDITOR): plugin kancalari/ayar YAML
+                        case "--game": app.Game = args[++i]; break;              // oyun (docs/plugins.md "Games"): ProjectSettings/Games/<ad>/, Build/<ad>/
                     }
                 return RunPlayerBuild(args.Length > 1 && !args[1].StartsWith("--") ? args[1] : Path.Combine(RepoRoot, "Projects", "Sandbox"), target, app);
             }
@@ -214,9 +215,10 @@ public static class Program
     {
         projectRoot = Path.GetFullPath(projectRoot);
         string projName = Path.GetFileName(projectRoot.TrimEnd('\\', '/'));
-        string workDir = ProjectAotDir(projectRoot, target);
+        Game.Set(projectRoot, app.Game, Console.WriteLine);
+        string workDir = Game.AotDir(projectRoot, target);
         string generated = Path.Combine(workDir, "generated.c");
-        string outExe = Path.Combine(projectRoot, "Build", projName + ".exe");
+        string outExe = Path.Combine(Game.BuildDir(projectRoot), projName + ".exe");
 
         var sw = System.Diagnostics.Stopwatch.StartNew();
         void Lap(string what) { Console.WriteLine($"  [sure] {what}: {sw.Elapsed.TotalSeconds:F1} s"); sw.Restart(); }
@@ -293,7 +295,7 @@ public static class Program
         var profile = DigitoyEngine.Language.Trim.TrimProfile.Parse(app.Trim);
         var roots = new DigitoyEngine.Language.Trim.TrimRoots();
         roots.Entry.AddRange(hostEntries);
-        string pakPath = Path.Combine(projectRoot, "Build", "game.pak");
+        string pakPath = Path.Combine(Game.BuildDir(projectRoot), "game.pak");
         if (File.Exists(pakPath)) roots.ComponentNames.AddRange(DigitoyEngine.Language.Trim.PakRoots.ComponentTypeNames(pakPath, roots.Notes));
         else roots.Notes.Add("UYARI game.pak yok, pak kokleri bos: " + pakPath);
         var trim = DigitoyEngine.Language.Trim.TrimAnalysis.Run(ctx, profile, roots);
@@ -388,7 +390,7 @@ public static class Program
 
     // Yayin kimligi (editor PlayerSettings'ten --app-* ile gelir; CLI'dan verilmezse proje adindan turetilir).
     // Props: Android'e ozel ayarlar (editor AndroidBuildProps.Write -> --props; key=value). null = CLI/varsayilan.
-    sealed class AppInfo { public string Id, Name, Version = "1.0", Orientation = "landscape"; public Dictionary<string, string> Props; public string Trim; public bool TrimReport; public string EditorEngine; }
+    sealed class AppInfo { public string Id, Name, Version = "1.0", Orientation = "landscape"; public Dictionary<string, string> Props; public string Trim; public bool TrimReport; public string EditorEngine; public string Game; }
 
     // DigitoyEngine .NET (DE_EDITOR) dll'i: plugin kancalari (Editor.dll referansi) ve ayar YAML okuma. Editor --editor-engine ile
     // kendi dll'ini verir; CLI: dev editor/bin, kurulu <exe>/DigitoyEngine.dll (sdk/aotcompiler iki ust). Yoksa null (kancasiz build).
@@ -428,7 +430,7 @@ public static class Program
     {
         string tpl = Path.Combine(PlatformsDir, "android");
         if (!Directory.Exists(tpl)) throw new Exception("android sablonu yok: " + tpl);
-        string root = Path.Combine(projectRoot, "Build", "android");
+        string root = Path.Combine(Game.BuildDir(projectRoot), "android");
         string gen = Path.Combine(root, "generated");
 
         // Plugin kancalari ONCE (ayar eksikse hata -> generated/ dokunulmaz).
@@ -514,7 +516,7 @@ public static class Program
         // plugin'ler: Gradle library modulleri + gradle/res/Plugins.kt uretimi (docs/plugins.md)
         PluginBuild.EmitAndroid(plugins, android, root, gen, CopyTree, WriteIfChanged, Console.WriteLine);
         // assets: game.pak -> assets/Build/game.pak (GameHost "<root>/Build/game.pak"; root = "asset:" -> AAssetManager fd+offset, kopya yok)
-        string pak = Path.Combine(projectRoot, "Build", "game.pak");
+        string pak = Path.Combine(Game.BuildDir(projectRoot), "game.pak");
         if (!File.Exists(pak)) throw new Exception("game.pak yok (once asset pack): " + pak);
         Directory.CreateDirectory(Path.Combine(gen, "assets", "Build"));
         File.Copy(pak, Path.Combine(gen, "assets", "Build", "game.pak"), true);
@@ -609,7 +611,7 @@ public static class Program
     {
         string tpl = Path.Combine(PlatformsDir, "ios");
         if (!Directory.Exists(tpl)) throw new Exception("ios sablonu yok: " + tpl);
-        string root = Path.Combine(projectRoot, "Build", "ios");
+        string root = Path.Combine(Game.BuildDir(projectRoot), "ios");
         string gen = Path.Combine(root, "generated");
 
         // Plugin kancalari ONCE (ayar eksikse hata -> generated/ dokunulmaz).
@@ -687,7 +689,7 @@ public static class Program
         var xc = PluginBuild.EmitIos(plugins, ios, basePlist, gen, cpp, minIos, Console.WriteLine);
 
         // pak: bundle icinde Build/game.pak (klasor referansi) -> GameHost "<resourcePath>/Build/game.pak"
-        string pak = Path.Combine(projectRoot, "Build", "game.pak");
+        string pak = Path.Combine(Game.BuildDir(projectRoot), "game.pak");
         if (!File.Exists(pak)) throw new Exception("game.pak yok (once asset pack): " + pak);
         Directory.CreateDirectory(Path.Combine(gen, "Build"));
         File.Copy(pak, Path.Combine(gen, "Build", "game.pak"), true);
@@ -768,12 +770,24 @@ public static class Program
         File.WriteAllText(path, text);
     }
 
+    // Plugin modulu gibi KULLANICI klasorlerinden kopyalarken IDE/Gradle cop'u (VS Code Java LS'in build.gradle.kts gorup
+    // biraktigi .gradle/, Studio'nun build/.idea/.cxx'i) generated/'a sizmasin.
+    static readonly string[] CopySkipDirs = { ".gradle", ".idea", ".cxx", ".kotlin", "build" };
+    static bool IsToolJunk(string rel)
+    {
+        foreach (var seg in rel.Split('\\', '/'))
+            foreach (var s in CopySkipDirs) if (seg == s) return true;
+        return rel.EndsWith(".iml") || Path.GetFileName(rel) == "local.properties";
+    }
+
     static void CopyTree(string src, string dst)
     {
         Directory.CreateDirectory(dst);
         foreach (var f in Directory.GetFiles(src, "*", SearchOption.AllDirectories))
         {
-            string to = Path.Combine(dst, Path.GetRelativePath(src, f));
+            string rel = Path.GetRelativePath(src, f);
+            if (IsToolJunk(rel)) continue;
+            string to = Path.Combine(dst, rel);
             Directory.CreateDirectory(Path.GetDirectoryName(to));
             CopyIfChanged(f, to);
         }
@@ -787,13 +801,13 @@ public static class Program
     // Build/wasm/ bir HTTP sunucudan servis edilmeli (editor "Run in Browser" ya da `python -m http.server`).
     static void BuildWasm(string projectRoot, string projName, List<CTranspiler.GeneratedFile> files, AppInfo app, PluginBuild.Result plugins)
     {
-        string pak = Path.Combine(projectRoot, "Build", "game.pak");
+        string pak = Path.Combine(Game.BuildDir(projectRoot), "game.pak");
         if (!File.Exists(pak)) throw new Exception("game.pak yok (once asset pack): " + pak);
         string tpl = Path.Combine(PlatformsDir, "wasm");
         if (!Directory.Exists(tpl)) throw new Exception("wasm sablonu yok: " + tpl);
-        string outDir = Path.Combine(projectRoot, "Build", "wasm");
+        string outDir = Path.Combine(Game.BuildDir(projectRoot), "wasm");
         Directory.CreateDirectory(outDir);
-        string workDir = ProjectAotDir(projectRoot, "wasm");
+        string workDir = Game.AotDir(projectRoot, "wasm");
         string objDir = Path.Combine(workDir, "obj");
 
         // Plugin kancalari ONCE (ayar eksikse hata); plugins.js + ek .c + pre/post-js (docs/plugins.md)

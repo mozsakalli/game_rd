@@ -113,6 +113,24 @@ public sealed class HideInInspectorAttribute : Attribute
 {
 }
 
+// Ayar penceresi kategorisi (yalniz editor; serilesmeyi etkilemez). Kategorili pencere (PlayerSettingsWindow) alanlari
+// sol listedeki gruba gore suzer: ObjectDrawer.Filter + FieldSchema.Category. Isaretsiz alan = "General".
+[AttributeUsage(AttributeTargets.Field)]
+public sealed class CategoryAttribute : Attribute
+{
+    public string Name { get; }
+    public CategoryAttribute(string name) { Name = name; }
+}
+
+// Hassas ayar alani (docs/plugins.md "Sensitive"): deger editor icinde olagan akar, ama RPC/MCP yanitlarinda (AI'a giden her sey:
+// asset.read, scene.dump, prop.set echo, log.tail...) alan adiyla eslesen her deger "***" olur; AI "***" degerini geri yazamaz.
+// Isim sezgisi YOK — yalniz bu attribute (sahte guven vermesin). Kapsam alan adi bazli: ayni adli masum alanlar da maskelenir (kabul).
+// Inspector maskeli cizer (tiklayinca gosterir). "git'e girmez" anlamina GELMEZ (o ayri karar: UserSettings deseni).
+[AttributeUsage(AttributeTargets.Field)]
+public sealed class SensitiveAttribute : Attribute
+{
+}
+
 // Unity ScriptableObject'in tip-duzeyi karsiligi (miras yerine attribute): isaretli [Serializable]
 // sinif DOSYA olarak yasar (.asset ya da importer "main" artifact'i) ve alanlarda REFERANS
 // (Kind.Asset, GUID) olarak gecer — paylasilir, pak'a referanslandigi icin girer, ObjectBinary ile

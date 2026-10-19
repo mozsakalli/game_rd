@@ -106,6 +106,20 @@ public static class EditorMenu
     }
 
     static readonly List<Action> _actions = new();
+    static readonly List<string> _paths = new(); // _actions ile ayni indeks (RPC ui.menu)
+    static readonly Queue<int> _pendingInvokes = new();
+
+    // Tum [MenuItem] yollari (RPC ui.menu listesi).
+    public static IReadOnlyList<string> Paths => _paths;
+
+    // Menu ogesini yol ile tetikler (RPC ui.menu). Poll'de, Win32 komutlariyla AYNI noktada kosar (ana thread, frame basi).
+    public static bool Invoke(string path)
+    {
+        int i = _paths.FindIndex(p => string.Equals(p, path, StringComparison.OrdinalIgnoreCase));
+        if (i < 0) return false;
+        _pendingInvokes.Enqueue(i);
+        return true;
+    }
 
     // [MenuItem] metodlarini toplar ve menu barini pencereye takar. Oyun kodu
     // editor eklentisi kazandiginda onun assembly'si de buraya eklenecek.
@@ -159,6 +173,7 @@ public static class EditorMenu
             var run = it.Run;
             MenuAddItem(parent, parts[^1], _actions.Count);
             _actions.Add(run);
+            _paths.Add(it.Path);
         }
         MenuAttach(glfwWindow, bar);
     }
@@ -168,17 +183,22 @@ public static class EditorMenu
     {
         int id;
         while ((id = MenuPoll()) >= 0)
+            RunAction(id);
+        while (_pendingInvokes.Count > 0)
+            RunAction(_pendingInvokes.Dequeue());
+    }
+
+    static void RunAction(int id)
+    {
+        if (id >= _actions.Count)
+            return;
+        try
         {
-            if (id >= _actions.Count)
-                continue;
-            try
-            {
-                _actions[id]();
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine($"[menu] hata: {e.InnerException?.Message ?? e.Message}");
-            }
+            _actions[id]();
+        }
+        catch (Exception e)
+        {
+            Console.WriteLine($"[menu] hata: {e.InnerException?.Message ?? e.Message}");
         }
     }
 }

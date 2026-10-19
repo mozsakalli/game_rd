@@ -1,14 +1,15 @@
-[gamecode] yuklendi: Yuzbir Extra.Game (12 script, 1 plugin)
+11:31:48.308 [info] [project] AndroidSigning.asset -> PlayerSettings.android (keystorePassword/keyPassword, [Sensitive]) tasindi
+[gamecode] yuklendi: Yuzbir Extra.Game (11 script, 1 plugin)
 [gamecode] editor kodu: 3 dosya, 1 plugin mock
 [lifecycle] 23 PASS, 0 FAIL
 [movieclip] 65 PASS, 0 FAIL
 [particle] 19 PASS, 0 FAIL
-[serialization] 38 PASS, 0 FAIL
+[serialization] 45 PASS, 0 FAIL
 [inspector] 47 PASS, 0 FAIL
-[layout] bench arrange: 300 cocuk, 0.234 ms/cozum, alloc 0 B
-[layout] bench 2-stop: 300 kutu, 5700 quad, 4.96 ms/encode, alloc 0 B
-[layout] bench 4-stop: 300 kutu, 7500 quad, 5.78 ms/encode, alloc 0 B
-[layout] bench diagonal: 300 kutu, 5700 quad, 5.36 ms/encode, alloc 0 B
+[layout] bench arrange: 300 cocuk, 0.087 ms/cozum, alloc 0 B
+[layout] bench 2-stop: 300 kutu, 5700 quad, 3.21 ms/encode, alloc 0 B
+[layout] bench 4-stop: 300 kutu, 7500 quad, 4.72 ms/encode, alloc 0 B
+[layout] bench diagonal: 300 kutu, 5700 quad, 3.21 ms/encode, alloc 0 B
 [layout] 112 PASS, 0 FAIL
 [pointer] 24 PASS, 0 FAIL
 [rendergroup] 12 PASS, 0 FAIL
@@ -22,39 +23,17 @@
 [objtest] 34 PASS, 0 FAIL
 [localization] 50 PASS, 0 FAIL
 [richtext] 42 PASS, 0 FAIL
-[info] [prefab] olusturuldu: Seat.prefab
-[warning] [prefab] cannot nest: Avatar.prefab contains or is Avatar.prefab (cycle)
-[warning] [prefab] cannot nest: Table.prefab contains or is Avatar.prefab (cycle)
+11:31:52.795 [info] [prefab] olusturuldu: Seat.prefab
+11:31:52.797 [warning] [prefab] cannot nest: Avatar.prefab contains or is Avatar.prefab (cycle)
+11:31:52.797 [warning] [prefab] cannot nest: Table.prefab contains or is Avatar.prefab (cycle)
 [prefab] 34 PASS, 0 FAIL
-[warning] [theme] sibling order is not part of a theme layer; switch to default theme to reorder
+11:31:52.831 [warning] [theme] sibling order is not part of a theme layer; switch to default theme to reorder
 [theme] 32 PASS, 0 FAIL
-[error] [plugin] TestPlugin.OnMessage: System.InvalidOperationException: boom
+11:31:52.862 [error] [plugin] TestPlugin.OnMessage: System.InvalidOperationException: boom
    at DigitoyEditor.PluginTests.TestPlugin.OnMessage(String msg) in C:\Work\digitoygames\game_rd\editor\PluginTests.cs:line 23
    at DigitoyEngine.Plugin.Deliver(String msg) in C:\Work\digitoygames\game_rd\engine\managed\Plugin.cs:line 75
-[warning] [plugin] Orphan: host'ta kayitli degil (bu platformda yok ya da mock yok) - Send dusurulur
+11:31:52.862 [warning] [plugin] Orphan: host'ta kayitli degil (bu platformda yok ya da mock yok) - Send dusurulur
 [plugin] 19 PASS, 0 FAIL
-[info] [rpc] dinleniyor: localhost:5157  (http://localhost:5157/ -> C:\Work\digitoygames\game_rd\Projects\Sandbox\Build\wasm)
-[probe] game=Sandbox fps=60 music=1.1333325 showFps=False
-[error] probe handled: System.InvalidCastException: Unable to cast object of type 'System.String' to type 'ExceptionProbe'.
-   at ExceptionProbe.Start()
-[error] probe user: System.InvalidOperationException: kullanici mesaji
- ---> System.ArgumentException: ic
-   --- End of inner exception stack trace ---
-   at ExceptionProbe.Start()
-[warning] [bake] semada olmayan alan atlandi: CameraComponent.projection (Scenes/Login.scene)
-[warning] [bake] semada olmayan alan atlandi: LayoutBox.fillColor (Scenes/Login.scene)
-[warning] [bake] semada olmayan alan atlandi: LayoutBox.fillColor2 (Scenes/Login.scene)
-[warning] [bake] semada olmayan alan atlandi: LayoutBox.gradient (Scenes/Login.scene)
-[warning] [bake] semada olmayan alan atlandi: LayoutBox.fillColor (Scenes/Login.scene)
-[warning] [bake] semada olmayan alan atlandi: LayoutBox.fillColor (Scenes/Login.scene)
-[warning] [bake] semada olmayan alan atlandi: LayoutBox.fillColor (Scenes/Login.scene)
-[warning] [bake] semada olmayan alan atlandi: LayoutBox.fillColor (Scenes/Login.scene)
-[warning] [bake] semada olmayan alan atlandi: LayoutBox.borderColor (Scenes/Login.scene)
-[warning] [bake] semada olmayan alan atlandi: LayoutBox.fillColor (Scenes/Login.scene)
-[warning] [bake] semada olmayan alan atlandi: TextSprite.Font (Scenes/Login.scene)
-[warning] [bake] semada olmayan alan atlandi: TextSprite.Font (Scenes/Login.scene)
-[info] [atlas] MainAtlas.asset: 9 bolge, 1 sayfa (9 uye), trim 53 Kpx atildi
-[info] [pak] 2 kok sahne -> 19/81 asset canli (62 strip), 22 giris (3 gorsel, 5 baked sahne/prefab, 9 yutulmus) -> C:\Work\digitoygames\game_rd\Projects\Sandbox\Build\game.pak (398.8 KB, acik 409.8 KB, %97.3)
-[warning] [loc] Localization.asset: 'tr' dilinde 17 eksik ceviri (loc.missing)
-[warning] [loc] Localization.asset: 'de' dilinde 18 eksik ceviri (loc.missing)
-[info] [pak] verify OK: 22 bayt-esit, bg.jpg pikselleri artifact ile BIREBIR (1040x480)
+[variant] 13 PASS, 0 FAIL
+[redact] 12 PASS, 0 FAIL
+11:31:52.939 [info] [rpc] dinleniyor: localhost:5157  (http://localhost:5157/ -> C:\Work\digitoygames\game_rd\Projects\Sandbox\Build\wasm)

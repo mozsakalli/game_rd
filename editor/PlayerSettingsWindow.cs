@@ -1,38 +1,64 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using DigitoyEngine;
 using DigitoyEngine.Editor;
 
 namespace DigitoyEditor;
 
-// Unity Project Settings > Player karsiligi: ProjectSettings/PlayerSettings.asset'i
-// sema uzerinden duzenler. Alanlar PlayerSettings sinifindan turer; yeni ayar = sinifa
-// alan eklemek. Tek ozel bolum: "Scenes In Build" (Unity Build Settings karsiligi) —
-// projedeki tum .scene dosyalari listelenir, dahil/start secimi PlayerSettings.scenes +
-// startScene'e yazilir ([HideInInspector], jenerik cizici atlar). Her degisiklik dosyaya
-// yazilir (undo'suz, asset inspector'la ayni politika).
+
+// Unity Project Settings > Player karsiligi: ProjectSettings/Games/<oyun>/PlayerSettings.asset'i sema uzerinden duzenler.
+// DUZEN (2026-10-18): ustte OYUN SEKMELERI (duzenlenen oyun; calisilan oyundan bagimsiz — toolbar combosu Play/Build baglami,
+// sekme "neyi duzenliyorum"), SOL kategori listesi + SAG icerik. Kategoriler PlayerSettings alanlarindaki [Category]'den turer
+// (isaretsiz = General); Android/iOS ic nesneleri kendi sayfasinda DUZ (foldout'suz) cizilir; Scenes, Games (ekle/sil/gec) ve
+// her plugin ("Plugin:<Ad>") ayri sayfa. Yeni ayar = sinifa alan eklemek (+ [Category]); yeni plugin otomatik sayfa.
+// Secili sayfa/sekme EditorSettings.playerSettingsPage/Game (kullanici). Her degisiklik dosyaya yazilir (undo'suz).
 [MenuItem("Project/Player Settings", 10)]
 public sealed class PlayerSettingsWindow : EditorWindow
 {
     const float HeaderH = InspectorPanel.HeaderH;
     const float RowH = InspectorPanel.RowH;
+    const float NavW = 170f;
+    const float TabH = 26f;
+    const string PagePluginPrefix = "Plugin:";
+    const string PageScenes = "Scenes", PageGames = "Games", PageGeneral = "General";
+    const string PageAndroid = "Android", PageIos = "iOS";
 
     static readonly Color MissingColor = new(226, 96, 96, 255);
     static readonly Color StartColor = new(120, 200, 140, 255);
+    static readonly Color NavBg = new(38, 40, 48, 255);
+    static readonly Color NavSelected = new(60, 100, 180, 255);
+    static readonly Color NavLine = new(24, 26, 32, 255);
 
     readonly ObjectDrawer _drawer = new() { KeyPrefix = "ps:" };
-    readonly ObjectDrawer _signDrawer = new() { KeyPrefix = "ps.sign:" };
+    readonly ObjectDrawer _androidDrawer = new() { KeyPrefix = "ps.android:" };
+    readonly ObjectDrawer _iosDrawer = new() { KeyPrefix = "ps.ios:" };
     readonly Dictionary<string, ObjectDrawer> _pluginDrawers = new();
     List<PluginSettingsEditor.Entry> _plugins = new();
     readonly List<string> _sceneRows = new();
-    Vec2 _scroll;
+    readonly List<string> _pages = new();      // sol liste sirasi (sabit kategoriler + "Plugin:<Ad>")
+    readonly List<string> _categories = new(); // PlayerSettings alanlarindan turetilen (General, Display, Build...)
+    Vec2 _scroll, _navScroll;
+    string _editGame = ""; // bu karede duzenlenen oyun (sekme)
 
     public PlayerSettingsWindow()
     {
         Title = "Player Settings";
         Utility = true; // Unity gibi: dock'lanmaz, ayri pencere
-        UtilityWidth = 560;
-        UtilityHeight = 720;
+        UtilityWidth = 780;
+        UtilityHeight = 660;
+    }
+
+    string Page
+    {
+        get => App.Settings.playerSettingsPage;
+        set { if (App.Settings.playerSettingsPage != value) { App.Settings.playerSettingsPage = value; App.SaveSettings(); } }
+    }
+
+    // Duzenlenen oyun sekmesi: bos = calisilan oyun (toolbar'i izler).
+    string EditGame
+    {
+        get => App.Settings.playerSettingsGame;
+        set { if (App.Settings.playerSettingsGame != value) { App.Settings.playerSettingsGame = value; App.SaveSettings(); } }
     }
 
     protected override void OnGui()
@@ -43,77 +69,256 @@ public sealed class PlayerSettingsWindow : EditorWindow
             Gui.Label(new Rect(4, 4, 200, 20), "No project");
             return;
         }
-        var ps = project.Player;
+        var games = project.GameNames();
+        _editGame = EditGame;
+        if (_editGame.Length == 0 || !games.Contains(_editGame)) _editGame = project.Game;
+        var ps = project.PlayerFor(_editGame);
         if (!ReferenceEquals(_drawer.Target, ps))
-            _drawer.Bind(ps);
-        if (!ReferenceEquals(_signDrawer.Target, project.AndroidSigning))
-            _signDrawer.Bind(project.AndroidSigning);
-        CollectSceneRows(ps);
-        // Plugin ayarlari (docs/plugins.md): her Plugin<TSettings> / [ProjectSetting] tipi bir bolum.
-        _plugins = PluginSettingsEditor.Entries(project, App.Assets);
-        float pluginsH = 0;
-        foreach (var e in _plugins)
         {
-            var d = PluginDrawer(e);
-            pluginsH += HeaderH + 6 + RowH + d.Measure() + 8;
+            _drawer.Bind(ps);
+            _androidDrawer.Bind(ps.android);
+            _iosDrawer.Bind(ps.ios);
         }
-        if (_plugins.Count == 0) pluginsH = HeaderH + 6 + RowH + 8;
+        _plugins = PluginSettingsEditor.Entries(project, App.Assets, _editGame);
+        BuildPages();
+        string page = Page;
+        if (!_pages.Contains(page)) page = _pages[0];
 
         var vis = GuiClip.VisibleRect;
-        float scenesH = RowH * (Math.Max(1, _sceneRows.Count) + 1) + 4;
-        float contentHeight = 4 + HeaderH + 6 + _drawer.Measure() + 8 + HeaderH + 6 + scenesH + 8
-            + HeaderH + 6 + RowH + _signDrawer.Measure() + 8 + pluginsH;
-        _scroll = Gui.BeginScrollView(new Rect(0, 0, vis.width, vis.height), _scroll,
-            new Rect(0, 0, vis.width - 20, contentHeight));
-        float w = vis.width - 24;
-        _drawer.LabelW = InspectorPanel.LabelWidthFor(w);
-        _signDrawer.LabelW = _drawer.LabelW;
-        float y = 4;
-        DrawHeader(ref y, w, "Player Settings");
-        if (_drawer.Draw(ref y, w, Save))
-            Save();
-        y += 8;
-        DrawHeader(ref y, w, "Scenes In Build");
-        if (DrawScenes(ps, ref y, w))
-            Save();
-        y += 8;
-        // Parolalar PlayerSettings.asset'e (git) DEGIL, UserSettings/AndroidSigning.asset'e yazilir.
-        DrawHeader(ref y, w, "Android Signing (local)");
+        // --- ust: oyun sekmeleri ---
+        DrawGameTabs(project, games, vis.width);
+        float top = TabH;
+        float bodyH = vis.height - top;
+        // --- sol: kategori listesi ---
         if (Event.Current.Type == EventType.Repaint)
-            GuiRenderer.DrawTextIn(new Rect(12, y, w - 12, RowH),
-                "UserSettings/AndroidSigning.asset — git'e girmez. CI: DE_ANDROID_KEYSTORE_PASS / DE_ANDROID_KEY_PASS",
-                InspectorPanel.SmallFont, InspectorPanel.LabelDimColor);
-        y += RowH;
-        if (_signDrawer.Draw(ref y, w, SaveSigning))
-            SaveSigning();
-        y += 8;
-        if (_plugins.Count == 0)
         {
-            DrawHeader(ref y, w, "Plugins");
-            if (Event.Current.Type == EventType.Repaint)
-                GuiRenderer.DrawTextIn(new Rect(12, y, w - 12, RowH), "No plugin settings (Assets/Plugins/<Name>/Runtime: Plugin<TSettings>)",
-                    InspectorPanel.SmallFont, InspectorPanel.LabelDimColor);
-            y += RowH;
+            GuiRenderer.DrawRect(new Rect(0, top, NavW, bodyH), NavBg, 1);
+            GuiRenderer.DrawRect(new Rect(NavW - 1, top, 1, bodyH), NavLine, 1);
         }
-        foreach (var e in _plugins)
+        float navContentH = 8 + _pages.Count * RowH + RowH; // "Plugins" ara basligi icin pay
+        _navScroll = Gui.BeginScrollView(new Rect(0, top, NavW, bodyH), _navScroll, new Rect(0, 0, NavW - 4, navContentH));
+        float ny = 6;
+        bool pluginHeaderDrawn = false;
+        foreach (var p in _pages)
         {
-            DrawHeader(ref y, w, "Plugin: " + e.Name);
-            var missing = PluginSettingsEditor.MissingRequired(e.Instance);
+            bool isPlugin = p.StartsWith(PagePluginPrefix, StringComparison.Ordinal);
+            if (isPlugin && !pluginHeaderDrawn)
+            {
+                if (Event.Current.Type == EventType.Repaint)
+                    GuiRenderer.DrawTextIn(new Rect(10, ny + 4, NavW - 14, RowH - 4), "PLUGINS", InspectorPanel.SmallFont, InspectorPanel.LabelDimColor);
+                ny += RowH;
+                pluginHeaderDrawn = true;
+            }
+            var row = new Rect(4, ny, NavW - 10, RowH - 1);
+            bool selected = p == page;
+            var ev = Event.Current;
+            // Secim MouseDown'da, hot control yokken (IMGUI: sayfa degisince kontrol sayisi degisir; hot varken dokunma).
+            if (!selected && ev.Type == EventType.MouseDown && ev.Button == 0 && GuiUtility.HotControl == 0 && ev.MouseInClip && row.Contains(ev.MousePosition))
+            {
+                page = p;
+                Page = p;
+                _scroll = default;
+                ev.Use();
+            }
             if (Event.Current.Type == EventType.Repaint)
             {
-                string info = "ProjectSettings/Plugins/" + e.Name + ".asset" + (e.Referenced ? "" : "  — not referenced by game code (Plugin.Get<" + e.Name + ">)")
-                    + (missing.Count > 0 ? "  — required: " + string.Join(", ", missing) : "");
-                GuiRenderer.DrawTextIn(new Rect(12, y, w - 12, RowH), info, InspectorPanel.SmallFont,
-                    missing.Count > 0 ? MissingColor : InspectorPanel.LabelDimColor);
+                if (selected) GuiRenderer.DrawRect(row, NavSelected, 1);
+                string label = isPlugin ? p.Substring(PagePluginPrefix.Length) : p;
+                var col = selected ? InspectorPanel.HeaderTextColor : InspectorPanel.LabelColor;
+                GuiRenderer.DrawTextIn(new Rect(isPlugin ? 22 : 12, ny, NavW - 30, RowH - 1), label, InspectorPanel.LabelFont, col, false, 2);
+                if (isPlugin && PluginSettingsEditor.MissingRequired(FindPlugin(label).Instance).Count > 0)
+                    GuiRenderer.DrawRect(new Rect(NavW - 20, ny + RowH / 2 - 4, 7, 7), MissingColor, 1); // [Required] eksik
             }
-            y += RowH;
+            ny += RowH;
+        }
+        Gui.EndScrollView();
+
+        // --- sag: secili sayfa ---
+        float cx = NavW + 4;
+        float cw = vis.width - cx;
+        float w = cw - 24;
+        _drawer.LabelW = _androidDrawer.LabelW = _iosDrawer.LabelW = InspectorPanel.LabelWidthFor(w);
+        float contentHeight = 4 + HeaderH + 6 + MeasurePage(page, ps, project) + 16;
+        _scroll = Gui.BeginScrollView(new Rect(cx, top, cw, bodyH), _scroll, new Rect(0, 0, cw - 20, contentHeight));
+        float y = 4;
+        string title = page.StartsWith(PagePluginPrefix, StringComparison.Ordinal) ? "Plugin: " + page.Substring(PagePluginPrefix.Length) : page;
+        title += "  — " + _editGame + (string.Equals(_editGame, project.Game, StringComparison.OrdinalIgnoreCase) ? " (working)" : "");
+        DrawHeader(ref y, w, title);
+        DrawPage(page, ps, project, ref y, w);
+        Gui.EndScrollView();
+    }
+
+    // Oyun sekmeleri (ProjectSettings/Games/*): tiklanan oyun duzenlenir; calisilan oyun isaretli. Toolbar'i degistirmez.
+    void DrawGameTabs(Project project, List<string> games, float width)
+    {
+        var ev = Event.Current;
+        if (ev.Type == EventType.Repaint)
+        {
+            GuiRenderer.DrawRect(new Rect(0, 0, width, TabH), NavBg, 1);
+            GuiRenderer.DrawRect(new Rect(0, TabH - 1, width, 1), NavLine, 1);
+            GuiRenderer.DrawTextIn(new Rect(8, 0, 44, TabH), "GAME", InspectorPanel.SmallFont, InspectorPanel.LabelDimColor, false, 2);
+        }
+        float x = 52;
+        foreach (var g in games)
+        {
+            bool working = string.Equals(g, project.Game, StringComparison.OrdinalIgnoreCase);
+            string label = working ? g + " (working)" : g;
+            float tw = (Gui.Font != null ? Gui.Font.TextSize(label, InspectorPanel.LabelFont).x : 60f) + 20;
+            var r = new Rect(x, 3, tw, TabH - 6);
+            bool selected = string.Equals(g, _editGame, StringComparison.OrdinalIgnoreCase);
+            if (!selected && ev.Type == EventType.MouseDown && ev.Button == 0 && GuiUtility.HotControl == 0 && ev.MouseInClip && r.Contains(ev.MousePosition))
+            {
+                EditGame = g;
+                _editGame = g;
+                _scroll = default;
+                ev.Use();
+            }
+            if (ev.Type == EventType.Repaint)
+            {
+                if (selected) GuiRenderer.DrawRect(r, NavSelected, 1);
+                GuiRenderer.DrawTextIn(r, label, InspectorPanel.LabelFont, selected ? InspectorPanel.HeaderTextColor : InspectorPanel.LabelColor, true, 2);
+            }
+            x += tw + 4;
+        }
+    }
+
+    // Sayfa listesi: PlayerSettings [Category] sirasi (ilk gorulme) + sabit ozel sayfalar + plugin'ler.
+    void BuildPages()
+    {
+        _categories.Clear();
+        _pages.Clear();
+        _categories.Add(PageGeneral);
+        foreach (var f in _drawer.Schema)
+        {
+            if (f.Hidden) continue;
+            string c = f.Category ?? PageGeneral;
+            if (!_categories.Contains(c)) _categories.Add(c);
+        }
+        // Sira: General, Scenes, sonra diger kategoriler kesif sirasiyla (Display, Themes, Build, Android, iOS), Games
+        _pages.Add(PageGeneral);
+        _pages.Add(PageScenes);
+        foreach (var c in _categories)
+            if (c != PageGeneral) _pages.Add(c);
+        _pages.Add(PageGames);
+        foreach (var e in _plugins) _pages.Add(PagePluginPrefix + e.Name);
+    }
+
+    PluginSettingsEditor.Entry FindPlugin(string name)
+    {
+        foreach (var e in _plugins) if (e.Name == name) return e;
+        return null;
+    }
+
+    static bool IsCategory(SerializedType.FieldSchema f, string cat) => (f.Category ?? PageGeneral) == cat;
+
+    float MeasurePage(string page, PlayerSettings ps, Project project)
+    {
+        if (page == PageScenes) { CollectSceneRows(ps); return RowH * (Math.Max(1, _sceneRows.Count) + 1) + 4 + RowH; }
+        if (page == PageGames) return RowH + RowH * (project.GameNames().Count + 1) + 8;
+        if (page == PageAndroid) return RowH + _androidDrawer.Measure();
+        if (page == PageIos) return RowH + _iosDrawer.Measure();
+        if (page.StartsWith(PagePluginPrefix, StringComparison.Ordinal))
+        {
+            var e = FindPlugin(page.Substring(PagePluginPrefix.Length));
+            return e == null ? RowH : RowH + PluginDrawer(e).Measure();
+        }
+        _drawer.Filter = f => IsCategory(f, page);
+        return _drawer.Measure();
+    }
+
+    void DrawPage(string page, PlayerSettings ps, Project project, ref float y, float w)
+    {
+        if (page == PageScenes)
+        {
+            Info(ref y, w, "Scenes packed into this game's build (Unity: Scenes In Build). Start = first scene; a start scene is always included.");
+            if (DrawScenes(ps, ref y, w)) Save();
+            return;
+        }
+        if (page == PageGames)
+        {
+            Info(ref y, w, "One project, many games (ProjectSettings/Games/<name>/): each game has its own full settings, scenes, themes and plugin configs.");
+            DrawGames(project, ref y, w);
+            return;
+        }
+        if (page == PageAndroid || page == PageIos)
+        {
+            Info(ref y, w, page == PageAndroid
+                ? "Build Android Project → generated/app.properties (Gradle shell reads every build)."
+                : "Build iOS Project → generated/app.xcconfig (Xcode shell reads every build).");
+            var d = page == PageAndroid ? _androidDrawer : _iosDrawer;
+            if (d.Draw(ref y, w, Save)) Save();
+            return;
+        }
+        if (page.StartsWith(PagePluginPrefix, StringComparison.Ordinal))
+        {
+            var e = FindPlugin(page.Substring(PagePluginPrefix.Length));
+            if (e == null) return;
+            var missing = PluginSettingsEditor.MissingRequired(e.Instance);
+            string info = "ProjectSettings/Games/" + e.Game + "/Plugins/" + e.Name + ".asset" + (e.Referenced ? "" : "  — not referenced by game code (Plugin.Get<" + e.Name + ">)")
+                + (missing.Count > 0 ? "  — required: " + string.Join(", ", missing) : "");
+            Info(ref y, w, info, missing.Count > 0 ? MissingColor : InspectorPanel.LabelDimColor);
             var d = PluginDrawer(e);
             var assets = App.Assets;
             if (d.Draw(ref y, w, () => PluginSettingsEditor.Save(e, assets)))
                 PluginSettingsEditor.Save(e, assets);
-            y += 8;
+            return;
         }
-        Gui.EndScrollView();
+        _drawer.Filter = f => IsCategory(f, page);
+        if (_drawer.Draw(ref y, w, Save)) Save();
+    }
+
+    static void Info(ref float y, float w, string text, Color? color = null)
+    {
+        if (Event.Current.Type == EventType.Repaint)
+            GuiRenderer.DrawTextIn(new Rect(12, y, w - 12, RowH), text, InspectorPanel.SmallFont, color ?? InspectorPanel.LabelDimColor);
+        y += RowH;
+    }
+
+    char[] _newGameBuf = new char[64];
+    int _newGameLen;
+
+    // Oyun listesi: ad (working isareti), "Work on" (toolbar gecisi), "Remove"; son satir: yeni ad + "Add (copy of <sekme>)".
+    void DrawGames(Project project, ref float y, float w)
+    {
+        var names = project.GameNames();
+        foreach (var g in names)
+        {
+            bool working = string.Equals(g, project.Game, StringComparison.OrdinalIgnoreCase);
+            if (Event.Current.Type == EventType.Repaint)
+                GuiRenderer.DrawTextIn(new Rect(16, y, w - 200, RowH), g + (working ? "  (working)" : ""), InspectorPanel.LabelFont,
+                    working ? StartColor : InspectorPanel.LabelColor);
+            if (!working && Gui.Button(new Rect(w - 132, y + 1, 70, 18), "Work on"))
+            {
+                try { App.SetWorkingGame(g); }
+                catch (Exception e) { EditorLog.Warning("[game] " + e.Message); }
+            }
+            if (names.Count > 1 && Gui.Button(new Rect(w - 56, y + 1, 60, 18), "Remove"))
+            {
+                try
+                {
+                    project.RemoveGame(g);
+                    if (string.Equals(EditGame, g, StringComparison.OrdinalIgnoreCase)) EditGame = "";
+                    PluginSettingsEditor.Invalidate();
+                    EditorLog.Info("[game] removed: " + g);
+                }
+                catch (Exception e) { EditorLog.Warning("[game] " + e.Message); }
+            }
+            y += RowH;
+        }
+        Gui.TextField(new Rect(30, y + 1, w - 190, 18), _newGameBuf, ref _newGameLen);
+        if (Gui.Button(new Rect(w - 152, y + 1, 156, 18), "Add (copy of " + _editGame + ")"))
+        {
+            string nv = new string(_newGameBuf, 0, _newGameLen).Trim();
+            try
+            {
+                project.CreateGame(nv, _editGame);
+                _newGameLen = 0;
+                EditGame = nv;
+                EditorLog.Info("[game] created: " + nv + " (copy of " + _editGame + ")");
+            }
+            catch (Exception e) { EditorLog.Warning("[game] " + e.Message); }
+        }
+        y += RowH;
     }
 
     ObjectDrawer PluginDrawer(PluginSettingsEditor.Entry e)
@@ -150,7 +355,7 @@ public sealed class PlayerSettingsWindow : EditorWindow
                 _sceneRows.Add(s);
     }
 
-    // Satir: [dahil] [start] yol — start secimi dahil'i zorlar; start'in dahil'i kaldirilamaz.
+    // Satir: [dahil] [start] yol â€” start secimi dahil'i zorlar; start'in dahil'i kaldirilamaz.
     // Missing satir: kirmizi + "Remove" (hem listeden hem start'tan duser).
     bool DrawScenes(PlayerSettings ps, ref float y, float w)
     {
@@ -232,6 +437,5 @@ public sealed class PlayerSettingsWindow : EditorWindow
 
     static string FirstOrEmpty(List<string> list) => list.Count > 0 ? list[0] : "";
 
-    static void Save() => App.Project.SavePlayerSettings();
-    static void SaveSigning() => App.Project.SaveAndroidSigning();
+    void Save() => App.Project.SavePlayerSettings(_editGame);
 }

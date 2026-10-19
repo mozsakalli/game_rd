@@ -57,13 +57,13 @@ public static class PluginBuild
         if (engineNetDll == null || !File.Exists(engineNetDll))
         {
             log("[uyari] DigitoyEngine .NET dll yok (--editor-engine): plugin kancalari ve ayar dogrulamasi atlandi");
-            r.Store = new PluginSettingsStore(projectRoot, null);
+            r.Store = new PluginSettingsStore(projectRoot, null, Game.Name);
             return r;
         }
         var sources = RoslynCompiler.SourcesUnder(Path.Combine(projectRoot, "Assets"));
         try { r.EngineNet = Assembly.LoadFrom(engineNetDll); }
         catch (Exception e) { log("[uyari] DigitoyEngine .NET dll yuklenemedi: " + e.Message); }
-        r.Store = new PluginSettingsStore(projectRoot, r.EngineNet);
+        r.Store = new PluginSettingsStore(projectRoot, r.EngineNet, Game.Name);
         if (sources.Count == 0 || r.EngineNet == null) return r;
         string dll = Path.Combine(workDir, projName + ".Editor.dll");
         var build = new RoslynBuild

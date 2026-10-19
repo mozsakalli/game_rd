@@ -58,8 +58,19 @@ public static class Selection
         set
         {
             _assetPath = value;
+            _assetSub = null;
             if (value != null)
                 _ids.Clear();
         }
+    }
+
+    // Secili alt oge kimligi (container icinden tek tik): AssetPath sahibin tam yolu, bu '#' sonrasi.
+    static string _assetSub;
+    public static string AssetSub => _assetSub;
+
+    public static void SelectSubAsset(string ownerFullPath, string id)
+    {
+        AssetPath = ownerFullPath;
+        _assetSub = id;
     }
 }

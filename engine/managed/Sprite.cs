@@ -3,17 +3,18 @@ using System;
 namespace DigitoyEngine;
 
 // Sprite URETEN asset sozlesmesi (marker): bu [Asset] sinifinin importer'i "sprites"
-// SpriteTable artifact'i + sayfa piksel artifact'leri yayar (Font glyph'leri, ileride
-// Spine). AtlasGroup uyeleri bu tiple referanslanir; atlas builder somut tipi bilmez,
-// yalniz tabloyu okur. Alan tipi arayuz oldugundan referans polimorfiktir (somut tip
-// yoldan cozulur, bkz. AssetDatabase.LoadAsset).
+// SpriteTable artifact'i + sayfa piksel artifact'leri yayar (Font glyph'leri, PSD katmanlari,
+// ileride Spine). AtlasGroup uyeleri bu tiple referanslanir; atlas builder somut tipi bilmez,
+// yalniz tabloyu okur. Alan tipi arayuz oldugundan referans polimorfiktir (somut tip yoldan
+// cozulur, bkz. AssetDatabase.LoadAsset). Tek Sprite da kendini ureten onemsiz kaynaktir
+// (png dosyasi, "x.psb#id" katmani) — AtlasGroup.sources tek listedir.
 public interface ISpriteSource { }
 
 // TEK bolge primitifi: motor genelinde "cizilebilir doku bolgesi" hep budur
 // (tekil png, atlas uyesi, ileride glyph). Renderer'lar Texture degil Sprite
 // referanslar — atlas uyeligi bir DETAY olur: builder ayni instance'in icini
 // yerinde gunceller (Page/X/Y), canli referanslar kirilmaz, frame'de lookup yok.
-public sealed class Sprite : IAsset
+public sealed class Sprite : IAsset, ISpriteSource
 {
     public string Name { get; internal set; }
 

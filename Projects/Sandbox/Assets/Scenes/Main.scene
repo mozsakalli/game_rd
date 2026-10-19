@@ -176,11 +176,6 @@ objects:
     scale: 1 1 1
     prefab: 1f5d881f4904473da4d7b601329818a9
     prefabIds: '1:9'
-    overrides:
-      - node: 1
-        comp: 'SpriteRenderer:0'
-        prop: Width
-        value: 136.37334
   - id: 10
     parent: 0
     name: orb (2)
@@ -192,7 +187,7 @@ objects:
   - id: 11
     parent: 0
     name: cift
-    pos: 0 0 0
+    pos: 288.93442 49.866856 0
     rot: 0 0 0
     scale: 1 1 1
     prefab: 663fa61f73834790836ca0acce88a097

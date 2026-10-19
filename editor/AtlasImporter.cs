@@ -16,9 +16,11 @@ namespace DigitoyEditor;
 [CreateAssetMenu(MenuName = "Atlas Group", FileName = "AtlasGroup")]
 public class AtlasGroup
 {
-    public List<string> folders = new();  // Assets'e goreli klasor onekleri ("Textures/UI")
-    // Sprite ureten asset'ler (Font, ileride Spine): importer'inin "sprites" tablosu sayfaya tasinir.
-    // Tip-ozel degil — ISpriteSource tasiyan her [Asset] sinifi suruklenebilir.
+    // KURAL uyeligi: Assets'e goreli klasor ("Textures/UI") YA DA container yolu ("Shared/Common.psb") — altindaki
+    // goruntu dosyalari + container'larin atlas'a girebilen girisleri (AssetTree.SpriteMembers). Asset referansi degil.
+    public List<string> folders = new();
+    // UYE uyeligi (tek liste): sprite ureten her sey — png dosyasi, "x.psb#id" katmani (Sprite = kendini ureten
+    // kaynak), font / PSB butunu (uretici: tum girisleri). Importer cozdugu tipe gore davranir; tip-ozel kod yok.
     [FormerlySerializedAs("fonts")] public List<ISpriteSource> sources = new();
     public int padding = 2;
     public int maxSize = 2048;            // asilinca otomatik yeni sayfa
@@ -35,18 +37,19 @@ public class AtlasGroup
 // uye->grup kenari yazar. Pak build'inde ctx.IsLive filtresi uygulanir: sahne grafinin
 // erismedigi uye sayfaya girmez. Bolge ureticisi importer'lar (font, ileride spine)
 // "sprites" tablosu + PNG sayfalariyla katilir — bu importer baska format bilmez.
-[AssetImporter(".asset", AssetType = nameof(AtlasGroup), Version = 7)]
+[AssetImporter(".asset", AssetType = nameof(AtlasGroup), Version = 9)]
 public sealed partial class AtlasImporter : AssetImporter
 {
     public const string TypeName = nameof(AtlasGroup);
 
-    static readonly string[] ImageExts = { ".png", ".jpg", ".jpeg" };
-
-    // Grup yaml'ini runtime tipleri yuklemeden okur (kaynak referanslari guid/yol).
-    static AtlasGroup ReadGroup(string sourcePath, out List<string> sourcePaths)
+    // Grup yaml'ini runtime tipleri yuklemeden okur (referanslar guid/yol; alt oge guid#id -> yol#id). Tek 'sources'
+    // listesi cozulen tipe gore ikiye ayrilir: producerPaths (font/PSB butunu: "sprites" tablosu) ve spriteKeys
+    // (png ya da "sahip#id": tek bolge). Eski 'fonts'/'sprites' alanlari da okunur (geriye uyum).
+    static AtlasGroup ReadGroup(string sourcePath, out List<string> producerPaths, out List<string> spriteKeys)
     {
         var g = new AtlasGroup();
-        sourcePaths = new List<string>();
+        producerPaths = new List<string>();
+        spriteKeys = new List<string>();
         var root = Yaml.Parse(File.ReadAllText(sourcePath));
         var fields = root.Get("fields") ?? root;
         var folders = fields.Get("folders");
@@ -54,17 +57,16 @@ public sealed partial class AtlasImporter : AssetImporter
             foreach (var n in folders.Items)
                 if (!string.IsNullOrWhiteSpace(n.Scalar))
                     g.folders.Add(n.Scalar.Trim());
-        var sources = fields.Get("sources") ?? fields.Get("fonts"); // "fonts" = eski ad (FormerlySerializedAs)
-        if (sources?.Items != null)
+        var refs = new List<string>();
+        ReadRefs(fields.Get("sources") ?? fields.Get("fonts"), refs);
+        ReadRefs(fields.Get("sprites"), refs);
+        foreach (var k in refs)
         {
-            foreach (var n in sources.Items)
-            {
-                if (string.IsNullOrWhiteSpace(n.Scalar))
-                    continue;
-                string p = App.Assets?.ResolvePath(n.Scalar) ?? n.Scalar;
-                if (!sourcePaths.Contains(p))
-                    sourcePaths.Add(p);
-            }
+            string owner = SubAssets.Split(k, out string id);
+            if (id != null || AssetDatabase.ImportTypeOf(owner) == typeof(Sprite))
+                spriteKeys.Add(k);
+            else
+                producerPaths.Add(k);
         }
         if (int.TryParse(fields.GetScalar("padding", null), out int pad)) g.padding = pad;
         if (int.TryParse(fields.GetScalar("maxSize", null), out int ms)) g.maxSize = ms;
@@ -75,64 +77,138 @@ public sealed partial class AtlasImporter : AssetImporter
         return g;
     }
 
-    public static bool IsImageMember(AtlasGroup g, string rel)
+    static void ReadRefs(DocNode list, List<string> into)
     {
-        string ext = Path.GetExtension(rel).ToLowerInvariant();
-        if (Array.IndexOf(ImageExts, ext) < 0)
-            return false;
-        foreach (var f in g.folders)
+        if (list?.Items == null)
+            return;
+        foreach (var n in list.Items)
         {
-            if (string.IsNullOrEmpty(f))
+            if (string.IsNullOrWhiteSpace(n.Scalar))
                 continue;
-            string prefix = f.Replace('\\', '/').TrimEnd('/') + "/";
-            if (rel.StartsWith(prefix, StringComparison.OrdinalIgnoreCase))
-                return true;
+            string p = App.Assets?.ResolvePath(n.Scalar) ?? n.Scalar;
+            if (!into.Contains(p))
+                into.Add(p);
         }
-        return false;
     }
 
-    static List<string> ImageMembers(AtlasGroup g, IEnumerable<string> allAssets)
+    // Tekil sprite uyeleri: onek uyeligi (klasor / container) + acik 'sprites' listesi. Anahtar = png yolu ya da "sahip#id".
+    static List<string> SpriteMembers(AtlasGroup g, List<string> spriteKeys)
     {
         var list = new List<string>();
-        foreach (var rel in allAssets)
-            if (IsImageMember(g, rel))
-                list.Add(rel);
-        list.Sort(StringComparer.OrdinalIgnoreCase); // deterministik yerlesim
+        if (App.Assets != null)
+            AssetTree.SpriteMembers(App.Assets, g.folders, list);
+        foreach (var k in spriteKeys)
+        {
+            string owner = SubAssets.Split(k, out string id);
+            bool ok = id == null
+                ? AssetDatabase.ImportTypeOf(owner) == typeof(Sprite)
+                : SubAssets.TryGetEntry(owner, id, out var e) && e.Type == nameof(Sprite) && !string.IsNullOrEmpty(e.Pixels);
+            if (ok && !list.Contains(k))
+                list.Add(k);
+        }
+        list.Sort(StringComparer.Ordinal);
+        return list;
+    }
+
+    // Pak builder: bu grubun tekil uye anahtarlari (atlas kapsami hesabi icin; sources'taki AtlasMembers container'lar dahil).
+    public static List<string> MemberKeys(string rel)
+    {
+        var g = ReadGroup(ImportPipeline.FullPath(rel), out var sourcePaths, out var spriteKeys);
+        var list = SpriteMembers(g, spriteKeys);
+        foreach (var fp in sourcePaths)
+        {
+            var idx = SubAssets.IndexOf(fp);
+            if (!idx.AtlasMembers) continue;
+            foreach (var e in idx.Entries)
+                if (!list.Contains(fp + "#" + e.Id)) list.Add(fp + "#" + e.Id);
+        }
         return list;
     }
 
     public override void CollectDependencies(DependencyContext ctx)
     {
-        var g = ReadGroup(ctx.SourcePath, out var sourcePaths);
-        foreach (var m in ImageMembers(g, ctx.AllAssets))
-            ctx.Absorbs(m); // uyenin pikselleri sayfada yasar; tekil kopyasi pak'a girmez
+        var g = ReadGroup(ctx.SourcePath, out var sourcePaths, out var spriteKeys);
+        var members = SpriteMembers(g, spriteKeys);
+        var memberSet = new HashSet<string>(members, StringComparer.Ordinal);
+        var owners = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var m in members)
+        {
+            string owner = SubAssets.Split(m, out string id);
+            if (id == null)
+                ctx.Absorbs(m); // uyenin pikselleri sayfada yasar; tekil kopyasi pak'a girmez
+            else
+            {
+                owners.Add(owner);
+                ctx.Member(m); // alt oge canliligi: biri dussse pak import'u filtreyle kosar
+            }
+        }
+        // Container: TUM girisleri bu grupta ise sahibin kendi sayfasi gereksiz (Absorbs); kismi uyelikte sahip
+        // kendi sayfasiyla gelir (DependsOn) — grupta olmayan katmanlar oradan cizilir.
+        foreach (var o in owners)
+        {
+            if (AssetTree.CoversAllMembers(o, memberSet))
+                ctx.Absorbs(o);
+            else
+                ctx.DependsOn(o);
+        }
         foreach (var f in sourcePaths)
             ctx.Absorbs(f); // bolgeler sayfada; kaynagin kendi sheet'i (Standalone) gereksiz
     }
 
     public override void Import(ImportContext ctx)
     {
-        var g = ReadGroup(ctx.SourcePath, out var sourcePaths);
+        var g = ReadGroup(ctx.SourcePath, out var sourcePaths, out var spriteKeys);
         var sources = new List<RegionSource>();
         var members = new List<string>();
         var errors = new StringBuilder();
 
-        // png/jpg uyeleri: tek bolge, pikseller dogrudan decode (importer'siz kaynak).
-        // Build filtresi (IsLive): sahne grafinin erismedigi uye sayfaya girmez.
-        foreach (var rel in ImageMembers(g, App.Assets?.AllAssets.Keys ?? Array.Empty<string>()))
+        // Tekil uyeler: png/jpg (tek bolge, dogrudan decode) ya da container alt ogesi (index'teki piksel artifact'i +
+        // dikdortgen; dosya formati bilinmez). Build filtresi (IsLive): sahne grafinin erismedigi uye sayfaya girmez.
+        var pixelCache = new Dictionary<string, (byte[] Px, int W, int H)>(StringComparer.Ordinal);
+        var memberKeys = SpriteMembers(g, spriteKeys);
+        foreach (var key in memberKeys)
         {
-            if (!ctx.IsLive(rel))
+            string owner = SubAssets.Split(key, out string id);
+            // Canlilik ALT OGE duzeyinde: pak build'inde yalniz referanslanan katman/parca sayfaya girer.
+            if (!ctx.IsLive(id == null ? owner : key))
                 continue;
-            var rgba = EditorPixels.DecodeFile(ctx.FullPath(rel), out int w, out int h);
-            if (rgba == null)
+            RegionSource s;
+            if (id == null)
             {
-                errors.Append(rel).Append(" decode edilemedi; ");
-                continue;
+                var rgba = EditorPixels.DecodeFile(ctx.FullPath(key), out int w, out int h);
+                if (rgba == null)
+                {
+                    errors.Append(key).Append(" decode edilemedi; ");
+                    continue;
+                }
+                s = RegionSource.FromBuffer(key, RegionKind.Color, rgba, 4, w, 0, 0, w, h);
             }
-            var s = RegionSource.FromBuffer(rel, RegionKind.Color, rgba, 4, w, 0, 0, w, h);
+            else
+            {
+                if (!SubAssets.TryGetEntry(owner, id, out var e))
+                {
+                    errors.Append(key).Append(" index'te yok; ");
+                    continue;
+                }
+                string pk = owner + "#" + e.Pixels;
+                if (!pixelCache.TryGetValue(pk, out var pix))
+                {
+                    string path = ctx.ArtifactPath(owner, e.Pixels);
+                    int pw = 0, ph = 0;
+                    var px = path != null ? EditorPixels.DecodeFile(path, out pw, out ph) : null;
+                    if (px == null)
+                    {
+                        errors.Append(key).Append(" piksel artifact'i yok: ").Append(e.Pixels).Append("; ");
+                        continue;
+                    }
+                    pixelCache[pk] = pix = (px, pw, ph);
+                }
+                int rx = e.W > 0 ? e.X : 0, ry = e.W > 0 ? e.Y : 0, rw = e.W > 0 ? e.W : pix.W, rh = e.H > 0 ? e.H : pix.H;
+                s = RegionSource.FromBuffer(key, e.Sdf ? RegionKind.Sdf : RegionKind.Color, pix.Px, 4, pix.W, rx, ry, rw, rh);
+            }
             s.Pad = Math.Max(0, g.padding);
             sources.Add(s);
-            members.Add(rel);
+            members.Add(key);
         }
 
         // Bolge ureticileri (font, spine...): "sprites" tablosu + sayfa piksel artifact'leri.
@@ -150,9 +226,12 @@ public sealed partial class AtlasImporter : AssetImporter
             }
             var pixelBlobs = new Dictionary<string, (byte[] Px, int W, int H)>();
             bool ok = true;
+            bool perEntry = SubAssets.IndexOf(fp).AtlasMembers; // katman/parca ureticisi: bolge bazli canlilik (font: butun)
             foreach (var e in man.Regions)
             {
                 if (e.Page < 0 || e.Page >= man.Pages.Count)
+                    continue;
+                if (perEntry && !ctx.IsLive(e.Name))
                     continue;
                 string pixels = man.Pages[e.Page].Artifact;
                 if (!pixelBlobs.ContainsKey(pixels))

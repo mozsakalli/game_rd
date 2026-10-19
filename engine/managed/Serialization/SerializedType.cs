@@ -33,7 +33,9 @@ public static class SerializedType
         public FieldSchema ShowIf;
         public string[] ShowIfScalars;
         public bool Hidden;            // [HideInInspector]: serilesir, inspector cizmez (editor)
+        public bool Sensitive;         // [Sensitive]: RPC/MCP ciktisinda "***", inspector maskeli (editor)
         public bool FontName;          // [FontName]: string alan = FontTable adi (editor combo / rpc format)
+        public string Category;        // [Category]: ayar penceresi grubu (editor); null = General
 
         // CEKIRDEK boxed erisimciler + kuruculuar: serializer/clone IC YOLLARI yalniz
         // bunlari kullanir (Info'ya asla dokunmaz). Editorde FieldInfo'dan sarilir;
@@ -90,7 +92,9 @@ public static class SerializedType
         foreach (var f in schema)
         {
             f.Hidden = f.Info.GetCustomAttribute<HideInInspectorAttribute>() != null;
+            f.Sensitive = f.Info.GetCustomAttribute<SensitiveAttribute>() != null;
             f.FontName = f.Kind == Kind.String && f.Info.GetCustomAttribute<FontNameAttribute>() != null;
+            f.Category = f.Info.GetCustomAttribute<CategoryAttribute>()?.Name;
             var attr = f.Info.GetCustomAttribute<ShowIfAttribute>();
             if (attr == null)
                 continue;
@@ -228,7 +232,7 @@ public static class SerializedType
     public static DocNode WriteField(object owner, FieldSchema f, GoEncoder goEnc, CompEncoder compEnc, AssetDatabase assets)
             => WriteValue(f.Get(owner), f.Kind, f, goEnc, compEnc, assets);
 
-    static DocNode WriteValue(object v, Kind kind, FieldSchema f, GoEncoder goEnc, CompEncoder compEnc, AssetDatabase assets)
+    internal static DocNode WriteValue(object v, Kind kind, FieldSchema f, GoEncoder goEnc, CompEncoder compEnc, AssetDatabase assets)
     {
         switch (kind)
         {
@@ -238,9 +242,9 @@ public static class SerializedType
                 return DocNode.Scal(compEnc((Component)v));
             case Kind.Asset:
                 {
-                    // GUID varsa guid yazilir (tasima/rename kirmaz); yoksa anahtar (yol / "asset#alt").
+                    // GUID varsa guid yazilir (tasima/rename kirmaz); alt oge "yol#sub" -> "guid#sub"; guid'siz anahtar aynen.
                     var name = AssetDatabase.KeyOf(v, assets);
-                    return DocNode.Scal(assets?.PathToGuid(name) ?? name);
+                    return DocNode.Scal(assets != null ? assets.ToRefKey(name) : name);
                 }
             case Kind.List:
                 {

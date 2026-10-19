@@ -218,7 +218,9 @@ public sealed unsafe class RenderQueue
             }
 
             Mesh mesh = Mesh.FromSlot(head.Mesh);
-            if (mesh != null)
+            // Doku view'i yok (havuz tukenmesi / olusmamis kaynak): bu batch atlanir — gecersiz binding her
+            // draw'da validation hatasi uretir, sokol debug'da assert'e duser.
+            if (mesh != null && head.TexView != 0 && mesh.Vbuf != 0)
             {
                 if (curPip != head.Pip)
                 {

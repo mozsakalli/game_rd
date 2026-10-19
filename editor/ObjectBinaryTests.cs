@@ -173,6 +173,16 @@ public static class ObjectBinaryTests
         // --- Katalog degisince cache duser ---
         db2.Catalog = new TypeCatalog();
         Check(db2.LoadObject("Defs/L1.asset") == null, "katalog reload -> cache temiz");
+
+        // --- Olmayan anahtar sonradan gelir: null sonuc / basarisiz ensure YAPISKAN KALMAZ ---
+        // (kaynak senkron tamamlanir: in-flight/memo sirasi hatasi burada ortaya cikar)
+        var late = new MemorySource();
+        var db3 = new AssetDatabase(late) { Catalog = catalog };
+        Check(db3.PreloadAsync("Late/a.scene").Result == null, "yokken Preload null");
+        Check(db3.EnsureLoadedAsync("Late/a.scene").Result == false, "yokken Ensure false");
+        late.Data["Late/a.scene"] = Encoding.UTF8.GetBytes("scene: X\n");
+        Check(db3.PreloadAsync("Late/a.scene").Result != null, "sonradan gelen dosya Preload ile okunur");
+        Check(db3.EnsureLoadedAsync("Late/a.scene").Result, "sonradan gelen dosya Ensure true");
     }
 
     static string SaveYaml(object obj, AssetDatabase db)

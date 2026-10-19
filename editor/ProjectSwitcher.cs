@@ -99,11 +99,11 @@ public static class ProjectSwitcher
         Open(path);
     }
 
-    // Bos klasoru acilabilir projeye cevirir: Assets/Scenes/Main.scene + PlayerSettings + son-sahne kaydi.
+    // Bos klasoru acilabilir projeye cevirir: Assets/Scenes/Main.scene + Games/<ad>/PlayerSettings + son-sahne kaydi.
     static void Seed(string root)
     {
         Directory.CreateDirectory(root);
-        var project = Project.Load(root); // Assets/, Library/, ProjectSettings/PlayerSettings.asset
+        var project = Project.Load(root); // Assets/, Library/, ProjectSettings/Games/<klasor adi>/PlayerSettings.asset
         project.Player.productName = Path.GetFileName(root.TrimEnd('\\', '/'));
         if (!project.Player.scenes.Contains(project.Player.startScene))
             project.Player.scenes.Add(project.Player.startScene);
@@ -115,7 +115,7 @@ public static class ProjectSwitcher
             File.WriteAllText(scenePath, new SceneDoc().ToYaml());
 
         Directory.CreateDirectory(project.UserSettingsPath);
-        var settings = new EditorSettings { lastScene = Path.GetRelativePath(root, scenePath).Replace('\\', '/') };
+        var settings = new EditorSettings { lastScene = Path.GetRelativePath(root, scenePath).Replace('\\', '/'), workingGame = project.Game };
         ObjectSerializer.Save(settings, Path.Combine(project.UserSettingsPath, "EditorSettings.asset"));
     }
 
@@ -176,6 +176,8 @@ public static class ProjectSwitcher
             EditorLog.Info("[project] zaten acik: " + projectRoot);
             return;
         }
+        if (!App.ConfirmUnsaved(() => Open(projectRoot)))
+            return; // dirty sahne/stage: Save/Discard/Cancel soruldu, secimden sonra buraya doner
         if (PlayMode.State != PlayState.Editing)
             PlayMode.Stop();
         var prefs = EditorPrefs.Load();
