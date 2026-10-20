@@ -209,6 +209,7 @@ public unsafe class App
         PluginTests.Run();
         GameTests.Run();
         RedactTests.Run();
+        MemoryTests.Run();
 #endif
         // Apply yolu: stash'li sahne (stage) de kapsama girsin.
         EditorScene.PrefabEditScope = (es, mutate) => WithPrefabEdit(mutate);
@@ -569,8 +570,8 @@ public unsafe class App
             return;
         if (!Project.HasGame(game))
             throw new System.ArgumentException("unknown game: " + game + " (ProjectSettings/Games/)");
-        if (InPrefabStage && !TryExitPrefabStage(() => SetWorkingGame(game)))
-            return;
+        if (!ConfirmUnsaved(() => SetWorkingGame(game)))
+            return; // dirty stage/sahne: Save/Discard/Cancel soruldu, secimden sonra buraya doner
         PlayMode.Stop();
         SaveSettings(); // canli alanlar (kamera/cihaz) tazelensin
         Settings.StashGame(Project.Game);
@@ -586,17 +587,12 @@ public unsafe class App
         GameOutput.Orientation = Settings.gameViewOrientation;
         if (Settings.sceneCamZoom > 0)
             _sceneView.SetView(new Vec2(Settings.sceneCamX, Settings.sceneCamY), Settings.sceneCamZoom);
-        // Son sahne: kaydedilmemis degisiklik varsa acik sahneye dokunulmaz (kullanici kaydedip kendisi acar).
+        // Son sahne: ConfirmUnsaved gectigi icin acik sahne temiz; yeni oyunun son sahnesi (farkliysa) acilir.
         string last = Settings.lastScene.Length > 0 ? System.IO.Path.Combine(Project.Root, Settings.lastScene) : null;
         if (last != null && System.IO.File.Exists(last) && !string.Equals(last, _editScene.Path, System.StringComparison.OrdinalIgnoreCase))
         {
-            if (_editScene.Dirty)
-                EditorLog.Warning("[game] open scene has unsaved changes; last scene of '" + game + "' not opened (" + Settings.lastScene + ")");
-            else
-            {
-                _editScene.Load(last, _catalog, _assets);
-                Selection.DocId = 0;
-            }
+            _editScene.Load(last, _catalog, _assets);
+            Selection.DocId = 0;
         }
         _editScene.ResetHistoryKeepDirty();
         Selection.Clear();

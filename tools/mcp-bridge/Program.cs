@@ -28,7 +28,7 @@ static class Program
         var stdin = Console.OpenStandardInput();
         var stdout = Console.OpenStandardOutput();
         var reader = new StreamReader(stdin, new UTF8Encoding(false));
-        var writer = new StreamWriter(stdout, new UTF8Encoding(false)) { AutoFlush = true };
+        _out = new StreamWriter(stdout, new UTF8Encoding(false)) { AutoFlush = true };
 
         string? line;
         while ((line = reader.ReadLine()) != null)
@@ -42,9 +42,64 @@ static class Program
                 continue;
             var response = Handle(msg);
             if (response != null)
-                writer.WriteLine(response.ToJsonString());
+                Send(response);
         }
         return 0;
+    }
+
+    // stdout tek yazar: yanitlar (ana dongu) + list_changed bildirimi (izleyici is parcacigi) kilitle siralanir.
+    static StreamWriter? _out;
+    static readonly object _outLock = new();
+    static void Send(JsonNode msg)
+    {
+        lock (_outLock)
+            _out!.WriteLine(msg.ToJsonString());
+    }
+
+    // ARAC LISTESI TAZELEME: istemci (VS Code) tools/list'i bir kez ceker ve onbellekler; editor yeniden build
+    // edilince (yeni komut / yeni parametre) liste bayatlar. Izleyici periyodik rpc.describe imzasini karsilastirir,
+    // degisince notifications/tools/list_changed yollar → istemci yeniden tools/list ister. Editor kapaliyken
+    // bildirim yok; acilinca imza farkliysa (ya da ilk liste bos dondüyse) bildirim gider.
+    static string? _lastSig;
+    static Thread? _watcher;
+    static void StartWatcher()
+    {
+        if (_watcher != null)
+            return;
+        _watcher = new Thread(() =>
+        {
+            while (true)
+            {
+                Thread.Sleep(5000);
+                string sig;
+                try { sig = Signature(Rpc("rpc.describe", null)); }
+                catch { continue; }
+                if (_lastSig != null && sig != _lastSig)
+                {
+                    _lastSig = sig;
+                    Log("arac semasi degisti → tools/list_changed");
+                    Send(new JsonObject { ["jsonrpc"] = "2.0", ["method"] = "notifications/tools/list_changed" });
+                }
+            }
+        })
+        { IsBackground = true, Name = "mcp-tools-watch" };
+        _watcher.Start();
+    }
+
+    // Komut adlari + parametre ad/tip/default — help metni degisikligi listeyi tetiklemez (gurultu olmasin).
+    static string Signature(JsonNode describe)
+    {
+        var sb = new StringBuilder();
+        foreach (var kv in describe.AsObject().OrderBy(k => k.Key, StringComparer.Ordinal))
+        {
+            sb.Append(kv.Key).Append('(');
+            if (kv.Value?["params"] is JsonArray ps)
+                foreach (var pn in ps)
+                    if (pn != null)
+                        sb.Append(pn["name"]).Append(':').Append(pn["type"]).Append('=').Append(pn["default"]?.ToJsonString()).Append(',');
+            sb.Append(")\n");
+        }
+        return sb.ToString();
     }
 
     static JsonNode? Handle(JsonNode msg)
@@ -56,13 +111,7 @@ static class Program
         {
             JsonNode? result = method switch
             {
-                "initialize" => new JsonObject
-                {
-                    ["protocolVersion"] = msg["params"]?["protocolVersion"]?.GetValue<string>() ?? "2024-11-05",
-                    ["capabilities"] = new JsonObject { ["tools"] = new JsonObject() },
-                    ["serverInfo"] = new JsonObject { ["name"] = "digitoy-editor", ["version"] = "0.1" },
-                    ["instructions"] = BuildInstructions(),
-                },
+                "initialize" => Initialize(msg),
                 "ping" => new JsonObject(),
                 "tools/list" => ToolsList(),
                 "tools/call" => ToolsCall(msg["params"]),
@@ -96,12 +145,26 @@ static class Program
         }
     }
 
+    static JsonNode Initialize(JsonNode msg)
+    {
+        StartWatcher();
+        return new JsonObject
+        {
+            ["protocolVersion"] = msg["params"]?["protocolVersion"]?.GetValue<string>() ?? "2024-11-05",
+            ["capabilities"] = new JsonObject { ["tools"] = new JsonObject { ["listChanged"] = true } },
+            ["serverInfo"] = new JsonObject { ["name"] = "digitoy-editor", ["version"] = "0.2" },
+            ["instructions"] = BuildInstructions(),
+        };
+    }
+
     // Sabit talimat YOK (surekli degisir): tek sahibi editorun rpc.guide'i. Baglanabiliyorsak icerigi
     // initialize aninda cekip gomeriz (ajan ek cagri yapmaz); baglanamiyorsak yalniz "once rpc_guide cagir".
+    // NOT: MCP'de instructions yalniz initialize'da gider — guide degisirse ajan rpc_guide'i yeniden cagirmali.
     static string BuildInstructions()
     {
         const string hint = "DigitoyEditor canli oturumu. Ise baslamadan ONCE rpc_guide cagir (is akisi, kavramlar, deger bicimleri); " +
-            "komut semasi icin rpc_describe. Araclar editorden canli uretilir.";
+            "komut semasi icin rpc_describe. Araclar editorden canli uretilir (editor yeniden build edilince liste kendiliginden tazelenir; " +
+            "guide metni icin rpc_guide'i yeniden cagir).";
         try
         {
             var guide = Rpc("rpc.guide", null);
@@ -134,8 +197,10 @@ static class Program
         catch (Exception e)
         {
             Log("editor'e baglanilamadi: " + e.Message);
+            _lastSig = ""; // bos liste verildi: editor acilinca list_changed gitsin
             return new JsonObject { ["tools"] = tools };
         }
+        _lastSig = Signature(describe);
         _toolToCmd.Clear();
         foreach (var kv in describe.AsObject())
         {
@@ -216,7 +281,7 @@ static class Program
         }
     }
 
-    // Sonucta "path": "*.png|*.jpg" (kok, "screenshot" cocugu ya da "frames" listesi) varsa dosyayi gorsel olarak ekle.
+    // Sonucta "path": "*.png|*.jpg" (kok, "screenshot" cocugu ya da "captures"/"frames" listesi) varsa dosyayi gorsel olarak ekle.
     static IEnumerable<string> FindImages(JsonNode result)
     {
         if (result is not JsonObject o)
@@ -225,10 +290,11 @@ static class Program
             yield return p;
         if (o["screenshot"] is JsonObject s && ImagePath(s["path"]) is string p2)
             yield return p2;
-        if (o["frames"] is JsonArray frames)
-            foreach (var f in frames)
-                if (f is JsonObject fo && ImagePath(fo["path"]) is string p3)
-                    yield return p3;
+        foreach (var key in new[] { "captures", "frames" })
+            if (o[key] is JsonArray list)
+                foreach (var f in list)
+                    if (f is JsonObject fo && ImagePath(fo["path"]) is string p3)
+                        yield return p3;
     }
 
     static string? ImagePath(JsonNode? n)

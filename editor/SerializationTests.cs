@@ -135,6 +135,7 @@ public static class SerializationTests
 
         LayoutBoxFourValues(catalog);
         BakedTolerance(catalog, doc);
+        RefTypeMismatch(catalog);
         SubAssetRefKeys();
 
         Scene.SetActive(prev);
@@ -292,6 +293,69 @@ public static class SerializationTests
         }
         Check(warnings >= 3, "baked tolerans: atlanan alanlar uyari verdi (" + warnings + ")");
         Scene.Unload(sb);
+    }
+
+    [AddComponentMenu("")]
+    public sealed class RefMismatchComp : Component
+    {
+        public SpriteRenderer Single;
+        public List<SpriteRenderer> Many = new();
+    }
+
+    // Kodda alan tipi degisti (LayoutBox -> SpriteRenderer), sahne eski referansi tasiyor: alan null + uyari,
+    // sahnenin kalani yuklenir (Unity "Missing"). YAML ve baked yol ayni davranir.
+    static void RefTypeMismatch(TypeCatalog catalog)
+    {
+        const string yaml = @"scene: mismatch
+objects:
+  - id: 1
+    parent: 0
+    name: A
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+      - type: SpriteRenderer
+      - type: RefMismatchComp
+        Single: '1:LayoutBox:0'
+        Many:
+          - '1:LayoutBox:0'
+          - '1:SpriteRenderer:0'
+";
+        var doc = SceneDoc.Parse(yaml);
+        byte[] baked = SceneBinary.Bake(doc, catalog);
+        foreach (bool useBaked in new[] { false, true })
+        {
+            string tag = useBaked ? "baked" : "yaml";
+            int warnings = 0;
+            var prevWarn = AssetDatabase.LogWarning;
+            AssetDatabase.LogWarning = m => { if (m.Contains("ref tip uyumsuz")) warnings++; };
+            var sc = Scene.Create("ser-test-mismatch-" + tag);
+            sc.Catalog = catalog;
+            Scene.SetActive(sc);
+            RefMismatchComp r = null;
+            try
+            {
+                if (useBaked)
+                    SceneBinary.Spawn(baked, null, catalog, null);
+                else
+                    doc.Spawn(null, catalog, null);
+                r = sc.GetRoot(0).GetComponent<RefMismatchComp>();
+            }
+            catch (Exception e) { Console.WriteLine("[serialization] ref mismatch spawn HATA: " + e); }
+            finally { AssetDatabase.LogWarning = prevWarn; }
+
+            Check(r != null, "ref tip uyumsuz (" + tag + "): sahne yuklendi");
+            if (r != null)
+            {
+                Check(r.Single == null, "ref tip uyumsuz (" + tag + "): tekil alan null");
+                Check(r.Many.Count == 2 && r.Many[0] == null && r.Many[1] != null,
+                    "ref tip uyumsuz (" + tag + "): liste elemani null, uyumlu olan korunur");
+            }
+            Check(warnings == 2, "ref tip uyumsuz (" + tag + "): 2 uyari (" + warnings + ")");
+            Scene.Unload(sc);
+        }
     }
 
     static void Check(bool cond, string name)

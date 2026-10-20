@@ -35,7 +35,8 @@ public static class RpcRedact
             foreach (var t in types)
             {
                 if (t == null) continue;
-                foreach (var f in t.GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.DeclaredOnly))
+                // Static alanlar da (LocalCache._tokens gibi): mem.dump static koklerden yurur
+                foreach (var f in t.GetFields(BindingFlags.Public | BindingFlags.NonPublic | BindingFlags.Instance | BindingFlags.Static | BindingFlags.DeclaredOnly))
                     if (f.IsDefined(typeof(SensitiveAttribute), false)) _keys.Add(f.Name);
             }
         }
@@ -63,7 +64,9 @@ public static class RpcRedact
             for (int i = 0; i < n.Fields.Count; i++)
             {
                 var kv = n.Fields[i];
-                if (_keys.Contains(kv.Key)) { n.Fields[i] = new KeyValuePair<string, DocNode>(kv.Key, DocNode.Scal(Mask)); continue; }
+                // mem.dump non-public alanlari '~ad' yazar; attribute ayni alanda → maske ayni kalir
+                string key = kv.Key.Length > 1 && kv.Key[0] == '~' ? kv.Key.Substring(1) : kv.Key;
+                if (_keys.Contains(key)) { n.Fields[i] = new KeyValuePair<string, DocNode>(kv.Key, DocNode.Scal(Mask)); continue; }
                 Walk(kv.Value);
             }
         }

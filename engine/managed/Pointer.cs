@@ -105,6 +105,19 @@ public sealed class PointerInput
     public GameObject LastDownTarget;   // null = son Down hicbir seye degmedi
     public int LastGestureHandlers;     // son jestte cagrilan handler sayisi (Down'da sifirlanir)
     public bool LastDownMissed;         // son Down hit bulamadi
+#if DE_EDITOR
+    // Editor RPC teshisi: son jestte kosan handler'lar sirayla (component + event + e.Use() ile kesti mi).
+    // Yalniz editor derlemesinde var; runtime'a sizmaz. Liste Down'da Clear edilir (kapasite korunur).
+    public readonly struct HandlerCall
+    {
+        public readonly Component Comp;
+        public readonly string Event;
+        public readonly bool Used;
+        public HandlerCall(Component c, string ev, bool used) { Comp = c; Event = ev; Used = used; }
+    }
+    public readonly System.Collections.Generic.List<HandlerCall> LastGestureHandlerList = new();
+    static readonly string[] EvNames = { "OnPointerDown", "OnPointerUp", "OnPointerClick", "OnDragStart", "OnDrag" };
+#endif
 
     internal PointerInput(Scene scene) => _scene = scene;
 
@@ -114,6 +127,9 @@ public sealed class PointerInput
             return;
         _ev._used = false;
         LastGestureHandlers = 0;
+#if DE_EDITOR
+        LastGestureHandlerList.Clear();
+#endif
         if (!Pick(x, y, out var hit, out var cam))
         {
             LastDownTarget = null;
@@ -337,6 +353,9 @@ public sealed class PointerInput
                     case EvDragStart: c.OnDragStart(_ev); break;
                     case EvDrag: c.OnDrag(_ev); break;
                 }
+#if DE_EDITOR
+                LastGestureHandlerList.Add(new HandlerCall(c, EvNames[evCode], _ev._used));
+#endif
                 if (_ev._used)
                     break;
             }

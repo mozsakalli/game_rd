@@ -1,5 +1,76 @@
 # DigitoyEngine R&D (game_rd)
 
+## AI GÖZ PREPROCESS: ANNOTATE SCREENSHOT (Set-of-Mark) + render.expect (2026-10-20, Sandbox Login e2e doğrulandı)
+- Amaç: LLM resmi "anlamasın", çoğu zaman bakmasın; baktığında etiketli görsün. Sıra: `render.describe` → `render.expect` (PASS/FAIL,
+  görüntüsüz) → yalnız FAIL/ton için `render.screenshot(annotate=true)`. `rpc.guide` coordinates bölümüne yazıldı.
+- `render.screenshot(annotate=true, root, types, clickable, minSize)`: describe listesi (**tek kaynak** `RpcDescribe.Collect` →
+  `Snapshot/Item`; describe, legend ve expect aynı rect'i görür) RT okunup küçültüldükten sonra **CPU'da** RGB tampona çizilir
+  ([MarkRaster.cs](../editor/MarkRaster.cs): sarı #FFD400 1px/2px çerçeve + köşede numaralı etiket, 3×5 bit-font 0-9, ≥512px'de 2×;
+  küçük rect'te etiket dışarı taşınır, aynı köşede çakışırsa aşağı kaydırılır). Yanıt `legend:[{n,path,type,rect,text?,click?}]`.
+  `region` verilirse bölge dışı işaretler atılır. Play sahnesi şart (Game View play'i gösterir). `sim.run/anim.goto(annotate=true)`
+  screenshot'la birlikte; `captureEvery` kareleri annotate'siz (bilerek). MOTORA SIFIR DOKUNUŞ: `GameOutput.ShotRequest.Marks` editörde.
+- `render.expect(expects=[...], which, tol=2, verbose)` ([RpcExpect.cs](../editor/RpcExpect.cs)): öğe `{path, visible?, rect?,
+  x/y/w/h/cx/cy?, text? ('~' öneki = içerir), click?, alpha?(±0.02), order?, within/above/below/leftOf/rightOf:'Other'?}`. `path` tam yol
+  ya da sondan eşleşen ad; çoklu eşleşme → ilk + `ambiguous` listesi. `visible:false` = describe'da yok (inactive/alpha0/ekran dışı/tiny
+  hepsi görünmez; expect `minSize=0` ile toplar). Dönüş `{pass, checked, failures:[{path,check,expected,actual}]}`. Bilinmeyen anahtar
+  anında RpcError; `sim.run/anim.goto(expect=[...])` sim koşmadan `Validate` eder, frame sonunda `expect` alt nesnesi döner.
+- TUZAK: `DocNode` tipli RPC parametresi JSON dizi/nesneyi ham alır (`BindArg`), default `null` ile opsiyonel — `expect` böyle bağlandı.
+
+## RPC/MCP TEST ERGONOMİSİ — AI'ın masa akışı denemesinden 5 öneri (2026-10-20, RPC e2e digitoyclient Login)
+- `sim.run` artık **varsayılan dökümsüz** (`dump=none`: `{frames, restarted?, describe?, screenshot?, frames[]}`); `dump=diff` canlı
+  sahneyi yol-adresli baseline'la kıyaslar (added/changed/removed; restart sonrası ilk diff hepsini added verir); `dump=full` eski davranış.
+  Baseline `_liveBaseline` RpcCommands'ta statik (play sahnesi tek).
+- Canlı değer okuma: `scene.dumpLive(props=true)` katalog şeması alanlarını `scene.dump` ile aynı kanonik biçimde yazar (Go/CompRef canlı
+  yol `A/B`, `A/B:Tip:0`); `live.get(go, comp, expr)` = `mem.dump` yürüyücüsünün kökü canlı component (`RpcMemory.DumpFrom`): public/private
+  alan, property getter, index, hook delegeleri (`{Action} → Hedef.Metot, ...` — Delegate render'ı mem.dump'ta da zenginleşti). Salt okunur.
+- Jest teşhisi: [Pointer.cs](../engine/managed/Pointer.cs) `LastGestureHandlerList` **yalnız `#if DE_EDITOR`** (runtime'a sızmaz; Down'da
+  Clear, kapasite korunur). `input.tap/drag` sonucu `calls: ["GO/yol:Comp.OnPointerClick (used)"]` — hangi component, hangi event, `e.Use()`
+  nerede kesti.
+- `log.tail(filter, sev)`: virgüllü OR metin filtresi + minimum seviye; `count` filtreden sonra; `total` döner.
+- `input.drag(captureEvery, maxSize, format, describe)`: sürükleme sırasında periyodik kare (`CaptureSeries`, sim.run ile ortak). `frames`
+  = adım sayısı (frame başına 1 Move) — ayrı `steps` yok.
+- TUZAK (bu işte yakalandı): `SerializedType.CoerceRef` ilk yazımda `#if DE_EDITOR` bloğuna düşmüştü → Release motor derlemesi kırıktı
+  (SceneBinary kullanıyor). Motor dosyasına eklenen her yardımcı için `dotnet build engine\managed -c Release` koş.
+- MCP KÖPRÜSÜ ([tools/mcp-bridge/Program.cs](../tools/mcp-bridge/Program.cs)): istemci `tools/list`'i bir kez önbellekler → editör yeniden build
+  edilince yeni komut/parametre görünmüyordu. Köprü artık `capabilities.tools.listChanged=true` bildirir; arka plan izleyici 5 sn'de bir
+  `rpc.describe` imzasını (komut + param ad/tip/default; help hariç) karşılaştırır, değişince `notifications/tools/list_changed` yollar
+  (editör kapalı→açık geçişi dahil; stdout yazımı kilitli). `instructions` (rpc.guide) MCP gereği yalnız initialize'da gider — guide
+  değişince `rpc_guide` yeniden çağrılır. Çalışan eski köprü süreçleri yeni kodu bir kez MCP sunucu yeniden başlatmayla alır.
+- `sim.run`/`input.drag` yakalama listesi anahtarı **`captures`** (`frames` sayı alanıyla çakışıyordu → "same key" hatası). Köprü görsel
+  ekleme `captures` + `frames` anahtarlarına bakar.
+- `render.describe` vs `view.get` boyut farkı bug değil (ikisi de `GameOutput.ViewW/H`; panel modunda pencereyle değişir) — guide'a
+  "önce view.device ile sabitle, koordinatı aynı turdaki describe'dan al" notu.
+
+## SAHNE YÜKLEME: Go/CompRef TİP UYUMSUZLUĞU SAHNEYİ DÜŞÜRMEZ (2026-10-20, [serialization] 53 PASS)
+- OLAY: oyun kodunda `Piece.mark` alan tipi `LayoutBox` → `SpriteRenderer` yapıldı; sahne eski `'34:LayoutBox:0'` referansını
+  taşıyordu → `SceneDoc.Spawn` deferred set'te `FieldInfo.SetValue` ArgumentException → **tek alan yüzünden Table.scene hiç yüklenmedi**.
+  Bu tür alan tipi değişiklikleri olağan iş akışı (AI refactor); motor tolere etmeli.
+- KARAR: deferred Go/CompRef değeri alana yazılmadan `SerializedType.CoerceRef` ([SerializedType.cs](../engine/managed/Serialization/SerializedType.cs))
+  `expected.IsInstanceOfType` kontrolü yapar; uyumsuzsa alan **null** + tek satır uyarı
+  `[scene] ref tip uyumsuz: Piece.mark '34:LayoutBox:0' = LayoutBox, beklenen SpriteRenderer → null` (Unity "Missing" davranışı).
+  YAML (`ReadField/ReadElement`) ve baked ([SceneBinary.cs](../engine/managed/Serialization/SceneBinary.cs) `ReadFields/ReadElement`)
+  aynı yol; liste elemanı da kapsanır (`alan[i]`). Editör edit-sahnesi de `Doc.Spawn` kullandığı için aynı tolerans.
+- OTOMATİK ONARIM YOK: aynı GO'da beklenen tipte component olsa da bağlanmaz (sessiz yanlış bağ > açık null). Doc'taki eski referans
+  metni silinmez; kullanıcı Inspector/`prop.set` ile yeniden atar, kayıtta yeni değer yazılır.
+- TEST: `SerializationTests.RefTypeMismatch` — tekil alan + liste (biri uyumsuz, biri uyumlu), yaml+baked, uyarı sayısı 2.
+
+## MEM.* BELLEK İZLEYİCİ — AI için debugger watch, oyun tarafında sıfır kod (2026-10-20, [memory] 31 PASS, digitoyclient RPC e2e)
+- KARAR (kullanıcı): oyun modeli/servis durumunu AI'a açmak için attribute/kayıt/komut yazılmaz; editör reflection ile "neyi isterse"
+  döker. [editor/RpcMemory.cs](../editor/RpcMemory.cs): `mem.types(filter, scope=game|engine|editor|all)` keşif (statics>0 = kök adayı),
+  `mem.statics(type)` static üyeler + özet, `mem.dump(expr, depth=2, max=50)` ifade yolu: `GinTableService.I.CurrentState.Players[1].Hand`,
+  `TableServices.Factories[7]`, `Discards[-1]`, `BySuit[Hearts]`, `D["k"]`. Tip çözümü en uzun ön-ekten kısaya, tam ad **veya**
+  namespace'siz sonek (`MemoryTests.Svc.Dup`), tekil değilse adaylar listelenir. Alanlar (non-public `~ad`) + public getter'lar
+  (istisna `!Tip: mesaj`), `$type`, döngü `(cycle)`, `…+N` kesme, struct ToString override kompakt, motor nesneleri tek satır
+  (`{GameObject 'x'}`; sahne için `scene.dumpLive`). SALT OKUNUR; yazma/metot çağrısı bilerek yok. Statik tip cache yok (her çağrı taze).
+  Reddedilen: `[Inspectable]` kök attribute'u (oyun başına iş) ve oyuna `[RpcCommand("gin.state")]` yazmak (ad-hoc dump kodu).
+- GİZLİLİK (bu işte bulunan 3 açık, kapatıldı): (1) `RpcRedact.Rebuild` yalnız instance alanları tarıyordu → **static alanlar da**
+  (`LocalCache._tokens` düz metin okunabiliyordu; digitoyclient'ta `[Sensitive]` eklendi). (2) `~ad` anahtarı kümeyle eşleşmiyordu →
+  Walk `~` ön ekini soyar. (3) Hassas üyeden **geçiş** (`_tokens[7]` → değer `value` anahtarında gelir, ad bazlı maske kaçar) →
+  `RpcMemory.GuardSensitive` yolda hassas üye görünce reddeder. `mem.statics` çıktısı ad-anahtarlı harita (liste değil) ki maske kapasın.
+- TUZAK: static üye ile aynı adlı iç tip varsa iç tip kazanır (ön-ek eşleşmesi önce). Property getter'ları çağrılır — yan etkili
+  getter debugger'daki riskin aynısı; servis getter'ları saf tutulur. `rpc.guide` "memory" bölümü akışı anlatır (model → görünüm ayrışması
+  teşhisi); MCP köprüsü araçları `rpc.describe`'dan canlı aldığı için ek iş yok.
+
 ## LOCALIZATION: [Localize] ENUM — kod→metin kümeleri (sunucu hata kodu) tablodan, otomatik senkron (2026-10-19, [localization] 60 PASS, RPC e2e)
 - SORU: sunucu hata kodu gönderiyor, istemci dinamik çevrilmiş metin gösterecek. KARAR: sunucu **metin değil enum int'i + arg**
   gönderir; cümle istemcide tablodan (`{0}` yerleşimi dile göre). Enum'a `[Localize("error")]` → key `error.<slug(Üye)>`

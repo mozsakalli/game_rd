@@ -40,9 +40,10 @@ static class RpcGame
         return r;
     }
 
-    [RpcCommand("game.set", "Calisilan oyunu degistirir (toolbar combosu): o oyunun son sahnesi/temasi/cihazi geri gelir, oyun kodu yeniden yuklenir (statikler sifir). Acik sahnede kaydedilmemis degisiklik varsa sahne degismez (uyari)")]
-    static DocNode Set(RpcContext ctx, string name)
+    [RpcCommand("game.set", "Calisilan oyunu degistirir (toolbar combosu): o oyunun son sahnesi/temasi/cihazi geri gelir, oyun kodu yeniden yuklenir (statikler sifir). Acik sahne/stage kaydedilmemisse UNSAVED hatasi doner: scene.save ya da force=true (degisiklikler atilir)")]
+    static DocNode Set(RpcContext ctx, string name, bool force = false)
     {
+        RpcCommands.GuardUnsaved(force);
         try { App.SetWorkingGame(name); }
         catch (ArgumentException e) { throw new RpcError(e.Message); }
         return List(ctx);
@@ -57,11 +58,13 @@ static class RpcGame
         return List(ctx);
     }
 
-    [RpcCommand("game.remove", "Oyunu klasoruyle siler (son oyun silinemez; calisilan silinirse ilk kalan oyuna gecilir)")]
-    static DocNode Remove(RpcContext ctx, string name)
+    [RpcCommand("game.remove", "Oyunu klasoruyle siler (son oyun silinemez; calisilan silinirse ilk kalan oyuna gecilir — acik sahne kaydedilmemisse UNSAVED hatasi: scene.save ya da force=true)")]
+    static DocNode Remove(RpcContext ctx, string name, bool force = false)
     {
         var p = App.Project;
         bool wasWorking = string.Equals(p.Game, name, StringComparison.OrdinalIgnoreCase);
+        if (wasWorking)
+            RpcCommands.GuardUnsaved(force);
         try
         {
             if (wasWorking)

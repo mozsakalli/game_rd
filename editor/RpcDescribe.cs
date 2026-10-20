@@ -15,7 +15,7 @@ static class RpcDescribe
     // sim.run/anim.goto icin varsayilan ayarlarla play ozeti.
     internal static DocNode DescribePlay(RpcContext ctx) => Describe(ctx);
 
-    sealed class Cam
+    internal sealed class Cam
     {
         public CameraComponent C;
         public float Rx, Ry, Rw, Rh;   // z=0 dunya gorus rect'i
@@ -23,8 +23,51 @@ static class RpcDescribe
         public Vec3 Eye;
     }
 
-    [RpcCommand("render.describe", "Ekranin METIN ozeti (screenshot yerine ONCE BUNU dene): cizim sirasinda gorunur renderer'lar, mantiksal ekran rect'i 'x y w h' (merkez = input.tap koordinati), order, alpha(<1), text, sprite, fill, click (tiklanabilir). which: play|edit; root: yalniz bu GO'nun alt agaci ('A/B' yolu ya da ad); types: virgullu tip filtresi (LayoutBox,TextSprite); minSize: kucuk rect'leri at (mantiksal px); clickable=true → yalniz tiklanabilirler (buton envanteri); pixels=N → N sutunluk ortalama renk izgarasi ('rrggbb', ekran bos mu/parlak nerede). Gorsel ton/suphe icin render.screenshot")]
-    static DocNode Describe(RpcContext ctx, string which = "play", string root = "", string types = "", float minSize = 2f, bool clickable = false, int pixels = 0)
+    // Tek bir gorunur renderer'in ekran ozeti. render.describe, annotate screenshot (legend) ve render.expect
+    // AYNI listeyi kullanir: etiket numarasi ile describe rect'i asla farkli olamaz.
+    internal sealed class Item
+    {
+        public Renderer R;
+        public string Path, Type;
+        public float X, Y, W, H;      // ekrana kirpilmis mantiksal rect
+        public bool Partial, Click;
+        public int Order;
+        public float Alpha;
+        public string Text, Sprite, Fill, Tint;
+        public float Cx => X + W / 2;
+        public float Cy => Y + H / 2;
+
+        public DocNode ToNode()
+        {
+            var m = DocNode.Map();
+            m.Add("path", DocNode.Scal(Path));
+            m.Add("type", DocNode.Scal(Type));
+            m.Add("rect", DocNode.Scal(Rect(X, Y, W, H)));
+            if (Partial)
+                m.Add("partial", DocNode.Scal("true")); // ekran kenarindan tasiyor (rect kirpilmis)
+            m.Add("order", DocNode.Scal(Order.ToString(CultureInfo.InvariantCulture)));
+            if (Alpha < 1f)
+                m.Add("alpha", DocNode.Scal(RpcCommands.F(MathF.Round(Alpha, 3))));
+            if (Text != null) m.Add("text", DocNode.Scal(Text));
+            if (Sprite != null) m.Add("sprite", DocNode.Scal(Sprite));
+            if (Fill != null) m.Add("fill", DocNode.Scal(Fill));
+            if (Tint != null) m.Add("tint", DocNode.Scal(Tint));
+            if (Click)
+                m.Add("click", DocNode.Scal("true"));
+            return m;
+        }
+    }
+
+    internal sealed class Snapshot
+    {
+        public Scene Scene;
+        public float Vw, Vh;
+        public List<Cam> Cams;
+        public List<Item> Items = new();
+        public int Offscreen, Tiny;
+    }
+
+    internal static Scene ResolveScene(RpcContext ctx, string which)
     {
         var scene = which switch
         {
@@ -34,8 +77,53 @@ static class RpcDescribe
         };
         if (scene == null)
             throw new RpcError($"canli sahne yok: {which}" + (which == "play" ? " (sim.run/play.start ile baslat)" : ""));
+        return scene;
+    }
+
+    [RpcCommand("render.describe", "Ekranin METIN ozeti (screenshot yerine ONCE BUNU dene): cizim sirasinda gorunur renderer'lar, mantiksal ekran rect'i 'x y w h' (merkez = input.tap koordinati), order, alpha(<1), text, sprite, fill, click (tiklanabilir). which: play|edit; root: yalniz bu GO'nun alt agaci ('A/B' yolu ya da ad); types: virgullu tip filtresi (LayoutBox,TextSprite); minSize: kucuk rect'leri at (mantiksal px); clickable=true → yalniz tiklanabilirler (buton envanteri); pixels=N → N sutunluk ortalama renk izgarasi ('rrggbb', ekran bos mu/parlak nerede). Dogrulama icin render.expect, gorsel ton/suphe icin render.screenshot(annotate=true)")]
+    static DocNode Describe(RpcContext ctx, string which = "play", string root = "", string types = "", float minSize = 2f, bool clickable = false, int pixels = 0)
+    {
+        var scene = ResolveScene(ctx, which);
         if (pixels < 0 || pixels > 128)
             throw new RpcError("pixels 0..128 olmali");
+        var snap = Collect(scene, root, types, minSize, clickable);
+
+        var items = DocNode.Seq();
+        foreach (var it in snap.Items)
+            items.Items.Add(it.ToNode());
+
+        var res = DocNode.Map();
+        res.Add("screen", DocNode.Scal(string.Create(CultureInfo.InvariantCulture, $"{snap.Vw:0.##} {snap.Vh:0.##}")));
+        var camSeq = DocNode.Seq();
+        foreach (var c in snap.Cams)
+        {
+            var cm = DocNode.Map();
+            cm.Add("go", DocNode.Scal(RpcCommands.LivePath(c.C._gameObject)));
+            cm.Add("depth", DocNode.Scal(c.C.depth.ToString(CultureInfo.InvariantCulture)));
+            cm.Add("projection", DocNode.Scal(c.C.Projection?.GetType().Name ?? "PixelPerfect"));
+            camSeq.Items.Add(cm);
+        }
+        res.Add("cameras", camSeq);
+        res.Add("items", items);
+        res.Add("count", DocNode.Scal(items.Items.Count.ToString(CultureInfo.InvariantCulture)));
+        if (snap.Offscreen > 0) res.Add("offscreen", DocNode.Scal(snap.Offscreen.ToString(CultureInfo.InvariantCulture)));
+        if (snap.Tiny > 0) res.Add("tiny", DocNode.Scal(snap.Tiny.ToString(CultureInfo.InvariantCulture)));
+        if (pixels > 0)
+        {
+            var grid = DocNode.Seq();
+            foreach (var line in GameOutput.PixelGrid(pixels))
+                grid.Items.Add(DocNode.Scal(line));
+            res.Add("pixels", grid);
+            res.Add("pixelsNote", DocNode.Scal("satir = ust→alt, hucre = ortalama rrggbb; hucre (col,row) ≈ ekran (col*screenW/cols, row*screenH/rows)"));
+        }
+        if (which == "play" && PlayMode.PlaySceneStale)
+            res.Add("stale", DocNode.Scal("true"));
+        return res;
+    }
+
+    // Gorunur renderer'lari cizim sirasinda toplar (filtreler describe ile ayni).
+    internal static Snapshot Collect(Scene scene, string root = "", string types = "", float minSize = 2f, bool clickable = false)
+    {
         float vw = scene.ScreenWidth > 0 ? scene.ScreenWidth : GameOutput.ViewW;
         float vh = scene.ScreenHeight > 0 ? scene.ScreenHeight : GameOutput.ViewH;
 
@@ -80,60 +168,32 @@ static class RpcDescribe
             return c != 0 ? c : a.r._paintOrder.CompareTo(b.r._paintOrder);
         });
 
-        var items = DocNode.Seq();
-        int offscreen = 0, tiny = 0;
+        var snap = new Snapshot { Scene = scene, Vw = vw, Vh = vh, Cams = cams };
         foreach (var (r, ci) in list)
         {
             if (!ScreenRect(r, cams.Count > 0 ? cams[ci] : null, vw, vh, out float x0, out float y0, out float x1, out float y1))
                 continue;
-            if (x1 <= 0 || y1 <= 0 || x0 >= vw || y0 >= vh) { offscreen++; continue; }
+            if (x1 <= 0 || y1 <= 0 || x0 >= vw || y0 >= vh) { snap.Offscreen++; continue; }
             float cx0 = MathF.Max(0, x0), cy0 = MathF.Max(0, y0), cx1 = MathF.Min(vw, x1), cy1 = MathF.Min(vh, y1);
-            if (cx1 - cx0 < minSize || cy1 - cy0 < minSize) { tiny++; continue; }
+            if (cx1 - cx0 < minSize || cy1 - cy0 < minSize) { snap.Tiny++; continue; }
             bool click = r.BlocksRaycast || HasHandlerInChain(r._gameObject);
             if (clickable && !click)
                 continue;
-            var m = DocNode.Map();
-            m.Add("path", DocNode.Scal(RpcCommands.LivePath(r._gameObject)));
-            m.Add("type", DocNode.Scal(r.GetType().Name));
-            m.Add("rect", DocNode.Scal(Rect(cx0, cy0, cx1 - cx0, cy1 - cy0)));
-            if (cx0 != x0 || cy0 != y0 || cx1 != x1 || cy1 != y1)
-                m.Add("partial", DocNode.Scal("true")); // ekran kenarindan tasiyor (rect kirpilmis)
-            m.Add("order", DocNode.Scal(r._effectiveOrder.ToString(CultureInfo.InvariantCulture)));
-            if (r._effectiveAlpha < 1f)
-                m.Add("alpha", DocNode.Scal(RpcCommands.F(MathF.Round(r._effectiveAlpha, 3))));
-            Detail(r, m);
-            if (click)
-                m.Add("click", DocNode.Scal("true"));
-            items.Items.Add(m);
+            var it = new Item
+            {
+                R = r,
+                Path = RpcCommands.LivePath(r._gameObject),
+                Type = r.GetType().Name,
+                X = cx0, Y = cy0, W = cx1 - cx0, H = cy1 - cy0,
+                Partial = cx0 != x0 || cy0 != y0 || cx1 != x1 || cy1 != y1,
+                Order = r._effectiveOrder,
+                Alpha = r._effectiveAlpha,
+                Click = click,
+            };
+            Detail(r, it);
+            snap.Items.Add(it);
         }
-
-        var res = DocNode.Map();
-        res.Add("screen", DocNode.Scal(string.Create(CultureInfo.InvariantCulture, $"{vw:0.##} {vh:0.##}")));
-        var camSeq = DocNode.Seq();
-        foreach (var c in cams)
-        {
-            var cm = DocNode.Map();
-            cm.Add("go", DocNode.Scal(RpcCommands.LivePath(c.C._gameObject)));
-            cm.Add("depth", DocNode.Scal(c.C.depth.ToString(CultureInfo.InvariantCulture)));
-            cm.Add("projection", DocNode.Scal(c.C.Projection?.GetType().Name ?? "PixelPerfect"));
-            camSeq.Items.Add(cm);
-        }
-        res.Add("cameras", camSeq);
-        res.Add("items", items);
-        res.Add("count", DocNode.Scal(items.Items.Count.ToString(CultureInfo.InvariantCulture)));
-        if (offscreen > 0) res.Add("offscreen", DocNode.Scal(offscreen.ToString(CultureInfo.InvariantCulture)));
-        if (tiny > 0) res.Add("tiny", DocNode.Scal(tiny.ToString(CultureInfo.InvariantCulture)));
-        if (pixels > 0)
-        {
-            var grid = DocNode.Seq();
-            foreach (var line in GameOutput.PixelGrid(pixels))
-                grid.Items.Add(DocNode.Scal(line));
-            res.Add("pixels", grid);
-            res.Add("pixelsNote", DocNode.Scal("satir = ust→alt, hucre = ortalama rrggbb; hucre (col,row) ≈ ekran (col*screenW/cols, row*screenH/rows)"));
-        }
-        if (which == "play" && PlayMode.PlaySceneStale)
-            res.Add("stale", DocNode.Scal("true"));
-        return res;
+        return snap;
     }
 
     // Kameralar depth ARTAN sirada (cizim sirasi); pick ise ters-depth ilk eslesen (PickCam).
@@ -213,27 +273,27 @@ static class RpcDescribe
         return true;
     }
 
-    static void Detail(Renderer r, DocNode m)
+    static void Detail(Renderer r, Item it)
     {
         switch (r)
         {
             case LayoutBox lb:
                 if (lb.Font != null && lb.Text.Length > 0)
-                    m.Add("text", DocNode.Scal(lb.Text));
+                    it.Text = lb.Text;
                 if (lb.Sprite != null)
-                    m.Add("sprite", DocNode.Scal(lb.Sprite.Name ?? ""));
+                    it.Sprite = lb.Sprite.Name ?? "";
                 if (lb.Fill.Visible)
-                    m.Add("fill", DocNode.Scal(GradientStr(lb.Fill)));
+                    it.Fill = GradientStr(lb.Fill);
                 break;
             case TextSprite ts:
                 if (ts.Text.Length > 0)
-                    m.Add("text", DocNode.Scal(ts.Text));
+                    it.Text = ts.Text;
                 break;
             case SpriteRenderer sr:
                 if (sr.Sprite != null)
-                    m.Add("sprite", DocNode.Scal(sr.Sprite.Name ?? ""));
+                    it.Sprite = sr.Sprite.Name ?? "";
                 if (sr.Color.r != 255 || sr.Color.g != 255 || sr.Color.b != 255 || sr.Color.a != 255)
-                    m.Add("tint", DocNode.Scal(Hex(sr.Color)));
+                    it.Tint = Hex(sr.Color);
                 break;
         }
     }

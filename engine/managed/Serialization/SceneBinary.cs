@@ -262,7 +262,8 @@ public static unsafe class SceneBinary
                         var d = r.Ref(f.Kind);
                         var ff = f;
                         var o = owner;
-                        d.Set = v => ff.Set(o, v);
+                        string refText = d.GoId + ":" + d.Ordinal;
+                        d.Set = v => ff.Set(o, SerializedType.CoerceRef(v, ff.FieldType, o, ff.Name, refText));
                         deferred.Add(d);
                         break;
                     }
@@ -316,7 +317,9 @@ public static unsafe class SceneBinary
             case SerializedType.Kind.CompRef:
                 {
                     var d = r.Ref(f.ElementKind);
-                    d.Set = v => SetAt(container, index, v);
+                    string refText = d.GoId + ":" + d.Ordinal;
+                    d.Set = v => SetAt(container, index,
+                        SerializedType.CoerceRef(v, f.ElementType, container, f.Name + "[" + index + "]", refText));
                     deferred.Add(d);
                     break;
                 }

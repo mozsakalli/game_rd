@@ -222,6 +222,19 @@ public static class SerializedType
         return null;
     }
 
+    // Deferred Go/CompRef degeri alana yazilmadan once tip kontrolu: kodda alan tipi degisti (LayoutBox ->
+    // SpriteRenderer) ama sahne eski referansi tasiyor ise exception yerine null + uyari — tek alan sahneyi
+    // dusurmez (Unity "Missing" davranisi). refText: tani icin doc scalar'i ya da "goId:ordinal". Release/AOT'ta da
+    // gecerli (SceneBinary kullanir) — DE_EDITOR disinda.
+    internal static object CoerceRef(object v, Type expected, object owner, string field, string refText)
+    {
+        if (v == null || expected == null || expected.IsInstanceOfType(v))
+            return v;
+        AssetDatabase.LogWarning?.Invoke(
+            $"[scene] ref tip uyumsuz: {owner?.GetType().Name}.{field} '{refText}' = {v.GetType().Name}, beklenen {expected.Name} → null");
+        return null;
+    }
+
 #if DE_EDITOR // metin format (DocNode/YAML skalar) yalniz editor; release/AOT'ta SceneBinary + uretilen tipli okuyucular
     // --- Deger <-> DocNode (agac: liste ve ic ice nesne dahil) ---
 
@@ -275,8 +288,11 @@ public static class SerializedType
         {
             case Kind.GoRef:
             case Kind.CompRef:
-                defer(f.Kind, node.Scalar ?? "", v => f.Set(owner, v));
-                return;
+                {
+                    string refText = node.Scalar ?? "";
+                    defer(f.Kind, refText, v => f.Set(owner, CoerceRef(v, f.FieldType, owner, f.Name, refText)));
+                    return;
+                }
             case Kind.List:
                 {
                     if (node.Items == null)
@@ -323,8 +339,12 @@ public static class SerializedType
         {
             case Kind.GoRef:
             case Kind.CompRef:
-                defer(f.ElementKind, node.Scalar ?? "", v => SetAt(container, index, v));
-                return;
+                {
+                    string refText = node.Scalar ?? "";
+                    defer(f.ElementKind, refText,
+                        v => SetAt(container, index, CoerceRef(v, f.ElementType, container, f.Name + "[" + index + "]", refText)));
+                    return;
+                }
             case Kind.Object:
                 {
                     object inst = f.NewElement();

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.IO;
 using System.IO.Compression;
 using System.Runtime.InteropServices;
@@ -212,6 +213,7 @@ static unsafe class GameOutput
         public bool Jpg;
         public int Quality;
         public float RegionX, RegionY, RegionW, RegionH; // RegionW<=0 → tum ekran
+        public List<(int n, float x, float y, float w, float h)> Marks; // mantiksal rect'ler; null = isaret yok (annotate)
     }
 
     public struct ShotResult
@@ -277,6 +279,15 @@ static unsafe class GameOutput
                     int o = (y * dw + x) * 3;
                     if (n > 0) { rgb[o] = (byte)(r / n); rgb[o + 1] = (byte)(g / n); rgb[o + 2] = (byte)(b / n); }
                 }
+            }
+            if (req.Marks != null && req.Marks.Count > 0)
+            {
+                // Mantiksal → goruntu pikseli: (x - region) / toScreen. Bolge disina tasanlar MarkRaster'da kirpilir.
+                float toImg = dw / rw;
+                var marks = new List<MarkRaster.Mark>(req.Marks.Count);
+                foreach (var (n, mx, my, mw, mh) in req.Marks)
+                    marks.Add(new MarkRaster.Mark { N = n, X = (mx - rx) * toImg, Y = (my - ry) * toImg, W = mw * toImg, H = mh * toImg });
+                MarkRaster.Draw(rgb, dw, dh, marks);
             }
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path)));
             int bytes;
