@@ -1,5 +1,30 @@
 # DigitoyEngine R&D (game_rd)
 
+## EDİTÖR PLAY: OYUN KODU İSTİSNASI CRASH DEĞİL, LOG (2026-10-22)
+- SORUN: Play'de `Start()` içindeki `InvalidOperationException` ana döngüden yüzeye çıkıp editörü düşürüyordu (crash.log).
+- KARAR: oyun kodundan kaçan istisna Console'a TAM trace (`[play] <giriş noktası>: <ex>`) yazılır, **Play SÜRER** — Stop/Pause
+  yok; düzeltme kararı oyunu geliştirene (insan/AI, `log.tail`) aittir. Ardışık aynı istisna bastırılır, değişince
+  "repeated N more time(s)" özeti. Tamamı `editor/` tarafında ([PlayMode.ReportGameException](../editor/PlayMode.cs)); motor/player
+  DEĞİŞMEDİ (release'te unhandled → platform crash yolu, plugins.md).
+- Korunan giriş noktaları: [EditorApp](../editor/EditorApp.cs) `Scene.UpdateAll`+`PumpInbox` (Start/Update/LateUpdate/tween/frame-sonu
+  OnDestroy; filtre `PlayScene != null` → edit sahnesi/motor hatası eskisi gibi yüzeye çıkar), `SpawnPlayScene` InstantiateInto
+  (Awake/OnEnable; kısmi sahneyle devam), `DestroyPlayScene` → `UnloadGuarded` (OnDisable/OnDestroy; en çok 8 deneme),
+  [GameViewPanel](../editor/GameViewPanel.cs) Pointer Down/Move/Up. RPC `input.*` zaten RpcHost try/catch'inde.
+- SINIR: kesilen `UpdateAll` o karede kalan component'leri/`Resources.Tick`'i atlar (bir sonraki kare normal). Edit sahnesindeki
+  `[ExecuteInEditMode]` kodu ve Render yolu kapsam dışı.
+
+## PREFAB = ASSET REFERANSI (component alanı `public Prefab x;`) — TAMAMLANDI (2026-10-21, kullanıcı doğruladı)
+- SORUN: `public Prefab x;` alanı inspector/şemada çıkmıyordu. Kök: [Prefab](../engine/managed/Prefab.cs) `IAsset` değildi →
+  `AssetDatabase.IsAssetType` false → `TryKind` alanı atlıyor (serileşmez, inspector'da yok, pak erişilebilirliğine girmez).
+  Eski not (2026, "Prefab IAsset değil → davranış değişmedi") bilinçli borçtu; artık kapatıldı.
+- FIX (2 satır, tip-özel kod yok): `Prefab : IAsset` (`Name => Key`; `.prefab → Prefab` importer kaydı zaten vardı, IsAssetType
+  otomatik true) + [AssetDatabase.LoadAsset](../engine/managed/AssetDatabase.cs) `type == typeof(Prefab) → LoadPrefab(key)` dalı.
+  Sonuç: alan `Kind.Asset` (GUID), inspector `DrawAssetRef`, Project panelinden sürükle-bırak, YAML/SceneBinary aynı kapı, pak builder
+  `BakeScene refs` üzerinden prefab'ı canlı sayar, `MovieClip.Ref`(IAsset) prefab alır. Runtime: `x.Instantiate(parent)`.
+- KURAL: Prefab'ı koddan string anahtarla `LoadPrefab("A.prefab")` çekme (pak canlılığı garanti değil, rename takip etmez);
+  component alanına referans ver. Sahnede sabit yerleşim için hâlâ instance (`prefab.instantiate`) birincil yol.
+- Yan etki: `public IAsset x` polimorfik alanlar artık prefab da kabul eder (istenen).
+
 ## AI GÖZ PREPROCESS: ANNOTATE SCREENSHOT (Set-of-Mark) + render.expect (2026-10-20, Sandbox Login e2e doğrulandı)
 - Amaç: LLM resmi "anlamasın", çoğu zaman bakmasın; baktığında etiketli görsün. Sıra: `render.describe` → `render.expect` (PASS/FAIL,
   görüntüsüz) → yalnız FAIL/ton için `render.screenshot(annotate=true)`. `rpc.guide` coordinates bölümüne yazıldı.

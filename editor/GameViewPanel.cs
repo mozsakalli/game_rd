@@ -57,7 +57,8 @@ public sealed class GameViewPanel : EditorWindow
                 {
                     GuiUtility.HotControl = id; // capture: up panel disinda da gelir
                     var p = ToGame(ev.MousePosition, dst, k);
-                    scene.Pointer.Down(p.x, p.y);
+                    try { scene.Pointer.Down(p.x, p.y); }
+                    catch (Exception e) { PlayMode.ReportGameException(e, "OnPointerDown"); }
                     ev.Use();
                 }
                 break;
@@ -67,7 +68,8 @@ public sealed class GameViewPanel : EditorWindow
                     if (scene != null)
                     {
                         var p = ToGame(ev.MousePosition, dst, k);
-                        scene.Pointer.Move(p.x, p.y);
+                        try { scene.Pointer.Move(p.x, p.y); }
+                        catch (Exception e) { PlayMode.ReportGameException(e, "OnDrag"); }
                     }
                     ev.Use();
                 }
@@ -79,7 +81,8 @@ public sealed class GameViewPanel : EditorWindow
                     if (scene != null)
                     {
                         var p = ToGame(ev.MousePosition, dst, k);
-                        scene.Pointer.Up(p.x, p.y);
+                        try { scene.Pointer.Up(p.x, p.y); }
+                        catch (Exception e) { PlayMode.ReportGameException(e, "OnPointerUp/Click"); }
                     }
                     ev.Use();
                 }

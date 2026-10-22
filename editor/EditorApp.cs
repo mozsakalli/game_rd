@@ -320,10 +320,19 @@ public unsafe class App
                 editLive.Update(dt, simulate: false);
                 PreviewSession.Step(dt);
             }
-            Scene.UpdateAll(PlayMode.ForcedDt > 0f && PlayMode.Simulate ? PlayMode.ForcedDt : dt,
-                GameOutput.ViewW, GameOutput.ViewH, PlayMode.Simulate);
-            if (PlayMode.Simulate)
-                Plugin.PumpInbox(); // mock plugin mesajlari (GameHost.Frame paritesi)
+            // Oyun kodu istisnasi (Start/Update/LateUpdate/tween/OnDestroy) editoru dusurmez: logla, devam
+            // (PlayMode.ReportGameException). Kesilen karede kalan component'ler o kareyi atlar.
+            try
+            {
+                Scene.UpdateAll(PlayMode.ForcedDt > 0f && PlayMode.Simulate ? PlayMode.ForcedDt : dt,
+                    GameOutput.ViewW, GameOutput.ViewH, PlayMode.Simulate);
+                if (PlayMode.Simulate)
+                    Plugin.PumpInbox(); // mock plugin mesajlari (GameHost.Frame paritesi)
+            }
+            catch (Exception e) when (PlayMode.PlayScene != null)
+            {
+                PlayMode.ReportGameException(e, "Start/Update/LateUpdate");
+            }
 
             // Oyun ciktisi: oyun sahnesi (Play'de) yoksa edit projeksiyonu.
             // Sahnedeki aktif CameraComponent'ler depth sirasiyla havuz kameralarina
@@ -948,7 +957,7 @@ public unsafe class App
     static string _titleScenePath;
     static bool _titleDirty, _titlePlaying;
 
-    // "Editor - <proje> - <Sahne>[*]  (Playing)": acik sahne ve kaydedilmemis degisiklik gostergesi.
+    // "Editor - <proje> - <Assets'e goreli sahne yolu>[*]  (Playing)": ayni adli sahneler (iki Table.scene) ayrissin.
     static void UpdateWindowTitle()
     {
         if (_window == IntPtr.Zero || _editScene == null)
@@ -961,7 +970,9 @@ public unsafe class App
         _titleScenePath = scenePath;
         _titleDirty = dirty;
         _titlePlaying = playing;
-        string scene = scenePath == null ? "(untitled)" : System.IO.Path.GetFileNameWithoutExtension(scenePath);
+        string scene = scenePath == null ? "(untitled)"
+            : _project != null ? System.IO.Path.GetRelativePath(_project.AssetsPath, scenePath).Replace('\\', '/')
+            : System.IO.Path.GetFileName(scenePath);
         GLFW.SetWindowTitle(_window, "Editor - " + _projectFolder + " - " + scene
             + (dirty ? "*" : "") + (playing ? "  (Playing)" : ""));
     }

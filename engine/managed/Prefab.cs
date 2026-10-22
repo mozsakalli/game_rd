@@ -7,9 +7,11 @@ namespace DigitoyEngine;
 // release/pak: pismis baytlar (SceneBinary) — DocNode kurulmaz. Spawn, sahne
 // yuklemesiyle AYNI sozlesmeden gecer (referans cozumu + gec aktivasyon).
 // Editor Doc'u EXPANDED tutulur (icindeki instance kayitlari acik) — nested prefab bilesimi.
-public sealed class Prefab
+// IAsset: component alanlarinda referans (Kind.Asset, GUID) olarak yasar; inspector/pak tip bilmeden gezer.
+public sealed class Prefab : IAsset
 {
     public string Key;
+    public string Name => Key;
 #if DE_EDITOR
     internal SceneDoc Doc;      // YAML kaynak (editor), expanded; baked'de null
     // Icerdigi prefab'lar (gecisli, yol anahtari): dongu reddi + bagimlilik sorgusu.

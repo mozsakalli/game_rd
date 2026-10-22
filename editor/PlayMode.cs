@@ -1,3 +1,4 @@
+using System;
 using DigitoyEngine;
 using DigitoyEngine.Editor;
 
@@ -71,6 +72,33 @@ static class PlayMode
         EditorWindow.GetWindow<GameViewPanel>(); // Game tab'i one
     }
 
+    // Oyun kodundan kacan istisna (Awake/Start/Update/pointer/OnDestroy...): editor CRASH ETMEZ, Console'a
+    // tam trace yazar ve Play SURER — durdurma/duzeltme karari oyunu gelistirene (insan/AI, log.tail) aittir.
+    // Ardisik AYNI istisna (her kare patlayan Update) bastirilir, farkli bir mesaj gelince sayac ozetlenir.
+    // Yalniz editor; motor/player'a sizmaz (release'te unhandled → platform crash yolu).
+    internal static void ReportGameException(Exception e, string where)
+    {
+        string text = "[play] " + where + ": " + e;
+        if (text == _lastExceptionText)
+        {
+            _lastExceptionRepeat++;
+            return;
+        }
+        FlushRepeatedException();
+        _lastExceptionText = text;
+        EditorLog.Error(text);
+    }
+    static string _lastExceptionText;
+    static int _lastExceptionRepeat;
+
+    static void FlushRepeatedException()
+    {
+        if (_lastExceptionRepeat > 0)
+            EditorLog.Error($"[play] previous exception repeated {_lastExceptionRepeat} more time(s)");
+        _lastExceptionRepeat = 0;
+        _lastExceptionText = null;
+    }
+
     public static void Pause()
     {
         if (State == PlayState.Playing)
@@ -87,6 +115,7 @@ static class PlayMode
         DestroyPlayScene();
         Plugin.ResetAll(); // plugin instance'lari Play omurlu (bekleyen Task'lar GC'ye)
         PlayerPrefs.Save(); // oyun kodunun kaydetmedigi prefs Stop'ta diske (release'teki Shutdown muadili)
+        FlushRepeatedException();
         EditorLog.Marker("PLAY STOP");
         EditorWindow.GetWindow<SceneViewPanel>(); // Scene tab'i one
     }
@@ -115,7 +144,8 @@ static class PlayMode
         }
         var doc = App.EditScene.Doc;
         var s = Scene.Create(doc.Name + " (Oyun)");
-        doc.InstantiateInto(s, App.Catalog, App.Assets); // aktif sahne = oyun
+        try { doc.InstantiateInto(s, App.Catalog, App.Assets); } // aktif sahne = oyun
+        catch (Exception e) { ReportGameException(e, "Awake/OnEnable (scene spawn)"); } // kismi sahne ile devam
         // SceneLoader paritesi: spawn'in suresi (instantiate + doku yukleme) bir sonraki frame'in
         // dt'sine biner → MovieClip/Tween ilk gorunur karede zaten N kare ilerlemis olur
         // ("fade 0'dan baslamiyor"). Ilk iki dt atilir; editor dt'si ayrica MaxDeltaTime ile sinirli.
@@ -135,15 +165,25 @@ static class PlayMode
         if (_spawned == null)
             return;
         if (IsLoaded(_spawned))
-            Scene.Unload(_spawned);
+            UnloadGuarded(_spawned);
         // Oyun kodunun SceneLoader ile yarattigi sahneler de (replace modu PlayScene'i atmis olabilir).
         for (int i = Scene.Loaded.Count - 1; i >= 0; i--)
         {
             var s = Scene.Loaded[i];
             if (!s.ExternallyDriven && s != App.EditScene.LiveScene)
-                Scene.Unload(s);
+                UnloadGuarded(s);
         }
         _spawned = null;
         Scene.SetActive(App.EditScene.LiveScene);
+    }
+
+    // OnDisable/OnDestroy'daki istisna temizligi yarim birakmasin: logla, kalan kokler icin tekrar dene.
+    static void UnloadGuarded(Scene s)
+    {
+        for (int attempt = 0; attempt < 8 && IsLoaded(s); attempt++)
+        {
+            try { Scene.Unload(s); }
+            catch (Exception e) { ReportGameException(e, "OnDisable/OnDestroy (scene unload)"); }
+        }
     }
 }

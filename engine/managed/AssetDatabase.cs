@@ -349,6 +349,8 @@ public sealed class AssetDatabase
             return LoadTexture(keyOrGuid);
         if (type == typeof(AudioClip))
             return LoadAudioClip(keyOrGuid);
+        if (type == typeof(Prefab))
+            return LoadPrefab(keyOrGuid);
         return null;
     }
 
