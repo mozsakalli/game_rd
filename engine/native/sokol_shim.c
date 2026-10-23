@@ -560,6 +560,36 @@ SOKOL_API unsigned int de_sokol_make_image(
     return sg_make_image(&d).id;
 }
 
+// Immutable RGBA8 image + TAM mip zinciri: data ardisik seviyeler (mip0 w*h*4, mip1 (w/2)*(h/2)*4, ... min 1x1).
+// Seviye sayisi/boyutlari dims'ten turetilir; managed taraf zinciri CPU'da uretir (sokol mip uretmez).
+SOKOL_API unsigned int de_sokol_make_image_mips(int width, int height, int numMipmaps, void *data, int dataSize)
+{
+    sg_image_desc d = {0};
+    d.type = SG_IMAGETYPE_2D;
+    d.width = width;
+    d.height = height;
+    d.pixel_format = SG_PIXELFORMAT_RGBA8;
+    if (numMipmaps < 1) numMipmaps = 1;
+    if (numMipmaps > SG_MAX_MIPMAPS) numMipmaps = SG_MAX_MIPMAPS;
+    d.num_mipmaps = numMipmaps;
+    d.sample_count = 1;
+    d.usage.immutable = true;
+    size_t offset = 0;
+    int w = width, h = height;
+    for (int i = 0; i < numMipmaps; i++)
+    {
+        size_t size = (size_t)w * (size_t)h * 4;
+        if (offset + size > (size_t)dataSize)
+            return 0; // tutarsiz zincir
+        d.data.mip_levels[i].ptr = (const char *)data + offset;
+        d.data.mip_levels[i].size = size;
+        offset += size;
+        w = w > 1 ? w >> 1 : 1;
+        h = h > 1 ? h >> 1 : 1;
+    }
+    return sg_make_image(&d).id;
+}
+
 // Mip 0 tek yuzey guncelle (dynamic image).
 SOKOL_API void de_sokol_update_image(unsigned int image, void *data, int size)
 {

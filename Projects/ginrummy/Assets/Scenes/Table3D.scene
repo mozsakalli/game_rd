@@ -1,0 +1,144 @@
+scene: Main
+objects:
+  - id: 1
+    parent: 0
+    name: Camera3D
+    layer: 1
+    pos: -11.43 -26.6 33.5
+    rot: 90 0 0
+    scale: 1 1 1
+    components:
+      - type: CameraComponent
+        depth: -1
+        background: '#2a1a3aff'
+        cullingMask: 2
+      - type: FreePerspectiveProjection
+        fov: 23
+        nearClip: 0.3
+        farClip: 100
+      - type: MovieClip
+        Fps: 60
+        FrameCount: 48
+        Loop: false
+        PlayOnStart: true
+        Tracks:
+          - Target: '1:Transform:0'
+            Path: Position
+            Mask: 15
+            Keys:
+              - Frame: 0
+                Mode: Tween
+                Ease: InOutCubic
+                Value: -11.43 -26.6 33.5 0
+                Ref: ''
+              - Frame: 48
+                Mode: Tween
+                Ease: Linear
+                Value: 0 -28 -8 0
+                Ref: ''
+          - Target: '1:Transform:0'
+            Path: Rotation
+            Mask: 15
+            Keys:
+              - Frame: 0
+                Mode: Tween
+                Ease: InOutCubic
+                Value: 90 0 0 0
+                Ref: ''
+              - Frame: 48
+                Mode: Tween
+                Ease: Linear
+                Value: 45 0 0 0
+                Ref: ''
+          - Target: '1:FreePerspectiveProjection:0'
+            Path: fov
+            Mask: 15
+            Keys:
+              - Frame: 0
+                Mode: Tween
+                Ease: InOutCubic
+                Value: 23 0 0 0
+                Ref: ''
+              - Frame: 48
+                Mode: Tween
+                Ease: Linear
+                Value: 23 0 0 0
+                Ref: ''
+  - id: 2
+    parent: 0
+    name: TableRoot
+    pos: 0 21.62 33.68
+    rot: 0 0 0
+    scale: 1 1 1
+  - id: 3
+    parent: 2
+    name: TableModel
+    layer: 1
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 20 20 20
+    components:
+      - type: MeshRenderer
+        Mesh: 49c273e820bd4e319f758d059f228ca9
+        Texture: a30d3f29fff0499bb977e280d18d3812
+        Sampler: Trilinear
+        Sprite: a30d3f29fff0499bb977e280d18d3812
+  - id: 4
+    parent: 0
+    name: CameraUI
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: CameraComponent
+        clearFlags: DepthOnly
+        cullingMask: 1
+        depth: 0
+      - type: PixelPerfectProjection
+  - id: 5
+    parent: 0
+    name: UI
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        fitScreen: true
+  - id: 6
+    parent: 5
+    name: Title
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        anchorMax: 0.5 1
+        anchorMin: 0.5 1
+        anchoredPos: 0 -60
+        fill:
+          type: Solid
+          direction: Vertical
+          color: '#1a1a1acc'
+          color2: '#00000000'
+          stops: 2
+          color3: '#00000000'
+          stop3: 0.5
+          color4: '#00000000'
+          stop4: 0.75
+        height: 90
+        radius: 20 20 20 20
+        textAlign: Center
+        textAlignV: Center
+        textFill:
+          type: Solid
+          direction: Vertical
+          color: '#ffffffff'
+          color2: '#ffffffff'
+          stops: 2
+          color3: '#ffffffff'
+          stop3: 0.5
+          color4: '#ffffffff'
+          stop4: 0.75
+        textSize: 36
+        width: 480
+        text@loc: table3d.newbies_mesh

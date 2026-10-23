@@ -388,6 +388,19 @@ public static unsafe class Sokol
         return id;
     }
 
+    // Immutable RGBA8 + tam mip zinciri (data ardisik seviyeler; bkz. shim).
+    [DllImport(Lib, EntryPoint = "de_sokol_make_image_mips")]
+    extern static uint de_make_image_mips(int width, int height, int numMipmaps, void* data, int dataSize);
+    public static uint MakeImageMips(int width, int height, int numMipmaps, void* data, int dataSize)
+    {
+        if (LiveImages >= ImagePool * 3 / 4)
+            Resources.ScheduleCollect(1);
+        uint id = de_make_image_mips(width, height, numMipmaps, data, dataSize);
+        if (id == 0) { Fail("image", LiveImages, ImagePool); return 0; }
+        LiveImages++;
+        return id;
+    }
+
     [DllImport(Lib, EntryPoint = "de_sokol_update_image")]
     extern static void de_update_image(uint image, void* data, int size);
     public static void UpdateImage(uint image, void* data, int size)

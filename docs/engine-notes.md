@@ -1,5 +1,133 @@
 # DigitoyEngine R&D (game_rd)
 
+## RPC SNAPSHOT→DELTA + sim.batch + KOMPAKT describe (2026-10-22, digitoyclient Gin masasında e2e: tam tur 1 istek / 3.5 s / 2 KB)
+- SAHA: oyun yazan AI her turda 3–5 ayrı çağrı × 10–30 KB yanıt; model turu başına ~10 sn → sunucu tur süresi (≈20 sn) AI'ın düşünme
+  süresinden kısa, masa kick'liyor (`PlayerKicked`). `rpc.stats` ile ölçüldü: editör tarafı toplam 0.2 sn; zaman modelde ve yanıt okumada.
+- KARAR (kullanıcı): "haritayı BİR kez al, sonra nokta atış sor". Mekanizma RPC'ye gömülü, AI'ın öğrenmesi gerekmez:
+  [RpcDelta](../editor/RpcDelta.cs) — komut+parametre imzası başına baseline; ilk çağrı TAM (`full:true` + deltaNote), sonraki aynı
+  sorgu yalnız `added/changed/removed` ya da `unchanged:true`; `full=true` tam tekrar; play restart'ta `InvalidateAll`. Öğe anahtarı yol
+  (tekrar `#k`). Kullananlar: `render.describe`, `scene.dumpLive`, `live.get`, `sim.run dump=diff` (eski `_liveBaseline` silindi).
+- `render.describe` KOMPAKT varsayılan (`Compact`): aynı yoldaki tekrar eden öğeler (CARD×11) tek satır `count`+birleşik rect; metinsiz/
+  tıklanmaz/sprite'sız dekor alt parçaları (SHADOW/HIGHLIGHT) ebeveyni listedeyse atılır. 87→~15 öğe, 16 KB→~3 KB. `verbose=true` ham.
+- `live.get(select='A,B,C')`: expr'e göreli alan listesi → yalnız o alanlar (düz harita); delta ile birlikte 40 alan→ 6–9 alan, ~500 B.
+- `sim.batch(steps=[{cmd,args}])`: play/okuma komutlarını (sim.run/input.* gibi frame bekleyenler dahil) sırayla tek yanıtta koşar;
+  `RpcHost.TakeDeferred` ile iç deferred poll zincirlenir; hata → `results` (o ana kadar) + `error{at,cmd,message}`. Bir oyun turu
+  (live.call hamle → sim.run → live.get select → describe/expect) = 1 round-trip, 1 model turu.
+- `RpcHost.Ok`: yanıt > 8 KB ise `sizeHint` alanı eklenir (daralt: select/root/types/go/depth; sonraki çağrı delta).
+- Guide `toolChoice` başına BOYUT KURALI + TUR KURALI (sunucu tur süresi uyarısı, "bir tur = bir sim.batch").
+- E2E (digitoyclient ginrummy): Login→Lobby batch 1.4 KB; PlayNow+durum 625 B; Ready+durum 536 B; tam tur (PickFromDiscard, Discard 47,
+  bekle, durum, HUD describe) 1994 B / 3.5 s. Yan bulgular (Gin UI, oyun tarafı): `HUD/MySeat/Info/Nick` boş; `HUD/TopBar/Balance,
+  TargetScore, Bet, TableId` rect'leri ekran ortasında (433–445, 205) üst üste — anchor hatası (ikon rect'leri üstte doğru).
+- TUZAK: MCP köprüsü `rpc.describe` yoklaması 5 sn'de bir ~35 KB (çoklu eski köprü süreçleriyle 143 çağrı/214 sn) — AI maliyeti değil ama
+  `rpc.stats`'ı kirletiyor; köprü yoklamasını imza hash'ine indirmek / tek süreç ayrı iş.
+
+## sim.run HIZLI İLERİ SARMA + live.call (2026-10-22, digitoyclient Login→Table e2e: 240 kare 4.4 s → 42 ms; `Svc.Ready()` RPC'den çağrıldı)
+- HIZLI SARMA: `PlayMode.FastForwardPending` (ana döngü [EditorApp](../editor/EditorApp.cs): ilk `Scene.UpdateAll`'dan sonra aynı editör
+  frame'inde ek sim adımları, `_assets.Tick(2, dt)` + `Plugin.PumpInbox` dahil, render yalnız sonda; bütçe `FastForwardBudgetMs`=50,
+  artan sonraki frame'e). `PlayMode.SimSteps` sayacı: `sim.run` hedefi artık ADIM sayar (frame değil). Varsayılan hızlı; `realtime=true`
+  ya da `captureEvery>0` eski kare-başına-frame yolu (Game View'da izleme / animasyon yakalama). Ölçüm `rpc.stats`: 240 kare 42 ms.
+  TUZAK: ağ/gerçek-saat bekleyen akışlar (login HTTP) hızlı sarmayla ilerlemez — `Wait.Seconds` sim dt'siyle ilerler ama soket yanıtı
+  duvar saatinde gelir; böyle yerde `realtime=true` ile bekle (guide'a yazıldı).
+- `live.call(go, comp, expr, args, list)` ([RpcMemory.CallFrom](../editor/RpcMemory.cs)): canlı component'te yol yürü + son segmenti
+  METOT olarak çağır (public/private, arg sayısına göre overload; `CoerceArg` skaler/enum/Vec/Color; void/değer/Task(beklenmez, durum)).
+  `list=true` metot imzalarını döker. Unity `GameDebugWindow` butonlarının genel karşılığı — oyun koduna sıfır ekleme.
+- `live.get` "üye yok" mesajı artık ad bir METOT ise bunu söyler ve `live.call` örneği verir (`MemberMissing`); alan/property ise
+  `live.call` tersini söyler. AI'ın yanlış araçtan dönüş yolu hatanın İÇİNDE.
+- `rpc.guide` başına **`toolChoice`** tablosu: NİYET → ARAÇ (değer öğren=live.get, akış tetikle=live.call, servis durumu=mem.*,
+  ekranda ne var=describe, beklenti=expect, görsel şüphe=screenshot PAHALI, zaman=sim.run) + kural "DURUM doğrulanacaksa görüntü alma".
+  Gerekçe: AI araç seçimini ilk okuduğu kısa tablodan yapar; uzun workflow metni içindeki cümleyi değil.
+
+## RPC TELEMETRİ `rpc.stats` + AI DOĞRULAMA DÖNGÜSÜ ANALİZİ (2026-10-22)
+- SORUN: oyun yazan AI sürekli `sim.run` + görüntü analiziyle ilerliyor; describe/expect/annotate eklendi ama davranış değişmedi.
+  Bu makinede o oturumların kaydı yok, editör de RPC istatistiği tutmuyordu → ÖLÇÜM yoktu.
+- [RpcStats.cs](../editor/RpcStats.cs): komut başına sayı/hata/toplam-ort-maks ms (deferred bekleme DAHİL: istek alınma → yanıt yazma),
+  dönen KB, görüntü sayısı (`"toScreen"` işareti = RenderScreenshot yükü; `ui_` png ayrı). `rpc.stats(top, reset)`; kapanışta
+  `[rpc.stats]` tek satır özet Console'a. Kancalar [RpcHost](../editor/RpcHost.cs) `Pump` (anlık + deferred yanıt).
+- İLK ÖLÇÜM: `sim.run` 30 kare = 550 ms (≈18 ms/kare → gerçek 60 Hz editör frame'i bekleniyor; 240 kare ≈ 4 s). `rpc.describe`
+  46 sn'de 31 çağrı / 1 MB = MCP köprüsü imza yoklaması (5 sn'de bir; birden fazla eski köprü süreci olabilir) — AI maliyeti değil,
+  ama gürültü; köprü yoklamasını `rpc.stats` dışında tutmak ya da seyreltmek düşünülmeli.
+- ANALİZ (kök nedenler): (1) sim.run gerçek zaman bekler, hızlı ileri sarma yok; (2) oyun durumu sahne dışı düz C# → render oracle'ı
+  yetmez, AI `live.get`/`mem.dump` yolunu kurmak yerine screenshot'a düşer; (3) her iterasyon Login→Lobby→Table (+ağ), doc değişince
+  sahne yeniden doğar; (4) doğrulama script değil el işi (test harness yok); (5) guide'da maliyet merdiveni görünür değil.
+- PLAN (sıra): ✅1 telemetri → 2 `sim.run` hızlı ileri sarma (N kare tek editör frame'inde, render sonda; captureEvery/realtime eski
+  yol) → 3 senaryo girişi (`[Scenario]` dev metotları, `scenario.list`/`play.start(scene, scenario, args)`; Unity debug-window karşılığı)
+  → 5 maliyet merdiveni (guide başı 3 satır, MCP açıklamalarında "PAHALI", screenshot cevabında sayaç) → 4 `[PlayTest]` harness +
+  `test.run` → 6 `render.describe(diff=true)`.
+- GÖZLEM (kullanıcı ekranı): AI `live.get(expr="Svc.Ready")` ile METOT çağırmaya çalıştı; `live.get` salt okunur, yürüyücü alan/property
+  tanır → "üye yok" (metot var ama görünmez). İhtiyaç: canlıda metot tetikleme (`live.call`) — bkz. plan maddesi 3 ile birlikte.
+
+## TOOLBAR SAHNE SEÇİCİ COMBO (2026-10-22)
+- Sol köşe: `DrawSceneCombo` (260 px) → HR combosu 272'ye, durum metni 384'e kaydı ([EditorApp.cs](../editor/EditorApp.cs)). Liste =
+  `Assets.Source.Keys` içindeki tüm `.scene` (Assets'e göreli, sıralı), `[0]="(no scene)"`; yalnız `AssetWatcher.AssetChangeVersion`
+  değişince yeniden taranır (watcher `.scene` dalı artık sürümü artırır → yeni/silinen sahne listeye düşer). Seçim = mevcut
+  **`OpenScene`** tek boğazı (ConfirmUnsaved Save/Discard/Cancel, Play stop, lastScene) — ayrı unsaved kodu yok. Prefab stage'de "(no scene)".
+- TUZAK (UI otomasyon): combo popup'ı ayrı OS penceresi; `ui.click` eşlemesi çalışıyor ama SaveChangesPopup da yakalanınca kör tıklama
+  "Save"e denk gelebilir (bu oturumda Table.scene'e DirtyProbe kaydedildi → geri alındı). Native popup'lı akışları RPC ile körlemesine değil
+  `ui.screenshot(window=…)` ile hedefleyerek sür.
+
+## SAHNE KAYDI SONRASI PLAY'DE BAYAT SAHNE — _blobs TAMPONU (2026-10-22, digitoyclient Login→Lobby→Table e2e doğrulandı)
+- BELİRTİ: Table.scene RPC ile düzenlenip kaydedildi; Play'de Login→Lobby→PlayNow eski Table'ı yüklüyordu.
+- KÖK: play'de `SceneLoader.LoadAsync` sahne baytlarını `AssetDatabase.PreloadAsync` → `_blobs` tamponundan alır; `.scene` için hiçbir
+  yol bu tamponu düşürmüyordu. `EditorScene.Save` self-write'ı `NoteSelfWrite` ile maskeler (watcher susar); watcher `.scene` dalı da
+  yalnız AÇIK sahneyi reload ediyordu. Oturumda bir kez yüklenen sahne = sonsuza dek o baytlar.
+- FİX: `AssetDatabase.InvalidateBytes(key)` (tek boğaz: `_blobs` + `_blobLoads` + `_ensured`); `EditorScene.Save` / prefab kaydetme
+  yolları (`InvalidateBytesFor(abs)`) ve `AssetWatcher` `.scene`/`.prefab` dalları (açık olsun olmasın) çağırır. Çalışan play'deki canlı
+  sahne değişmez (beklenen); sonraki LoadAsync diskten taze okur.
+- DOĞRULAMA: Table yüklü play → stop → Table.scene'e `StaleProbe` GO + save → Login'den akış → play'de `scene.dumpLive(StaleProbe)` var.
+  Probe silindi, sahne kaydedildi (içerik kullanıcının değişiklikleri).
+
+## 3D MESH (DMSH) + MeshRenderer + SERBEST KAMERA + FBX IMPORTER (2026-10-22, [mesh] 29 PASS, ginrummy Table3D görsel OK)
+- SAHA: Gin Rummy prod masası 3D (ginrummyextra.unity `TableModel.fbx` 3146 üçgen/2124 vertex, Standard shader ama normal map
+  yok → doku pişmiş), kamera pos+rot+fov DOTween ile tepeden→oyun açısına geçiyor (`CameraAnimator.cs`).
+- KARAR (kullanıcı): **harici formata bağımlı OLMAYAN tek mesh yapısı** — `DMSH` ([MeshBinary](../engine/managed/MeshBinary.cs):
+  magic|ver|flags|vcount|icount|bounds|Vertex[]|ushort[]; yükleme = 2 memcpy). Importer'lar yalnız bunu üretir, runtime yalnız bunu
+  okur; **16-bit indeks** (>65536 vertex importer HATA, parçalama yok). Vertex düzeni `pos/uv/color` SABİT (normal/skin yok; ışık
+  gerekirse ayrı pipeline ailesi = kapsam dışı). **Y-AŞAĞI korunur**, 3D için y-up yolu YOK.
+- MESH İKİ ÖMÜR, TEK SINIF ([Mesh](../engine/managed/Mesh.cs)): statik (asset: CPU tarifi, evict→geri yükleme, `FromArtifact`,
+  reimport `Reload` yerinde) / dinamik (`CreateDynamic` + public `UpdateDynamic` frame'de EN FAZLA 1 (ikinci çağrı log+yok say),
+  `EnsureDynamicCapacity` büyütme = yeni buffer, eskisi `Resources.DeferDestroyBuffer` → frame başında). `BoundsMin/Max`,
+  `RayIntersectsBounds` (slab). Hiç tüketicisi yoktu; **Spine'ın önü açıldı**: iskelet = kendi veri asset'i + renderer, çizim
+  ilkeli yeni DEĞİL.
+- RenderQueue: `DrawItem` indeks aralığı (`IndexStart/IndexCount`), `DrawMeshRange(...)` — dinamik mesh'in doku değişen parçaları
+  (Spine sayfaları). Merge koşulu aralık eşitliği de ister. `SamplerType.Trilinear` eklendi (`SamplerFor`).
+- [MeshRenderer](../engine/managed/MeshRenderer.cs): `Mesh`+**`Sprite`** ref (ayrı "Texture" kavramı YOK — motor geneli tek doku
+  kavramı; drop/asset.list/tema swap aynı yol), Color, CullMode(Back), DepthTest/Write, **SortMode varsayılanı Transparent**
+  (Opaque kovası her şeyden ÖNCE çizilir → BG sprite'ı mesh'in üstünü örtüyordu; Transparent'ta katman/SortingOrder'a uyar, depth
+  mesh içinde yine çalışır; Opaque = ayrı 3D kamera/çok mesh için seçenek), Sampler. Atlas üyesi sprite: mesh UV (0..1, orijinal
+  görsel) instance `uvRect` ile bölgeye haritalanır — shader zaten `uvRect.xy + a_uv*uvRect.zw` yapıyor, **ek maliyet sıfır**;
+  trim-bilinçli (`u0 = U0 − OffX·su`, `w = OrigW·su`), kırpılan kısım bölge dışına taşar (3D doku opak/kenarsız olmalı). Atlas
+  üyesinde Trilinear → Linear'a düşer (sayfaya mip zinciri = bölgeler arası bleed). Varyantlar (blend/fx) state'i kopyaladığından
+  nihai materyale her Encode'da state basılır. `HitTest` = lokal AABB slab; `GetLocalBounds3D` (yeni virtual, Renderer default 2D
+  bbox z=0). Test: `RenderQueue.UvRectAt(i)`.
+- KAMERA ROTASYONU: `Mat4.ViewFromWorld` (F·inverse(world), F=diag(1,-1,-1)), `Camera.SetPerspectiveView(fov,aspect,near,far,ref
+  world)` (dedup: 16 float + param; `_free` bayrağı Set* dedup'larını ayırır), `Mat4.TransformPointW(…, out w)` (w<0 = göz arkası),
+  `Mat4.NdcNear/NdcFar` (GL -1 / Metal 0). [FreePerspectiveProjection](../engine/managed/CameraProjection.cs): transform
+  pos+rot; `ScreenPointToRay` inverse(ViewProj) unproject; GetWorldRect YAKLAŞIK (UI layout bu kamerada çalışmaz → **3D ayrı
+  kamera, UI DepthOnly üstüne**). `PerspectiveProjection.fovAxis` (Vertical|Horizontal) — prod'daki "aspect'e göre fov"
+  polinomunun genel karşılığı (FitPerspective de kullanır).
+- `CameraComponent.WorldToScreenPoint` (karalama Camera + gerçek ViewProj; projeksiyon tipinden bağımsız) → `render.describe`
+  artık 8-köşe AABB izdüşümü kullanır (eski "göz→z=0 kesiti" modeli ve `Cam.Persp/Eye` silindi); 3D mesh rect doğru.
+- MIPMAP: shim `de_sokol_make_image_mips` (ardışık seviyeler), `Texture.RequestMipmaps()` (CPU 2×2 kutu zinciri, immutable yeniden
+  kurulum; eski image/view `Resources.DeferDestroyImage/View`). MeshRenderer Sampler=Trilinear → dokuya ister. Native yeniden derlendi
+  (Android/iOS shim ortak dosya, sonraki build'de gelir).
+- [FbxImporter](../editor/FbxImporter.cs) + [FbxBinary](../editor/FbxBinary.cs): binary FBX 7.x (zlib `ZLibStream`), Geometry
+  Vertices/PolygonVertexIndex (fan üçgenleme), LayerElementUV (ByPolygonVertex/ByControlPoint, Direct/IndexToDirect), Model
+  Lcl T/R/S + pivot/offset/PreRotation + Geometric*, OO hiyerarşi, UnitScaleFactor; tüm Mesh modelleri TEK mesh'te birleşir. Ayarlar
+  `scale` (0.01 = cm→m, Unity useFileScale paritesi), `weld`, `flipV`. **Y çevrilir + üçgen sarımı ters** (CullMode.Back doğru).
+  ASCII FBX / normal / materyal / animasyon YOK. `.fbx → Mesh` AssetDatabase kaydı, `LoadMesh` (anahtar başına tek instance),
+  `InvalidateImported` yerinde reload. Pak: importer artifact genel yol (özel kod yok).
+- UNITY→MOTOR EŞLEMESİ (Table3D'de görsel doğrulandı): pos `(x, -y, z)`, Euler `(rx, ry, rz)` AYNEN (ayna + her iki motorun rotasyon
+  konvansiyonu birbirini götürüyor), FBX importer scale 0.01 × Unity GO scale aynı sayı. fov/near/far aynen. Doku `flipV=false`
+  (yükleme flip'i GL UV konvansiyonuyla örtüşür).
+- Motor Transform: `Rx(+90)` lokal +z'yi +y'ye (y-aşağı dünyada "aşağı bakış") çevirir — test yazarken yanlış işaret varsayımı
+  yapıldı, kod doğruydu.
+- Low-end: masa 1 draw call, 3146 üçgen, unlit; asıl maliyet 2048² doku (16 MB RGBA) — Unity'de de aynı. Doku sıkıştırma ayrı iş.
+- KALAN: oyun geçişleri Tween olarak oyun kodunda (hedef pozlar doc'ta boş GO'lar); Android cihaz ölçümü; Inspector mesh önizleme;
+  pak/player e2e (Table3D PlayerSettings.scenes'te değil). ginrummy `Table3D.scene` + `.intent.md` doğrulama sahnesi (kaydedilmiş;
+  Sampler=Trilinear + pos düzeltmesi undo'lu, kaydedilmedi).
+- TUZAK: editör açıkken `dotnet build` DLL kilidi (Stop-Process); kullanıcı SceneView'da GO sürükleyince doc değişir (-8.25,-23.35
+  sürprizi bu idi).
+
 ## EDİTÖR PLAY: OYUN KODU İSTİSNASI CRASH DEĞİL, LOG (2026-10-22)
 - SORUN: Play'de `Start()` içindeki `InvalidOperationException` ana döngüden yüzeye çıkıp editörü düşürüyordu (crash.log).
 - KARAR: oyun kodundan kaçan istisna Console'a TAM trace (`[play] <giriş noktası>: <ex>`) yazılır, **Play SÜRER** — Stop/Pause

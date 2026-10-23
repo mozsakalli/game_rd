@@ -18,9 +18,6 @@ static class RpcDescribe
     internal sealed class Cam
     {
         public CameraComponent C;
-        public float Rx, Ry, Rw, Rh;   // z=0 dunya gorus rect'i
-        public bool Persp;
-        public Vec3 Eye;
     }
 
     // Tek bir gorunur renderer'in ekran ozeti. render.describe, annotate screenshot (legend) ve render.expect
@@ -80,32 +77,37 @@ static class RpcDescribe
         return scene;
     }
 
-    [RpcCommand("render.describe", "Ekranin METIN ozeti (screenshot yerine ONCE BUNU dene): cizim sirasinda gorunur renderer'lar, mantiksal ekran rect'i 'x y w h' (merkez = input.tap koordinati), order, alpha(<1), text, sprite, fill, click (tiklanabilir). which: play|edit; root: yalniz bu GO'nun alt agaci ('A/B' yolu ya da ad); types: virgullu tip filtresi (LayoutBox,TextSprite); minSize: kucuk rect'leri at (mantiksal px); clickable=true → yalniz tiklanabilirler (buton envanteri); pixels=N → N sutunluk ortalama renk izgarasi ('rrggbb', ekran bos mu/parlak nerede). Dogrulama icin render.expect, gorsel ton/suphe icin render.screenshot(annotate=true)")]
-    static DocNode Describe(RpcContext ctx, string which = "play", string root = "", string types = "", float minSize = 2f, bool clickable = false, int pixels = 0)
+    [RpcCommand("render.describe", "Ekranin METIN ozeti (screenshot yerine ONCE BUNU dene): cizim sirasinda gorunur renderer'lar, mantiksal ekran rect'i 'x y w h' (merkez = input.tap koordinati), order, alpha(<1), text, sprite, fill, click (tiklanabilir). ILK cagri TAM liste; AYNI parametrelerle sonraki cagri yalniz DEGISENI doner (added/changed/removed | unchanged:true) — full=true tam listeyi yeniden ister. Varsayilan KOMPAKT: ayni yoldaki tekrar eden ogeler (kart ×11) tek satir 'count'+birlesik rect, metinsiz/tiklanmaz dekor alt parcalari atilir; verbose=true ham liste. which: play|edit; root: yalniz bu GO'nun alt agaci ('A/B' yolu ya da ad); types: virgullu tip filtresi (LayoutBox,TextSprite); minSize: kucuk rect'leri at (mantiksal px); clickable=true → yalniz tiklanabilirler (buton envanteri); pixels=N → N sutunluk ortalama renk izgarasi ('rrggbb', ekran bos mu/parlak nerede). Dogrulama icin render.expect, gorsel ton/suphe icin render.screenshot(annotate=true)")]
+    static DocNode Describe(RpcContext ctx, string which = "play", string root = "", string types = "", float minSize = 2f, bool clickable = false, int pixels = 0, bool full = false, bool verbose = false)
     {
         var scene = ResolveScene(ctx, which);
         if (pixels < 0 || pixels > 128)
             throw new RpcError("pixels 0..128 olmali");
         var snap = Collect(scene, root, types, minSize, clickable);
 
-        var items = DocNode.Seq();
-        foreach (var it in snap.Items)
-            items.Items.Add(it.ToNode());
+        var keyed = new List<KeyValuePair<string, DocNode>>();
+        if (verbose)
+            foreach (var it in snap.Items)
+                keyed.Add(new(it.Path, it.ToNode()));
+        else
+            Compact(snap.Items, keyed);
 
-        var res = DocNode.Map();
-        res.Add("screen", DocNode.Scal(string.Create(CultureInfo.InvariantCulture, $"{snap.Vw:0.##} {snap.Vh:0.##}")));
-        var camSeq = DocNode.Seq();
-        foreach (var c in snap.Cams)
+        string key = $"describe|{which}|{root}|{types}|{minSize}|{clickable}|{verbose}";
+        var res = RpcDelta.Apply(key, keyed, full, "items");
+        res.Fields.Insert(0, new KeyValuePair<string, DocNode>("screen", DocNode.Scal(string.Create(CultureInfo.InvariantCulture, $"{snap.Vw:0.##} {snap.Vh:0.##}"))));
+        if (res.Get("full") != null)
         {
-            var cm = DocNode.Map();
-            cm.Add("go", DocNode.Scal(RpcCommands.LivePath(c.C._gameObject)));
-            cm.Add("depth", DocNode.Scal(c.C.depth.ToString(CultureInfo.InvariantCulture)));
-            cm.Add("projection", DocNode.Scal(c.C.Projection?.GetType().Name ?? "PixelPerfect"));
-            camSeq.Items.Add(cm);
+            var camSeq = DocNode.Seq();
+            foreach (var c in snap.Cams)
+            {
+                var cm = DocNode.Map();
+                cm.Add("go", DocNode.Scal(RpcCommands.LivePath(c.C._gameObject)));
+                cm.Add("depth", DocNode.Scal(c.C.depth.ToString(CultureInfo.InvariantCulture)));
+                cm.Add("projection", DocNode.Scal(c.C.Projection?.GetType().Name ?? "PixelPerfect"));
+                camSeq.Items.Add(cm);
+            }
+            res.Fields.Insert(1, new KeyValuePair<string, DocNode>("cameras", camSeq));
         }
-        res.Add("cameras", camSeq);
-        res.Add("items", items);
-        res.Add("count", DocNode.Scal(items.Items.Count.ToString(CultureInfo.InvariantCulture)));
         if (snap.Offscreen > 0) res.Add("offscreen", DocNode.Scal(snap.Offscreen.ToString(CultureInfo.InvariantCulture)));
         if (snap.Tiny > 0) res.Add("tiny", DocNode.Scal(snap.Tiny.ToString(CultureInfo.InvariantCulture)));
         if (pixels > 0)
@@ -119,6 +121,55 @@ static class RpcDescribe
         if (which == "play" && PlayMode.PlaySceneStale)
             res.Add("stale", DocNode.Scal("true"));
         return res;
+    }
+
+    // KOMPAKT liste: (1) ayni yoldaki tekrar eden ogeler (prefab instance'lari: CARD ×11) tek satira iner —
+    // 'count', birlesik rect, metin yalniz hepsinde ayniysa; (2) metni/tiklamasi/sprite'i olmayan ve ebeveyni de listede
+    // olan dekor alt parcalari (SHADOW/HIGHLIGHT) atilir. Sira ilk gorulme sirasi (cizim sirasi).
+    static void Compact(List<Item> items, List<KeyValuePair<string, DocNode>> outList)
+    {
+        var paths = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var it in items) paths.Add(it.Path);
+        var groups = new Dictionary<string, List<Item>>(StringComparer.Ordinal);
+        var order = new List<string>();
+        foreach (var it in items)
+        {
+            bool decor = it.Text == null && !it.Click && it.Sprite == null && it.Fill == null;
+            if (decor)
+            {
+                int slash = it.Path.LastIndexOf('/');
+                if (slash > 0 && paths.Contains(it.Path[..slash]))
+                    continue; // ebeveyn zaten anlatiyor
+            }
+            if (!groups.TryGetValue(it.Path, out var g)) { groups[it.Path] = g = new List<Item>(); order.Add(it.Path); }
+            g.Add(it);
+        }
+        foreach (var p in order)
+        {
+            var g = groups[p];
+            if (g.Count == 1) { outList.Add(new(p, g[0].ToNode())); continue; }
+            float x0 = float.MaxValue, y0 = float.MaxValue, x1 = float.MinValue, y1 = float.MinValue;
+            bool click = false, sameText = true, sameSprite = true;
+            foreach (var it in g)
+            {
+                x0 = MathF.Min(x0, it.X); y0 = MathF.Min(y0, it.Y); x1 = MathF.Max(x1, it.X + it.W); y1 = MathF.Max(y1, it.Y + it.H);
+                click |= it.Click;
+                sameText &= it.Text == g[0].Text;
+                sameSprite &= it.Sprite == g[0].Sprite;
+            }
+            var m = DocNode.Map();
+            m.Add("path", DocNode.Scal(p));
+            m.Add("type", DocNode.Scal(g[0].Type));
+            m.Add("count", DocNode.Scal(g.Count.ToString(CultureInfo.InvariantCulture)));
+            m.Add("rect", DocNode.Scal(Rect(x0, y0, x1 - x0, y1 - y0)));
+            m.Add("order", DocNode.Scal(g[0].Order.ToString(CultureInfo.InvariantCulture)));
+            if (sameText && g[0].Text != null) m.Add("text", DocNode.Scal(g[0].Text));
+            if (sameSprite && g[0].Sprite != null) m.Add("sprite", DocNode.Scal(g[0].Sprite));
+            else if (!sameSprite) m.Add("sprite", DocNode.Scal("(farkli)"));
+            if (click) m.Add("click", DocNode.Scal("true"));
+            m.Add("note", DocNode.Scal("tekrarli oge; tek tek: verbose=true ya da root=" + p));
+            outList.Add(new(p, m));
+        }
     }
 
     // Gorunur renderer'lari cizim sirasinda toplar (filtreler describe ile ayni).
@@ -206,13 +257,6 @@ static class RpcDescribe
             if (!c.isActiveAndEnabled)
                 continue;
             var cam = new Cam { C = c };
-            c.GetWorldRect(vw, vh, out cam.Rx, out cam.Ry, out cam.Rw, out cam.Rh);
-            // Projeksiyon tipi public isin API'sinden: ortho isini eksene paralel, perspektifte goz orijin.
-            if (c.ScreenPointToRay(0, 0, vw, vh, out var ray) && (MathF.Abs(ray.Dir.x) > 1e-6f || MathF.Abs(ray.Dir.y) > 1e-6f || ray.Dir.z < 0.9999f))
-            {
-                cam.Persp = true;
-                cam.Eye = ray.Origin;
-            }
             cams.Add(cam);
         }
         cams.Sort((a, b) => a.C.depth.CompareTo(b.C.depth));
@@ -231,16 +275,18 @@ static class RpcDescribe
         return -1;
     }
 
+    // Lokal 3D AABB'nin 8 kosesi kameranin GERCEK matrisiyle ekrana izdusurulur (2D renderer'da z=0 →
+    // 4 farkli kose); projeksiyon tipi (ortho/persp/rotasyonlu 3D) burada bilinmez.
     static bool ScreenRect(Renderer r, Cam cam, float vw, float vh, out float x0, out float y0, out float x1, out float y1)
     {
         x0 = y0 = x1 = y1 = 0;
-        if (!r.GetLocalSelectionBounds(out var c, out var h))
+        if (!r.GetLocalBounds3D(out var mn, out var mx))
             return false;
         ref var wm = ref r.transform._getWorldMatrix();
         bool any = false;
-        for (int k = 0; k < 4; k++)
+        for (int k = 0; k < 8; k++)
         {
-            var lp = new Vec3(c.x + ((k & 1) == 0 ? -h.x : h.x), c.y + ((k & 2) == 0 ? -h.y : h.y), 0);
+            var lp = new Vec3((k & 1) == 0 ? mn.x : mx.x, (k & 2) == 0 ? mn.y : mx.y, (k & 4) == 0 ? mn.z : mx.z);
             var wp = Mat4.TransformPoint(ref wm, lp);
             if (!Project(cam, vw, vh, wp, out float sx, out float sy))
                 return false; // kose gozun arkasinda: rect tanimsiz
@@ -254,23 +300,12 @@ static class RpcDescribe
         return any;
     }
 
-    // Dunya noktasi → mantiksal ekran. Perspektifte goz→p dogrusunun z=0 kesiti (ScreenPointToRay'in tersi),
-    // sonra z=0 gorus rect'i ile dogrusal haritalama; kamera yoksa piksel-ortho (dunya xy = ekran).
+    // Dunya noktasi → mantiksal ekran: kameranin kendi izdusumu (CameraComponent.WorldToScreenPoint);
+    // kamera yoksa piksel-ortho (dunya xy = ekran).
     static bool Project(Cam cam, float vw, float vh, Vec3 p, out float sx, out float sy)
     {
         if (cam == null) { sx = p.x; sy = p.y; return true; }
-        float wx = p.x, wy = p.y;
-        if (cam.Persp)
-        {
-            float dz = p.z - cam.Eye.z;
-            if (dz <= 1e-4f) { sx = sy = 0; return false; }
-            float t = -cam.Eye.z / dz;
-            wx = cam.Eye.x + (p.x - cam.Eye.x) * t;
-            wy = cam.Eye.y + (p.y - cam.Eye.y) * t;
-        }
-        sx = cam.Rw > 0 ? (wx - cam.Rx) / cam.Rw * vw : 0;
-        sy = cam.Rh > 0 ? (wy - cam.Ry) / cam.Rh * vh : 0;
-        return true;
+        return cam.C.WorldToScreenPoint(p, vw, vh, out sx, out sy);
     }
 
     static void Detail(Renderer r, Item it)

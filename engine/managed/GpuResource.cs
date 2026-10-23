@@ -128,6 +128,36 @@ public static class Resources
             _pendingRelease[i] = null;
         }
         _pendingCount = 0;
+        for (int i = 0; i < _pendingBufferCount; i++)
+            Sokol.DestroyBuffer(_pendingBuffers[i]);
+        _pendingBufferCount = 0;
+        for (int i = 0; i < _pendingViewCount; i++)
+            Sokol.DestroyView(_pendingViews[i]);
+        _pendingViewCount = 0;
+        for (int i = 0; i < _pendingImageCount; i++)
+            Sokol.DestroyImage(_pendingImages[i]);
+        _pendingImageCount = 0;
+    }
+
+    // Ham handle'lar (nesne yasar, GPU tarafi yeniden kurulur: dinamik mesh buyutmesi, mip zinciri ekleme).
+    static uint[] _pendingBuffers = new uint[16];
+    static int _pendingBufferCount;
+    static uint[] _pendingImages = new uint[16];
+    static int _pendingImageCount;
+    static uint[] _pendingViews = new uint[16];
+    static int _pendingViewCount;
+
+    internal static void DeferDestroyBuffer(uint buffer) => Push(ref _pendingBuffers, ref _pendingBufferCount, buffer);
+    internal static void DeferDestroyImage(uint image) => Push(ref _pendingImages, ref _pendingImageCount, image);
+    internal static void DeferDestroyView(uint view) => Push(ref _pendingViews, ref _pendingViewCount, view);
+
+    static void Push(ref uint[] arr, ref int count, uint id)
+    {
+        if (id == 0)
+            return;
+        if (count == arr.Length)
+            Array.Resize(ref arr, count * 2);
+        arr[count++] = id;
     }
 
     // Her frame Scene.UpdateAll'dan cagrilir; ertelenmis birakma + planlanmis toplama.

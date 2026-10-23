@@ -98,6 +98,19 @@ public unsafe class Texture : GpuResource
         _dirty = false;
 
         int byteSize = Channels * _pixW * _pixH;
+        if (_mip && Channels == 4)
+        {
+            // Mip zincirli image immutable: icerik degistiyse yeniden kurulur (eskisi frame sonunda gider).
+            if (_texture != 0)
+            {
+                Resources.DeferDestroyImage((uint)_texture);
+                Resources.DeferDestroyView((uint)_textureView);
+                _texture = 0; _textureView = 0;
+            }
+            _texture = (int)MakeMipImage();
+            _textureView = (int)Sokol.MakeView((uint)_texture, SG.ViewTexture);
+            return;
+        }
         if (_texture == 0)
         {
             _texture = (int)Sokol.MakeImage(
@@ -107,6 +120,73 @@ public unsafe class Texture : GpuResource
         else
         {
             Sokol.UpdateImage((uint)_texture, _pixels, byteSize);
+        }
+    }
+
+    // Mip zinciri istegi (3D yuzeyler: egik bakista doku aliasing'i). Yalniz CPU pikselli RGBA
+    // dokularda (RT/R8/dinamik haric); GPU tarafi zaten kurulduysa sonraki _Sync'te zincirle yeniden
+    // kurulur. Pikseller henuz inmediyse (async yukleme) zincir attach aninda uretilir.
+    bool _mip;
+    public bool HasMipmaps => _mip;
+
+    public void RequestMipmaps()
+    {
+        if (_mip || _colorAttachmentView != 0 || Channels != 4)
+            return;
+        _mip = true;
+        if (_pixels != null)
+            _dirty = true;
+    }
+
+    // Seviye sayisi: 1x1'e kadar (sokol SG_MAX_MIPMAPS = 16).
+    static int MipLevels(int w, int h)
+    {
+        int n = 1;
+        while ((w > 1 || h > 1) && n < 16) { w = w > 1 ? w >> 1 : 1; h = h > 1 ? h >> 1 : 1; n++; }
+        return n;
+    }
+
+    // CPU'da 2x2 kutu filtre zinciri (tek gecici tampon), GPU'ya tek cagri.
+    uint MakeMipImage()
+    {
+        int levels = MipLevels(_pixW, _pixH);
+        long total = 0;
+        for (int i = 0, w = _pixW, h = _pixH; i < levels; i++)
+        {
+            total += (long)w * h * 4;
+            w = w > 1 ? w >> 1 : 1; h = h > 1 ? h >> 1 : 1;
+        }
+        byte* buf = (byte*)System.Runtime.InteropServices.Marshal.AllocHGlobal((IntPtr)total);
+        try
+        {
+            long l0 = (long)_pixW * _pixH * 4;
+            Buffer.MemoryCopy(_pixels, buf, l0, l0);
+            byte* src = buf; int sw = _pixW, sh = _pixH;
+            byte* dst = buf + l0;
+            for (int i = 1; i < levels; i++)
+            {
+                int dw = sw > 1 ? sw >> 1 : 1, dh = sh > 1 ? sh >> 1 : 1;
+                for (int y = 0; y < dh; y++)
+                {
+                    int sy0 = Math.Min(y * 2, sh - 1), sy1 = Math.Min(y * 2 + 1, sh - 1);
+                    for (int x = 0; x < dw; x++)
+                    {
+                        int sx0 = Math.Min(x * 2, sw - 1), sx1 = Math.Min(x * 2 + 1, sw - 1);
+                        byte* p00 = src + (sy0 * sw + sx0) * 4, p01 = src + (sy0 * sw + sx1) * 4;
+                        byte* p10 = src + (sy1 * sw + sx0) * 4, p11 = src + (sy1 * sw + sx1) * 4;
+                        byte* o = dst + (y * dw + x) * 4;
+                        for (int c = 0; c < 4; c++)
+                            o[c] = (byte)((p00[c] + p01[c] + p10[c] + p11[c] + 2) >> 2);
+                    }
+                }
+                src = dst; sw = dw; sh = dh;
+                dst += (long)dw * dh * 4;
+            }
+            return Sokol.MakeImageMips(_pixW, _pixH, levels, buf, (int)total);
+        }
+        finally
+        {
+            System.Runtime.InteropServices.Marshal.FreeHGlobal((IntPtr)buf);
         }
     }
 

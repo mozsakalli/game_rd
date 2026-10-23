@@ -47,7 +47,7 @@ public sealed class Camera
         if (_hasRect && !_persp && left == _oL && right == _oR && top == _oT && bottom == _oB
             && near == _oNear && far == _oFar) return;
         _oL = left; _oR = right; _oT = top; _oB = bottom; _oNear = near; _oFar = far;
-        _hasRect = true; _persp = false;
+        _hasRect = true; _persp = false; _free = false;
         Mat4.Ortho(left, right, bottom, top, near, far, out ViewProj);
         RectVersion++;
     }
@@ -60,11 +60,11 @@ public sealed class Camera
     public void SetPerspective(float fovYDeg, float aspect, float near, float far,
         float px, float py, float pz)
     {
-        if (_hasRect && _persp && fovYDeg == _pFov && aspect == _pAspect
+        if (_hasRect && _persp && !_free && fovYDeg == _pFov && aspect == _pAspect
             && near == _oNear && far == _oFar && px == _pX && py == _pY && pz == _pZ) return;
         _pFov = fovYDeg; _pAspect = aspect; _oNear = near; _oFar = far;
         _pX = px; _pY = py; _pZ = pz;
-        _hasRect = true; _persp = true;
+        _hasRect = true; _persp = true; _free = false;
 
         float d = -pz; if (d < 1e-3f) d = 1e-3f; // pz>=0 dejenere: minik mesafeyle koru
         float fovRad = fovYDeg * (System.MathF.PI / 180f);
@@ -76,6 +76,43 @@ public sealed class Camera
         Mat4.ViewYDown(px, py, pz, out var view);
         Mat4.Multiply(ref proj, ref view, out ViewProj);
         RectVersion++;
+    }
+
+    // Serbest (rotasyonlu) perspektif: view = F * inverse(cameraWorld). Rect = kamera konumu
+    // merkezli, |pos.z| mesafesindeki kesit (yaklasik; UI layout bu kamerada calismaz).
+    // Ayni matris + parametrelerle tekrar cagri no-op.
+    Mat4 _pWorld;
+    bool _free;
+
+    public unsafe void SetPerspectiveView(float fovYDeg, float aspect, float near, float far, ref Mat4 cameraWorld)
+    {
+        if (_hasRect && _persp && _free && fovYDeg == _pFov && aspect == _pAspect
+            && near == _oNear && far == _oFar && SameMatrix(ref _pWorld, ref cameraWorld)) return;
+        if (!Mat4.ViewFromWorld(ref cameraWorld, out var view))
+            return; // tekil (sifir olcek): onceki matris kalir
+        _pFov = fovYDeg; _pAspect = aspect; _oNear = near; _oFar = far;
+        _pWorld = cameraWorld;
+        float px = cameraWorld.m[12], py = cameraWorld.m[13], pz = cameraWorld.m[14];
+        _pX = px; _pY = py; _pZ = pz;
+        _hasRect = true; _persp = true; _free = true;
+
+        float d = pz < 0 ? -pz : pz; if (d < 1e-3f) d = 1e-3f;
+        float fovRad = fovYDeg * (System.MathF.PI / 180f);
+        float halfH = d * System.MathF.Tan(fovRad * 0.5f);
+        float halfW = halfH * aspect;
+        _oL = px - halfW; _oR = px + halfW; _oT = py - halfH; _oB = py + halfH;
+
+        Mat4.Perspective(fovRad, aspect, near, far, out var proj);
+        Mat4.Multiply(ref proj, ref view, out ViewProj);
+        RectVersion++;
+    }
+
+    static unsafe bool SameMatrix(ref Mat4 a, ref Mat4 b)
+    {
+        for (int i = 0; i < 16; i++)
+            if (a.m[i] != b.m[i])
+                return false;
+        return true;
     }
 
     // Kameranin gorus dikdortgeni dunya uzayinda (x,y = sol-ust). Perspektifte

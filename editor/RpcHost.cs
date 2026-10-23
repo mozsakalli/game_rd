@@ -312,6 +312,8 @@ public static class RpcHost
         public Client From;
         public bool HasId;
         public long Id;
+        public string Cmd;    // telemetri
+        public long BeginMs;  // telemetri: istek alinma ani
         public Func<DocNode> Poll; // null = bekle; DocNode = yanit; RpcError firlat = hata
     }
 
@@ -323,6 +325,14 @@ public static class RpcHost
 
     // Handler icinden: yaniti erteler. poll ana thread'de her frame kosar.
     public static void Defer(Func<DocNode> poll) => _deferredPoll = poll;
+
+    // sim.batch: ic ice Invoke'un biraktigi deferred poll'u alir (batch kendi poll'unda surer).
+    internal static Func<DocNode> TakeDeferred()
+    {
+        var p = _deferredPoll;
+        _deferredPoll = null;
+        return p;
+    }
 
     // staticRoot: ayni port ilk satiri "GET /... HTTP/1.x" olan baglantilari HTTP statik
     // dosya sunucusu olarak karsilar (wasm build'i tarayicida acmak icin ayri sunucu gerekmez).
@@ -353,6 +363,9 @@ public static class RpcHost
 
     public static void Stop()
     {
+        var summary = RpcStats.Summary();
+        if (summary != null)
+            Console.WriteLine(summary); // oturum maliyet profili (AI dogrulama dongusu olcumu)
         _listener?.Stop();
         _listener = null;
         lock (_clients)
@@ -509,6 +522,7 @@ public static class RpcHost
         {
             var p = _pending[i];
             string response = null;
+            bool err = false;
             try
             {
                 var result = p.Poll();
@@ -519,21 +533,30 @@ public static class RpcHost
             catch (RpcError ex)
             {
                 response = Error(p.HasId, p.Id, ex.Message);
+                err = true;
             }
             catch (Exception ex)
             {
                 response = Error(p.HasId, p.Id, ex.GetType().Name + ": " + ex.Message);
+                err = true;
             }
             _pending.RemoveAt(i);
+            RpcStats.End(p.Cmd, p.BeginMs, response, err);
             Send(p.From, response);
         }
         while (_queue.TryDequeue(out var req))
         {
-            string response = Execute(ctx, req.Line, req.From);
+            long begin = RpcStats.Begin();
+            string response = Execute(ctx, req.Line, req.From, begin);
             if (response != null) // null = deferred, yanit sonra
+            {
+                RpcStats.End(_lastCmd, begin, response, !response.Contains("\"ok\":true", StringComparison.Ordinal));
                 Send(req.From, response);
+            }
         }
     }
+
+    static string _lastCmd; // Execute'un cozdugu komut adi (telemetri; ana thread)
 
     static void Send(Client to, string response)
     {
@@ -546,10 +569,11 @@ public static class RpcHost
         catch { } // istemci gitti; komut yine de kostu (idempotent istemci sorumlulugu)
     }
 
-    static string Execute(RpcContext ctx, string line, Client from)
+    static string Execute(RpcContext ctx, string line, Client from, long beginMs)
     {
         long id = -1;
         bool hasId = false;
+        _lastCmd = null;
         try
         {
             using var doc = JsonDocument.Parse(line);
@@ -562,6 +586,7 @@ public static class RpcHost
             if (!root.TryGetProperty("cmd", out var cmdEl) || cmdEl.ValueKind != JsonValueKind.String)
                 return Error(hasId, id, "istek 'cmd' alani icermiyor");
             string cmd = cmdEl.GetString();
+            _lastCmd = cmd;
             var entry = RpcRegistry.Find(cmd);
             if (entry == null)
                 return Error(hasId, id, $"bilinmeyen komut: '{cmd}' (rpc.describe ile listele)");
@@ -575,7 +600,7 @@ public static class RpcHost
             finally { _current = null; }
             if (_deferredPoll != null)
             {
-                _pending.Add(new Pending { From = from, HasId = hasId, Id = id, Poll = _deferredPoll });
+                _pending.Add(new Pending { From = from, HasId = hasId, Id = id, Poll = _deferredPoll, Cmd = cmd, BeginMs = beginMs });
                 _deferredPoll = null;
                 return null; // yanit poll sonuclaninca
             }
@@ -596,9 +621,23 @@ public static class RpcHost
         }
     }
 
+    const int BigResponseBytes = 8 * 1024;
+
     static string Ok(bool hasId, long id, DocNode result)
     {
         result = RpcRedact.Apply(result); // [Sensitive] alanlar AI'a gitmez (tek cikis noktasi)
+        string s = Serialize(hasId, id, result);
+        // Buyuk yanit: AI'a daraltma ipucu (select/root/types/delta). Goruntu yanitlari zaten kucuk (yol doner).
+        if (s.Length > BigResponseBytes && result != null && result.IsMap && result.Get("sizeHint") == null && result.Get("delta") == null)
+        {
+            result.Add("sizeHint", DocNode.Scal($"{s.Length / 1024} KB — buyuk yanit. Sonraki ayni sorgu yalniz degiseni doner; daraltmak icin select/root/types/go/depth kullan"));
+            s = Serialize(hasId, id, result);
+        }
+        return s;
+    }
+
+    static string Serialize(bool hasId, long id, DocNode result)
+    {
         using var ms = new MemoryStream();
         using (var w = new Utf8JsonWriter(ms))
         {

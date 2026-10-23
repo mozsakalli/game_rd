@@ -166,6 +166,7 @@ public sealed class AssetDatabase
         [".mp3"] = typeof(AudioClip),
         [".ogg"] = typeof(AudioClip),
         [".wav"] = typeof(AudioClip),
+        [".fbx"] = typeof(Mesh), // 3D model: import'ta DMSH'e cevrilir, runtime yalniz DMSH okur
     };
 
     public static void RegisterImporter(string extension, Type type) => _importers[extension.ToLowerInvariant()] = type;
@@ -349,12 +350,36 @@ public sealed class AssetDatabase
             return LoadTexture(keyOrGuid);
         if (type == typeof(AudioClip))
             return LoadAudioClip(keyOrGuid);
+        if (type == typeof(Mesh))
+            return LoadMesh(keyOrGuid);
         if (type == typeof(Prefab))
             return LoadPrefab(keyOrGuid);
         return null;
     }
 
     readonly Dictionary<string, AudioClip> _clips = new();
+    readonly Dictionary<string, Mesh> _meshes = new();
+
+    // Mesh asset: DMSH artifact SENKRON okunur (kucuk; sahne kurulumunda bir kez), GPU'ya eager yuklenir.
+    // Anahtar basina tek instance (MeshRenderer'lar paylasir).
+    public Mesh LoadMesh(string key)
+    {
+        key = ResolvePath(key);
+        if (string.IsNullOrEmpty(key))
+            return null;
+        if (_meshes.TryGetValue(key, out var m))
+            return m;
+        var bytes = ReadArtifact(key, null);
+        m = bytes != null ? Mesh.FromArtifact(bytes, key) : null;
+        if (m == null)
+        {
+            if (bytes != null)
+                LogWarning?.Invoke($"[mesh] DMSH degil ya da bozuk: {key}");
+            return null;
+        }
+        _meshes[key] = m;
+        return m;
+    }
 
     // [Asset] veri nesnesi: anahtar basina TEK instance (paylasilir). Bayt kaynagi DOBJ (pak / importer
     // artifact) ya da editorde loose YAML (.asset). Instance okumadan ONCE cache'e girer (A->B->A dongusu
@@ -611,6 +636,19 @@ public sealed class AssetDatabase
 
     // Tampondan duser (hot reload / bellek geri alma); yuklu nesneler etkilenmez.
     public void Evict(string key) => _blobs.Remove(ResolvePath(key));
+
+    // Dosya icerigi degisti (editor kaydi / dis degisiklik): ham bayt tamponu + yukleme memo'su duser;
+    // sonraki PreloadAsync/EnsureLoadedAsync diskten taze okur. Yuklu nesneler/canli sahne etkilenmez
+    // (sahne dosyasi play'de SceneLoader.LoadAsync ile bu tampondan okunur — kaydedilen sahne bayat kalmasin).
+    public void InvalidateBytes(string key)
+    {
+        string k = ResolvePath(key);
+        if (string.IsNullOrEmpty(k))
+            return;
+        _blobs.Remove(k);
+        _blobLoads.Remove(k);
+        _ensured.Remove(k);
+    }
 
     // --- Bagimlilik grafigi yukleyicisi (genel; tur ozel kod yok) ---
     // Anahtar ve TUM gecisli bagimliliklari hazir olana kadar bekler: once dep'ler
@@ -942,6 +980,17 @@ public sealed class AssetDatabase
     // [Asset] nesneler (font dahil) once kendi sprite tablosu, sonra nesne yerinde (ReloadObject).
     public bool InvalidateImported(string relPath)
     {
+        if (_meshes.TryGetValue(relPath, out var mesh))
+        {
+            // Mesh yerinde tazelenir (MeshRenderer referanslari bozulmaz).
+            var bytes = ReadArtifact(relPath, null);
+            if (bytes == null || !mesh.Reload(bytes))
+            {
+                mesh.Destroy();
+                _meshes.Remove(relPath);
+            }
+            return true;
+        }
         if (_clips.TryGetValue(relPath, out var clip))
         {
             // Klip yerinde tazelenir (referanslar bozulmaz): eski native klip serbest,

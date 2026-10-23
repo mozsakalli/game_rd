@@ -158,6 +158,7 @@ public static class AssetWatcher
                 atlasDirty = true; // uye oldugu gruplar stamp'ten yeniden paketlenir
                 break;
             case ".prefab":
+                assets.InvalidateBytes(rel); // play'deki SceneLoader/prefab yuklemesi taze baytlari okusun
                 if (App.PrefabStagePath != null
                     && string.Equals(System.IO.Path.GetFullPath(App.PrefabStagePath), full, StringComparison.OrdinalIgnoreCase))
                 {
@@ -178,6 +179,8 @@ public static class AssetWatcher
                     PlayMode.DoHotReload();
                 break;
             case ".scene":
+                assets.InvalidateBytes(rel); // acik olmasa da: play'de LoadAsync bu tampondan okur
+                AssetChangeVersion++;        // toolbar sahne listesi yeniden taransin
                 if (App.EditScene.Path != null
                     && string.Equals(System.IO.Path.GetFullPath(App.EditScene.Path), full, StringComparison.OrdinalIgnoreCase))
                 {

@@ -17,6 +17,8 @@ public sealed unsafe class RenderQueue
     {
         public ulong Key;
         public int Instance;   // _instances icindeki indeks
+        public int IndexStart; // mesh indeks araligi (dinamik mesh parcalari; tam mesh = 0..IndexCount)
+        public int IndexCount;
         public ushort Mesh;    // mesh registry slot
         public ushort Pip;     // PipelineCache slot
         public uint TexView;
@@ -41,6 +43,18 @@ public sealed unsafe class RenderQueue
         : _nearestSampler = Sokol.MakeSampler(
             SG.FilterNearest, SG.FilterNearest, SG.FilterDefault,
             SG.WrapClampToEdge, SG.WrapClampToEdge, SG.WrapClampToEdge, SG.CompareFuncDefault);
+    static uint _trilinearSampler;
+    internal static uint TrilinearSampler => _trilinearSampler != 0 ? _trilinearSampler
+        : _trilinearSampler = Sokol.MakeSampler(
+            SG.FilterLinear, SG.FilterLinear, SG.FilterLinear,
+            SG.WrapClampToEdge, SG.WrapClampToEdge, SG.WrapClampToEdge, SG.CompareFuncDefault);
+
+    static uint SamplerFor(SamplerType t) => t switch
+    {
+        SamplerType.Nearest => NearestSampler,
+        SamplerType.Trilinear => TrilinearSampler,
+        _ => LinearSampler,
+    };
 
     public RenderQueue(int capacity = 4096)
     {
@@ -63,6 +77,9 @@ public sealed unsafe class RenderQueue
 
     // Test: i. draw'in tint0 alfasi (grup alfasi uygulanmis).
     internal byte TintAlphaAt(int i) => _instances[i].tint0.a;
+
+    // Test: i. draw'in uvRect'i (x, y, genislik, yukseklik).
+    internal Vec4 UvRectAt(int i) => new(_instances[i].uvRect[0], _instances[i].uvRect[1], _instances[i].uvRect[2], _instances[i].uvRect[3]);
 
     // Grup alfasi (RenderGroup zinciri): Scene her Encode'dan once basar, DrawMesh kose
     // alfalarini carpar. Cikis premultiplied oldugundan (wrapper rgb*a) yalniz alfa
@@ -117,9 +134,24 @@ public sealed unsafe class RenderQueue
         Mesh mesh, Material material, in Mat4 model,
         Color tint0, Color tint1, Color tint2, Color tint3, in Vec4 user, in Vec4 fxp, in Vec4 fxRect,
         float u0, float v0, float u1, float v1, int layer)
+        => DrawMesh(mesh, material, in model, tint0, tint1, tint2, tint3, in user, in fxp, in fxRect, u0, v0, u1, v1, layer,
+            0, mesh != null ? mesh.IndexCount : 0);
+
+    // Mesh'in bir INDEKS ARALIGINI cizer (dinamik mesh'te doku/materyal degisen parcalar:
+    // Spine sayfalari vb). Ayni mesh+aralik+state bitisik item'lar yine instanced merge olur.
+    public void DrawMeshRange(Mesh mesh, Material material, in Mat4 model, Color tint, int indexStart, int indexCount, int layer)
+        => DrawMesh(mesh, material, in model, tint, tint, tint, tint, default, default, in FxRectFull, 0f, 0f, 1f, 1f, layer,
+            indexStart, indexCount);
+
+    public void DrawMesh(
+        Mesh mesh, Material material, in Mat4 model,
+        Color tint0, Color tint1, Color tint2, Color tint3, in Vec4 user, in Vec4 fxp, in Vec4 fxRect,
+        float u0, float v0, float u1, float v1, int layer, int indexStart, int indexCount)
     {
         if (mesh == null || material == null)
             return;
+        if (indexStart < 0 || indexCount <= 0 || indexStart + indexCount > mesh.IndexCount)
+            return; // bos ya da aralik disi (dinamik mesh henuz yazilmamis olabilir)
 
         mesh._Sync();                  // damga + evict edildiyse geri yukleme
         material.MainTexture?._Sync(); // kaynak eager senkron (akista degil) + damga
@@ -176,6 +208,8 @@ public sealed unsafe class RenderQueue
         _items[idx] = new DrawItem
         {
             Instance = idx,
+            IndexStart = indexStart,
+            IndexCount = indexCount,
             Mesh = (ushort)mesh.Slot,
             Pip = (ushort)pip,
             TexView = texView,
@@ -211,6 +245,8 @@ public sealed unsafe class RenderQueue
             while (q < count &&
                    _items[q].Pip == head.Pip &&
                    _items[q].Mesh == head.Mesh &&
+                   _items[q].IndexStart == head.IndexStart &&
+                   _items[q].IndexCount == head.IndexCount &&
                    _items[q].TexView == head.TexView &&
                    _items[q].Sampler == head.Sampler)
             {
@@ -230,10 +266,10 @@ public sealed unsafe class RenderQueue
                         cb.SetUniforms(1, ref time);
                     curPip = head.Pip;
                 }
-                uint sampler = head.Sampler == SamplerType.Nearest ? NearestSampler : LinearSampler;
+                uint sampler = SamplerFor(head.Sampler);
                 // instanceBuffer=0: frame instance buffer (decoder-owned); offset bu blok icinde.
                 cb.SetBindings(mesh.Vbuf, 0u, p * sizeof(Instance), mesh.Ibuf, head.TexView, sampler);
-                cb.Draw(0, mesh.IndexCount, q - p);
+                cb.Draw(head.IndexStart, head.IndexCount, q - p);
             }
             p = q;
         }

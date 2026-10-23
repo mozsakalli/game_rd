@@ -52,6 +52,53 @@ public unsafe struct Mat4
         @out.m[12] = -px; @out.m[13] = py; @out.m[14] = pz;
     }
 
+    // Rotasyonlu kamera view'i: F * inverse(cameraWorld), F = diag(1,-1,-1) (y-asagi dunya ->
+    // GL eye; kamera lokal +z = bakis yonu, ViewYDown ile ayni sozlesme). Tekil matris -> false.
+    public static bool ViewFromWorld(ref Mat4 cameraWorld, out Mat4 view)
+    {
+        if (!Inverse(ref cameraWorld, out var inv))
+        {
+            view = default;
+            return false;
+        }
+        view = inv;
+        // F satirlari: y ve z satirlarini negatifle (kolon-major: m[c*4+row]).
+        for (int c = 0; c < 4; c++)
+        {
+            view.m[c * 4 + 1] = -inv.m[c * 4 + 1];
+            view.m[c * 4 + 2] = -inv.m[c * 4 + 2];
+        }
+        return true;
+    }
+
+    // Homojen nokta donusumu + w bolmesi (unproject/project). w ~ 0 -> false. w isareti:
+    // perspektifte w<0 = nokta gozun arkasinda (NDC yine hesaplanir, cagiran karar verir).
+    public static bool TransformPointW(ref Mat4 t, Vec3 p, out Vec3 r, out float w)
+    {
+        float x = t.m[0] * p.x + t.m[4] * p.y + t.m[8] * p.z + t.m[12];
+        float y = t.m[1] * p.x + t.m[5] * p.y + t.m[9] * p.z + t.m[13];
+        float z = t.m[2] * p.x + t.m[6] * p.y + t.m[10] * p.z + t.m[14];
+        w = t.m[3] * p.x + t.m[7] * p.y + t.m[11] * p.z + t.m[15];
+        if (w > -1e-12f && w < 1e-12f)
+        {
+            r = default;
+            return false;
+        }
+        float iw = 1f / w;
+        r = new Vec3(x * iw, y * iw, z * iw);
+        return true;
+    }
+
+    public static bool TransformPointW(ref Mat4 t, Vec3 p, out Vec3 r) => TransformPointW(ref t, p, out r, out _);
+
+    // Backend clip uzayinda yakin/uzak duzlemin NDC z'si (unproject icin).
+#if DE_RENDERER_METAL
+    public const float NdcNear = 0f;
+#else
+    public const float NdcNear = -1f;
+#endif
+    public const float NdcFar = 1f;
+
     // Nokta donusumu (w=1, translation dahil).
     public static Vec3 TransformPoint(ref Mat4 t, Vec3 p) => new(
         t.m[0] * p.x + t.m[4] * p.y + t.m[8] * p.z + t.m[12],

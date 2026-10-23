@@ -69,15 +69,33 @@ public sealed class OrthographicProjection : CameraProjection
     }
 }
 
-// Unity persp: fov dikey derece, kamera konumu = goz (z<0, bakis +z; dunya birimi
+// fov hangi eksende sabit: Vertical (Unity varsayilani) ya da Horizontal (dar ekranda
+// yatay genislik korunur — "aspect'e gore fov" polinomlarinin genel karsiligi).
+public enum FovAxis
+{
+    Vertical,
+    Horizontal,
+}
+
+// Unity persp: fov derece (fovAxis eksende), kamera konumu = goz (z<0, bakis +z; dunya birimi
 // piksel oldugundan tipik -500..-1500). Turevler yalniz Distance'i degistirir.
 [AddComponentMenu("Camera/Perspective Projection")]
 public class PerspectiveProjection : CameraProjection
 {
     public float fov = 60;
+    public FovAxis fovAxis = FovAxis.Vertical;
     // Dunya birimi piksel oldugundan Unity'den genis varsayilanlar.
     public float nearClip = 1;
     public float farClip = 20000;
+
+    // Dikey fov (derece): Horizontal eksende aspect'ten turetilir.
+    protected float VerticalFov(float aspect)
+    {
+        if (fovAxis == FovAxis.Vertical || aspect <= 0)
+            return fov;
+        float halfH = System.MathF.Tan(fov * (System.MathF.PI / 360f)) / aspect;
+        return System.MathF.Atan(halfH) * (360f / System.MathF.PI);
+    }
 
     // Gozun z=0 duzlemine uzakligi (pozitif). Default: transform z'si.
     protected virtual float Distance(in Vec3 camPos, float aspect) => -camPos.z;
@@ -93,7 +111,7 @@ public class PerspectiveProjection : CameraProjection
     {
         float aspect = viewH > 0 ? viewW / viewH : 1f;
         float d = SafeDistance(camPos, aspect);
-        h = 2f * d * System.MathF.Tan(fov * (System.MathF.PI / 360f));
+        h = 2f * d * System.MathF.Tan(VerticalFov(aspect) * (System.MathF.PI / 360f));
         w = h * aspect;
         x = camPos.x - w * 0.5f;
         y = camPos.y - h * 0.5f;
@@ -102,7 +120,7 @@ public class PerspectiveProjection : CameraProjection
     public override void Apply(Camera cam, in Vec3 camPos, float viewW, float viewH)
     {
         float aspect = viewH > 0 ? viewW / viewH : 1f;
-        cam.SetPerspective(fov, aspect, nearClip, farClip,
+        cam.SetPerspective(VerticalFov(aspect), aspect, nearClip, farClip,
             camPos.x, camPos.y, -SafeDistance(camPos, aspect));
     }
 
@@ -125,6 +143,46 @@ public sealed class FitPerspectiveProjection : PerspectiveProjection
     protected override float Distance(in Vec3 camPos, float aspect)
     {
         float needH = System.MathF.Max(referenceResolution.y, referenceResolution.x / aspect);
-        return needH / (2f * System.MathF.Tan(fov * System.MathF.PI / 360f));
+        return needH / (2f * System.MathF.Tan(VerticalFov(aspect) * System.MathF.PI / 360f));
+    }
+}
+
+// Serbest 3D kamera: transform'un KONUMU ve ROTASYONU birlikte kullanilir (Unity Camera
+// paritesi; lokal +z bakis yonu, dunya y-asagi). 3D sahne icerigi (MeshRenderer) icin;
+// UI layout bu kamerada calismaz (GetWorldRect yaklasik: konum merkezli, |z| mesafeli kesit).
+// Picking: ekran noktasi inverse(ViewProj) ile dunya isinina acilir.
+[AddComponentMenu("Camera/Free Perspective Projection")]
+public sealed class FreePerspectiveProjection : PerspectiveProjection
+{
+    protected override float Distance(in Vec3 camPos, float aspect) => camPos.z < 0 ? -camPos.z : camPos.z;
+
+    public override void Apply(Camera cam, in Vec3 camPos, float viewW, float viewH)
+    {
+        float aspect = viewH > 0 ? viewW / viewH : 1f;
+        ref var world = ref transform._getWorldMatrix();
+        cam.SetPerspectiveView(VerticalFov(aspect), aspect, nearClip, farClip, ref world);
+    }
+
+    public override void ScreenPointToRay(in Vec3 camPos, float viewW, float viewH,
+        float wx, float wy, out Ray ray)
+    {
+        ray = default;
+        float aspect = viewH > 0 ? viewW / viewH : 1f;
+        ref var world = ref transform._getWorldMatrix();
+        if (!Mat4.ViewFromWorld(ref world, out var view))
+            return;
+        Mat4.Perspective(VerticalFov(aspect) * (System.MathF.PI / 180f), aspect, nearClip, farClip, out var proj);
+        Mat4.Multiply(ref proj, ref view, out var vp);
+        if (!Mat4.Inverse(ref vp, out var inv))
+            return;
+        // (wx,wy) = GetWorldRect kesitindeki nokta -> viewport orani -> NDC (ust = +1).
+        GetWorldRect(camPos, viewW, viewH, out float rx, out float ry, out float rw, out float rh);
+        float nx = rw > 0 ? (wx - rx) / rw * 2f - 1f : 0f;
+        float ny = rh > 0 ? 1f - (wy - ry) / rh * 2f : 0f;
+        if (!Mat4.TransformPointW(ref inv, new Vec3(nx, ny, Mat4.NdcNear), out var pNear)
+            || !Mat4.TransformPointW(ref inv, new Vec3(nx, ny, Mat4.NdcFar), out var pFar))
+            return;
+        ray.Origin = pNear;
+        ray.Dir = Vec3.Normalize(pFar - pNear);
     }
 }

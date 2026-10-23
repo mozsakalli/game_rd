@@ -7,6 +7,7 @@ public enum SamplerType
 {
     Linear = 0,
     Nearest = 1,
+    Trilinear = 2, // linear + mip (doku RequestMipmaps ile zincir kurar; 3D yuzeyler)
 }
 
 public enum BlendFactor

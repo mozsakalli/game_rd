@@ -84,6 +84,25 @@ public sealed class CameraComponent : Component
         cam.ClearDepth = clearFlags != CameraClearFlags.DontClear;
     }
 
+    // Dunya noktasi -> mantiksal viewport (sol-ust orijin). Projeksiyon tipinden bagimsiz: tarif
+    // bir karalama render kamerasina basilir (Set* dedup'lu, ucuz) ve GERCEK ViewProj ile izdusum alinir
+    // (rotasyonlu 3D kamera dahil). false = nokta gozun arkasinda (perspektif) ya da dejenere.
+    static Camera _scratch;
+
+    public bool WorldToScreenPoint(Vec3 world, float viewW, float viewH, out float sx, out float sy)
+    {
+        sx = sy = 0;
+        if (viewW <= 0 || viewH <= 0)
+            return false;
+        _scratch ??= new Camera();
+        ApplyTo(_scratch, viewW, viewH);
+        if (!Mat4.TransformPointW(ref _scratch.ViewProj, world, out var ndc, out float w) || w <= 0)
+            return false;
+        sx = (ndc.x + 1f) * 0.5f * viewW;
+        sy = (1f - ndc.y) * 0.5f * viewH;
+        return true;
+    }
+
     // Viewport noktasindan dunya isini. Tuketici (picking) projeksiyon tipini
     // bilmez: ortho'da eksene paralel isin, perspektifte gozden gecen isin.
     public bool ScreenPointToRay(float sx, float sy, float viewW, float viewH, out Ray ray)

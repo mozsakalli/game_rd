@@ -1,0 +1,9 @@
+type: LocalizationTable
+fields:
+  Languages:
+    - en
+  Entries:
+    - Key: table3d.newbies_mesh
+      Values:
+        - NEWBIES — Mesh + UI stacking
+  Enums:

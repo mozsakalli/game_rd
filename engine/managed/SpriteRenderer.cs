@@ -37,6 +37,19 @@ public abstract class Renderer : Component
         return false;
     }
 
+    // Lokal 3D AABB (ekran izdusumu/cerceve icin). Default: 2D bbox z=0'da; 3D renderer override eder.
+    public virtual bool GetLocalBounds3D(out Vec3 min, out Vec3 max)
+    {
+        if (!GetLocalSelectionBounds(out var c, out var h))
+        {
+            min = max = default;
+            return false;
+        }
+        min = new Vec3(c.x - h.x, c.y - h.y, 0);
+        max = new Vec3(c.x + h.x, c.y + h.y, 0);
+        return true;
+    }
+
     // Pointer picking: dunya isini bu renderer'i vuruyor mu? Default: lokal bbox'in
     // z=0 duzlemiyle kesisim — her renderer sifir kodla tiklanabilir. Ozellesme
     // (alpha testi, ucgen testi) override'la gelir; RayHit alanlari o gun dolar.

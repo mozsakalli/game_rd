@@ -50,6 +50,14 @@ static class PlayMode
     // deterministik (PNG yazimi, arka plan throttling, derleme dt'yi sisirmez). 0 = gercek saat.
     public static float ForcedDt;
 
+    // HIZLI ILERI SARMA: ana dongu bu kadar EK sim adimini ayni editor frame'inde kosar (render yalniz sonda,
+    // duvar-saati butcesi FastForwardBudgetMs; artan sonraki frame'e). sim.run bunu kullanir: 240 kare ≈ 4 s → ~50 ms.
+    public static int FastForwardPending;
+    public const double FastForwardBudgetMs = 50;
+    // Oyun sahnesinin toplam sim adimi (Simulate'ken her Scene.UpdateAll +1): sim.run hedefi frame degil ADIM sayar.
+    public static long SimSteps { get; private set; }
+    internal static void NoteStep() => SimSteps++;
+
     public static void Play()
     {
         if (State == PlayState.Paused)

@@ -14,7 +14,8 @@ namespace DigitoyEditor;
 //   mem.types(filter, scope)  → yuklu tipler (kesif)
 //   mem.statics(type)         → tipin static uyeleri + deger ozeti (kok bulma: GinTableService.I)
 //   mem.dump(expr, depth, max)→ 'GinTableService.I.CurrentState.Players[1].Hand', 'TableServices.Factories[101]', 'Discards["x"]'
-// SALT OKUNUR: yalniz alan okuma + property getter cagrisi (debugger ile ayni risk: yan etkili getter). Yazma/metot cagrisi YOK.
+// SALT OKUNUR (mem.*/live.get): yalniz alan okuma + property getter cagrisi (debugger ile ayni risk: yan etkili getter).
+// Tek yazma/tetikleme kapisi live.call (CallFrom): canli nesnede METOT cagirir — yalniz Play'de, dev araci.
 // Statik tip cache yok: her cagri App.Code.CodeAssemblies'i taze okur (ALC reload guvenli). [Sensitive] maskesi RpcHost.Ok'ta.
 // Release'e tek satir girmez (editor assembly'si).
 public static class RpcMemory
@@ -274,7 +275,155 @@ public static class RpcMemory
                 catch (TargetInvocationException e) { throw new RpcError($"{path}.{name} getter istisna: {e.InnerException?.GetType().Name}: {e.InnerException?.Message}"); }
             }
         }
-        throw new RpcError($"uye yok: {path}.{name} ({target.GetType().Name}; mem.dump('{path}', depth=1) ile uyeleri gor)");
+        throw new RpcError(MemberMissing(target.GetType(), name, path));
+    }
+
+    // "uye yok" mesaji: ad bir METOT'a denk geliyorsa acikca soyle (AI 'Svc.Ready' ile metot cagirmaya calisiyordu,
+    // 'uye yok' aliyordu). Yoksa alan/property listesine yonlendir + metotlar icin live.call ipucu.
+    static string MemberMissing(Type type, string name, string path)
+    {
+        var sigs = MethodSignatures(type, name);
+        if (sigs.Count > 0)
+            return $"{path}.{name} bir METOT, deger degil: {string.Join(" | ", sigs)} — cagirmak icin live.call(expr='{(path.Contains('.') ? path[(path.IndexOf('.') + 1)..] + "." : "")}{name}', args=[...])";
+        return $"uye yok: {path}.{name} ({type.Name}; alanlar: mem.dump('{path}', depth=1); metotlar: live.call(expr='{(path.Contains('.') ? path[(path.IndexOf('.') + 1)..] : "")}', list=true))";
+    }
+
+    internal static List<string> MethodSignatures(Type type, string name, bool all = false)
+    {
+        var sigs = new List<string>();
+        for (var t = type; t != null && t != typeof(object) && t != typeof(Component); t = t.BaseType)
+            foreach (var m in t.GetMethods(Inst))
+            {
+                if (m.IsSpecialName || (!all && m.Name != name) || (all && m.DeclaringType == typeof(Component)))
+                    continue;
+                var ps = m.GetParameters();
+                var sb = new StringBuilder();
+                sb.Append(m.Name).Append('(');
+                for (int i = 0; i < ps.Length; i++) { if (i > 0) sb.Append(", "); sb.Append(ps[i].ParameterType.Name).Append(' ').Append(ps[i].Name); }
+                sb.Append(')');
+                if (m.ReturnType != typeof(void)) sb.Append(" → ").Append(m.ReturnType.Name);
+                sigs.Add(sb.ToString());
+            }
+        return sigs;
+    }
+
+    // live.call(list=true): yolun sonundaki nesne (metot listesi icin).
+    internal static object ResolveObject(object rootObj, string expr)
+    {
+        object cur = rootObj;
+        string path = rootObj.GetType().Name;
+        foreach (var seg in ParseMembers(expr))
+        {
+            if (cur == null)
+                throw new RpcError($"'{path}' null; '{seg}' okunamaz");
+            if (seg.IsIndex) { cur = Index(cur, seg.Name, path); path += "[" + seg.Name + "]"; }
+            else { cur = ReadInstance(cur, seg.Name, path, out _); path += "." + seg.Name; }
+        }
+        return cur;
+    }
+
+    // live.call: 'A.B.Method' yolunu kok nesneden yurur, son segmenti METOT olarak cagirir. args kanonik doc skalerleri
+    // (sayi/metin/bool/enum adi/'x y z'/'#rrggbbaa'); parametre sayisi eslesen tek overload; tip donusumu parametreye gore.
+    // Donus: Render(sonuc) | void | Task (bloklanmaz: durum raporlanir). Istisna → RpcError (ic mesaj).
+    internal static DocNode CallFrom(object rootObj, string expr, List<DocNode> args, int depth, int max, out string resolvedPath)
+    {
+        var segs = ParseMembers(expr ?? "");
+        if (segs.Count == 0 || segs[^1].IsIndex)
+            throw new RpcError("expr metot adiyla bitmeli: 'Ready', 'Svc.Deal', 'Hand[2].Flip'");
+        object cur = rootObj;
+        string path = rootObj.GetType().Name;
+        for (int i = 0; i < segs.Count - 1; i++)
+        {
+            var seg = segs[i];
+            if (cur == null)
+                throw new RpcError($"'{path}' null; '{seg}' okunamaz");
+            if (seg.IsIndex) { cur = Index(cur, seg.Name, path); path += "[" + seg.Name + "]"; }
+            else { cur = ReadInstance(cur, seg.Name, path, out _); path += "." + seg.Name; }
+        }
+        if (cur == null)
+            throw new RpcError($"'{path}' null; metot cagrilamaz");
+        string name = segs[^1].Name;
+        GuardSensitive(name, path);
+        resolvedPath = path + "." + name;
+        int argc = args?.Count ?? 0;
+        MethodInfo found = null;
+        var candidates = new List<MethodInfo>();
+        for (var t = cur.GetType(); t != null && found == null; t = t.BaseType)
+            foreach (var m in t.GetMethods(Inst))
+            {
+                if (m.Name != name || m.IsSpecialName) continue;
+                candidates.Add(m);
+                if (m.GetParameters().Length == argc && !m.IsGenericMethodDefinition) { found = m; break; }
+            }
+        if (found == null)
+        {
+            if (candidates.Count == 0)
+            {
+                // Alan/property ise soyle: AI yanlis arac sectiyse dogrusunu gostersin.
+                for (var t = cur.GetType(); t != null; t = t.BaseType)
+                    if (t.GetField(name, Inst) != null || t.GetProperty(name, Inst) != null)
+                        throw new RpcError($"{path}.{name} bir ALAN/PROPERTY, metot degil — okumak icin live.get(expr='...')");
+                throw new RpcError($"metot yok: {path}.{name} ({cur.GetType().Name}); metotlar: {string.Join(" | ", MethodSignatures(cur.GetType(), null, all: true))}");
+            }
+            throw new RpcError($"{path}.{name}: {argc} argumanli overload yok; mevcut: {string.Join(" | ", MethodSignatures(cur.GetType(), name))}");
+        }
+        var ps = found.GetParameters();
+        var values = new object[ps.Length];
+        for (int i = 0; i < ps.Length; i++)
+            values[i] = CoerceArg(args[i], ps[i].ParameterType, $"{name} arg{i} ({ps[i].Name})");
+        object result;
+        try { result = found.Invoke(cur, values); }
+        catch (TargetInvocationException e)
+        {
+            var ie = e.InnerException ?? e;
+            throw new RpcError($"{resolvedPath} istisna: {ie.GetType().Name}: {ie.Message}");
+        }
+        var r = DocNode.Map();
+        if (found.ReturnType == typeof(void))
+            r.Add("returned", DocNode.Scal("void"));
+        else if (result is System.Threading.Tasks.Task task)
+        {
+            // Async metot: beklemeden donulur (frame'ler sim.run ile ilerler); tamamlanma durumu raporlanir.
+            r.Add("async", DocNode.Scal("true"));
+            r.Add("status", DocNode.Scal(task.Status.ToString()));
+            if (task.IsFaulted) r.Add("error", DocNode.Scal(task.Exception?.GetBaseException().Message ?? ""));
+        }
+        else
+            r.Add("returned", Render(result, found.ReturnType, depth, max, new Stack<object>(), isRoot: true));
+        return r;
+    }
+
+    // Kanonik doc skaleri → parametre tipi. Tip bilinmeyen/karmasik (nesne) ise RpcError.
+    static object CoerceArg(DocNode node, Type pt, string what)
+    {
+        string s = node?.Scalar;
+        if (node != null && (node.IsMap || node.IsSeq))
+            throw new RpcError($"{what}: skaler bekleniyor (sayi/metin/bool/'x y z'/'#rrggbbaa')");
+        var u = Nullable.GetUnderlyingType(pt) ?? pt;
+        if (s == null)
+            return u.IsValueType && Nullable.GetUnderlyingType(pt) == null ? Activator.CreateInstance(u) : null;
+        var ci = CultureInfo.InvariantCulture;
+        try
+        {
+            if (u == typeof(string)) return s;
+            if (u == typeof(bool)) return s == "true" || s == "1";
+            if (u == typeof(int)) return int.Parse(s, ci);
+            if (u == typeof(long)) return long.Parse(s, ci);
+            if (u == typeof(short)) return short.Parse(s, ci);
+            if (u == typeof(byte)) return byte.Parse(s, ci);
+            if (u == typeof(float)) return float.Parse(s, NumberStyles.Float, ci);
+            if (u == typeof(double)) return double.Parse(s, NumberStyles.Float, ci);
+            if (u.IsEnum) return Enum.Parse(u, s, ignoreCase: true);
+            if (u == typeof(Vec2)) return SerializedType.ParseVec2(s);
+            if (u == typeof(Vec3)) return SerializedType.ParseVec3(s);
+            if (u == typeof(Vec4)) return SerializedType.ParseVec4(s);
+            if (u == typeof(Color)) return SerializedType.ParseColor(s);
+        }
+        catch (Exception e) when (e is FormatException || e is OverflowException || e is ArgumentException)
+        {
+            throw new RpcError($"{what}: '{s}' {u.Name} olarak okunamadi");
+        }
+        throw new RpcError($"{what}: {u.Name} tipi RPC'den verilemez (skaler/enum/Vec/Color desteklenir)");
     }
 
     // [Sensitive] uyeden GECIS yasak: 'LocalCache._tokens[7]' degeri 'value' anahtariyla donerdi ve maske (alan adi bazli) kacardi.

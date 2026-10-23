@@ -195,6 +195,7 @@ public unsafe class App
         LayoutTests.Run(_catalog);
         PointerTests.Run(_catalog);
         RenderGroupTests.Run(_catalog);
+        MeshTests.Run(_catalog);
         PlayerPrefsTests.Run(projectPath);
         JsonTests.Run(_catalog);
         AsyncQueueTests.Run();
@@ -327,7 +328,24 @@ public unsafe class App
                 Scene.UpdateAll(PlayMode.ForcedDt > 0f && PlayMode.Simulate ? PlayMode.ForcedDt : dt,
                     GameOutput.ViewW, GameOutput.ViewH, PlayMode.Simulate);
                 if (PlayMode.Simulate)
+                {
                     Plugin.PumpInbox(); // mock plugin mesajlari (GameHost.Frame paritesi)
+                    PlayMode.NoteStep();
+                    if (PlayMode.FastForwardPending > 0)
+                        PlayMode.FastForwardPending--;
+                    // Hizli ileri sarma (sim.run): ek adimlar ayni frame'de, render yok; async pompasi (Frame.Next /
+                    // Wait.Seconds) SIM dt'siyle ilerler → deterministik. Butce asilirsa kalan sonraki frame'e.
+                    double ffStart = GLFW.GetTime();
+                    while (PlayMode.FastForwardPending > 0 && PlayMode.Simulate && PlayMode.ForcedDt > 0f
+                           && (GLFW.GetTime() - ffStart) * 1000.0 < PlayMode.FastForwardBudgetMs)
+                    {
+                        _assets.Tick(2, PlayMode.ForcedDt);
+                        Scene.UpdateAll(PlayMode.ForcedDt, GameOutput.ViewW, GameOutput.ViewH, true);
+                        Plugin.PumpInbox();
+                        PlayMode.NoteStep();
+                        PlayMode.FastForwardPending--;
+                    }
+                }
             }
             catch (Exception e) when (PlayMode.PlayScene != null)
             {
@@ -485,8 +503,9 @@ public unsafe class App
             PlayMode.Pause();
         if (Gui.Button(new Rect(cx + 32, 3, 50, 20), "Stop"))
             PlayMode.Stop();
-        // Sol kose: hot reload modu (combobox).
-        var newHr = (HotReloadMode)Gui.ComboBox(new Rect(6, 3, 104, 20), (int)PlayMode.HotReload, _hrNames);
+        // Sol kose: sahne secici (tum .scene'ler, Assets'e goreli) + hot reload modu (combobox).
+        DrawSceneCombo(new Rect(6, 3, 260, 20));
+        var newHr = (HotReloadMode)Gui.ComboBox(new Rect(272, 3, 104, 20), (int)PlayMode.HotReload, _hrNames);
         if (newHr != PlayMode.HotReload)
         {
             PlayMode.HotReload = newHr;
@@ -506,7 +525,7 @@ public unsafe class App
             string status = AssetWatcher.Status.Length > 0 ? AssetWatcher.Status : PlayerBuilder.Status;
             bool failed = AssetWatcher.Status.Length > 0 ? AssetWatcher.Failed : PlayerBuilder.Failed;
             if (status.Length > 0)
-                GuiRenderer.DrawTextIn(new Rect(118, 3, 220, 20), status, Gui.FontSize - 3f,
+                GuiRenderer.DrawTextIn(new Rect(384, 3, 220, 20), status, Gui.FontSize - 3f,
                     failed ? new Color(235, 120, 120, 255) : new Color(150, 200, 150, 255), false, 2);
         }
 
@@ -552,6 +571,36 @@ public unsafe class App
     static string[] _gameNames = System.Array.Empty<string>();
     static string _fixedGame; // --game ile sabitlenmis (EditorSettings'e yazilmaz)
     internal static bool GameFixedByCli => _fixedGame != null;
+
+    // Toolbar sahne combosu: projedeki tum .scene dosyalari (Assets'e goreli yol, sirali). Liste yalniz asset
+    // degisiminde yeniden taranir (IMGUI: eleman sayisi frame icinde sabit). [0] = "(no scene)" (sahne yok / prefab stage).
+    // Secim → OpenScene (tek bogaz: ConfirmUnsaved Save/Discard/Cancel sorar, Play durur, lastScene guncellenir).
+    static string[] _sceneNames = { "(no scene)" };
+    static int _sceneListVersion = -1;
+
+    static void DrawSceneCombo(in Rect rect)
+    {
+        if (_sceneListVersion != AssetWatcher.AssetChangeVersion || _sceneNames.Length == 1 && _sceneListVersion < 0)
+        {
+            _sceneListVersion = AssetWatcher.AssetChangeVersion;
+            var list = new System.Collections.Generic.List<string> { "(no scene)" };
+            foreach (var k in _assets.Source.Keys)
+                if (k.EndsWith(".scene", StringComparison.OrdinalIgnoreCase))
+                    list.Add(k.Replace('\\', '/'));
+            list.Sort(1, list.Count - 1, StringComparer.OrdinalIgnoreCase);
+            _sceneNames = list.ToArray();
+        }
+        int idx = 0;
+        if (!InPrefabStage && _editScene.Path != null)
+        {
+            string rel = System.IO.Path.GetRelativePath(_assets.Root, _editScene.Path).Replace('\\', '/');
+            for (int i = 1; i < _sceneNames.Length; i++)
+                if (string.Equals(_sceneNames[i], rel, StringComparison.OrdinalIgnoreCase)) { idx = i; break; }
+        }
+        int next = Gui.ComboBox(rect, idx, _sceneNames);
+        if (next != idx && next > 0 && next < _sceneNames.Length)
+            OpenScene(System.IO.Path.Combine(_assets.Root, _sceneNames[next]));
+    }
 
     static void DrawGameCombo(in Rect rect)
     {

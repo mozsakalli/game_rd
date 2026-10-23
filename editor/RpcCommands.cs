@@ -17,6 +17,15 @@ static class RpcCommands
     [RpcCommand("rpc.describe", "Tum komutlari parametre semalariyla listeler")]
     static DocNode Describe() => RpcRegistry.Describe();
 
+    [RpcCommand("rpc.stats", "RPC komut telemetrisi (bu oturum): komut basina sayi/hata/toplam-ort-maks ms (deferred bekleme dahil)/KB/goruntu sayisi, toplam sureye gore sirali. top: ilk N satir (0 = hepsi); reset=true sayaclari sifirlar (rapor sonra)")]
+    static DocNode Stats(int top = 20, bool reset = false)
+    {
+        var r = RpcStats.Report(top);
+        if (reset)
+            RpcStats.Reset();
+        return r;
+    }
+
     [RpcCommand("rpc.guide", "START HERE (kodu bilmeyen ajan icin): is akisi, sahne kavramlari (UI = LayoutBox), deger bicimleri, davranis icin kod gerektigi, dogrulama dongusu")]
     static DocNode Guide()
     {
@@ -38,11 +47,24 @@ static class RpcCommands
                 : "Calisilan tema '" + SceneDoc.ActiveTheme + "' (editorde secili): mutasyonlar bu KATMANA gider ve tema kapisi theme:'" + SceneDoc.ActiveTheme + "' ya da theme.set beyani ister. Tabani duzenleyeceksen kullaniciya sor, sonra theme.set('')."));
             r.Add("state", st);
         }
+        r.Add("toolChoice", Lines(
+            "BOYUT KURALI: render.describe / scene.dumpLive / live.get ILK cagrida TAM gelir (harita); AYNI sorgunun sonraki cagrilari yalniz DEGISENI doner (added/changed/removed | unchanged:true). Haritayi BIR KEZ al, sonra nokta atis sor: live.get(select='Phase,IsMyTurn,MyHand'), describe(root=, types=), expect. Yanitta sizeHint goruyorsan yanlis soruyorsun: daralt. Tam tekrar yalniz full=true",
+            "TUR KURALI: bir oyun turu = BIR sim.batch(steps=[live.call hamle, sim.run, live.get select, render.expect]) — 4 round-trip degil 1. Sunucu tur suresi (≈20 sn) senin dusunme surenden KISA olabilir: masada ayri ayri cagri yapma, batch'le",
+            "NIYET → ARAC (once bunu oku; yanlis arac = 'uye yok' / bos sonuc):",
+            "  bir DEGER ogrenmek ('skor kac', 'deste sayisi', 'hangi faz')      → live.get(go, comp, expr)  [salt okunur; alan/property/index]",
+            "  oyun AKISINI tetiklemek ('Ready gonder', 'kart dagit', 'faz atla')  → live.call(go, comp, expr, args)  [metot cagirir; Unity debug-window butonu]",
+            "  sahne-disi servis/statik durum ('GinTableService.I.State')        → mem.statics(type) → mem.dump(expr)",
+            "  ekranda NE VAR / nereye tiklanir                                   → render.describe  (ucuz, metin)",
+            "  beklenti dogru mu (rect/text/click/konum)                          → render.expect   (bedava, PASS/FAIL)",
+            "  gorsel ton/suphe, yalniz FAIL'den sonra                            → render.screenshot(annotate=true)  (PAHALI; gerekce iste)",
+            "  zaman ilerlet                                                       → sim.run(frames)  (hizli ileri sarma; bekleme maliyeti yok; AG/sunucu yaniti bekleniyorsa realtime=true)",
+            "  'metot mu alan mi' emin degilsen                                    → live.call(list=true) metotlari, live.get(expr='') alanlari listeler",
+            "KURAL: ekran gorsel degil DURUM dogrulanacaksa goruntu alma; durum oyunun C# nesnesinde, oraya live.get/mem.dump ile bak."));
         r.Add("workflow", Lines(
             "1. scene.tree (KOMPAKT hiyerarsi: id, ad, component tipleri; root/depth ile kademeli gez) ya da scene.new/scene.open. Detay: scene.dump(go, props) alt agac/alan degerleri, prop.get(go, comp). Tum sahne scene.dump(props=true) BUYUK, gerekmedikce cagirma",
             "2. comp.types → comp.schema(type): alanlar, default, enum degerleri, format. Tahmin etme, semaya bak",
             "3. TOPLU kur: scene.apply(objects) — GO + components + props + children tek istekte (tek undo, atomik). Kucuk rotus: prop.set/transform.set. PREFAB: prefab.create(id, path) sahnedeki GO'yu prefab yapar (instance'a baglanir); prefab.instantiate(prefab, parent, pos) sahneye instance ekler (edit.batch icinde de); prefab.open/close prefab'in kendisini duzenler (tum instance'lar alir)",
-            "4. view.device(name) → sim.run(frames, describe=true) → METIN ozete bak (render.describe: rect/text/click; rect merkezi = input.tap koordinati) → input.tap(x,y) → tekrar describe. Gorsel ton/suphe: screenshot=true ya da render.screenshot (koordinat = region.x + px * toScreen). sim.run VARSAYILAN dokum vermez (dump=none); 'ne degisti' icin dump=diff, tam dokum scene.dumpLive. KOORDINAT: mode=panel'de ekran boyutu pencereyle degisir — deterministik is icin once view.device ile sabitle; tiklama koordinatini hep AYNI turdaki render.describe/screenshot'tan al (view.get ile karsilastirma)",
+            "4. view.device(name) → sim.run(frames, describe=true) → METIN ozete bak (render.describe: rect/text/click; rect merkezi = input.tap koordinati) → input.tap(x,y) → tekrar describe. sim.run HIZLIDIR (kareler ileri sarilir, 240 kare ≈ 50 ms; animasyon izlemek icin realtime=true/captureEvery) — bekleme maliyeti yok, istedigin kadar kare ver. Gorsel ton/suphe: screenshot=true ya da render.screenshot (PAHALI; koordinat = region.x + px * toScreen). sim.run VARSAYILAN dokum vermez (dump=none); 'ne degisti' icin dump=diff, tam dokum scene.dumpLive. KOORDINAT: mode=panel'de ekran boyutu pencereyle degisir — deterministik is icin once view.device ile sabitle; tiklama koordinatini hep AYNI turdaki render.describe/screenshot'tan al (view.get ile karsilastirma)",
             "4b. Canli deger: scene.dumpLive(go, props=true) sema alanlari; live.get(go, comp, expr) sema disi runtime durum (property 'Selected', 'Sprite.Width', private '_sr', hook 'onClick' → bagli metotlar). Jest sonucu 'calls' = kosan handler listesi (GO:Comp.OnPointerX, '(used)' = e.Use() kesti). input.drag(captureEvery=K) surukleme sirasi kareler. log.tail(filter='Gin,Table', sev='Warning') gurultuyu eler",
             "5. Hata donerse yol+sebep verir ve hicbir sey uygulanmaz; duzelt, tekrar gonder. scene.diff = son dump'tan beri ne degisti",
             "6. scene.save YALNIZ kullanici isterse (her sey undo'lu kalir). scene.open/scene.new/prefab.open/project.open acik sahne kaydedilmemisse 'UNSAVED:' hatasi doner ve hicbir sey yapmaz: kullaniciya sor → scene.save (kaydet) ya da force=true (at). Korkutmadan once scene.tree'deki dirty alanina bakabilirsin"));
@@ -328,12 +350,10 @@ static class RpcCommands
         return root;
     }
 
-    [RpcCommand("scene.dumpLive", "CANLI sahne dokumu (runtime degerler; which: edit|play). go: yalniz bu GO'nun alt agaci (hiyerarsi yolu 'A/B' ya da tekil ad; bos = tum sahne). props=true → her component'in katalog semasindaki alanlari kanonik doc biciminde (scene.dump ile ayni; Go/CompRef canli yol 'A/B' / 'A/B:Tip:0'). Sema disi runtime durum (property, private, hook) icin live.get")]
-    static DocNode DumpLive(RpcContext ctx, string which = "edit", string go = "", bool props = false)
+    [RpcCommand("scene.dumpLive", "CANLI sahne dokumu (runtime degerler; which: edit|play). go: yalniz bu GO'nun alt agaci (hiyerarsi yolu 'A/B' ya da tekil ad; bos = tum sahne). props=true → her component'in katalog semasindaki alanlari kanonik doc biciminde (scene.dump ile ayni; Go/CompRef canli yol 'A/B' / 'A/B:Tip:0'). ILK cagri TAM; ayni parametrelerle sonraki cagri yalniz DEGISEN GO'lari doner (added/changed/removed | unchanged) — full=true tam dokum. Sema disi runtime durum (property, private, hook) icin live.get")]
+    static DocNode DumpLive(RpcContext ctx, string which = "edit", string go = "", bool props = false, bool full = false)
     {
         var scene = RequireLiveScene(ctx, which);
-        var root = DocNode.Map();
-        root.Add("name", DocNode.Scal(scene.Name));
         var objects = DocNode.Seq();
         var cat = props ? scene.Catalog ?? ctx.Catalog : null;
         if (go.Length > 0)
@@ -345,7 +365,11 @@ static class RpcCommands
         else
             for (int i = 0; i < scene.RootCount; i++)
                 DumpLiveGo(scene.GetRoot(i), 0, objects, cat, scene.Assets);
-        root.Add("objects", objects);
+        var keyed = new List<KeyValuePair<string, DocNode>>(objects.Items.Count);
+        foreach (var og in objects.Items)
+            keyed.Add(new(og.GetScalar("path"), og));
+        var root = RpcDelta.Apply($"dumpLive|{which}|{go}|{props}", keyed, full, "objects");
+        root.Fields.Insert(0, new KeyValuePair<string, DocNode>("name", DocNode.Scal(scene.Name)));
         return root;
     }
 
@@ -362,61 +386,102 @@ static class RpcCommands
         return scene;
     }
 
-    // sim.run(dump=diff) baseline'i: canli yol -> props'suz GO dokumu (ad/active/transform/component tipleri).
-    static readonly Dictionary<string, DocNode> _liveBaseline = new();
-
-    // Canli sahnenin son baseline'a gore farki; baseline guncellenir. GO adresi hiyerarsi yolu (play'de doc id yok).
+    // sim.run(dump=diff): canli sahnenin son cagriya gore farki (RpcDelta, anahtar "sim.diff"; props'suz GO dokumu).
     static DocNode LiveDiff(Scene scene)
     {
-        var now = new Dictionary<string, DocNode>();
-        var order = new List<string>();
         var flat = DocNode.Seq();
         for (int i = 0; i < scene.RootCount; i++)
             DumpLiveGo(scene.GetRoot(i), 0, flat, null, null);
+        var keyed = new List<KeyValuePair<string, DocNode>>(flat.Items.Count);
         foreach (var og in flat.Items)
+            keyed.Add(new(og.GetScalar("path"), og));
+        return RpcDelta.Apply("sim.diff", keyed, false, "objects");
+    }
+
+    [RpcCommand("live.get", "CANLI component'ten runtime deger OKUR — debugger watch gibi, sema sarti yok (public/private alan, property getter, hook delegeleri, index). go: hiyerarsi yolu 'A/B' ya da tekil ad; comp: tip adi ('Piece', ayni tipten birden coksa 'Piece:1'); expr: uye yolu ('Selected', 'Sprite.Width', '_sr.Color' (private alan adiyla), 'Hand[2].Id', 'onClick'); bos expr = component'in kendisi. select: expr'e goreli virgullu alan listesi ('Phase,IsMyTurn,MyHand,TopDiscard') → YALNIZ bu alanlar (nokta atis; tercih et). Ayni sorgunun sonraki cagrisi yalniz DEGISEN alanlari doner (unchanged | changed) — full=true tam deger. depth/max mem.dump ile ayni. SALT OKUNUR: metot CAGIRMAZ — 'Svc.Ready' gibi bir METOT tetiklemek icin live.call")]
+    static DocNode LiveGet(RpcContext ctx, string go, string comp, string expr = "", string which = "play", int depth = 2, int max = 50, string select = "", bool full = false)
+    {
+        var found = ResolveLiveComponent(ctx, go, comp, which, out string goPath, out string compLabel);
+        var keyed = new List<KeyValuePair<string, DocNode>>();
+        if (!string.IsNullOrWhiteSpace(select))
         {
-            string path = og.GetScalar("path");
-            if (now.ContainsKey(path))
-                continue; // ayni yolda birden cok GO (ad cakismasi): ilki temsil eder
-            now[path] = og;
-            order.Add(path);
+            foreach (var f in select.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries))
+            {
+                string sub = string.IsNullOrWhiteSpace(expr) ? f : expr + "." + f;
+                DocNode v;
+                try { v = RpcMemory.DumpFrom(found, sub, depth, max); }
+                catch (RpcError e) { v = DocNode.Scal("!" + e.Message); }
+                keyed.Add(new(f, v));
+            }
         }
-        var added = DocNode.Seq();
-        var changed = DocNode.Seq();
-        var removed = DocNode.Seq();
-        foreach (var path in order)
+        else
         {
-            var og = now[path];
-            if (!_liveBaseline.TryGetValue(path, out var was))
-                added.Items.Add(og);
-            else if (!DocNode.Equal(og, was))
-                changed.Items.Add(og);
+            var v = RpcMemory.DumpFrom(found, expr, depth, max);
+            if (v.IsMap)
+                foreach (var kv in v.Fields) keyed.Add(new(kv.Key, kv.Value));
+            else
+                keyed.Add(new("value", v));
         }
-        foreach (var path in _liveBaseline.Keys)
-            if (!now.ContainsKey(path))
-                removed.Items.Add(DocNode.Scal(path));
-        _liveBaseline.Clear();
-        foreach (var kv in now)
-            _liveBaseline[kv.Key] = kv.Value;
-        var r = DocNode.Map();
-        r.Add("added", added);
-        r.Add("changed", changed);
-        r.Add("removed", removed);
+        var r = RpcDelta.Apply($"live.get|{which}|{goPath}|{compLabel}|{expr}|{select}|{depth}|{max}", keyed, full, "fields");
+        // Tam gorunumde 'fields' listesi yerine duz harita (alan adi → deger): okunakli ve kucuk.
+        var fields = r.Get("fields");
+        if (fields != null)
+        {
+            var map = DocNode.Map();
+            for (int i = 0; i < keyed.Count; i++) map.Add(keyed[i].Key, keyed[i].Value);
+            for (int i = 0; i < r.Fields.Count; i++)
+                if (r.Fields[i].Key == "fields") { r.Fields[i] = new("value", map); break; }
+        }
+        r.Fields.Insert(0, new("expr", DocNode.Scal(expr)));
+        r.Fields.Insert(0, new("comp", DocNode.Scal(compLabel)));
+        r.Fields.Insert(0, new("go", DocNode.Scal(goPath)));
         return r;
     }
 
-    [RpcCommand("live.get", "CANLI component'ten runtime deger okur — DEBUGGER gibi, sema sarti yok (public/private alan, property getter, hook delegeleri, index). go: hiyerarsi yolu 'A/B' ya da tekil ad; comp: tip adi ('Piece', ayni tipten birden coksa 'Piece:1'); expr: uye yolu ('Selected', 'Sprite.Width', '_sr.Color' (private alan adiyla), 'Hand[2].Id', 'onClick'); bos expr = component'in kendisi. depth/max mem.dump ile ayni. SALT OKUNUR")]
-    static DocNode LiveGet(RpcContext ctx, string go, string comp, string expr = "", string which = "play", int depth = 2, int max = 50)
+    [RpcCommand("live.call", "CANLI component uzerinde METOT CAGIRIR (Play'de; Unity debug-window butonunun RPC karsiligi: oyun koduna hicbir sey eklemeden akisi tetikle — 'Ready', 'Svc.Deal', 'Hand[2].Flip'). go/comp live.get ile ayni; expr: uye yolu + metot adi (public/private); args: kanonik skaler listesi (sayi, metin, true|false, enum adi, 'x y z', '#rrggbbaa'), parametre sayisi eslesen overload secilir. Donus: returned (deger / void) ya da async:true + Task durumu (beklenmez; sim.run ile ilerlet). list=true → metotlari listeler, cagirmaz. Istisna → hata mesaji (sahne surer). Degeri OKUMAK icin live.get")]
+    static DocNode LiveCall(RpcContext ctx, string go, string comp, string expr = "", DocNode args = null, bool list = false, string which = "play", int depth = 1, int max = 50)
+    {
+        var found = ResolveLiveComponent(ctx, go, comp, which, out string goPath, out string compLabel);
+        var r = DocNode.Map();
+        r.Add("go", DocNode.Scal(goPath));
+        r.Add("comp", DocNode.Scal(compLabel));
+        if (list)
+        {
+            // Hedef nesne: expr bos = component; doluysa yolun sonundaki nesne.
+            object target = string.IsNullOrWhiteSpace(expr) ? found : RpcMemory.ResolveObject(found, expr);
+            r.Add("target", DocNode.Scal(target?.GetType().Name ?? "null"));
+            var seq = DocNode.Seq();
+            if (target != null)
+                foreach (var s in RpcMemory.MethodSignatures(target.GetType(), null, all: true))
+                    seq.Items.Add(DocNode.Scal(s));
+            r.Add("methods", seq);
+            return r;
+        }
+        var argList = new List<DocNode>();
+        if (args != null)
+        {
+            if (args.IsSeq) argList.AddRange(args.Items);
+            else if (!args.IsNull) argList.Add(args); // tek skaler = tek arguman
+        }
+        var result = RpcMemory.CallFrom(found, expr, argList, depth, max, out string resolved);
+        r.Add("call", DocNode.Scal(resolved + "(" + argList.Count + " arg)"));
+        foreach (var kv in result.Fields)
+            r.Add(kv.Key, kv.Value);
+        return r;
+    }
+
+    // live.get/live.call ortak: canli GO + component ('Tip' ya da 'Tip:ordinal').
+    static Component ResolveLiveComponent(RpcContext ctx, string go, string comp, string which, out string goPath, out string compLabel)
     {
         var scene = RequireLiveScene(ctx, which);
         var target = FindLiveByPath(scene, go)
             ?? throw new RpcError($"canli sahnede GO yok: '{go}' (yol 'A/B/C' ya da tekil ad)");
-        string typeName = comp;
+        string typeName = comp ?? "";
         int ordinal = 0;
-        int colon = comp.LastIndexOf(':');
-        if (colon > 0 && int.TryParse(comp[(colon + 1)..], out int ord))
+        int colon = typeName.LastIndexOf(':');
+        if (colon > 0 && int.TryParse(typeName[(colon + 1)..], out int ord))
         {
-            typeName = comp[..colon];
+            typeName = typeName[..colon];
             ordinal = ord;
         }
         Component found = null;
@@ -435,12 +500,9 @@ static class RpcCommands
         }
         if (found == null)
             throw new RpcError($"'{LivePath(target)}' uzerinde '{comp}' yok; mevcut: {string.Join(", ", available)}");
-        var r = DocNode.Map();
-        r.Add("go", DocNode.Scal(LivePath(target)));
-        r.Add("comp", DocNode.Scal(found.GetType().Name + (seen > 1 || ordinal > 0 ? ":" + ordinal : "")));
-        r.Add("expr", DocNode.Scal(expr));
-        r.Add("value", RpcMemory.DumpFrom(found, expr, depth, max));
-        return r;
+        goPath = LivePath(target);
+        compLabel = found.GetType().Name + (seen > 1 || ordinal > 0 ? ":" + ordinal : "");
+        return found;
     }
 
     // Faz 0 regresyon araci (docs/registry-removal.md): player'daki Build/scene-dump.flag ciktisiyla birebir karsilastirilir.
@@ -1149,6 +1211,86 @@ static class RpcCommands
         ctx.Scene.EndBatch();
     }
 
+    // sim.batch icinde kosabilen (play/okuma) komutlar: mutasyon yok, doc'a dokunmaz.
+    static readonly HashSet<string> SimBatchAllowed = new(StringComparer.Ordinal)
+    {
+        "sim.run", "input.tap", "input.drag", "input.pointer", "live.call", "live.get", "render.describe", "render.expect",
+        "render.screenshot", "scene.dumpLive", "log.tail", "mem.dump", "mem.statics", "anim.goto",
+    };
+
+    [RpcCommand("sim.batch", "Bir OYUN TURUNU tek istekte kosar: steps=[{cmd, args}] SIRAYLA (sim.run/input.* gibi frame bekleyenler dahil), tek yanit. Ornek: [{cmd:'live.call',args:{go:'GAMEMANAGER',comp:'GinRummyGame',expr:'Svc.PickFromDeck'}}, {cmd:'sim.run',args:{frames:30}}, {cmd:'live.get',args:{go:…,comp:…,expr:'Svc',select:'IsMyTurn,MyHand,TopDiscard'}}, {cmd:'render.expect',args:{expects:[…]}}]. Izinli: " + "sim.run input.tap input.drag input.pointer live.call live.get render.describe render.expect render.screenshot scene.dumpLive log.tail mem.dump mem.statics anim.goto" + ". Adim hata verirse orada durur: results (o ana kadar) + error{at,cmd,message}. Round-trip ve model turu sayisini 4→1 indirir — bir tur = bir sim.batch")]
+    static DocNode SimBatch(RpcContext ctx, DocNode steps)
+    {
+        if (steps == null || !steps.IsSeq || steps.Items.Count == 0)
+            throw new RpcError("steps bir liste olmali: [{cmd, args}]");
+        if (steps.Items.Count > 32)
+            throw new RpcError("steps en fazla 32 adim");
+        foreach (var st in steps.Items)
+        {
+            string c = st.IsMap ? st.GetScalar("cmd", null) : null;
+            if (string.IsNullOrEmpty(c)) throw new RpcError("adim 'cmd' alani icermiyor");
+            if (!SimBatchAllowed.Contains(c)) throw new RpcError($"'{c}' sim.batch icinde kosamaz (izinli: {string.Join(" ", SimBatchAllowed)})");
+            if (RpcRegistry.Find(c) == null) throw new RpcError($"bilinmeyen komut: '{c}'");
+        }
+        var results = DocNode.Seq();
+        int at = 0;
+        Func<DocNode> pending = null;
+        RpcHost.Defer(() =>
+        {
+            while (true)
+            {
+                if (pending != null)
+                {
+                    DocNode r;
+                    try { r = pending(); }
+                    catch (RpcError ex) { return Fail(ex.Message); }
+                    catch (Exception ex) { return Fail(ex.GetType().Name + ": " + ex.Message); }
+                    if (r == null)
+                        return null; // adim hala frame bekliyor
+                    results.Items.Add(r);
+                    pending = null;
+                    at++;
+                    continue;
+                }
+                if (at >= steps.Items.Count)
+                {
+                    var done = DocNode.Map();
+                    done.Add("results", results);
+                    done.Add("steps", DocNode.Scal(at.ToString(CultureInfo.InvariantCulture)));
+                    return done;
+                }
+                var step = steps.Items[at];
+                string cmd = step.GetScalar("cmd");
+                var args = step.Get("args");
+                if (args != null && !args.IsMap)
+                    return Fail("'args' bir nesne olmali");
+                try
+                {
+                    var r = RpcRegistry.Invoke(RpcRegistry.Find(cmd), ctx, args ?? DocNode.Map());
+                    pending = RpcHost.TakeDeferred();
+                    if (pending == null) { results.Items.Add(r ?? DocNode.Map()); at++; }
+                    // deferred: bir sonraki frame'de poll (sim.run adimlari frame ister)
+                    else return null;
+                }
+                catch (RpcError ex) { return Fail(ex.Message); }
+                catch (Exception ex) { return Fail(ex.GetType().Name + ": " + ex.Message); }
+            }
+
+            DocNode Fail(string msg)
+            {
+                var r = DocNode.Map();
+                r.Add("results", results);
+                var e = DocNode.Map();
+                e.Add("at", DocNode.Scal(at.ToString(CultureInfo.InvariantCulture)));
+                e.Add("cmd", DocNode.Scal(steps.Items[at].GetScalar("cmd")));
+                e.Add("message", DocNode.Scal(msg));
+                r.Add("error", e);
+                return r;
+            }
+        });
+        return null;
+    }
+
     [RpcCommand("edit.batch", "Birden cok mutasyon komutunu TEK istekte, TEK undo adiminda, ATOMIK kosar (hata → hepsi geri alinir, hicbiri uygulanmaz). ops: [{cmd, args, as?}] — izinli cmd'ler: scene.addGo/removeGo/rename/reparent/apply, comp.add/remove/setEnabled, prop.set, transform.set, go.setActive, select.set. as='btn' sonucu adlandirir; sonraki args'ta '$btn' → o sonucun id'si (comp.add icin index), '$btn.alan' → sonucun alani, CompRef icin '$btn:Sprite:0'. Donus: her op'un sonucu sirayla", Mutates = true)]
     static DocNode EditBatch(RpcContext ctx, DocNode ops)
     {
@@ -1599,8 +1741,8 @@ static class RpcCommands
         return null;
     }
 
-    [RpcCommand("sim.run", "N frame simule eder. SABIT ADIM: her sim frame'i dt=1/fps (gercek saatten bagimsiz, deterministik). Play degilse baslatir; play'deyken doc DEGISTIYSE oyun sahnesi otomatik yeniden dogar (frame 0'dan; restart=true her zaman). dump: none (varsayilan; yalniz frames/restarted + istenen ekler) | diff (son sim.run'dan beri eklenen/silinen/degisen canli GO'lar, yol adresli) | full (tum canli dokum = scene.dumpLive). describe=true sonda render.describe (ekranin metin ozeti; UCUZ, once bunu dene); expect=[...] sonda render.expect (PASS/FAIL, goruntusuz dogrulama); screenshot=true sonda goruntu (kucultulmus jpg; maxSize/format render.screenshot ile ayni, tiklama = px * toScreen; annotate=true → numarali etiket + legend); captureEvery=K → her K frame'de goruntu ('captures' listesi; animasyon inceleme); stop=true sonda durdurur")]
-    static DocNode SimRun(RpcContext ctx, int frames = 60, bool stop = false, bool screenshot = false, bool restart = false, int captureEvery = 0, int fps = 60, int maxSize = 1024, string format = "jpg", bool describe = false, string dump = "none", bool annotate = false, DocNode expect = null)
+    [RpcCommand("sim.run", "N sim karesi ilerletir. SABIT ADIM: her kare dt=1/fps (gercek saatten bagimsiz, deterministik). HIZLI: varsayilan kareler tek editor frame'inde ileri sarilir (render yalnizca sonda; 240 kare ≈ 50 ms) — animasyon IZLEMEK icin realtime=true ya da captureEvery (kare basina gercek frame). Play degilse baslatir; play'deyken doc DEGISTIYSE oyun sahnesi otomatik yeniden dogar (frame 0'dan; restart=true her zaman). dump: none (varsayilan; yalniz frames/restarted + istenen ekler) | diff (son sim.run'dan beri eklenen/silinen/degisen canli GO'lar, yol adresli) | full (tum canli dokum = scene.dumpLive). describe=true sonda render.describe (ekranin metin ozeti; UCUZ, once bunu dene); expect=[...] sonda render.expect (PASS/FAIL, goruntusuz dogrulama); screenshot=true sonda goruntu (PAHALI: yalniz gorsel ton/suphe; kucultulmus jpg; maxSize/format render.screenshot ile ayni, tiklama = px * toScreen; annotate=true → numarali etiket + legend); captureEvery=K → her K frame'de goruntu ('captures' listesi; animasyon inceleme); stop=true sonda durdurur")]
+    static DocNode SimRun(RpcContext ctx, int frames = 60, bool stop = false, bool screenshot = false, bool restart = false, int captureEvery = 0, int fps = 60, int maxSize = 1024, string format = "jpg", bool describe = false, string dump = "none", bool annotate = false, DocNode expect = null, bool realtime = false)
     {
         if (expect != null)
             RpcExpect.Validate(expect); // hatali beklenti sim kosmadan reddedilsin
@@ -1623,16 +1765,26 @@ static class RpcCommands
             restarted = true;
         }
         if (restarted)
-            _liveBaseline.Clear(); // yeniden dogan sahnede eski baseline anlamsiz (ilk diff hepsini 'added' verir)
+            RpcDelta.InvalidateAll(); // yeniden dogan sahnede eski baseline'lar anlamsiz (ilk describe/dumpLive yine tam)
         PlayMode.ForcedDt = 1f / fps;
         int start = RpcHost.FrameCount;
         int target = start + frames;
+        // Hizli yol: kareler sim ADIMI olarak sayilir ve ana dongu ayni editor frame'inde ileri sarar.
+        // captureEvery kare basina goruntu ister → gercek frame; realtime=true de oyle (Game View'da izleme).
+        bool fast = !realtime && captureEvery == 0;
+        long stepTarget = PlayMode.SimSteps + frames;
+        if (fast)
+            PlayMode.FastForwardPending = frames;
         var captures = new CaptureSeries(start, target, captureEvery, maxSize, format);
         RpcHost.Defer(() =>
         {
             captures.Tick();
-            if (RpcHost.FrameCount < target)
+            // Adim hedefi (simulasyon ilerliyorsa) ya da frame hedefi (pause/sahne yok: asilmasin diye emniyet).
+            bool done = fast ? (PlayMode.SimSteps >= stepTarget || (!PlayMode.Simulate && RpcHost.FrameCount >= target))
+                             : RpcHost.FrameCount >= target;
+            if (!done)
                 return null; // bekle
+            PlayMode.FastForwardPending = 0;
             PlayMode.ForcedDt = 0f;
             var r = dump == "full" ? DumpLive(ctx, "play") : DocNode.Map();
             r.Fields.Insert(0, new KeyValuePair<string, DocNode>("frames", DocNode.Scal(frames.ToString(CultureInfo.InvariantCulture))));

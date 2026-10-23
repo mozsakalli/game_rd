@@ -206,6 +206,7 @@ public sealed class EditorScene
         AssetWatcher.NoteSelfWrite(Path);
         File.WriteAllText(Path, Collapse()); // prefab'lar deltaya, tema katmani diff'e sikisir
         _savedVersion = History.Version;
+        InvalidateBytesFor(Path); // play'deki SceneLoader bir sonraki yuklemede taze baytlari okusun (self-write watcher'i susturur)
         LocTableStore.Flush(); // sahneyle birlikte ceviri tablosu da diske
         // Stage'de prefab cache'i BURADA dusurulmez: stash'li sahne eski prefab'la acik;
         // cache cikista collapse'tan sonra duser (App.ExitPrefabStageNow).
@@ -576,6 +577,7 @@ public sealed class EditorScene
 
         AssetWatcher.NoteSelfWrite(absPath);
         pd.Save(absPath, _catalog, _assets); // ic instance'lar delta olarak
+        InvalidateBytesFor(absPath);
         _assets.ScanMetas(createMissing: true); // guid alsin
         string rel = System.IO.Path.GetRelativePath(_assets.Root, absPath).Replace('\\', '/');
         string guid = _assets.PathToGuid(rel);
@@ -675,6 +677,16 @@ public sealed class EditorScene
         string pp = System.IO.Path.Combine(_assets.Root, rel);
         AssetWatcher.NoteSelfWrite(pp);
         prefabDoc.Save(pp, _catalog, _assets);
+        InvalidateBytesFor(pp);
+    }
+
+    // Kaydedilen dosyanin ham bayt tamponunu duser (Assets'e goreli anahtar).
+    void InvalidateBytesFor(string absPath)
+    {
+        if (_assets == null || string.IsNullOrEmpty(absPath))
+            return;
+        string rel = System.IO.Path.GetRelativePath(_assets.Root, absPath).Replace('\\', '/');
+        _assets.InvalidateBytes(rel);
     }
 
     // Sahnedeki degeri PREFAB'A yazar (dosya dahil); yayilim PrefabEditScope ile. Nested node'dan Apply
