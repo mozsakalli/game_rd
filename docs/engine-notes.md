@@ -1,5 +1,20 @@
 # DigitoyEngine R&D (game_rd)
 
+## IMPORT DAMGASINA ASSET YOLU EKLENDİ — taşınan PSB/font sprite'ları çizilmiyordu (2026-10-25, digitoyclient Yüzbir Login)
+- SAHA: `Logo.psb#12/#21/#17` çizilmiyor, Inspector "Set Native Size" tepkisiz. ÖLÇÜLDÜ: açılışta `[assets] alt oge yok (kirik
+  referans)`; `asset.info` alt öğeleri doğru listeliyordu (index id bazlı); `Library/Artifacts/<guid>/sprites` bölge adları
+  `Games/Yuzbir/Login/Sprites/Logo.psb#21` iken dosya `Games/Yuzbir/Scenes/Login/...`'a taşınmıştı. Artifact eski, damga aynı.
+- KÖK NEDEN: [ImportPipeline.ComputeStamp](../editor/ImportPipeline.cs) içerik hash + version + settings + deps'i katıyor,
+  sahibin KENDİ yolunu katmıyordu; PsdImporter/FontImporter ise `SpriteTable.Region.Name = AssetPath#id` gömüyor. Taşıma →
+  reimport yok → `LoadSprite` tabloyu yüklüyor ama yeni yolla bölge yok → sprite bölgesiz (LogicalWidth 0) → çizim yok,
+  SetNativeSize `ready=false`. PSB'ye özgü değil: taşınan her font/PSD aynı şekilde kırılır (atlas üyeleri `deps` metninde
+  yol taşıdığı için zaten tetikleniyordu).
+- FİX: damgaya `:p<sha16(rel)>`. Taşıma/yeniden adlandırma (editör kapalıyken bile) ilk erişimde reimport. Yan etki: damga
+  biçimi değişti → her projede tüm asset'ler BİR kez reimport (Version bump maliyeti). Doğrulama: uyarı yok, `render.describe`
+  üç katman rect'li, screenshot'ta logo.
+- TUZAK/KURAL: artifact'e sahip yolu gömülüyorsa damga yolu da kapsamalı. Alternatif (yapılmadı): bölge adını `guid#id` yapmak —
+  AssetDatabase `_regions`/`ResolvePath` sözleşmesine dokunur, ayrı iş.
+
 ## RPC SNAPSHOT→DELTA + sim.batch + KOMPAKT describe (2026-10-22, digitoyclient Gin masasında e2e: tam tur 1 istek / 3.5 s / 2 KB)
 - SAHA: oyun yazan AI her turda 3–5 ayrı çağrı × 10–30 KB yanıt; model turu başına ~10 sn → sunucu tur süresi (≈20 sn) AI'ın düşünme
   süresinden kısa, masa kick'liyor (`PlayerKicked`). `rpc.stats` ile ölçüldü: editör tarafı toplam 0.2 sn; zaman modelde ve yanıt okumada.

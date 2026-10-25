@@ -500,6 +500,9 @@ public static class ImportPipeline
         var sb = new StringBuilder();
         sb.Append(Convert.ToHexString(SHA256.HashData(srcBytes)));
         sb.Append(":v").Append(e.Version);
+        // Asset yolu damganin parcasi: importer ciktilari sahibin yolunu gomer (SpriteTable bolge adi "yol#id");
+        // tasima/yeniden adlandirma icerigi degistirmez ama artifact'i bayatlatir -> reimport.
+        sb.Append(":p").Append(Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(rel)))[..16]);
         string st = SettingsText(settings);
         if (st.Length > 0)
             sb.Append(":s").Append(Convert.ToHexString(SHA256.HashData(Encoding.UTF8.GetBytes(st)))[..16]);
