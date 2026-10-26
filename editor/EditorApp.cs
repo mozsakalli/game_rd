@@ -189,6 +189,7 @@ public unsafe class App
 #if DE_EDITOR
         LifecycleTests.Run(_catalog); // izole sahnede kenar durum smoke testleri
         MovieClipTests.Run(_catalog);
+        PuppetTests.Run(_catalog);
         ParticleTests.Run(_catalog);
         SerializationTests.Run(_catalog);
         InspectorTests.Run();

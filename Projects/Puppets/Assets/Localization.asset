@@ -1,0 +1,9 @@
+type: LocalizationTable
+fields:
+  Languages:
+    - en
+  Entries:
+    - Key: main.front
+      Values:
+        - A
+  Enums:

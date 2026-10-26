@@ -1,0 +1,418 @@
+scene: Main
+objects:
+  - id: 1
+    parent: 0
+    name: Table
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: TableDirector
+        CardPrefab: e2732c6594d14218a28f86f70682ac8d
+        Deck: '2:Transform:0'
+        Discard: '3:Transform:0'
+        Hands:
+          - '5:Transform:0'
+          - '12:Transform:0'
+          - '19:Transform:0'
+          - '26:Transform:0'
+  - id: 2
+    parent: 1
+    name: Deck
+    pos: -120 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 76
+        height: 104
+        fill:
+          type: Solid
+          direction: Vertical
+          color: '#00000040'
+          color2: '#00000000'
+          stops: 2
+          color3: '#00000000'
+          stop3: 0.5
+          color4: '#00000000'
+          stop4: 0.75
+        radius: 6 6 6 6
+  - id: 3
+    parent: 1
+    name: Discard
+    pos: 120 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 76
+        height: 104
+        fill:
+          type: Solid
+          direction: Vertical
+          color: '#00000040'
+          color2: '#00000000'
+          stops: 2
+          color3: '#00000000'
+          stop3: 0.5
+          color4: '#00000000'
+          stop4: 0.75
+        radius: 6 6 6 6
+  - id: 4
+    parent: 1
+    name: Seat0
+    pos: 0 260 0
+    rot: 0 0 0
+    scale: 1 1 1
+  - id: 5
+    parent: 4
+    name: Hand
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        layout: Horizontal
+        spacing: 6
+        width: 404
+        height: 104
+        alignChildren: Center
+        justifyChildren: Center
+  - id: 6
+    parent: 5
+    name: Slot1
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 76
+        height: 104
+  - id: 7
+    parent: 5
+    name: Slot2
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 76
+        height: 104
+  - id: 8
+    parent: 5
+    name: Slot3
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 76
+        height: 104
+  - id: 9
+    parent: 5
+    name: Slot4
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 76
+        height: 104
+  - id: 10
+    parent: 5
+    name: Slot5
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 76
+        height: 104
+  - id: 11
+    parent: 1
+    name: Seat1
+    pos: 430 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+  - id: 12
+    parent: 11
+    name: Hand
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        layout: Horizontal
+        spacing: 6
+        width: 404
+        height: 104
+        alignChildren: Center
+        justifyChildren: Center
+  - id: 13
+    parent: 12
+    name: Slot1
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 76
+        height: 104
+  - id: 14
+    parent: 12
+    name: Slot2
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 76
+        height: 104
+  - id: 15
+    parent: 12
+    name: Slot3
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 76
+        height: 104
+  - id: 16
+    parent: 12
+    name: Slot4
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 76
+        height: 104
+  - id: 17
+    parent: 12
+    name: Slot5
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 76
+        height: 104
+  - id: 18
+    parent: 1
+    name: Seat2
+    pos: 0 -260 0
+    rot: 0 0 0
+    scale: 1 1 1
+  - id: 19
+    parent: 18
+    name: Hand
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        layout: Horizontal
+        spacing: 6
+        width: 404
+        height: 104
+        alignChildren: Center
+        justifyChildren: Center
+  - id: 20
+    parent: 19
+    name: Slot1
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 76
+        height: 104
+  - id: 21
+    parent: 19
+    name: Slot2
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 76
+        height: 104
+  - id: 22
+    parent: 19
+    name: Slot3
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 76
+        height: 104
+  - id: 23
+    parent: 19
+    name: Slot4
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 76
+        height: 104
+  - id: 24
+    parent: 19
+    name: Slot5
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 76
+        height: 104
+  - id: 25
+    parent: 1
+    name: Seat3
+    pos: -430 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+  - id: 26
+    parent: 25
+    name: Hand
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        layout: Horizontal
+        spacing: 6
+        width: 404
+        height: 104
+        alignChildren: Center
+        justifyChildren: Center
+  - id: 27
+    parent: 26
+    name: Slot1
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 76
+        height: 104
+  - id: 28
+    parent: 26
+    name: Slot2
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 76
+        height: 104
+  - id: 29
+    parent: 26
+    name: Slot3
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 76
+        height: 104
+  - id: 30
+    parent: 26
+    name: Slot4
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 76
+        height: 104
+  - id: 31
+    parent: 26
+    name: Slot5
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 76
+        height: 104
+  - id: 32
+    parent: 0
+    name: Camera
+    pos: 0 0 -10
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: CameraComponent
+        background: '#1e5a3aff'
+      - type: OrthographicProjection
+        orthoSize: 360
+  - id: 35
+    parent: 0
+    name: DECK
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+  - id: 36
+    parent: 0
+    name: HAND
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+  - id: 33
+    parent: 0
+    name: GINCARD
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: Puppet
+        Cues:
+          - Name: Cue
+            Fps: 30
+            Frames: 30
+            Params:
+              - Name: source
+                Kind: Vec3
+                Default: 0 0 0 0
+                DefaultTarget: ''
+            Tracks:
+              - Node: '34:Transform:0'
+                Property: Position
+                Mask: 15
+                Keys:
+                  - Frame: 0
+                    Mode: Tween
+                    Ease: Linear
+                    Source: Const
+                    Value: 490.2227 -331.41815 0 0
+                    Ref: ''
+                    Param: 0
+                  - Frame: 10
+                    Mode: Tween
+                    Ease: Linear
+                    Source: Const
+                    Value: 0 0 0 0
+                    Ref: ''
+                    Param: 0
+            Actions:
+              - Frame: 0
+                Kind: Reparent
+                Node: ''
+                Target: ''
+                Param: -1
+                KeepWorld: true
+                Label: event
+  - id: 34
+    parent: 33
+    name: CARD
+    pos: 490.2227 -331.41815 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: SpriteRenderer
+        Sprite: 7691319044364f199e0e676fd04ebfa6#137
+        Width: 194
+        Height: 280

@@ -1,5 +1,114 @@
 # DigitoyEngine R&D (game_rd)
 
+## PUPPET YENİDEN YAZIM — kendi veri modeli, MovieClip'e sıfır bağ (2026-10-25)
+- KULLANICI İTİRAZI: "`Params`/`Bindings`/`ActionBindings` var oğlu var neden?" + "MovieClip gibi mevcut koda ilişmeden sıfır yapı
+  kuruyoruz, kafana göre iş yapıyorsun" + "hâlâ MovieClip diyorsun; tamamen sıfırdan, kendine özgü ve doğrusunu yaz". Haklı:
+  yan bağlama tabloları, `ClipKey/ClipTrack`'i paylaşıp "MovieClip'i bozmama" refleksinden doğmuştu; sonuç paralel indeks
+  tabloları ve onları ayakta tutan `RemoveKey/ResortKeys/RemoveAction` kodu — kaçtığımız sprawl'un ta kendisi.
+- YENİ MODEL [Puppet.cs](../engine/managed/Puppet.cs) (427 satır, tek dosya, kendi tipleri): `Cue{Name,Fps,Frames,Params,Tracks,
+  Actions}`; `CueParam{Name,Kind Float|Bool|Vec2|Vec3|Color|Target,Default,DefaultTarget}`; `CueTrack{Node,Property,Mask,Keys}`;
+  **`CueKey{Frame,Mode,Ease,Source Const|Current|Param,Value,Ref,Param}`** — değerin kaynağı key'in KENDİ alanı;
+  `CueAction{Frame,Kind Reparent|Event,Node,Target,Param(-1=sabit),KeepWorld,Label}`. Yan tablo YOK: key sil/taşı/sırala hiçbir
+  şey düzeltmez; parametre silinince ona işaret eden key/aksiyon Const/sabit'e düşer (tek döngü). Kendi örnekleyicisi (span/
+  ease/lerp, 25 satır), kendi `CueHash`. `ClipSampler` SİLİNDİ, `MovieClip.cs` git'ten eski haline — MovieClip'e hiç dokunulmamış.
+- Davranış aynı: Play/Sample/kesme/Reparent/Event/Current/round-trip/alloc=0 — `[puppet] 42 PASS`, `[movieclip] 65 PASS`.
+  Panel: `Bind to` doğrudan `Key.Source/Param`, aksiyon Target `Action.Param`; ~60 satır tablo bakım kodu gitti.
+  `Card.prefab` yeni şemayla yeniden yazıldı (Deal/Flip/Discard/Take; alan adları: `Frames`, `Node`, `Property`, `Source`).
+  Director değişmedi; masa akışı aynen (Seat0 Slot1..4, yerde açık, alınan kapalı).
+- KURAL (bu oturumun dersi): yeni bir kavram kurarken mevcut tipi "korumak" için yanına tablo ekleme; kavramın kendi doğru
+  biçimini yaz. Paylaşım ancak gerçekten aynı şeyse (burada değildi: MovieClip tek timeline+label, Puppet isimli parametreli cue).
+- YAN: sahnede kullanıcı eklemesi `GINCARD (SpriteRenderer)` (gerçek kart görseli denemesi) — dokunulmadı.
+
+## PUPPET/CUE DİLİM 3 — İLK DIRECTOR (düz C#): motor özelliği SIFIR, bulgular (2026-10-25, Projects/Puppets masa)
+- AMAÇ: modelin kod ucu. `TableDirector` (128 satır, 4 koltuk × 5 kart dağıtım + discard/pick/draw turu) + `FakeServer`
+  (32 satır, zaman damgalı olaylar; sunucu sunumu BEKLEMEZ: discard dağıtım bitmeden gelir). Puppet'a yalnız referansla
+  (`Dictionary<cardId, Puppet>`); `Find`/isim/yol yok. Aynı `Deal(to: Target)` cue'su deste→el, el→yer, yer→el, el→el
+  (Rearrange) için kullanıldı — hedef çokluğu parametrede, klip tek. Sahne: Hand = LayoutBox Horizontal, Slot'lar görünmez
+  LayoutBox; kart Slot'a reparent olup yerel 0'a uçar; LayoutBox yerleşimi slot konumunu verir — "Slot" diye motor kavramı
+  GEREKMEDİ (Dilim 2 planında reddedilen `PuppetList/Slot/Transfer` fikri doğrulanmış biçimde gereksiz).
+- BULGULAR (motora aday olup olmadığı AYRI karar; şimdilik hepsi kodda ve kısa):
+  1. Stagger: sunucu 20 kartı tek anda verir, sunum kart başına kaydırır → Director'da zamanlayıcı listesi (10 satır).
+  2. ~~Zincir (Deal bitince Flip): `CueCompleted`'a tek seferlik abone~~ → **KALDIRILDI (kullanıcı: "ilk bozulan yer, tween
+     motorlarının klasik tuzağı")**. Olay abonesiyle zincir kesmede asılı kalır, çoğalır, durumu görünmez kılar (Digiplay
+     `OnComplete` çürümesi). KURAL: "bitince şunu yap" SAHNEDE değil — (1) klipte: `Discard(to)` = uçuş+açılış, `Take(to)` =
+     uçuş+kapanış tek cue (koreografi sanatın kararı); (2) gerçekten kalan zincir için `await PlayAsync` (henüz yok);
+     (3) sunum kuyruğu ancak 1+2 yetmezse. Director 128→116 satır, abone yok.
+  3. Rearrange: elden kart çıkınca kalanlar yeni slot'a aynı cue ile (8 satır).
+  4. **Bayat hedef**: kuyruğa giren Deal'in slotu enqueue anında hesaplanınca araya giren Discard+Rearrange sonrası iki kart
+     aynı slota bindi (Slot3 boş). Düzeltme: hedefi ATEŞ anında durumdan hesapla. Ders: sunum zamanlayıcısına HEDEF değil
+     NİYET (puppet, koltuk) konur; cue argümanı oynatma anında çözülür. Bu, ileride sunum kuyruğu yazılırsa tasarım kuralı.
+  5. Dinlenme pozu: spawn edilen kart cue gelene kadar prefab ölçeğinde (1.0) destede duruyor; Director spawn'da 0.6 yazdı.
+     Soru: "destede bekleme" bir cue mu (`Rest`), yoksa prefab'ın doc pozu mu? Henüz karar yok.
+  6. Kesme güvenli: discard sırasında yarım Deal → yeni Deal; `Play` öncekini hedefe zıplatıyor, yapısal durum tutarlı.
+- SONUÇ: bu dilimde motora hiçbir şey eklenmedi; Director bir ekran. Kodun "söyleyemediği" tek şey çıkmadı; yalnız
+  okunurluk adayları var (PlayAsync, stagger yardımcıları). Bir sonraki tartışma: Seat durum cue'ları (Turn/Full) —
+  Digiplay StateManager modeli; orada "durum cue'su" cue türü gerekir mi gerekmez mi görülecek.
+- YAN: `[aot-compat]` "Puppet bulunamadı" = `aotcompiler/obj/aot-il/DigitoyEngine.dll` bayat (ilk player build'inde yenilenir),
+  Puppet'la ilgili değil. Sahnede kamera yoksa Game View orijini sol-üst; `CameraComponent + OrthographicProjection` eklendi.
+  `edit.batch` içinde `transform.set` parametresi `go`.
+
+## PUPPET/CUE DİLİM 2 — PARAMETRİK AKSİYONLAR: Reparent/Event, `Target` parametresi, `Current` key (2026-10-25)
+- KARAR (kullanıcı): parent değişimi cue'nun parametresi olmalı ve istenen karede tetiklenmeli; bu ayrı bir "reparent tablosu"
+  değil, MovieClip'in **aksiyon** kavramının üyesi. Aksiyon argümanları da key'ler gibi parametreye bağlanınca tek bağlama
+  mekanizması, iki tüketici (key değeri / aksiyon argümanı). `PuppetList`/`Slot`/uçuş-katmanı gibi motor icatları REDDEDİLDİ
+  (kullanıcı: "kart animasyonunu kaşarlamak için bir şeyler uyduruyorsun") — koleksiyon/dağıtım döngüsü Director'da düz C#;
+  motora yalnız kodun SÖYLEYEMEDİĞİ girer. Sırada: Director (düz C#) ile modelin kod ucunu test etmek.
+- [Puppet.cs](../engine/managed/Puppet.cs): `CueAction{Frame, Kind Reparent|Event, Node, Target, KeepWorld, Label}` +
+  `CueActionBinding{Action, Param}`; `CueParamKind.Target` (`CueParam.Target` = Default Transform; argüman `AnimValue.Ref`).
+  `Play(cue, Transform)` aşırı yüklemeleri. Frame GİRİŞİ (`EnterFrame`): Reparent → `node.SetParent(target, keepWorld)`
+  (node boş = puppet kökü; döngü SetParent'ta reddedilir), Event → `ICueHandler.OnCueEvent` (default impl) + `CueEvent`.
+  SEMANTİK: Play = frame 0 aksiyonları → bağlamalar/yakalama → örnekle. Kesme: kalan Reparent'lar uygulanır (yapısal son
+  durum), Event atlanır, son frame örneklenir. `Sample(cue, f)`: f'e kadar Reparent'lar uygulanır, Event SUSAR. Geri alma yok;
+  geri sarma = reload (panel `_pendRestart`, `HasReparent`).
+- **`CueKeyBinding.Param = -1 (Current)`**: key değeri Play anında property'den yakalanır (reparent SONRASI → yeni ebeveynin
+  yerel uzayı). Uçuş "bulunduğu yerden" başlar; ilk key sabit olsaydı kart hedefe ZIPLARDI (tasarımda ortaya çıktı, Tween'in
+  from-current'ı). Scrub'da cue oturumu başına bir kez ya da frame 0'da yakalanır (orta değerle sürünme yok); `Rebuild`
+  yakalamayı sıfırlar (editörde her yapısal değişiklik Rebuild'den geçer). Yakalama dedup önbelleğini (`HasLast`) temizler.
+- [CueEditorPanel](../editor/CueEditorPanel.cs): aksiyon şeridi (çift tık ekle; bağlı aksiyon MOR, Event mavi); Action inspector
+  (Kind, Node/Target `Use Selected`, Target `(fixed)|$param`, Keep World, Event etiketi); Param `Target` için Default = seçili GO;
+  key "Bind to" → `(constant) | (current at start) | $param`. Param silme key+aksiyon bağlamalarını düzeltir.
+- SANDBOX: Puppets/Main'e Deck/Hand/Discard; Card instance'ında `Deal(to: Target)` override (prefab hâlâ Vec3 — bilinçli).
+  Scrub: canlı `Hand/Card` (doc Deck'te kalır = iz); geri sarma reload+örnekle, sürünme yok. `[puppet] 42 PASS`.
+- TUZAKLAR: (1) `edit.batch` içinde `transform.set` parametresi `go` (id değil). (2) Test sırası: olay sayacını Play'den SONRA al.
+  (3) Sample sonrası Play'den kalan Current değeri → editör akışında Rebuild/Restart ile çözülür; testte `Rebuild()` çağır.
+
+## PUPPET / CUE — "SANATSAL METOT" MODELİ, SANDBOX DİLİM 1 (2026-10-25, Projects/Puppets, Card: Deal(to)/Flip(up))
+- KARAR (uzun tartışma, kullanıcı): motor genel kalır ama oyun katmanı GO+Component yığını değil **Puppet/Cue/Director**:
+  Puppet = kendi iradesi olmayan görsel varlık (prefab kökü), Cue = dışarıdan çağrılan, İSİMLİ ve PARAMETRELİ hareket
+  ("sanatsal metot": `card.Play("Deal", to)`), Director = anları cue'lara çeviren oyun kodu. Cue karar vermez, gösterir
+  (içine `if` girmez; dallanma = iki cue, seçim Director'da). Durum cue'ları (Turn/Full) ve olay cue'ları (Win/Puff)
+  ayrı tür — Digiplay `StateManager` (durum farkı → yalnız yeni girilen durumun klibi) taşınacak. Tema = yeni sürüm.
+- NEDEN: Digiplay (digiplay-net/okeyextra) UI'da aynı modeli XML+string ile yıllarca çalıştırdı; tahta tarafı iki eksikten
+  dışarıda kaldı: ARGÜMAN yok (`stone.xml` 24 kopya `ThrowFromSeat0:1`...) ve KOLEKSİYON yok (`StoneLayer.Hand` elle diff).
+  Taşınmayacaklar: markup'a sızan mantık (`action:Click="... ? call(...) : load(...)"`), string adresleme, `Reflect.Set`.
+- YÖNTEM: devasa kapsam yok; sandbox'ta parça parça kanıt, "yapamıyoruz" noktasında dur ve yapıyı yeniden düşün.
+  Mevcut MovieClip/ClipEditorPanel BOZULMADI: ortak çekirdek çıkarıldı, kabuk yeni, panel klonlandı.
+- [ClipSampler](../engine/managed/ClipSampler.cs): `ClipKeyRt` + `Evaluate(keys, first, count, ref cursor, frame, kind)` +
+  `Pack(src, dst, start, maxFrame, map?)`. MovieClip bunu kullanır (davranış aynı, `[movieclip] 65 PASS`). İLKE: Puppet ve
+  MovieClip AYNI örnekleyici — "editörde böyle, oyunda böyle" ayrışması tek kod yoluyla kapalı.
+- [Puppet](../engine/managed/Puppet.cs): `Cues[]` (Name/Fps/FrameCount/Params/Tracks/Bindings). `CueParam{Name,Kind
+  Float|Bool|Vec2|Vec3|Color, Default}`, `CueKeyBinding{Track,Key,Param}` = key değeri sabit yerine parametreden.
+  Runtime: cue başına paketlenmiş track/key, `_args` ardışık; `Play(name, a0..a2)` → `ApplyBindings` (bağlı key'lere argüman
+  yazılır) → oynat. Aynı anda TEK cue; yeni Play öncekini keser = önceki HEDEFİNE ZIPLAR (son frame örneklenir; en basit,
+  öngörülebilir). Bitince `ICueHandler.OnCueComplete` (aynı GO) + `CueCompleted` event. `Sample(cue, frame)` editör scrub.
+  Trigger track'leri bu dilimde yok. `MaxCatchUpFrames=8` (MovieClip ile aynı). Start'ta hiçbir şey yapmaz (doc pozu =
+  dinlenme pozu). Sıfır alloc (`[puppet] 25 PASS`: oynatma, parametreli key, kesme, scrub, round-trip, alloc=0).
+- [CueEditorPanel](../editor/CueEditorPanel.cs) (`Window/Cue Editor`): ClipEditorPanel klonu. Toolbar'da cue combo + "+ Cue"/x;
+  başlıkta `Deal(to: Vec3)` imzası; inspector Cue (ad/fps/frames/parametre listesi) / Parameter (ad/tür/Default) / Key'de
+  **"Bind to" combo** (tür-uyumlu parametreler; bağlı key MOR). Önizleme argümanı = Default (her Sample'da senkron; ana
+  Inspector'dan Default değişince de yansır). Cue geçişinde `PreviewSession.Restart()` (önceki cue'nun izi kalmaz; pending'de,
+  RefreshLive sonrası `return`). Key sil/ekle/sırala/track sil → `Bindings` indeksleri düzeltilir (`RemoveKey/ResortKeys`).
+  Label/Action şeritleri ve Loop/PlayOnStart yok (cue'nun doğası: başla-bit).
+- SANDBOX: `Projects/Puppets` (tohum: project.yaml → editör Games/Puppets'a taşır). `Card.prefab` RPC `scene.apply` ile kuruldu
+  (çocuk `$Front` referansı ebeveynden sonra çözülemiyor → önce ağaç, sonra Puppet ikinci apply). Doğrulama RPC ile:
+  scrub Deal fr10 → (224.6,−112.3)/1.04; fr15 → (240,−120)=Default; Flip fr7 → scale.x 0.31 + Front açık; cue geçişi → sıfır.
+- TUZAKLAR: (1) testte tek `Update(1f)` 10+ frame = `MaxCatchUpFrames` keser → gerçekçi adımla (`Run(s, sec)` 0.1 s). (2) Bağlı
+  key'in doc değeri anlamsız ("0 0 0 0"); okuyan `Bindings`'e bakmalı. (3) `ui.click` combo popup'ını açar ama screenshot'ta
+  popup çizilmez; `ui.panels.popupOpen` ile doğrula, sonra öğe koordinatına tıkla.
+- SONRAKİ DİLİMLER (bilinçli dışarıda): `$rol` sahne gizmosu, `KeyedList` bağı + öğe puppet'ı (el; enter/exit/move), durum
+  cue'ları + StateManager, uçuş katmanı (deck→hand ebeveyn değişimi), Director + sunum kuyruğu, arayüz codegen (`ICard`).
+  Her biri kanıt ölçütü tutmazsa durulup yapı yeniden düşünülecek.
+
 ## IMPORT DAMGASINA ASSET YOLU EKLENDİ — taşınan PSB/font sprite'ları çizilmiyordu (2026-10-25, digitoyclient Yüzbir Login)
 - SAHA: `Logo.psb#12/#21/#17` çizilmiyor, Inspector "Set Native Size" tepkisiz. ÖLÇÜLDÜ: açılışta `[assets] alt oge yok (kirik
   referans)`; `asset.info` alt öğeleri doğru listeliyordu (index id bazlı); `Library/Artifacts/<guid>/sprites` bölge adları

@@ -1,0 +1,62 @@
+# Unity tarafından üretilen klasörler
+/[Ll]ibrary/
+/[Tt]emp/
+/[Oo]bj/
+/[Bb]uild/
+/[Bb]uilds/
+/[Ll]ogs/
+/[Uu]ser[Ss]ettings/
+/[Mm]emoryCaptures/
+/[Rr]ecordings/
+
+# Asset Store Tools (mümkünse ignore)
+/[Aa]ssets/AssetStoreTools*
+
+# Addressables / build raporları (opsiyonel)
+/[Aa]ssets/[Aa]ddressable[Aa]ssets[Dd]ata/*/*.bin*
+/[Aa]ssets/[Ss]treamingAssets/aa.meta
+/[Aa]ssets/[Ss]treamingAssets/aa/*
+
+# Visual Studio / Rider çıktıları (.vscode bilinçli olarak takip edilir)
+.vs/
+.idea/
+.consulo/
+ExportedObj/
+.gradle/
+*.csproj
+*.unityproj
+*.sln
+*.slnx
+*.suo
+*.tmp
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+
+# Unity meta artıkları
+*.pidb.meta
+*.pdb.meta
+*.mdb.meta
+
+# Crash raporları
+sysinfo.txt
+
+# Build çıktıları
+*.apk
+*.aab
+*.unitypackage
+*.unitypackage.meta
+*.app
+
+# Crashlytics
+crashlytics-build.properties
+
+# OS
+.DS_Store
+Thumbs.db

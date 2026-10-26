@@ -1,0 +1,345 @@
+scene: Card
+objects:
+  - id: 1
+    parent: 0
+    name: Card
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: Puppet
+        Cues:
+          - Name: Deal
+            Fps: 30
+            Frames: 16
+            Params:
+              - Name: to
+                Kind: Target
+                Default: 0 0 0 0
+                DefaultTarget: ''
+            Tracks:
+              - Node: '1:Transform:0'
+                Property: Position
+                Mask: 15
+                Keys:
+                  - Frame: 0
+                    Mode: Tween
+                    Ease: OutCubic
+                    Source: Current
+                    Value: 0 0 0 0
+                    Ref: ''
+                    Param: 0
+                  - Frame: 15
+                    Mode: Tween
+                    Ease: Linear
+                    Source: Const
+                    Value: 0 0 0 0
+                    Ref: ''
+                    Param: 0
+              - Node: '1:Transform:0'
+                Property: Scale
+                Mask: 15
+                Keys:
+                  - Frame: 0
+                    Mode: Tween
+                    Ease: OutBack
+                    Source: Const
+                    Value: 0.6 0.6 1 0
+                    Ref: ''
+                    Param: 0
+                  - Frame: 15
+                    Mode: Tween
+                    Ease: Linear
+                    Source: Const
+                    Value: 0.6 0.6 1 0
+                    Ref: ''
+                    Param: 0
+            Actions:
+              - Frame: 0
+                Kind: Reparent
+                Node: ''
+                Target: ''
+                Param: 0
+                KeepWorld: true
+                Label: ''
+              - Frame: 12
+                Kind: Event
+                Node: ''
+                Target: ''
+                Param: -1
+                KeepWorld: true
+                Label: landed
+          - Name: Flip
+            Fps: 30
+            Frames: 13
+            Params:
+              - Name: up
+                Kind: Bool
+                Default: 1 0 0 0
+                DefaultTarget: ''
+            Tracks:
+              - Node: '1:Transform:0'
+                Property: Scale
+                Mask: 1
+                Keys:
+                  - Frame: 0
+                    Mode: Tween
+                    Ease: InQuad
+                    Source: Const
+                    Value: 0.6 1 1 0
+                    Ref: ''
+                    Param: 0
+                  - Frame: 6
+                    Mode: Tween
+                    Ease: OutQuad
+                    Source: Const
+                    Value: 0 1 1 0
+                    Ref: ''
+                    Param: 0
+                  - Frame: 12
+                    Mode: Tween
+                    Ease: Linear
+                    Source: Const
+                    Value: 0.6 1 1 0
+                    Ref: ''
+                    Param: 0
+              - Node: '3:Transform:0'
+                Property: Active
+                Mask: 15
+                Keys:
+                  - Frame: 0
+                    Mode: Hold
+                    Ease: Linear
+                    Source: Const
+                    Value: 0 0 0 0
+                    Ref: ''
+                    Param: 0
+                  - Frame: 6
+                    Mode: Hold
+                    Ease: Linear
+                    Source: Param
+                    Value: 0 0 0 0
+                    Ref: ''
+                    Param: 0
+            Actions:
+          - Name: Discard
+            Fps: 30
+            Frames: 16
+            Params:
+              - Name: to
+                Kind: Target
+                Default: 0 0 0 0
+                DefaultTarget: ''
+            Tracks:
+              - Node: '1:Transform:0'
+                Property: Position
+                Mask: 15
+                Keys:
+                  - Frame: 0
+                    Mode: Tween
+                    Ease: OutCubic
+                    Source: Current
+                    Value: 0 0 0 0
+                    Ref: ''
+                    Param: 0
+                  - Frame: 15
+                    Mode: Tween
+                    Ease: Linear
+                    Source: Const
+                    Value: 0 0 0 0
+                    Ref: ''
+                    Param: 0
+              - Node: '1:Transform:0'
+                Property: Scale
+                Mask: 1
+                Keys:
+                  - Frame: 6
+                    Mode: Tween
+                    Ease: InQuad
+                    Source: Const
+                    Value: 0.6 1 1 0
+                    Ref: ''
+                    Param: 0
+                  - Frame: 10
+                    Mode: Tween
+                    Ease: OutQuad
+                    Source: Const
+                    Value: 0 1 1 0
+                    Ref: ''
+                    Param: 0
+                  - Frame: 14
+                    Mode: Tween
+                    Ease: Linear
+                    Source: Const
+                    Value: 0.6 1 1 0
+                    Ref: ''
+                    Param: 0
+              - Node: '3:Transform:0'
+                Property: Active
+                Mask: 15
+                Keys:
+                  - Frame: 10
+                    Mode: Hold
+                    Ease: Linear
+                    Source: Const
+                    Value: 1 0 0 0
+                    Ref: ''
+                    Param: 0
+            Actions:
+              - Frame: 0
+                Kind: Reparent
+                Node: ''
+                Target: ''
+                Param: 0
+                KeepWorld: true
+                Label: ''
+          - Name: Take
+            Fps: 30
+            Frames: 16
+            Params:
+              - Name: to
+                Kind: Target
+                Default: 0 0 0 0
+                DefaultTarget: ''
+            Tracks:
+              - Node: '1:Transform:0'
+                Property: Position
+                Mask: 15
+                Keys:
+                  - Frame: 0
+                    Mode: Tween
+                    Ease: OutCubic
+                    Source: Current
+                    Value: 0 0 0 0
+                    Ref: ''
+                    Param: 0
+                  - Frame: 15
+                    Mode: Tween
+                    Ease: Linear
+                    Source: Const
+                    Value: 0 0 0 0
+                    Ref: ''
+                    Param: 0
+              - Node: '1:Transform:0'
+                Property: Scale
+                Mask: 1
+                Keys:
+                  - Frame: 6
+                    Mode: Tween
+                    Ease: InQuad
+                    Source: Const
+                    Value: 0.6 1 1 0
+                    Ref: ''
+                    Param: 0
+                  - Frame: 10
+                    Mode: Tween
+                    Ease: OutQuad
+                    Source: Const
+                    Value: 0 1 1 0
+                    Ref: ''
+                    Param: 0
+                  - Frame: 14
+                    Mode: Tween
+                    Ease: Linear
+                    Source: Const
+                    Value: 0.6 1 1 0
+                    Ref: ''
+                    Param: 0
+              - Node: '3:Transform:0'
+                Property: Active
+                Mask: 15
+                Keys:
+                  - Frame: 10
+                    Mode: Hold
+                    Ease: Linear
+                    Source: Const
+                    Value: 0 0 0 0
+                    Ref: ''
+                    Param: 0
+            Actions:
+              - Frame: 0
+                Kind: Reparent
+                Node: ''
+                Target: ''
+                Param: 0
+                KeepWorld: true
+                Label: ''
+  - id: 2
+    parent: 1
+    name: Back
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 120
+        height: 170
+        fill:
+          type: Solid
+          direction: Vertical
+          color: '#2b4f9eff'
+          color2: '#00000000'
+          stops: 2
+          color3: '#00000000'
+          stop3: 0.5
+          color4: '#00000000'
+          stop4: 0.75
+        radius: 10 10 10 10
+        border: 3 3 3 3
+        borderFill:
+          type: Solid
+          direction: Vertical
+          color: '#ffffffff'
+          color2: '#00000000'
+          stops: 2
+          color3: '#00000000'
+          stop3: 0.5
+          color4: '#00000000'
+          stop4: 0.75
+  - id: 3
+    parent: 1
+    name: Front
+    active: false
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 120
+        height: 170
+        fill:
+          type: Solid
+          direction: Vertical
+          color: '#fff8e8ff'
+          color2: '#00000000'
+          stops: 2
+          color3: '#00000000'
+          stop3: 0.5
+          color4: '#00000000'
+          stop4: 0.75
+        radius: 10 10 10 10
+        border: 2 2 2 2
+        borderFill:
+          type: Solid
+          direction: Vertical
+          color: '#333333ff'
+          color2: '#00000000'
+          stops: 2
+          color3: '#00000000'
+          stop3: 0.5
+          color4: '#00000000'
+          stop4: 0.75
+        textSize: 64
+        textAlign: Center
+        textAlignV: Center
+        textFill:
+          type: Solid
+          direction: Vertical
+          color: '#c01818ff'
+          color2: '#ffffffff'
+          stops: 2
+          color3: '#ffffffff'
+          stop3: 0.5
+          color4: '#ffffffff'
+          stop4: 0.75
+        text@loc: main.front
