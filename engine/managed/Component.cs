@@ -67,6 +67,9 @@ public abstract class Component
     public bool isActiveAndEnabled
         => _enabled && !_destroyed && _gameObject != null && _gameObject.activeInHierarchy;
 
+    // Kendisi ya da GameObject'i Destroy edildi/kuyruga alindi (flush beklemez). Bagimli kod bu bayraga bakar.
+    public bool IsDestroyed => _destroyed || _gameObject == null || _gameObject.IsDestroyed;
+
     // Unity destroyCancellationToken: component yok edilince (OnDestroy sonrasi) iptal olur. Tembel: kullanilmazsa
     // alloc yok. Async isler (Http/WebSocket/Frame.Next/Wait) bunu alirsa panel kapaninca kendiliginden duser.
     internal System.Threading.CancellationTokenSource _destroyCts;

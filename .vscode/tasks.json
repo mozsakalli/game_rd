@@ -1,0 +1,14 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "build editor",
+            "type": "shell",
+            "command": "dotnet",
+            "args": ["build", "editor", "-nologo", "-v", "q"],
+            "group": { "kind": "build", "isDefault": true },
+            "problemMatcher": "$msCompile",
+            "presentation": { "reveal": "silent", "clear": true }
+        }
+    ]
+}

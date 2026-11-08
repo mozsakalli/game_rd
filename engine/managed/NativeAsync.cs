@@ -76,6 +76,68 @@ public static unsafe class NativeAsync
 
     public static int PendingCount => _awaits.Count;
 
+    // Ana thread SynchronizationContext'i (.NET editor/player). Kurulmazsa `async void` icinden kacan istisna .NET'te
+    // thread pool'a Post edilir ve SURECI DUSURUR (crash.log: Task.ThrowAsync → ThreadPoolWorkQueue). Kuruluysa
+    // Post buraya gelir, Pump sonunda ana thread'de kosar; istisna Debug.LogException'a (editorde Console'a) duser,
+    // oyun surer — AOT corelib AsyncVoidMethodBuilder ("stderr'e yaz, yut") ile ayni semantik.
+    // Normal `await` devamlari ETKILENMEZ: tamamlama ana thread'de (Current == yakalanan ctx) oldugundan .NET
+    // continuation'i inline kosar; yalniz async-void hata yolu ve baska thread'den tamamlamalar kuyruga girer.
+    // AOT'ta corelib'de SynchronizationContext yok ve gerek de yok (tek thread, builder yutar): Install no-op.
+#if !DE_AOT
+    sealed class MainThreadSyncContext : SynchronizationContext
+    {
+        public readonly int ThreadId = Environment.CurrentManagedThreadId;
+        public override void Post(SendOrPostCallback d, object state)
+        {
+            lock (_posted) _posted.Add(new Posted { Callback = d, State = state });
+        }
+        public override void Send(SendOrPostCallback d, object state)
+        {
+            if (Environment.CurrentManagedThreadId == ThreadId) { d(state); return; }
+            using var done = new ManualResetEventSlim(false);
+            Post(s => { try { d(s); } finally { done.Set(); } }, state);
+            done.Wait();
+        }
+        public override SynchronizationContext CreateCopy() => this;
+    }
+    struct Posted { public SendOrPostCallback Callback; public object State; }
+    static readonly List<Posted> _posted = new();
+    static readonly List<Posted> _postedSwap = new();
+    static MainThreadSyncContext _ctx;
+
+    // Ana thread'de bir kez (editor Main / GameHost.Init). Tekrar cagri zararsiz.
+    public static void Install()
+    {
+        if (_ctx != null && SynchronizationContext.Current == _ctx) return;
+        _ctx ??= new MainThreadSyncContext();
+        SynchronizationContext.SetSynchronizationContext(_ctx);
+    }
+
+    static void DrainPosted()
+    {
+        // Kosarken yeni Post gelebilir (zincirleme): kuyruk bosalana dek dongu; her oge ayri try/catch.
+        while (true)
+        {
+            lock (_posted)
+            {
+                if (_posted.Count == 0) return;
+                for (int i = 0; i < _posted.Count; i++) _postedSwap.Add(_posted[i]); // kilit disinda kosmak icin kopya (alloc yok)
+                _posted.Clear();
+            }
+            for (int i = 0; i < _postedSwap.Count; i++)
+            {
+                var p = _postedSwap[i];
+                try { p.Callback(p.State); }
+                catch (Exception e) { Debug.LogException(e); }
+            }
+            _postedSwap.Clear();
+        }
+    }
+#else
+    public static void Install() { }
+    static void DrainPosted() { }
+#endif
+
     // job'un tek (son) tamamlanmasini bekler. job <= 0 -> hemen basarisiz.
     // ct iptal edilirse: kayit duser, onCancel (native iptal: de_http_cancel gibi) cagrilir, Task iptal olur;
     // native sonradan tamamlanma yazsa bile sahipsiz kalir ve Pump tamponu birakir.
@@ -223,6 +285,8 @@ public static unsafe class NativeAsync
                 Fire(t);
             }
         }
+
+        DrainPosted(); // SyncContext'e Post edilenler (async void hatasi, cross-thread tamamlanma)
     }
 
     static void Fire(FrameEntry e)

@@ -7,6 +7,7 @@ namespace DigitoyEditor;
 
 // Oyun projesinin IDE/AI dosyalari (proje koku). Her acilista yazilir; icerik ayniysa dokunulmaz.
 //  .vscode/mcp.json               -> bu editorun mcp-bridge'ine isaret eder (MAKINEYE OZEL yol; gitignore'lu, acilista yenilenir)
+//  .vscode/launch.json            -> F5: bu editor exe'si projeyle (launch) / acik editore attach (MAKINEYE OZEL yol; gitignore'lu, yenilenir)
 //  .vscode/settings.json          -> yalniz YOKSA: Java LS Gradle import'u KAPALI (plugin Android/build.gradle.kts'yi kok proje sanip
 //                                    Assets icine .gradle/ birakiyordu) + yaml iliskilendirmeleri. Varsa ve anahtar eksikse uyari.
 //  .github/copilot-instructions.md -> oyun-tarafi AI kurallari (sablon; yalniz YOKSA yazilir, kullanici duzenler, git'e girer)
@@ -16,9 +17,54 @@ static class IdeFiles
     public static void Write(Project project)
     {
         WriteIfChanged(Path.Combine(project.Root, ".vscode", "mcp.json"), McpJson());
+        WriteIfChanged(Path.Combine(project.Root, ".vscode", "launch.json"), LaunchJson(project));
         WriteVsCodeSettings(Path.Combine(project.Root, ".vscode", "settings.json"));
         WriteIfMissing(Path.Combine(project.Root, ".github", "copilot-instructions.md"), Instructions(project));
-        WriteIfMissing(Path.Combine(project.Root, ".gitignore"), GitIgnore);
+        WriteGitIgnore(Path.Combine(project.Root, ".gitignore"));
+    }
+
+    // Proje VS Code'dan tek basina acildiginda F5 = bu editor exe'si projeyle baslar (ya da acik editore attach). Oyun
+    // kodunu editor kendisi derler (Roslyn + PDB, GameCode.LoadWithSymbols) -> preLaunchTask/tasks.json gerekmez.
+    // Exe yolu MAKINEYE OZEL (calisan editor: kurulu ya da dev build) -> gitignore'lu, her acilista yenilenir.
+    static string LaunchJson(Project project)
+    {
+        string exe = Environment.ProcessPath;
+        if (string.IsNullOrEmpty(exe)) return null;
+        exe = exe.Replace('\\', '/');
+        return $$"""
+        {
+            // DigitoyEditor tarafindan uretilir (makineye ozel exe yolu); elle duzenleme bir sonraki acilista ezilir.
+            // Breakpoint'ler Assets/**/*.cs'e dogrudan konur; hot reload sonrasi yeni assembly'ye otomatik baglanir.
+            "version": "0.2.0",
+            "configurations": [
+                {
+                    "name": "DigitoyEditor ({{project.Name}})",
+                    "type": "coreclr",
+                    "request": "launch",
+                    "program": "{{exe}}",
+                    "args": ["${workspaceFolder}"],
+                    "cwd": "${workspaceFolder}",
+                    "console": "internalConsole",
+                    "stopAtEntry": false,
+                    "justMyCode": false,
+                    "enableStepFiltering": false,
+                    "symbolOptions": {
+                        "searchMicrosoftSymbolServer": false,
+                        "searchNuGetOrgSymbolServer": false
+                    }
+                },
+                {
+                    "name": "Attach to DigitoyEditor",
+                    "type": "coreclr",
+                    "request": "attach",
+                    "processName": "DigitoyEditor",
+                    "justMyCode": false,
+                    "enableStepFiltering": false
+                }
+            ]
+        }
+
+        """;
     }
 
     const string GradleImportKey = "\"java.import.gradle.enabled\"";
@@ -132,6 +178,7 @@ UserSettings/
 *.Game.csproj
 *.Editor.csproj
 .vscode/mcp.json
+.vscode/launch.json
 # Android Studio / Gradle / IDE copu (plugin Android/ modulleri Studio'da acilabilir; Java LS de .gradle/ birakabilir)
 .gradle/
 .cxx/
@@ -140,6 +187,16 @@ UserSettings/
 *.iml
 local.properties
 ";
+
+    const string LaunchIgnore = ".vscode/launch.json";
+
+    // Yoksa sablon; varsa ve makineye ozel launch.json satiri eksikse uyar (kullanicinin dosyasina dokunulmaz).
+    static void WriteGitIgnore(string path)
+    {
+        if (!File.Exists(path)) { WriteIfMissing(path, GitIgnore); return; }
+        if (!File.ReadAllText(path).Contains(LaunchIgnore))
+            EditorLog.Warning($"{path}: '{LaunchIgnore}' yok — makineye ozel exe yolu iceren launch.json git'e girebilir");
+    }
 
     static void WriteIfChanged(string path, string text)
     {

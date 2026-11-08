@@ -1,35 +1,35 @@
-﻿using System;
+using System;
 
 namespace DigitoyEngine;
 
 // LayoutBox metin katmani: kutu vatandasi SDF metin. TextSprite ozellik paritesi
-// (dikey gradient dolgu, kontur, golge â€” hepsi instance verisinden her frame
+// (dikey gradient dolgu, kontur, golge — hepsi instance verisinden her frame
 // okunur) + kutu ozellikleri: word wrap (padding icli rect'e), ellipsis (sigmayan
 // satir/blok "..." ile kirpilir), yatay/dikey hizalama. Yerlesim cache'i yalniz
 // font/metin/boyut/hiza/wrap/rect degisince kurulur (glyph quad'lari kutu-icerik
-// uzayinda saklanir; stil degisimi rebuild istemez). Cizim ayni EmitQuad yolu â€”
+// uzayinda saklanir; stil degisimi rebuild istemez). Cizim ayni EmitQuad yolu —
 // font atlasi UiPieces bolgesini de tasidigindan kutu + metin tek draw'a merge olur.
 public sealed unsafe partial class LayoutBox
 {
     // --- serilesen metin verisi ---
     // Font bir AD'dir (FontTable; "" = varsayilan): asset referansi tasinmaz, bagimlilik tablodan yurur.
-    // Metin stili alanlari metin girilince gorunur (loc bagli metin de "dolu" sayilir — editor DocVisible).
-    [SerializeField, FontName] string font = "";
-    [SerializeField] string text = "";
-    [SerializeField, ShowIf(nameof(text))] float textSize = 32f;
-    [SerializeField, ShowIf(nameof(text))] TextAlign textAlign = TextAlign.Left;
-    [SerializeField, ShowIf(nameof(text))] LayoutAlign textAlignV = LayoutAlign.Start;
-    [SerializeField, ShowIf(nameof(text))] bool textWrap = true;
-    [SerializeField, ShowIf(nameof(text))] bool textEllipsis = true;
-    [SerializeField, ShowIf(nameof(text))] float textWeight;
-    [SerializeField, ShowIf(nameof(text))] float textSkew;
-    [SerializeField, ShowIf(nameof(text))] float textSpacing;
-    [SerializeField, ShowIf(nameof(text))] Gradient textFill = new(Color.White);
-    [SerializeField, ShowIf(nameof(text))] float textOutlineWidth;
-    [SerializeField, ShowIf(nameof(text))] Gradient textOutline = new(Color.Black);
-    [SerializeField, ShowIf(nameof(text))] Color textShadowColor;
-    [SerializeField, ShowIf(nameof(text))] Vec2 textShadowOffset = new(0, 4);
-    [SerializeField, ShowIf(nameof(text))] float textShadowBlur = 8f;
+    // Metin stili alanlari metin girilince gorunur (loc bagli metin de "dolu" sayilir � editor DocVisible).
+    [SerializeField, Category("Text"), FontName] string font = "";
+    [SerializeField, Category("Text")] string text = "";
+    [SerializeField, Category("Text")] float textSize = 32f;
+    [SerializeField, Category("Text")] TextAlign textAlign = TextAlign.Left;
+    [SerializeField, Category("Text")] LayoutAlign textAlignV = LayoutAlign.Start;
+    [SerializeField, Category("Text")] bool textWrap = true;
+    [SerializeField, Category("Text")] bool textEllipsis = true;
+    [SerializeField, Category("Text")] float textWeight;
+    [SerializeField, Category("Text")] float textSkew;
+    [SerializeField, Category("Text")] float textSpacing;
+    [SerializeField, Category("Text")] Gradient textFill = new(Color.White);
+    [SerializeField, Category("Text")] float textOutlineWidth;
+    [SerializeField, Category("Text")] Gradient textOutline = new(Color.Black);
+    [SerializeField, Category("Text")] Color textShadowColor;
+    [SerializeField, Category("Text")] Vec2 textShadowOffset = new(0, 4);
+    [SerializeField, Category("Text")] float textShadowBlur = 8f;
 
     // Ad -> Font cozumu PUSH modeli: ad degisince (setter/OnValidate/OnEnable) ve tablo degisince (Fonts.Changed ->
     // tum etkin kutular) cozulur ve kutu kirlenir; sicak yolda surum kiyasi yok, getter duz alan okur.
@@ -180,13 +180,13 @@ public sealed unsafe partial class LayoutBox
     struct Line
     {
         public RichText.Cursor Start; // satir basi (konum + durum): kurulum buradan yeniden tarar
-        public int End;               // [Start.Pos, End) — kirilan bosluk / '\n' haric
+        public int End;               // [Start.Pos, End) � kirilan bosluk / '\n' haric
         public float W, InkL, InkR;   // advance toplami, murekkep sol/sag kenari (px, kalem orijinine gore)
         public float Asc, H;          // satirdaki span'larin maks ascent / satir yuksekligi (px)
     }
 
     // Dogal (wrap'siz) en genis satir. Wrap + authored genislik varsa metin
-    // kutuyu GENISLETMEZ (icine sarilir) — 0 doner, authored width kazanir.
+    // kutuyu GENISLETMEZ (icine sarilir) � 0 doner, authored width kazanir.
     float TextPreferredW()
     {
         if (!HasText)
@@ -203,7 +203,7 @@ public sealed unsafe partial class LayoutBox
     }
 
     // Satir yukseklikleri toplami (karisik boyutta satir basina maks). Wrap genisligi = authored width (varsa);
-    // grow/stretch'te nihai _rw olcum aninda bilinmez — bilincli yaklasiklik.
+    // grow/stretch'te nihai _rw olcum aninda bilinmez � bilincli yaklasiklik.
     float TextPreferredH()
     {
         if (!HasText)
@@ -220,9 +220,9 @@ public sealed unsafe partial class LayoutBox
 
     // --- satir kirici (greedy word wrap; olcum + kurulum ayni yolu kullanir) ---
     // cur'dan bir satir tuketir; genislikler px. Kirilim tercihen son bosluktan (bosluk yutulur, genislige
-    // girmez; durum o noktaya YENIDEN TARAMAYLA geri sarilir — yigin kopyasi gerekmez), tek kelime sigmazsa
-    // karakter kirilimi (satir basina en az 1 glyph — sonsuz dongu olmaz). Sigma testi murekkep genisligiyle
-    // (inkR-inkL <= availW) — Grow'da availW = murekkep olcusu, advance ile karsilastirmak sahte wrap uretirdi.
+    // girmez; durum o noktaya YENIDEN TARAMAYLA geri sarilir � yigin kopyasi gerekmez), tek kelime sigmazsa
+    // karakter kirilimi (satir basina en az 1 glyph � sonsuz dongu olmaz). Sigma testi murekkep genisligiyle
+    // (inkR-inkL <= availW) � Grow'da availW = murekkep olcusu, advance ile karsilastirmak sahte wrap uretirdi.
     // Kerning yalniz ayni font+boyut ardisik glyph'ler arasinda; textSpacing her glyph arasina px.
     bool NextLine(ref RichText.Cursor cur, float availW, out Line ln)
     {
@@ -721,7 +721,7 @@ public sealed unsafe partial class LayoutBox
 
         // Font (sayfa) basina grup: materyal degisir; ayni sayfadaki gruplar RenderQueue'da merge olur.
         // Painter sirasi ayni layer'da submit sirasi: golge -> kontur -> dolgu.
-        // Golge/kontur USER.y NEGATIF: MSDF sayfada gercek SDF (.a) okunur — kenardan
+        // Golge/kontur USER.y NEGATIF: MSDF sayfada gercek SDF (.a) okunur � kenardan
         // uzak/kaydirilmis esikler median'da guvenilir degil; R8 sayfada isaret yok sayilir.
         bool oh = textOutline.IsHorizontal, fh = textFill.IsHorizontal;
         // Dolgu kenari yalniz weight + bold bayragina bagli: iki deger bir kez (glyph basina WeightEdge cagrisi yok).

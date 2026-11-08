@@ -198,6 +198,42 @@ public static class Reflect
 #endif
     }
 
+    // Binding kaynagi: kok DUZ NESNE (model) → alan zinciri (+ istege bagli yaprak property) tipli okuma.
+    // chain bos olabilir (yaprak dogrudan kokte property). AOT: alanlar offset intrinsic'i; property boxed
+    // (seyrek) ve zincir sonu struct ise zincir de boxed (FieldInfo.GetValue) — editor/.NET: tek expression.
+    public static Func<object, T> ModelGetter<T>(FieldInfo[] chain, PropertyInfo leaf)
+    {
+#if DE_AOT
+        if (leaf == null)
+        {
+            var path = AotPath.Build(chain);
+            return o => path.Ref<T>(o);
+        }
+        if (chain.Length == 0)
+            return o => (T)leaf.GetValue(o);
+        if (!chain[chain.Length - 1].FieldType.IsValueType)
+        {
+            var path = AotPath.Build(chain);
+            return o => { var owner = path.Ref<object>(o); return owner == null ? default : (T)leaf.GetValue(owner); };
+        }
+        return o =>
+        {
+            for (int i = 0; i < chain.Length && o != null; i++) o = chain[i].GetValue(o);
+            return o == null ? default : (T)leaf.GetValue(o);
+        };
+#else
+        var root = Expression.Parameter(typeof(object), "o");
+        var ownerType = chain.Length > 0 ? chain[0].DeclaringType : leaf.DeclaringType;
+        Expression m = Expression.Convert(root, ownerType);
+        for (int i = 0; i < chain.Length; i++)
+            m = Expression.Field(m, chain[i]);
+        if (leaf != null)
+            m = Expression.Property(m, leaf);
+        Expression body = m.Type == typeof(T) ? m : Expression.Convert(m, typeof(T));
+        return Expression.Lambda<Func<object, T>>(body, root).Compile();
+#endif
+    }
+
     public static PropertyInfo[] InstanceProperties(Type t) => t.GetProperties(AllInstance);
     public static MethodInfo[] InstanceMethods(Type t) => t.GetMethods(AllInstance);
     public static bool HasGetSet(PropertyInfo pi) => pi.GetMethod != null && pi.SetMethod != null;

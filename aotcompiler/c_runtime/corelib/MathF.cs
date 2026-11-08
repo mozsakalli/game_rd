@@ -7,6 +7,7 @@ namespace System
         public const float PI = 3.14159274f;
         public extern static float Abs(float value);
         public extern static float Asin(float value);
+        public extern static float Atan(float value);
         public extern static float Atan2(float y, float x);
         public extern static float Ceiling(float value);
         public extern static float Cos(float value);

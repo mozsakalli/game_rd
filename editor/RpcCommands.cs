@@ -14,10 +14,10 @@ static class RpcCommands
 {
     // --- kesif ---
 
-    [RpcCommand("rpc.describe", "Tum komutlari parametre semalariyla listeler")]
+    [RpcCommand("rpc.describe", "Tum komutlari parametre semalariyla listeler", Pure = true)]
     static DocNode Describe() => RpcRegistry.Describe();
 
-    [RpcCommand("rpc.stats", "RPC komut telemetrisi (bu oturum): komut basina sayi/hata/toplam-ort-maks ms (deferred bekleme dahil)/KB/goruntu sayisi, toplam sureye gore sirali. top: ilk N satir (0 = hepsi); reset=true sayaclari sifirlar (rapor sonra)")]
+    [RpcCommand("rpc.stats", "RPC komut telemetrisi (bu oturum): komut basina sayi/hata/toplam-ort-maks ms (deferred bekleme dahil)/KB/goruntu sayisi, toplam sureye gore sirali. top: ilk N satir (0 = hepsi); reset=true sayaclari sifirlar (rapor sonra)", Pure = true)]
     static DocNode Stats(int top = 20, bool reset = false)
     {
         var r = RpcStats.Report(top);
@@ -26,7 +26,7 @@ static class RpcCommands
         return r;
     }
 
-    [RpcCommand("rpc.guide", "START HERE (kodu bilmeyen ajan icin): is akisi, sahne kavramlari (UI = LayoutBox), deger bicimleri, davranis icin kod gerektigi, dogrulama dongusu")]
+    [RpcCommand("rpc.guide", "START HERE (kodu bilmeyen ajan icin): is akisi, sahne kavramlari (UI = LayoutBox), deger bicimleri, davranis icin kod gerektigi, dogrulama dongusu", Pure = true)]
     static DocNode Guide()
     {
         var r = DocNode.Map();
@@ -609,6 +609,10 @@ static class RpcCommands
             var fd = DocNode.Map();
             fd.Add("name", DocNode.Scal(f.Name));
             fd.Add("kind", DocNode.Scal(f.Kind.ToString()));
+            if (f.Category != null)
+                fd.Add("category", DocNode.Scal(f.Category));
+            if (f.Labels != null)
+                fd.Add("labels", DocNode.Scal(string.Join(" ", f.Labels))); // vektor bilesen sirasi ("L T R B")
             var leaf = f.Kind;
             if (f.Kind == SerializedType.Kind.List)
             {
@@ -1186,7 +1190,7 @@ static class RpcCommands
     {
         "scene.addGo", "scene.removeGo", "scene.rename", "scene.reparent", "scene.apply",
         "comp.add", "comp.remove", "comp.setEnabled", "prop.set", "transform.set",
-        "go.setActive", "select.set", "prefab.instantiate",
+        "go.setActive", "select.set", "prefab.instantiate", "prefab.unpack",
     };
 
     // Grup govdesi: zaten acik bir batch'in icindeysek (edit.batch → scene.apply) ic ice
@@ -1724,6 +1728,18 @@ static class RpcCommands
         var r = DocNode.Map();
         r.Add("id", DocNode.Scal(root.Id.ToString(CultureInfo.InvariantCulture)));
         r.Add("name", DocNode.Scal(root.Name));
+        return r;
+    }
+
+    [RpcCommand("prefab.unpack", "Prefab instance'ini TAMAMEN cozer (Unity Unpack Completely; Hierarchy sag-tik ile ayni): go kok ya da cocuk olabilir, instance koku + cocuklari duz GO olur, prop'lar aynen kalir, prefab dosyasi dokunulmaz. Undo'lu. Donus {root}", Mutates = true)]
+    static DocNode PrefabUnpack(RpcContext ctx, int go)
+    {
+        var g = RequireGo(ctx, go);
+        int rootId = g.IsPrefabRoot ? g.Id : g.PrefabRootId;
+        if (!ctx.Scene.UnpackPrefab(g))
+            throw new RpcError($"GO {go} bir prefab instance'inin parcasi degil");
+        var r = DocNode.Map();
+        r.Add("root", DocNode.Scal(rootId.ToString(CultureInfo.InvariantCulture)));
         return r;
     }
 
@@ -2526,7 +2542,7 @@ static class RpcCommands
         return null;
     }
 
-    [RpcCommand("log.tail", "Editor log'unun son N girisi (derleme/import hatalari + oyun Debug.Log). filter: mesajda gecen metin (case-insensitive; virgulle coklu = herhangi biri); sev: minimum seviye Info|Warning|Error. count filtreden SONRA uygulanir")]
+    [RpcCommand("log.tail", "Editor log'unun son N girisi (derleme/import hatalari + oyun Debug.Log). filter: mesajda gecen metin (case-insensitive; virgulle coklu = herhangi biri); sev: minimum seviye Info|Warning|Error. count filtreden SONRA uygulanir", Pure = true)]
     static DocNode LogTail(int count = 20, string filter = "", string sev = "")
     {
         EditorLog.Severity minSev = EditorLog.Severity.Info;

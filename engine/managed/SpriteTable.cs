@@ -33,6 +33,7 @@ public sealed class SpriteTable
         public int Page;
         public int X, Y, W, H;
         public int OffX, OffY, OrigW, OrigH; // trim ofseti + mantiksal boyut
+        public int BorderL, BorderT, BorderR, BorderB; // 9-slice kenarlari (mantiksal piksel; kaynagin import ayari, yeniden paketlenirken korunur)
         public RegionKind Kind;
         public int Pad;                      // paketleme girdisi (yeniden paketlenirken korunur)
     }

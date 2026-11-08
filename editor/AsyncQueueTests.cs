@@ -177,6 +177,28 @@ public static class AsyncQueueTests
         Check(NativeAsync.NativePending() == 0 && NativeAsync.PendingCount == 0, "destroy sonrasi gec tamamlanma temizlenir");
         Scene.SetActive(prev);
         Scene.Unload(s);
+
+        // 8) async void'den kacan istisna: thread pool'a degil Pump'a duser, Debug.OnError'a yazilir, surec ayakta.
+        var prevErr = Debug.OnError; int errs8 = 0; string lastErr8 = null;
+        Debug.OnError = m => { errs8++; lastErr8 = m; };
+        try
+        {
+            Check(SynchronizationContext.Current != null, "ana thread SyncContext kurulu (NativeAsync.Install)");
+            AsyncVoidThrow();
+            Check(errs8 == 0, "async void: await'ten once hata yok");
+            NativeAsync.Pump(); // Frame.Next cozulur -> throw -> SetException -> ctx.Post -> DrainPosted
+            Check(errs8 == 1 && lastErr8 != null && lastErr8.Contains("async-void-test"), "async void istisnasi Pump'ta Debug.OnError'a duser");
+            var after = Frame.Next();
+            NativeAsync.Pump();
+            Check(after.IsCompletedSuccessfully, "istisna sonrasi Pump saglikli");
+        }
+        finally { Debug.OnError = prevErr; }
+    }
+
+    static async void AsyncVoidThrow()
+    {
+        await Frame.Next();
+        throw new InvalidOperationException("async-void-test");
     }
 
     static void Check(bool cond, string name)

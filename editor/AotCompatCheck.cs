@@ -10,19 +10,61 @@ namespace DigitoyEditor;
 // AOT uyumluluk denetimi (editor icinde, erken): oyun scriptleri Digitoy.CoreLib.dll (AOT BCL'si) ve
 // AOT engine DLL'ine karsi in-memory Roslyn ile IKINCI kez derlenir. Corelib'de olmayan API burada
 // Console'a "AOT uyumsuz" olarak duser — player build'ini (ya da runtime'i) beklemeden.
-// Editor play'ini BLOKLAMAZ (editor gercek .NET'te kosar); yalniz bilgi. Referanslar yoksa (henuz
-// hic player build alinmamis) sessizce atlanir.
+// Editor play'ini BLOKLAMAZ (editor gercek .NET'te kosar); yalniz bilgi. ARKA PLANDA kosar: dev modda referans IL'i
+// once TAZELENIR (AotIl, mtime cache; motor degistiyse Roslyn engine derlemesi birkac saniye) — bayat IL'e karsi
+// denetim sahte hata uretir (docs/engine-notes.md ADIM 3). Kurulu modda prebuilt IL; yoksa sessizce atlanir.
 public static class AotCompatCheck
 {
-    // Kurulu: sdk/aotcompiler (prebuilt IL). Dev: aotcompiler/obj/aot-il (ilk player build'de uretilir).
+    // Kurulu: sdk/aotcompiler (prebuilt IL). Dev: aotcompiler/obj/aot-il (EnsureFresh kaynaktan uretir/tazeler).
     public static string CoreLibDll => Path.Combine(SdkLayout.AotIlDir, "Digitoy.CoreLib.dll");
     public static string AotEngineDll => Path.Combine(SdkLayout.AotIlDir, "DigitoyEngine.dll");
 
     public static bool Available => File.Exists(CoreLibDll) && File.Exists(AotEngineDll);
 
-    // Donus: hata sayisi (0 = uyumlu ya da denetim atlandi). Hatalar EditorLog'a yazilir.
+    // Dev modda corelib + engine IL'ini repo kaynaklarindan tazeler (degismediyse anlik). Kurulu modda no-op.
+    // Donus: referanslar kullanilabilir mi. Hata EditorLog'a yazilir (motor kaynagi AOT'ta derlenmiyorsa burada gorunur).
+    public static bool EnsureFresh()
+    {
+        if (SdkLayout.Installed)
+            return Available;
+        try
+        {
+            DigitoyEngine.Build.AotIl.BuildEngine(SdkLayout.AotWorkDir, App.RepoRoot, DigitoyEngine.Build.AotIl.HostDesktopTarget);
+            return Available;
+        }
+        catch (Exception e)
+        {
+            EditorLog.Warning("[aot-compat] AOT IL tazelenemedi: " + e.Message);
+            return false;
+        }
+    }
+
+    static int _running; // denetim surerken gelen yeni istek atlanir (sonraki derlemede yine kosar); ayni dll'e iki yazici yok
+
+    // Arka planda: IL tazele + scriptleri denetle. Sonuc yalniz EditorLog (ana thread'e dokunmaz).
     // plugins: Assets/**/*.dll referanslari (plugin'in kendisi IL'dir, burada denetlenemez; AOT stub kapisi yakalar).
-    public static int Check(IReadOnlyList<string> scriptFiles, IReadOnlyList<string> plugins = null)
+    public static void CheckAsync(IReadOnlyList<string> scriptFiles, IReadOnlyList<string> plugins = null)
+    {
+        if (scriptFiles.Count == 0)
+            return;
+        var scripts = new List<string>(scriptFiles);
+        var plugs = plugins == null ? null : new List<string>(plugins);
+        string facadeDir = Path.Combine(App.Project.LibraryPath, "aot-facades");
+        if (System.Threading.Interlocked.Exchange(ref _running, 1) == 1)
+            return;
+        System.Threading.Tasks.Task.Run(() =>
+        {
+            try
+            {
+                if (EnsureFresh())
+                    Check(scripts, plugs, facadeDir);
+            }
+            finally { System.Threading.Volatile.Write(ref _running, 0); }
+        });
+    }
+
+    // Donus: hata sayisi (0 = uyumlu ya da denetim atlandi). Hatalar EditorLog'a yazilir. Herhangi bir thread'den.
+    public static int Check(IReadOnlyList<string> scriptFiles, IReadOnlyList<string> plugins, string facadeDir)
     {
         if (!Available || scriptFiles.Count == 0)
             return 0;
@@ -33,9 +75,15 @@ public static class AotCompatCheck
                 MetadataReference.CreateFromFile(CoreLibDll),
                 MetadataReference.CreateFromFile(AotEngineDll),
             };
-            if (plugins != null)
+            if (plugins != null && plugins.Count > 0)
+            {
                 foreach (var p in plugins)
                     refs.Add(MetadataReference.CreateFromFile(p));
+                // Plugin'ler gercek BCL'e karsi derlidir; System.* kimliklerini corelib'e yonlendiren facade'ler olmadan
+                // plugin uyesine her dokunus CS0012 (aotcompiler ile ayni FacadeBuilder, mtime cache'li).
+                foreach (var f in DigitoyEngine.Build.FacadeBuilder.Build(new List<string>(plugins), CoreLibDll, facadeDir))
+                    refs.Add(MetadataReference.CreateFromFile(f));
+            }
             var parse = new CSharpParseOptions(LanguageVersion.Latest, preprocessorSymbols: new[] { "DE_AOT" });
             var trees = new List<SyntaxTree>();
             foreach (var f in scriptFiles)

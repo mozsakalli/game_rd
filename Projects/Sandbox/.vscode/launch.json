@@ -1,0 +1,31 @@
+{
+    // DigitoyEditor tarafindan uretilir (makineye ozel exe yolu); elle duzenleme bir sonraki acilista ezilir.
+    // Breakpoint'ler Assets/**/*.cs'e dogrudan konur; hot reload sonrasi yeni assembly'ye otomatik baglanir.
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "DigitoyEditor (Yuzbir Extra)",
+            "type": "coreclr",
+            "request": "launch",
+            "program": "C:/Work/digitoygames/game_rd/editor/bin/Debug/net10.0/DigitoyEditor.exe",
+            "args": ["${workspaceFolder}"],
+            "cwd": "${workspaceFolder}",
+            "console": "internalConsole",
+            "stopAtEntry": false,
+            "justMyCode": false,
+            "enableStepFiltering": false,
+            "symbolOptions": {
+                "searchMicrosoftSymbolServer": false,
+                "searchNuGetOrgSymbolServer": false
+            }
+        },
+        {
+            "name": "Attach to DigitoyEditor",
+            "type": "coreclr",
+            "request": "attach",
+            "processName": "DigitoyEditor",
+            "justMyCode": false,
+            "enableStepFiltering": false
+        }
+    ]
+}

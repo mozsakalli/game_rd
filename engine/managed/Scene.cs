@@ -443,6 +443,11 @@ public sealed class Scene
             }
         }
 
+        // Sistem Sync fazi (binding vb. dis veri → sahne yazimi): FlushAnimated ONCESI, ayni frame'de
+        // OnValidate/layout gorsun. Edit modunda da kosar.
+        for (int i = 0; i < _systemCount; i++)
+            _systems[i].Sync(this);
+
         // Animasyon yazimlarinin bildirimi (OnAnimatedPropertiesApplied → OnValidate:
         // LayoutBox.MarkDirty vb.) — layout sweep'i ayni frame'de gorsun. Edit modunda da
         // kosar (preview paneli SampleFrame ile yazar).

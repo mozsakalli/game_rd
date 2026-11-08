@@ -32,8 +32,8 @@ public static class ModuleBuilder
             return Fail("oyun kodu derlemesi suruyor; bitince tekrar deneyin");
         if (AssetWatcher.Failed)
             return Fail("oyun kodu derlenemiyor; once hatalari giderin (Console)");
-        if (!AotCompatCheck.Available)
-            return Fail("AOT referanslari yok (corelib/engine): once bir kez Build Player alin: " + AotCompatCheck.AotEngineDll);
+        if (!AotCompatCheck.EnsureFresh())
+            return Fail("AOT referanslari yok (corelib/engine): kurulu modda sdk eksik, dev modda derleme hatasi (Console): " + AotCompatCheck.AotEngineDll);
         var gameAsm = App.GameAssembly;
         if (gameAsm == null)
             return Fail("modulde script yok (Assets altinda .cs bulunamadi)");
@@ -90,7 +90,10 @@ public static class ModuleBuilder
             var parse = new CSharpParseOptions(LanguageVersion.Latest, preprocessorSymbols: new[] { "DE_AOT", "DE_MODULE" });
             var trees = new List<SyntaxTree>();
             foreach (var f in scripts)
-                trees.Add(CSharpSyntaxTree.ParseText(Microsoft.CodeAnalysis.Text.SourceText.From(File.ReadAllText(f), Encoding.UTF8), parse, path: f)); // PDB: encoding'li kaynak
+            {
+                using var fs = File.OpenRead(f); // stream: PDB checksum = diskteki baytlar (RoslynCompiler ile ayni)
+                trees.Add(CSharpSyntaxTree.ParseText(Microsoft.CodeAnalysis.Text.SourceText.From(fs, Encoding.UTF8), parse, path: f));
+            }
             var comp = CSharpCompilation.Create(asmName, trees, refs,
                 new CSharpCompilationOptions(OutputKind.DynamicallyLinkedLibrary, allowUnsafe: true,
                     optimizationLevel: OptimizationLevel.Release));

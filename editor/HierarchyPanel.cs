@@ -23,6 +23,8 @@ public sealed class HierarchyPanel : EditorWindow
     bool _dragging;    // esik asildi: aktif reparent suruklemesi
     bool _pressCtrl;
     Vec2 _pressPos;
+    int _pendingMenuId;   // sag tik: satir id (>0) / bos alan (-1) / yok (0) — menu enumerasyon disinda acilir
+    int _menuWait;        // menu acilmadan once atlanacak Repaint sayisi (secim vurgusu ekrana bassin)
 
     static float RowH => Gui.FontSize + 6f; // Inspector RowH ile ayni oran
     const float DragThreshold = 5f;
@@ -59,19 +61,10 @@ public sealed class HierarchyPanel : EditorWindow
         if (Gui.Button(new Rect(58, top + 2, 60, 20), "+ Child") && sel != null)
             Selection.DocId = es.AddGameObject(sel.Id).Id;
         if (Gui.Button(new Rect(122, top + 2, 44, 20), "Del"))
-        {
-            // Coklu sil: kopya uzerinden (RemoveGameObject dogrudan doc'u degistirir).
-            _dragIdsTmp.Clear();
-            _dragIdsTmp.AddRange(Selection.Ids);
-            foreach (int id in _dragIdsTmp)
-            {
-                var g = es.FindGo(id);
-                if (g != null)
-                    es.RemoveGameObject(g);
-            }
-            Selection.Clear();
-        }
+            DeleteSelection(es);
         float toolbarH = 26f + top;
+
+        HandleKeyboard(es);
 
         int rows = 0;
         foreach (var g in doc.Objects)
@@ -88,7 +81,154 @@ public sealed class HierarchyPanel : EditorWindow
             if (g.Parent == 0)
                 DrawNode(doc, g, 0, ref y, ev, view.width, idDrag);
         HandleDrag(es, doc, ev, idDrag, view);
+        // Sag tik bos alan: baglam menusu (satir ustu DrawNode'da isaretlenir, asagida acilir).
+        if (ev.Type == EventType.MouseDown && ev.Button == 1 && GuiUtility.HotControl == 0
+            && GuiClip.VisibleRect.Contains(ev.MousePosition))
+        {
+            _pendingMenuId = -1;
+            _menuWait = 1;
+            ev.Use();
+        }
         Gui.EndScrollView();
+
+        // Enumerasyon bitti: menu burada acilir (senkron eylem doc'u guvenle degistirir). Secim sag tikta hemen
+        // degistigi icin menu BIR SONRAKI frame'in Repaint'ine ertelenir: vurgulu satir once ekrana basilir
+        // (senkron native popup acikken frame sunulmaz).
+        if (_pendingMenuId != 0 && ev.Type == EventType.Repaint)
+        {
+            if (_menuWait-- > 0)
+                return;
+            int id = _pendingMenuId;
+            _pendingMenuId = 0;
+            ShowContextMenu(es, id < 0 ? 0 : id);
+        }
+    }
+
+    // ---- Copy / Paste / Duplicate / Delete (Unity Ctrl+C/V/D, Ctrl+Shift+V = child, Del) ----
+
+    // Kisayollar yalniz imlec panel uzerindeyken (IMGUI'de panel odagi yok), textfield odagi
+    // ve aktif drag yokken (drag ortasinda yapisal degisiklik kontrol id dizilimini kaydirir).
+    void HandleKeyboard(EditorScene es)
+    {
+        var ev = Event.Current;
+        if (ev.Type != EventType.KeyDown || GuiUtility.KeyboardControl != 0 || GuiUtility.HotControl != 0
+            || !GuiClip.VisibleRect.Contains(ev.MousePosition))
+            return;
+        bool ctrl = (ev.Modifiers & EventModifiers.Control) != 0;
+        bool shift = (ev.Modifiers & EventModifiers.Shift) != 0;
+        switch (ev.KeyCode)
+        {
+            case GLFWConst.KEY_C when ctrl: CopySelection(es); ev.Use(); break;
+            case GLFWConst.KEY_V when ctrl: Paste(es, asChild: shift); ev.Use(); break;
+            case GLFWConst.KEY_D when ctrl: DuplicateSelection(es); ev.Use(); break;
+            case GLFWConst.KEY_DELETE: DeleteSelection(es); ev.Use(); break;
+        }
+    }
+
+    void ShowContextMenu(EditorScene es, int rowId)
+    {
+        if (rowId != 0 && !Selection.Contains(rowId))
+            Selection.DocId = rowId;
+        bool hasSel = Selection.Count > 0 && es.FindGo(Selection.DocId) != null;
+        var items = new List<(string, Action)>();
+        if (hasSel)
+        {
+            items.Add(("Copy", () => CopySelection(es)));
+            items.Add(("Duplicate", () => DuplicateSelection(es)));
+        }
+        if (GoClipboard.HasContent)
+        {
+            items.Add(("Paste", () => Paste(es, asChild: false)));
+            if (hasSel)
+                items.Add(("Paste as Child", () => Paste(es, asChild: true)));
+        }
+        if (hasSel)
+        {
+            if (HasPrefabNode(es))
+                items.Add(("Unpack Prefab Completely", () => UnpackSelection(es)));
+            items.Add(("Delete", () => DeleteSelection(es)));
+            items.Add(("-", null));
+        }
+        items.Add(("Create Empty", () => Selection.DocId = es.AddGameObject(0).Id));
+        if (hasSel)
+            items.Add(("Create Empty Child", () => Selection.DocId = es.AddGameObject(Selection.DocId).Id));
+        EditorMenu.ShowContext(items.ToArray());
+    }
+
+    static void CopySelection(EditorScene es) => GoClipboard.Copy(es, Selection.Ids);
+
+    static void DuplicateSelection(EditorScene es)
+    {
+        var created = es.DuplicateGameObjects(new List<int>(Selection.Ids));
+        SelectAll(created);
+    }
+
+    // Yapistirma hedefi (Unity): secilinin parent'i altina, secilinin arkasina; secim yoksa koke/sona.
+    // asChild: secilinin cocugu olarak (sona).
+    static void Paste(EditorScene es, bool asChild)
+    {
+        var sel = es.FindGo(Selection.DocId);
+        int parent = 0, before = 0;
+        if (sel != null)
+        {
+            if (asChild) parent = sel.Id;
+            else { parent = sel.Parent; before = IdAfter(es.Doc, sel.Id); }
+        }
+        var created = es.PasteSubtrees(GoClipboard.Trees, parent, before);
+        SelectAll(created);
+    }
+
+    static bool HasPrefabNode(EditorScene es)
+    {
+        foreach (int id in Selection.Ids)
+        {
+            var g = es.FindGo(id);
+            if (g != null && (g.IsPrefabRoot || g.IsPrefabChild))
+                return true;
+        }
+        return false;
+    }
+
+    // Secimdeki her prefab node'unun instance'i (cocuk seciliyse koku) tamamen cozulur; tek undo.
+    static void UnpackSelection(EditorScene es)
+    {
+        var ids = new List<int>(Selection.Ids);
+        es.BeginBatch();
+        try
+        {
+            foreach (int id in ids)
+                es.UnpackPrefab(es.FindGo(id)); // ayni instance ikinci kez gelirse artik duz GO → no-op
+        }
+        finally { es.EndBatch(); }
+    }
+
+    static void DeleteSelection(EditorScene es)
+    {
+        // Coklu sil: kopya uzerinden (RemoveGameObject dogrudan doc'u degistirir); tek undo.
+        var ids = new List<int>(Selection.Ids);
+        if (ids.Count == 0)
+            return;
+        es.BeginBatch();
+        try
+        {
+            foreach (int id in ids)
+            {
+                var g = es.FindGo(id);
+                if (g != null)
+                    es.RemoveGameObject(g);
+            }
+        }
+        finally { es.EndBatch(); }
+        Selection.Clear();
+    }
+
+    static void SelectAll(List<int> ids)
+    {
+        if (ids.Count == 0)
+            return;
+        Selection.Clear();
+        foreach (int id in ids)
+            Selection.Add(id);
     }
 
     void HandleDrag(EditorScene es, SceneDoc doc, Event ev, int idDrag, in Rect view)
@@ -280,6 +420,21 @@ public sealed class HierarchyPanel : EditorWindow
         // Hayalet etiket global: DragDrop.DrawGhost (DrawUi) cizer.
     }
 
+    // GO ikonu: component listesinde ilk [Icon] tasiyan tipin glifi (katalogdan; tip-ozel bilgi yok).
+    static string IconOf(SceneDoc.GoDoc g)
+    {
+        var cat = App.Catalog;
+        if (cat == null)
+            return null;
+        foreach (var cd in g.Components)
+        {
+            var icon = cat.Find(cd.Type)?.Icon;
+            if (icon != null)
+                return icon;
+        }
+        return null;
+    }
+
     static bool HasChildren(SceneDoc doc, int id)
     {
         foreach (var g in doc.Objects)
@@ -333,6 +488,19 @@ public sealed class HierarchyPanel : EditorWindow
             ev.Use();
         }
 
+        // Sag tik satir: secimde degilse once sec; menu SENKRON (eylem donmeden calisir) oldugundan
+        // doc.Objects enumerasyonu icinde ACILMAZ — OnGui basinda (bir sonraki pass) acilir.
+        if (ev.Type == EventType.MouseDown && ev.Button == 1 && row.Contains(ev.MousePosition)
+            && GuiClip.VisibleRect.Contains(ev.MousePosition) && GuiUtility.HotControl == 0)
+        {
+            // Unity gibi: secim hemen degisir (bu frame vurgulu cizilir), menu sonraki frame'de acilir.
+            if (!Selection.Contains(g.Id))
+                Selection.DocId = g.Id;
+            _pendingMenuId = g.Id;
+            _menuWait = 1;
+            ev.Use();
+        }
+
         if (ev.Type == EventType.Repaint)
         {
             if (Selection.Contains(g.Id))
@@ -342,10 +510,21 @@ public sealed class HierarchyPanel : EditorWindow
             if (hasKids)
                 GuiRenderer.DrawTextIn(arrow, _collapsed.Contains(g.Id) ? "\u25b8" : "\u25be",
                     Gui.FontSize - 3f, new Color(150, 153, 163, 255));
+            // Prefab instance (kok ve cocuklari): Unity gibi mavi metin — kucuk resim yok (UI prefab'i
+            // izole kadrajda anlamsiz cikiyordu). Tipe gore glif ikon ayri is (docs/engine-notes.md).
+            bool prefab = g.IsPrefabRoot || g.IsPrefabChild;
             var textCol = g.Active
-                ? new Color(220, 224, 234, 255)
-                : new Color(120, 123, 133, 255); // inaktif: soluk
-            GuiRenderer.DrawTextIn(new Rect(indent + 14, y, width - indent - 14, RowH - 1),
+                ? (prefab ? new Color(130, 180, 240, 255) : new Color(220, 224, 234, 255))
+                : (prefab ? new Color(80, 105, 140, 255) : new Color(120, 123, 133, 255)); // inaktif: soluk
+            float textX = indent + 14;
+            // Sabit ikon sutunu (Unity gibi hizali): ilk [Icon]'lu component'in glifi; yoksa bos kalir.
+            float iconW = RowH - 2;
+            string icon = IconOf(g);
+            if (icon != null)
+                GuiRenderer.DrawTextIn(new Rect(textX, y, iconW, RowH - 1), icon, Gui.FontSize - 2f,
+                    g.Active ? new Color(165, 170, 185, 255) : new Color(100, 104, 116, 255), true, 2);
+            textX += iconW;
+            GuiRenderer.DrawTextIn(new Rect(textX, y, width - textX, RowH - 1),
                 g.Name, Gui.FontSize, textCol, false, 2);
         }
 

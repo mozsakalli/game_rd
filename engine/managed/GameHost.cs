@@ -90,6 +90,7 @@ public static class GameHost
             root = "..";  // exe Build/ icinde game.pak'in yaninda; proje koku bir ust klasor
         AssetDatabase.LogWarning = m => Console.WriteLine("[warn] " + m);
         Sokol.LogError = m => Console.WriteLine("[error] " + m);
+        NativeAsync.Install();
         Sokol.Setup();
         _cb = new CommandBuffer();
         _gameCams = new System.Collections.Generic.List<Camera>
@@ -312,6 +313,7 @@ public static class GameHost
     {
         AssetDatabase.LogWarning = m => Console.WriteLine("[warn] " + m);
         Sokol.LogError = m => Console.WriteLine("[error] " + m);
+        NativeAsync.Install();
         Sokol.Setup();
         _cb = new CommandBuffer();
         _gameCams = new System.Collections.Generic.List<Camera>
@@ -326,6 +328,11 @@ public static class GameHost
         assets.Catalog = catalog;
         _assets = assets;
         assets.LoadAtlases();
+        if (PlayerSettings.IsCodeScene(startScene))
+        {
+            SceneLoader.SpawnCode(startScene, assets, catalog);
+            return;
+        }
         var sceneBytes = _source.ReadBytes(startScene);
         if (sceneBytes == null)
             throw new Exception("startScene bulunamadi: " + startScene);

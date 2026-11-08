@@ -1,0 +1,36 @@
+scene: Button
+objects:
+  - id: 1
+    parent: 0
+    name: Button
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 240
+        height: 72
+        radius: 18 18 18 18
+        fill:
+          type: Solid
+          direction: Vertical
+          color: '#3b82f6ff'
+          color2: '#2563ebff'
+        border: 2 2 2 2
+        borderFill:
+          type: Solid
+          direction: Vertical
+          color: '#ffffff40'
+          color2: '#ffffff40'
+        shadowColor: '#00000066'
+        shadowOffset: 0 4
+        shadowBlur: 10
+        text: Button
+        textSize: 28
+        textAlign: Center
+        textAlignV: Center
+        textFill:
+          type: Solid
+          direction: Vertical
+          color: '#ffffffff'
+          color2: '#ffffffff'

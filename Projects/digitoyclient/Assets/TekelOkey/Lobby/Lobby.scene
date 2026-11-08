@@ -1,0 +1,566 @@
+scene: Main
+objects:
+  - id: 1
+    parent: 0
+    name: CAMERA
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: CameraComponent
+      - type: FitPerspectiveProjection
+        referenceResolution: 1920 1080
+        fov: 20
+  - id: 2
+    parent: 0
+    name: ROOT
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        fitScreen: true
+        sprite: 7b8e883784fe4100b2bfea6507431ba8
+  - id: 3
+    parent: 2
+    name: HEADER
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        layout: Horizontal
+        justifyChildren: Center
+        alignSelf: Auto
+        anchorMin: 0 0
+        anchorMax: 1 0
+        pivot: 0.5 0
+        reverse: false
+        spacing: -50
+  - id: 4
+    parent: 3
+    name: LEFT
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        sprite: e90b53d0bfe1488e8519f12c537c64d6
+        width: 0
+        height: 137
+        alignSelf: Auto
+        grow: 1
+        margin: -5 -12 0 0
+        padding: 0 0 0 0
+  - id: 5
+    parent: 3
+    name: STORE
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        sprite: a3074cd60d784d67bc62cfced4689355
+        width: 483
+        height: 109
+        font: bold
+        text@loc: ''
+        text: ''
+        textAlign: Center
+        textAlignV: Center
+        textSize: 48
+        textShadowColor: '#0000008a'
+        textShadowOffset: 0 0
+        textShadowBlur: 24
+        layout: Horizontal
+        alignChildren: Center
+        justifyChildren: Center
+        spacing: 0
+        margin: 0 -12.633331 0 0
+  - id: 6
+    parent: 3
+    name: RIGHT
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        sprite: e90b53d0bfe1488e8519f12c537c64d6
+        width: 0
+        height: 137
+        grow: 1
+        reverse: false
+        spriteFlipX: true
+        padding: 0 0 0 0
+        margin: 0 -12 -5 0
+  - id: 7
+    parent: 5
+    name: Image
+    pos: 0 0 0
+    rot: 0 0 15.533332
+    scale: 0.7 0.7 1
+    components:
+      - type: LayoutBox
+        width: 128
+        height: 128
+        spriteFit: Contain
+        fill:
+          type: Solid
+          direction: Vertical
+          color: '#ffffffff'
+          color2: '#ffffff33'
+        radius: 0 0 0 0
+        sprite: 78653f9094be4a4e9b8de911f0aceef0
+        margin: -24.700005 0 0 0
+        grow: 0
+  - id: 8
+    parent: 5
+    name: Text
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        textSize: 52
+        textAlign: Left
+        textAlignV: Start
+        textFill:
+          type: Solid
+          direction: Vertical
+          color: '#ffffffff'
+          color2: '#ffffffff'
+        font: bold
+        text@loc: lobby.magaza
+        grow: 0
+        margin: 0 0 0 0
+        textShadowColor: '#0000007a'
+        textShadowOffset: 0 0
+        textShadowBlur: 24
+  - id: 9
+    parent: 7
+    name: Image (1)
+    pos: 0 0 0
+    rot: 0 0 -17.266663
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 128
+        height: 128
+        spriteFit: Contain
+        fill:
+          type: Solid
+          direction: Vertical
+          color: '#ffffffff'
+          color2: '#ffffff33'
+        radius: 0 0 0 0
+        sprite: 78653f9094be4a4e9b8de911f0aceef0
+        anchoredPos: 29.833332 0
+  - id: 10
+    parent: 2
+    name: FOOTER
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        layout: Horizontal
+        sprite: ''
+        anchorMin: 0 1
+        anchorMax: 1 1
+        alignChildren: Center
+        justifyChildren: Center
+        pivot: 0.5 1
+  - id: 11
+    parent: 10
+    name: LEFT
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 700
+        height: 124
+        spriteFit: Stretch
+        fill:
+          type: Solid
+          direction: Vertical
+          color: '#ffffffff'
+          color2: '#ffffff33'
+        radius: 0 0 0 0
+        sprite: 16cd50b0eca6463192d5234831d16108
+        grow: 0
+        margin: 0 0 -98.26668 0
+        SortingOrder: 1
+        layout: Horizontal
+        padding: 0 0 0 0
+        justifyChildren: Center
+        overflowY: Visible
+        spacing: 20
+  - id: 13
+    parent: 10
+    name: CREATETABLE
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 312
+        height: 110
+        spriteFit: Contain
+        fill:
+          type: Solid
+          direction: Vertical
+          color: '#ffffffff'
+          color2: '#ffffff33'
+        radius: 0 0 0 0
+        sprite: 6b200b42014e4f088a480346d438ddfe
+        SortingOrder: 0
+        font: bold
+        text@loc: ''
+        text: MASA AÇ
+        textAlign: Center
+        textAlignV: Center
+        textSize: 48
+        textOutlineWidth: 2
+        textOutline:
+          type: Solid
+          direction: Vertical
+          color: '#000000c1'
+          color2: '#000000ff'
+          stops: 2
+          color3: '#000000ff'
+          stop3: 0.5
+          color4: '#000000ff'
+          stop4: 0.75
+        padding: 60 -5 0 0
+  - id: 14
+    parent: 10
+    name: PLAYNOW
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 312
+        height: 110
+        spriteFit: Contain
+        fill:
+          type: Solid
+          direction: Vertical
+          color: '#ffffffff'
+          color2: '#ffffff33'
+        radius: 0 0 0 0
+        sprite: a31831c3c8a24af58415792bff39e0b8
+        font: bold
+        text@loc: lobby.playnow
+        textSize: 48
+        textAlign: Center
+        textAlignV: Center
+        padding: 0 -5 60 0
+        textOutlineWidth: 2
+        textOutline:
+          type: Solid
+          direction: Vertical
+          color: '#0000009a'
+          color2: '#000000ff'
+          stops: 2
+          color3: '#000000ff'
+          stop3: 0.5
+          color4: '#000000ff'
+          stop4: 0.75
+  - id: 12
+    parent: 10
+    name: RIGHT
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 700
+        height: 124
+        spriteFit: Stretch
+        fill:
+          type: Solid
+          direction: Vertical
+          color: '#ffffffff'
+          color2: '#ffffff33'
+        radius: 0 0 0 0
+        sprite: 16cd50b0eca6463192d5234831d16108
+        grow: 0
+        SortingOrder: 1
+        margin: -98 0 0 0
+        layout: Horizontal
+        justifyChildren: Center
+        spacing: 20
+  - id: 15
+    parent: 11
+    name: FRIENDS
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 152
+        height: 139
+        spriteFit: Contain
+        fill:
+          type: Solid
+          direction: Vertical
+          color: '#ffffffff'
+          color2: '#ffffff33'
+        radius: 0 0 0 0
+        sprite: d965b020a9a941909ca173b2382e8914
+        margin: 0 -25 0 0
+        anchoredPos: 0 0
+  - id: 19
+    parent: 11
+    name: SEPERATOR
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 3
+        height: 60
+        fill:
+          type: Solid
+          direction: Vertical
+          color: '#404040ff'
+          color2: '#00000000'
+          stops: 2
+          color3: '#00000000'
+          stop3: 0.5
+          color4: '#00000000'
+          stop4: 0.75
+        shadowColor: '#0000004c'
+        shadowBlur: 2
+        shadowGrow: 4
+        margin: 0 32.06667 0 0
+  - id: 16
+    parent: 15
+    name: Image (3)
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 118
+        height: 86
+        spriteFit: Contain
+        fill:
+          type: Solid
+          direction: Vertical
+          color: '#ffffffff'
+          color2: '#ffffff33'
+        radius: 0 0 0 0
+        sprite: 733fad89ebc84d40a382eb78cfd9288c
+  - id: 17
+    parent: 11
+    name: LEADERBOARD
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 152
+        height: 139
+        spriteFit: Contain
+        fill:
+          type: Solid
+          direction: Vertical
+          color: '#ffffffff'
+          color2: '#ffffff33'
+        radius: 0 0 0 0
+        sprite: d965b020a9a941909ca173b2382e8914
+        margin: 0 -25 0 0
+        anchoredPos: 0 0
+  - id: 18
+    parent: 17
+    name: Image (3)
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 118
+        height: 86
+        spriteFit: Contain
+        fill:
+          type: Solid
+          direction: Vertical
+          color: '#ffffffff'
+          color2: '#ffffff33'
+        radius: 0 0 0 0
+        sprite: 208175510086498982f3055879f9ebc2
+        anchoredPos: 0 -5.566669
+  - id: 20
+    parent: 12
+    name: CONTACT
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 152
+        height: 139
+        spriteFit: Contain
+        fill:
+          type: Solid
+          direction: Vertical
+          color: '#ffffffff'
+          color2: '#ffffff33'
+        radius: 0 0 0 0
+        sprite: d965b020a9a941909ca173b2382e8914
+        margin: 0 -25 0 0
+        anchoredPos: 0 0
+  - id: 21
+    parent: 20
+    name: Image (3)
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 84
+        height: 64
+        spriteFit: Contain
+        fill:
+          type: Solid
+          direction: Vertical
+          color: '#ffffffff'
+          color2: '#ffffff33'
+        radius: 0 0 0 0
+        sprite: 3c50e7b3f9224278becc76194374466e
+        anchoredPos: 0 -7.766669
+  - id: 22
+    parent: 12
+    name: ADBONUS
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 200
+        height: 0
+  - id: 23
+    parent: 22
+    name: Image (2)
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1.5 1.5 1
+    components:
+      - type: LayoutBox
+        width: 128
+        height: 128
+        spriteFit: Contain
+        fill:
+          type: Solid
+          direction: Vertical
+          color: '#ffffffff'
+          color2: '#ffffff33'
+        radius: 0 0 0 0
+        sprite: 5860efcef0b248e7a478da89eea6cf09
+        anchoredPos: 0 0
+  - id: 24
+    parent: 22
+    name: Image (4)
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 0.8 0.8 1
+    components:
+      - type: LayoutBox
+        width: 167
+        height: 124
+        spriteFit: Contain
+        fill:
+          type: Solid
+          direction: Vertical
+          color: '#ffffffff'
+          color2: '#ffffff33'
+        radius: 0 0 0 0
+        sprite: 8b3e089b9a8f40a98c6de06b16e97e4e
+        anchoredPos: 64.55641 34.038834
+  - id: 25
+    parent: 22
+    name: Text (1)
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        textSize: 38
+        textAlign: Left
+        textAlignV: Start
+        textFill:
+          type: Solid
+          direction: Vertical
+          color: '#49ff09ff'
+          color2: '#ffffffff'
+        font: bold
+        anchoredPos: 12.148964 41.711296
+        textOutlineWidth: 0
+        textShadowColor: '#000000ff'
+        textShadowOffset: 0 0
+        textShadowBlur: 16
+        text@loc: lobby.bedava_cip
+        fill:
+          type: Solid
+          direction: Vertical
+          color: '#00000062'
+          color2: '#00000000'
+          stops: 2
+          color3: '#00000000'
+          stop3: 0.5
+          color4: '#00000000'
+          stop4: 0.75
+        radius: 5 5 5 5
+  - id: 26
+    parent: 22
+    name: COLLECT
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        font: bold
+        text@loc: lobby.topla
+        textSize: 38
+        fill:
+          type: Linear
+          direction: Vertical
+          color: '#6b6b6bff'
+          color2: '#000000ff'
+          stops: 2
+          color3: '#00000000'
+          stop3: 0.5
+          color4: '#00000000'
+          stop4: 0.75
+        radius: 10 10 10 10
+        padding: 20 5 20 5
+        anchoredPos: 7.8164783 90.50643
+        textFill:
+          type: Solid
+          direction: Vertical
+          color: '#ffe9a2ff'
+          color2: '#ffffffff'
+          stops: 2
+          color3: '#ffffffff'
+          stop3: 0.5
+          color4: '#ffffffff'
+          stop4: 0.75
+        borderFill:
+          type: Solid
+          direction: Vertical
+          color: '#000000ff'
+          color2: '#00000000'
+          stops: 2
+          color3: '#00000000'
+          stop3: 0.5
+          color4: '#00000000'
+          stop4: 0.75
+        border: 4 4 4 4
+        innerShadowColor: '#00000000'
+        shadowColor: '#ffffff52'
+        shadowOffset: 1 1
+        shadowBlur: 2
+        lightColor: '#00000000'

@@ -260,6 +260,29 @@ public sealed class RemoveGoOp : UndoOp
     }
 }
 
+// Yapistir/cogalt: alt agac toplu eklenir (RemoveGoOp'un aynasi; indeksler ekleme anindaki konumlar, artan).
+public sealed class AddSubtreeOp : UndoOp
+{
+    public readonly List<(SceneDoc.GoDoc doc, int index)> Items = new();
+
+    public AddSubtreeOp() => Sealed = true;
+
+    public override void Apply(EditorScene es, bool undo)
+    {
+        if (undo)
+        {
+            for (int i = Items.Count - 1; i >= 0; i--)
+                es.Doc.Objects.Remove(Items[i].doc);
+        }
+        else
+        {
+            foreach (var (doc, index) in Items)
+                es.Doc.Objects.Insert(Math.Clamp(index, 0, es.Doc.Objects.Count), doc);
+        }
+        es.RefreshLive();
+    }
+}
+
 public sealed class ReparentOp : UndoOp
 {
     public int GoId;
@@ -368,6 +391,26 @@ public sealed class ConnectPrefabOp : UndoOp
     public ConnectPrefabOp() => Sealed = true;
 
     public override void Apply(EditorScene es, bool undo) => es.ApplyConnectPrefab(this, undo);
+}
+
+// Prefab instance'i TAMAMEN cozuldu (Unity "Unpack Completely"): kok + cocuklar duz GO.
+// Yalniz isaretler degisir (prop'lar genisletilmis doc'ta zaten tam); undo isaretleri geri koyar.
+public sealed class UnpackPrefabOp : UndoOp
+{
+    public sealed class Entry
+    {
+        public int GoId;
+        public string PrevGuid;
+        public int PrevLocalId, PrevRootId;
+        public Dictionary<int, int> PrevIds;
+        public List<int> PrevRemoved;
+    }
+
+    public readonly List<Entry> Marks = new();
+
+    public UnpackPrefabOp() => Sealed = true;
+
+    public override void Apply(EditorScene es, bool undo) => es.ApplyUnpackPrefab(this, undo);
 }
 
 public sealed class AddCompOp : UndoOp

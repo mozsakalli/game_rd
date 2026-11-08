@@ -6,8 +6,8 @@ public abstract class Renderer : Component
     internal int _rendererSlot = -1;
     // Sira: SortingSpace.Relative'de parent'in cozulmus sirasina EKLENIR (0 = parent'la
     // ayni katman, cocuk hiyerarsi geregi zaten ustte); Absolute'ta global deger.
-    public int SortingOrder;
-    public SortingSpace SortingSpace;
+    [Category("Rendering")] public int SortingOrder;
+    [Category("Rendering")] public SortingSpace SortingSpace;
     // Scene.Render'in hiyerarsi yuruyusunde her frame yazilir: cozulmus katman ve
     // DFS sirasi. Encode layer'i ve Pointer tie-break'i buradan okur (cizim = tiklama).
     internal int _effectiveOrder;
@@ -16,15 +16,15 @@ public abstract class Renderer : Component
     // Encode'da RenderQueue.GroupAlpha'ya basilir; 0 = cizilmez ve tiklanmaz.
     internal float _effectiveAlpha = 1f;
     // Tum renderer'larda AYNI blend alani/tablosu (sprite/kutu/metin ayrismaz).
-    public BlendMode BlendMode;
+    [Category("Rendering")] public BlendMode BlendMode;
     // Pixel-effect zinciri (.fx asset'leri, sira = uygulama sirasi). null = sifir maliyet.
-    public System.Collections.Generic.List<PixelEffect> Effects;
+    [Category("Rendering")] public System.Collections.Generic.List<PixelEffect> Effects;
     // .fx zincirine giden per-instance parametre (shader'da FXP). Core shader'in
     // USER kanalindan AYRI: UI/metin/progress USER'i dolu olsa da cakismaz. Instance
     // verisi oldugundan degistirmek pipeline/batch'i bozmaz (shine fazi, parlaklik vb).
-    public Vec4 FxParams;
+    [Category("Rendering")] public Vec4 FxParams;
     // true: pointer handler'i olmasa da isini bloklar (tam ekran panel arkasini kapatir).
-    public bool BlocksRaycast;
+    [Category("Rendering")] public bool BlocksRaycast;
 
     internal abstract void Encode(RenderQueue queue);
 
@@ -81,6 +81,7 @@ public abstract class Renderer : Component
 // Unity SpriteRenderer karsiligi (quad + sprite). Boyut dunya biriminde
 // (Width/Height); transform scale ile carpilir. Material null ise paylasilan
 // varsayilan materyal kullanilir (texture DrawMesh aninda yakalanir, guvenli).
+[Icon("\u25A6")]
 [AddComponentMenu("Rendering/Sprite Renderer")]
 public sealed unsafe class SpriteRenderer : Renderer
 {

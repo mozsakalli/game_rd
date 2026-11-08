@@ -1,0 +1,36 @@
+type: PlayerSettings
+fields:
+  companyName: DefaultCompany
+  productName: Gin
+  version: 0.1.0
+  bundleIdentifier: com.defaultcompany.game
+  scenes:
+  startScene: TableScene
+  boot: ''
+  themes:
+  activeTheme: ''
+  defaultWidth: 1560
+  defaultHeight: 720
+  fullscreen: false
+  resizableWindow: true
+  targetFrameRate: 0
+  orientation: Landscape
+  moduleHostDll: ''
+  stripCode: true
+  android:
+    packageName: ''
+    targetSdk: 35
+    includeX86_64: true
+    keystorePath: ''
+    keyAlias: ''
+    keystorePassword: ''
+    keyPassword: ''
+    iconForeground: ''
+    iconBackground: '#1E1E1E'
+  ios:
+    bundleId: ''
+    minIos: 15.0
+    teamId: ''
+    icon: ''
+
+

@@ -15,6 +15,7 @@ public sealed class RegionSource
     public RegionKind Kind;
     public int W, H;             // kopyalanacak piksel boyutu
     public int OffX, OffY, OrigW, OrigH; // trim ofseti + mantiksal boyut (yoksa 0,0,W,H)
+    public int BorderL, BorderT, BorderR, BorderB; // 9-slice kenarlari (mantiksal piksel; tabloya aynen gecer)
     public int Pad = 1;          // bolge etrafinda bos piksel (bilinear sizma)
     public int Unit = -1;        // >=0: ayni Unit'tekiler AYNI sayfaya duser (font glyph'leri)
     public byte[] Pixels;        // kaynak tampon

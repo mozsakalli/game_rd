@@ -33,6 +33,16 @@ public static partial class Gui
     public static void TextField(in Rect rect, ref char[] buffer, ref int length, GuiStyle style = null)
         => TextFieldCore(rect, ref buffer, ref length, style, grow: true);
 
+    // Programatik odak: id = TextField cagrisinin ardindan GuiUtility.LastControlID. Secim [anchor, caret).
+    public static void FocusTextField(int controlId, int anchor, int caret)
+    {
+        GuiUtility.KeyboardControl = controlId;
+        ref TextEditState st = ref GuiUtility.GetState<TextEditState>(controlId);
+        st.Anchor = anchor;
+        st.Caret = caret;
+        st.ScrollX = 0;
+    }
+
     static void TextFieldCore(in Rect rect, ref char[] buffer, ref int length,
         GuiStyle style, bool grow)
     {
@@ -110,6 +120,14 @@ public static partial class Gui
                 if (ev.KeyCode == GLFWConst.KEY_TAB)
                 {
                     GuiUtility.MoveFocus(id, (ev.Modifiers & EventModifiers.Shift) != 0);
+                    ev.Use();
+                    break;
+                }
+                // Enter/Escape: duzenleme biter, klavye odagi birakilir (Unity Inspector). Metin her tusta
+                // yazildigindan Escape geri almaz; odagi dusurur ki odak-bagimli UI (Inspector gorunumu) tazelensin.
+                if (ev.KeyCode == GLFWConst.KEY_ENTER || ev.KeyCode == GLFWConst.KEY_ESCAPE)
+                {
+                    GuiUtility.KeyboardControl = 0;
                     ev.Use();
                     break;
                 }

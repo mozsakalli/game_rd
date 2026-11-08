@@ -297,7 +297,7 @@ public sealed class ObjectDrawer
             case SerializedType.Kind.Vec4:
                 {
                     Vec4 current = value is Vec4 v4 ? v4 : default;
-                    Vec4 next = InspectorPanel.Vec4Drags(valueRect, current);
+                    Vec4 next = InspectorPanel.Vec4Drags(valueRect, current, dragSchema?.Labels);
                     if (!InspectorPanel.Same(next, current)) { setValue(next); changed = true; }
                     break;
                 }
@@ -523,7 +523,11 @@ public sealed class ObjectDrawer
         Action<object> setValue, Action deferredCommit)
     {
         Event ev = Event.Current;
-        var body = new Rect(rect.x, rect.y, Math.Max(20, rect.width - 20), rect.height);
+        // Sprite referansi: "x" solunda kucuk Sprite Editor dugmesi (tip sabit -> kontrol sayisi sabit).
+        bool spriteRef = valueType == typeof(Sprite);
+        float extra = spriteRef ? 18 : 0;
+        var body = new Rect(rect.x, rect.y, Math.Max(20, rect.width - 20 - extra), rect.height);
+        var edit9 = new Rect(rect.xMax - 18 - extra, rect.y, 18, rect.height);
         var clear = new Rect(rect.xMax - 18, rect.y, 18, rect.height);
         bool acceptable = DragDrop.Active && DragDrop.Kind == DragDrop.Payload.Asset
             && App.Assets != null && App.Assets.IsAssignable(DragDrop.AssetPath, valueType);
@@ -578,6 +582,13 @@ public sealed class ObjectDrawer
                         valueType, App.Assets));
                     deferredCommit?.Invoke();
                 });
+        }
+        if (spriteRef && Gui.Button(edit9, "9") && asset != null)
+        {
+            string k = AssetDatabase.KeyOf(asset, App.Assets);
+            string owner = SubAssets.Split(k, out string sid);
+            if (sid == null && ImportPipeline.ImporterFor(owner)?.Type == typeof(ImageImporter))
+                SpriteEditorPopup.Show(owner);
         }
         if (Gui.Button(clear, "x") && asset != null)
         {

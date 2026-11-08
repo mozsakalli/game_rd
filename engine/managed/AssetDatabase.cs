@@ -554,10 +554,27 @@ public sealed class AssetDatabase
             BindSpriteRegion(s, in reg);
         }
         else
+        {
             s = Sprite.FromTexture(sub ? null : LoadTexture(key), key); // alt bolgenin kendi dosyasi yok: tablo gelince baglanir
+            if (!sub)
+                ApplyStandaloneBorder(s, key);
+        }
         _sprites[key] = s;
         return s;
     }
+
+    // Standalone png'nin 9-slice kenarlari: ImageImporter "border" artifact'i (4 x int32 LE; yoksa 0). Tablo uyesinde
+    // deger Region'da tasinir, bu yol kullanilmaz. Release'te artifact LoadNodeAsync'te preload edilir.
+    void ApplyStandaloneBorder(Sprite s, string key)
+    {
+        var b = ReadBlob(key + "#" + BorderArtifact);
+        if (b != null && b.Length >= 16)
+            s.SetBorder(BitConverter.ToInt32(b, 0), BitConverter.ToInt32(b, 4), BitConverter.ToInt32(b, 8), BitConverter.ToInt32(b, 12));
+        else
+            s.SetBorder(0, 0, 0, 0);
+    }
+
+    public const string BorderArtifact = "border";
 
     // Prebaked font: [Asset] nesne (DOBJ / editorde de DOBJ artifact), glyph Sprite referanslari yuklenirken
     // sprite tablosundan baglanir. Ilk yuklenen font varsayilan UI atlasi olur (UiPieces.DefaultFont).
@@ -711,6 +728,9 @@ public sealed class AssetDatabase
                 return true; // atlas uyesi: pikseller sayfada (atlas dep olarak once yuklendi)
             if (!_source.Exists(k))
                 return false;
+            string bk = k + "#" + BorderArtifact;
+            if (_source.Exists(bk))
+                await PreloadAsync(bk); // standalone 9-slice kenarlari: LoadSprite senkron okur
             return await LoadTextureAsync(k);
         }
         var bytes = await PreloadAsync(k);
@@ -891,7 +911,11 @@ public sealed class AssetDatabase
                 continue;
             }
             if (_sprites.TryGetValue(name, out var s))
+            {
                 s.BindFull(name.IndexOf('#') < 0 ? LoadTexture(name) : null);
+                if (name.IndexOf('#') < 0)
+                    ApplyStandaloneBorder(s, name);
+            }
         }
         foreach (var t in lt.Pages)
         {
@@ -970,7 +994,7 @@ public sealed class AssetDatabase
     {
         if (!_regionPages.TryGetValue(r.Name, out var page))
             return;
-        s.BindRegion(page, r.X, r.Y, r.W, r.H, r.OffX, r.OffY, r.OrigW, r.OrigH);
+        s.BindRegion(page, r.X, r.Y, r.W, r.H, r.OffX, r.OffY, r.OrigW, r.OrigH, r.BorderL, r.BorderT, r.BorderR, r.BorderB);
     }
 
     // Font sayfasi artik glyph Sprite'larindan gelir (Font.Page); tablo yukle/bosalt glyph sprite'larini
@@ -1013,6 +1037,13 @@ public sealed class AssetDatabase
             any |= LoadSpriteTable(relPath, tk);
         if (_objects.ContainsKey(relPath))
             any |= ReloadObject(relPath);
+        // Standalone png: import ayari (border) degisti -> yuklu sprite'in kenarlari yerinde tazelenir (referanslar bozulmaz).
+        if (_sprites.TryGetValue(relPath, out var sp) && !_regions.ContainsKey(relPath))
+        {
+            _blobs.Remove(relPath + "#" + BorderArtifact);
+            ApplyStandaloneBorder(sp, relPath);
+            any = true;
+        }
         return any;
     }
 

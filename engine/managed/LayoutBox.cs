@@ -72,58 +72,62 @@ public static class TransformDriver
 // kutulardan gelir (senkron/deterministik) — async veri layout'u suremez.
 // STIL (StyleBox): kutu kendi arkaplanini cizebilir — fill (duz/dikey-yatay gradient),
 // border (kenar basina genislik + duz/dikey-yatay gradient), kose basi radius, opsiyonel
-// TEXTURE (stretch; slice9* > 0 ise 9-slice grid — atlas uyesiyse atlastan).
+// TEXTURE (stretch; sprite.HasBorder ise 9-slice grid — kenarlar RESMIN import ayari, atlas uyesiyse atlastan).
 // CIZIM = INSTANCED QUAD EMISYONU (SDF parca modeli): kutu, UiPieces atlasindan
 // kose hucresi + kenar falloff seridi + ic dolgu quad'lari yayar; border SDF RING
 // katmani (USER.z), AA fwidth'ten her olcekte ~1px. Ayri batch sistemi YOK —
 // ayni materyali paylasan bitisik quad'lar RenderQueue'da kendiliginden tek
 // instanced draw'a merge olur (sprite yoluyla ayni mekanizma).
 [ExecuteInEditMode]
+[Icon("\u25AD")]
 [AddComponentMenu("Layout/Layout Box")]
 public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
 {
     // --- serilesen veri (backing alanlar; degisim property'lerden kirletir) ---
-    [SerializeField] bool fitScreen;
-    [SerializeField] float width, height;          // point-anchor: boyut; stretch: delta
-    [SerializeField] Vec2 pivot = new(0.5f, 0.5f);
-    [SerializeField] Vec2 anchorMin = new(0.5f, 0.5f);
-    [SerializeField] Vec2 anchorMax = new(0.5f, 0.5f);
-    [SerializeField] Vec2 anchoredPos;             // pivot'un anchor noktasina gore ofseti
-    [SerializeField] float grow;                   // >0: parent grubun kalan alanindan agirlikli pay
+    [SerializeField, Category("Size & Anchor")] bool fitScreen;
+    [SerializeField, Category("Size & Anchor")] float width, height; // point-anchor: boyut; stretch: delta
+    [SerializeField, Category("Size & Anchor")] Vec2 pivot = new(0.5f, 0.5f);
+    [SerializeField, Category("Size & Anchor")] Vec2 anchorMin = new(0.5f, 0.5f);
+    [SerializeField, Category("Size & Anchor")] Vec2 anchorMax = new(0.5f, 0.5f);
+    [SerializeField, Category("Size & Anchor")] Vec2 anchoredPos;           // pivot'un anchor noktasina gore ofseti
+    [SerializeField, Category("Size & Anchor")] float grow;           // >0: parent grubun kalan alanindan agirlikli pay
     // >0: ana eksende tasma varsa agirlikli kucul (CSS flex-shrink; basis = preferred). Tek tur
     // dagitim (min'e takilan cocugun artigi yeniden dagitilmaz — bilincli yaklasim). grow'lu
     // cocuk shrink'e girmez (zaten leftover'dan pay alir). Wrap'te yok sayilir.
-    [SerializeField] float shrink;
+    [SerializeField, Category("Size & Anchor")] float shrink;
     // Dis bosluk (CSS margin; left, top, right, bottom). Flex'te ana eksen toplamina ve capraz
     // hizaya girer; stretch anchor'da kenarlardan dusulur; nokta anchor'da yok sayilir (absolute).
-    [SerializeField] Vec4 margin;
+    [SerializeField, Category("Size & Anchor"), Labels("L", "T", "R", "B")] Vec4 margin;
     // Boyut sinirlari (0 = yok): olcum ve arrange'daki HER boyut yazimi tek clamp'ten gecer.
-    [SerializeField] float minWidth, maxWidth, minHeight, maxHeight;
-    [SerializeField] LayoutAlignSelf alignSelf;    // capraz eksende kendi hizam (Auto = parent'inki)
-    [SerializeField] bool ignoreLayout;            // grup beni dizmesin (anchor'la yerlesirim)
-    [SerializeField] LayoutMode layout;            // cocuk dizme modu
-    [SerializeField] float spacing;
-    [SerializeField] Vec4 padding; // left, top, right, bottom
-    [SerializeField] LayoutAlign alignChildren = LayoutAlign.Start;
-    [SerializeField] LayoutJustify justifyChildren = LayoutJustify.Start;
-    [SerializeField] bool reverse;
-    [SerializeField] OverflowMode overflowX;   // Grow degilse icerik bu ekseni buyutmez
-    [SerializeField] OverflowMode overflowY;
+    [SerializeField, Category("Size & Anchor")] float minWidth, maxWidth, minHeight, maxHeight;
+    [SerializeField, Category("Size & Anchor")] LayoutAlignSelf alignSelf;    // capraz eksende kendi hizam (Auto = parent'inki)
+    [SerializeField, Category("Size & Anchor")] bool ignoreLayout;            // grup beni dizmesin (anchor'la yerlesirim)
+    [SerializeField, Category("Children")] LayoutMode layout;            // cocuk dizme modu
+    [SerializeField, Category("Children")] float spacing;
+    [SerializeField, Category("Children"), Labels("L", "T", "R", "B")] Vec4 padding; // left, top, right, bottom
+    [SerializeField, Category("Children")] LayoutAlign alignChildren = LayoutAlign.Start;
+    [SerializeField, Category("Children")] LayoutJustify justifyChildren = LayoutJustify.Start;
+    [SerializeField, Category("Children")] bool reverse;
+    [SerializeField, Category("Children")] OverflowMode overflowX;   // Grow degilse icerik bu ekseni buyutmez
+    [SerializeField, Category("Children")] OverflowMode overflowY;
     // Scroll ekseninde icerik kaydirmasi (pozitif = icerik yukari/sola kayar; CSS scrollLeft/Top).
     // Doc'taki deger = baslangic; runtime ScrollView yazar. Degisim boyutu etkilemez ->
     // MarkDirty degil, yalniz ArrangeChildren (alt agac FinishChild ile atlanir).
-    [SerializeField] Vec2 scrollOffset;
+    [SerializeField, Category("Children")] Vec2 scrollOffset;
 
     // --- stil (StyleBox) ---
-    [SerializeField] Gradient fill = new(Color.Transparent);
-    [SerializeField] Vec4 border; // left, top, right, bottom
-    [SerializeField] Gradient borderFill = new(Color.Transparent);
-    [SerializeField] Vec4 radius; // top-left, top-right, bottom-right, bottom-left
+    [SerializeField, Category("Fill")] Gradient fill = new(Color.Transparent);
+    [SerializeField, Category("Fill"), Labels("L", "T", "R", "B")] Vec4 border; // left, top, right, bottom
+    [SerializeField, Category("Fill")] Gradient borderFill = new(Color.Transparent);
+    [SerializeField, Category("Fill"), Labels("TL", "TR", "BR", "BL")] Vec4 radius; // top-left, top-right, bottom-right, bottom-left
 
-    // --- doku (opsiyonel arkaplan resmi; slice9* > 0 ise 9-slice) ---
-    [SerializeField] Sprite sprite;
-    [SerializeField, ShowIf(nameof(sprite))] SpriteFit spriteFit;
-    [SerializeField, ShowIf(nameof(sprite))] Vec4 slice9; // left, top, right, bottom; kaynak doku pikseli (yalniz Stretch)
+    // --- doku (opsiyonel arkaplan resmi; sprite.HasBorder ise Stretch'te 9-slice — kenar resmin import ayari) ---
+    [SerializeField, Category("Fill")] Sprite sprite;
+    [SerializeField, Category("Fill"), ShowIf(nameof(sprite))] SpriteFit spriteFit;
+    // Sprite'i yatay/dikey aynala (scale -1 yerine; layout/cocuklar etkilenmez). Mantiksal uzayda ayna:
+    // trim kutusu ve 9-slice kenarlari da yer degistirir, uv ters hesaplanir.
+    [SerializeField, Category("Fill"), ShowIf(nameof(sprite))] bool spriteFlipX;
+    [SerializeField, Category("Fill"), ShowIf(nameof(sprite))] bool spriteFlipY;
 
     float padLeft { get => padding.x; set => padding.x = value; }
     float padTop { get => padding.y; set => padding.y = value; }
@@ -137,26 +141,22 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
     float radiusTR { get => radius.y; set => radius.y = value; }
     float radiusBR { get => radius.z; set => radius.z = value; }
     float radiusBL { get => radius.w; set => radius.w = value; }
-    float slice9Left { get => slice9.x; set => slice9.x = value; }
-    float slice9Top { get => slice9.y; set => slice9.y = value; }
-    float slice9Right { get => slice9.z; set => slice9.z = value; }
-    float slice9Bottom { get => slice9.w; set => slice9.w = value; }
 
     // --- golge (alpha > 0 ise kutunun altina yumusak kopya cizilir) ---
-    [SerializeField] Color shadowColor = Color.Transparent;
-    [SerializeField] Vec2 shadowOffset = new(0, 4);
-    [SerializeField] float shadowBlur = 8f;   // falloff yari genisligi (dunya px)
-    [SerializeField] float shadowGrow;        // kutuyu her yonde genislet (spread)
+    [SerializeField, Category("Shadow")] Color shadowColor = Color.Transparent;
+    [SerializeField, Category("Shadow")] Vec2 shadowOffset = new(0, 4);
+    [SerializeField, Category("Shadow")] float shadowBlur = 8f;   // falloff yari genisligi (dunya px)
+    [SerializeField, Category("Shadow")] float shadowGrow;        // kutuyu her yonde genislet (spread)
 
     // --- ic golge (alpha > 0 ise dolgu ustune, border altina kenardan iceri sonen band) ---
-    [SerializeField] Color innerShadowColor = Color.Transparent;
-    [SerializeField] float innerShadowBlur = 8f;  // bandin derinligi (dunya px)
+    [SerializeField, Category("Shadow")] Color innerShadowColor = Color.Transparent;
+    [SerializeField, Category("Shadow")] float innerShadowBlur = 8f;  // bandin derinligi (dunya px)
 
     // --- isik/gloss (alpha > 0 ise ust-ortaya asili yumusak radyal parlama; EmitRadial, +4 quad) ---
-    [SerializeField] Color lightColor = Color.Transparent;
-    [SerializeField] float lightWidth = 0.9f;        // kutu genisligi orani
-    [SerializeField] float lightHeight = 24f;        // dunya px
-    [SerializeField] Vec2 lightOffset = new(0, 2);   // x: merkezden kayma, y: ust kenardan asagi
+    [SerializeField, Category("Shadow")] Color lightColor = Color.Transparent;
+    [SerializeField, Category("Shadow")] float lightWidth = 0.9f;        // kutu genisligi orani
+    [SerializeField, Category("Shadow")] float lightHeight = 24f;        // dunya px
+    [SerializeField, Category("Shadow")] Vec2 lightOffset = new(0, 2);   // x: merkezden kayma, y: ust kenardan asagi
 
     // --- cozulmus durum ---
     float _rw, _rh;
@@ -250,12 +250,8 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
 
     public Sprite Sprite { get => sprite; set => sprite = value; }
     public SpriteFit SpriteFit { get => spriteFit; set => spriteFit = value; }
-    public Vec4 Scale9 { get => slice9; set => slice9 = value; }
-    public float Slice9Left { get => slice9Left; set => slice9Left = value; }
-    public float Slice9Top { get => slice9Top; set => slice9Top = value; }
-    public float Slice9Right { get => slice9Right; set => slice9Right = value; }
-    public float Slice9Bottom { get => slice9Bottom; set => slice9Bottom = value; }
-    public float Slice9 { get => slice9Left; set { slice9Left = slice9Top = slice9Right = slice9Bottom = value; } }
+    public bool SpriteFlipX { get => spriteFlipX; set => spriteFlipX = value; }
+    public bool SpriteFlipY { get => spriteFlipY; set => spriteFlipY = value; }
 
     public Color ShadowColor { get => shadowColor; set => shadowColor = value; }
     public Vec2 ShadowOffset { get => shadowOffset; set => shadowOffset = value; }
@@ -1590,6 +1586,10 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
             sp.TX = sprite.OffX; sp.TY = sprite.OffY; sp.TW = Math.Max(1, sprite.W); sp.TH = Math.Max(1, sprite.H);
         }
         else { sp.TX = 0; sp.TY = 0; sp.TW = sp.LW; sp.TH = sp.LH; }
+        // Flip = mantiksal uzayi aynala: trim kutusu karsi kenara tasinir, uv EmitSpriteCell'de ters okunur.
+        sp.FlipX = spriteFlipX; sp.FlipY = spriteFlipY;
+        if (spriteFlipX) sp.TX = sp.LW - sp.TX - sp.TW;
+        if (spriteFlipY) sp.TY = sp.LH - sp.TY - sp.TH;
         var baseMat = UiPieces.TexturedMaterial;
         baseMat.MainTexture = tex; // TexView DrawMesh aninda yakalanir (paylasilan materyal deseni)
         baseMat.Shader = UiPieces.UiShader; // varyantlar ForBlend/ForEffects'te tabandan kopyalanir
@@ -1608,17 +1608,19 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
             return;
         }
 
-        if (slice9Left <= 0 && slice9Top <= 0 && slice9Right <= 0 && slice9Bottom <= 0)
+        if (!sprite.HasBorder)
         {
             EmitSpriteCell(q, mat, world, in sp, 0f, 0f, sp.LW, sp.LH, x0, y0, x1, y1, x0, y0, x1, y1, cTop, cBot, gh, user, layer);
             EndGradient();
             return;
         }
 
-        // 9-slice: koseler doku-piksel boyutunda sabit, kenarlar/orta gerilir;
-        // dilimler sigmazsa oranla kisilir (border cakisma kuraliyla ayni). Dilim sinirlari MANTIKSAL
+        // 9-slice (kenarlar Sprite.Border: resmin import ayari): koseler doku-piksel boyutunda sabit, kenarlar/orta
+        // gerilir; dilimler sigmazsa oranla kisilir (border cakisma kuraliyla ayni). Dilim sinirlari MANTIKSAL
         // piksel: trim'lenmis kenar hucreleri EmitSpriteCell'de dogal olarak bos kalir.
-        float sl = slice9Left, st = slice9Top, sr = slice9Right, sb = slice9Bottom;
+        float sl = sprite.BorderL, st = sprite.BorderT, sr = sprite.BorderR, sb = sprite.BorderB;
+        if (spriteFlipX) (sl, sr) = (sr, sl); // aynalanmis uzayda kenarlar yer degistirir
+        if (spriteFlipY) (st, sb) = (sb, st);
         float w = x1 - x0, h = y1 - y0;
         float kx = sl + sr > w ? w / (sl + sr) : 1f;
         float ky = st + sb > h ? h / (st + sb) : 1f;
@@ -1643,6 +1645,7 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
         public float LW, LH;          // mantiksal boyut (texel)
         public float TX, TY, TW, TH;  // trim kutusu (mantiksal uzayda; pikseller yalniz burada)
         public float U0, US, V0, VS;  // trim kutusunun sayfa uv'si (v: V0+VS <-> ust kenar)
+        public bool FlipX, FlipY;     // mantiksal uzay aynali (TX/TY zaten aynalanmis; uv ters okunur)
     }
 
     // Mantiksal dikdortgen [lx0,lx1]x[ly0,ly1] (y asagi) -> hedef [dx0,dx1]x[dy0,dy1] (lokal, y asagi) afin
@@ -1664,9 +1667,13 @@ public sealed unsafe partial class LayoutBox : Renderer, ITransformDriver
             return;
         float qx0 = dx0 + (ax0 - lx0) * sx, qx1 = dx0 + (ax1 - lx0) * sx;
         float qy0 = dy0 + (ay0 - ly0) * sy, qy1 = dy0 + (ay1 - ly0) * sy;
-        float u0 = sp.U0 + (ax0 - sp.TX) / sp.TW * sp.US, u1 = sp.U0 + (ax1 - sp.TX) / sp.TW * sp.US;
-        float vTop = sp.V0 + (1f - (ay0 - sp.TY) / sp.TH) * sp.VS; // ust kenar (ay0) <-> buyuk v
-        float vBot = sp.V0 + (1f - (ay1 - sp.TY) / sp.TH) * sp.VS;
+        float fx0 = (ax0 - sp.TX) / sp.TW, fx1 = (ax1 - sp.TX) / sp.TW;
+        float fy0 = (ay0 - sp.TY) / sp.TH, fy1 = (ay1 - sp.TY) / sp.TH;
+        if (sp.FlipX) { fx0 = 1f - fx0; fx1 = 1f - fx1; }
+        if (sp.FlipY) { fy0 = 1f - fy0; fy1 = 1f - fy1; }
+        float u0 = sp.U0 + fx0 * sp.US, u1 = sp.U0 + fx1 * sp.US;
+        float vTop = sp.V0 + (1f - fy0) * sp.VS; // ust kenar (ay0) <-> buyuk v
+        float vBot = sp.V0 + (1f - fy1) * sp.VS;
         EmitQuad(q, mat, world, qx0, qy0, qx1, qy1, u0, vBot, u1, vTop, c0, c1, gh, user, layer);
     }
 
@@ -1924,6 +1931,8 @@ internal sealed class LayoutSystem : ISceneSystem
         if (_count == _queue.Length) Array.Resize(ref _queue, _count * 2);
         _queue[_count++] = b;
     }
+
+    public void Sync(Scene scene) { } // layout dis veri yazmaz
 
     // Pull'un kacirdigi (o frame kimsenin okumadigi) kirli kutulari cozer.
     // FitScreen kutular kuyrukta KALIR (ekran boyutu degisimi izlensin).

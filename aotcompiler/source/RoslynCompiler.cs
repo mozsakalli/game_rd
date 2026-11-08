@@ -23,6 +23,7 @@ namespace DigitoyEngine.Build
         public bool NoStdLib;                                      // corelib / AOT: framework referansi yok
         public bool Optimize;
         public string PdbPath;                                     // portable PDB'ye gomulecek yol (null = AssemblyName.pdb)
+        public bool EmbedPdb;                                      // PDB'yi DLL'e gom (ayri .pdb dosyasi yok; debugger diskteki pdb'yi kilitleyemez)
         public byte[] PublicKey;                                   // facade: PublicSign ile kimlik anahtari (imza yok, yalniz identity)
     }
 
@@ -70,7 +71,12 @@ namespace DigitoyEngine.Build
                 var parse = new CSharpParseOptions(LanguageVersion.Latest, preprocessorSymbols: b.Defines);
                 var trees = new List<SyntaxTree>(b.SourceFiles.Count + b.ExtraSources.Count);
                 foreach (var s in b.SourceFiles)
-                    trees.Add(CSharpSyntaxTree.ParseText(SourceText.From(File.ReadAllText(s), Encoding.UTF8), parse, path: s));
+                {
+                    // Stream'den: PDB checksum'i diskteki gercek baytlar uzerinden hesaplanir (csc gibi). String+Encoding.UTF8
+                    // yolu checksum'a BOM preamble'i katar -> BOM'suz dosyada debugger "source code is different" der.
+                    using var fs = File.OpenRead(s);
+                    trees.Add(CSharpSyntaxTree.ParseText(SourceText.From(fs, Encoding.UTF8), parse, path: s));
+                }
                 foreach (var (path, text) in b.ExtraSources)
                     trees.Add(CSharpSyntaxTree.ParseText(SourceText.From(text, Encoding.UTF8), parse, path: path));
 
@@ -98,10 +104,10 @@ namespace DigitoyEngine.Build
                 var comp = CSharpCompilation.Create(b.AssemblyName, trees, refs, options);
 
                 using var peMs = new MemoryStream();
-                using var pdbMs = new MemoryStream();
+                using var pdbMs = b.EmbedPdb ? null : new MemoryStream();
                 var emit = new EmitOptions(
-                    debugInformationFormat: DebugInformationFormat.PortablePdb,
-                    pdbFilePath: b.PdbPath ?? b.AssemblyName + ".pdb",
+                    debugInformationFormat: b.EmbedPdb ? DebugInformationFormat.Embedded : DebugInformationFormat.PortablePdb,
+                    pdbFilePath: b.EmbedPdb ? null : b.PdbPath ?? b.AssemblyName + ".pdb",
                     runtimeMetadataVersion: b.NoStdLib ? "v4.0.30319" : null); // NoStdLib: mscorlib yok, surumu biz veririz
                 var result = comp.Emit(peMs, pdbMs, options: emit);
                 var sb = new StringBuilder();
@@ -113,7 +119,7 @@ namespace DigitoyEngine.Build
                 if (res.Ok)
                 {
                     res.Dll = peMs.ToArray();
-                    res.Pdb = pdbMs.ToArray();
+                    res.Pdb = pdbMs?.ToArray();
                 }
             }
             catch (Exception e)
@@ -142,7 +148,10 @@ namespace DigitoyEngine.Build
             {
                 Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(dllPath)));
                 File.WriteAllBytes(dllPath, r.Dll);
-                File.WriteAllBytes(pdbPath, r.Pdb);
+                if (r.Pdb != null)
+                    File.WriteAllBytes(pdbPath, r.Pdb);
+                else if (File.Exists(pdbPath))
+                    try { File.Delete(pdbPath); } catch { } // bayat ayri pdb kalmasin (debugger kilitliyse bir sonrakine)
             }
             return r;
         }

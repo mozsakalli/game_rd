@@ -1,0 +1,27 @@
+scene: Panel
+objects:
+  - id: 1
+    parent: 0
+    name: Panel
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 320
+        height: 240
+        layout: Vertical
+        spacing: 8
+        padding: 16 16 16 16
+        radius: 16 16 16 16
+        fill:
+          type: Solid
+          direction: Vertical
+          color: '#1e2233e6'
+          color2: '#1e2233e6'
+        border: 1 1 1 1
+        borderFill:
+          type: Solid
+          direction: Vertical
+          color: '#ffffff26'
+          color2: '#ffffff26'

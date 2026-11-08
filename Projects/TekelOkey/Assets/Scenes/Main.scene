@@ -1,0 +1,3236 @@
+scene: Main
+objects:
+  - id: 1
+    parent: 0
+    name: Camera
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: CameraComponent
+      - type: FitPerspectiveProjection
+        fov: 20
+        referenceResolution: 1440 960
+  - id: 2
+    parent: 0
+    name: 'xml:layout/lobby.scene.xml'
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        anchorMin: 0.5 0.5
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+        width: 1440
+        height: 960
+  - id: 3
+    parent: 2
+    name: Group2D
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        fitScreen: true
+  - id: 4
+    parent: 3
+    name: bg-lobby
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        sprite: 8e715cde85594f89a547d5f557b7d267
+        spriteFit: Stretch
+        anchorMin: 0 0
+        anchorMax: 1 1
+        pivot: 0.5 0.5
+        width: -0
+        height: -0
+  - id: 5
+    parent: 3
+    name: HGroup
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        layout: Horizontal
+        alignChildren: Center
+        anchorMin: 0 0
+        anchorMax: 1 0
+        pivot: 0.5 0
+        width: -0
+        height: 105
+        BlocksRaycast: false
+  - id: 6
+    parent: 5
+    name: UISprite
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        grow: 1
+        alignSelf: Stretch
+        width: 0
+        BlocksRaycast: false
+  - id: 7
+    parent: 6
+    name: bg-header-lobby
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        sprite: 10ba5a30dd584c4195ff2b09c62d355d
+        spriteFit: Stretch
+        slice9: 40 64 268 67
+        anchorMin: 0 0.5
+        anchorMax: 1 0.5
+        pivot: 0.5 0.5
+        anchoredPos: -5 0
+        width: -0
+        height: 131
+        SortingOrder: 0
+  - id: 8
+    parent: 7
+    name: light-shine
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 0.7 0.7 1
+    components:
+      - type: LayoutBox
+        sprite: b291774478fc4d9f9914ae0e38a7242b
+        spriteFit: Stretch
+        slice9: 106 10 59 8
+        anchorMin: 1 1
+        anchorMax: 1 1
+        pivot: 1 1
+        anchoredPos: -140 -12
+        width: 250
+        height: 18
+        SortingOrder: 0
+  - id: 9
+    parent: 7
+    name: light-shine
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        sprite: b291774478fc4d9f9914ae0e38a7242b
+        spriteFit: Stretch
+        slice9: 106 10 59 8
+        fill:
+          type: Solid
+          direction: Vertical
+          color: '#0A51DAFF'
+          color2: '#00000000'
+          stops: 2
+          color3: '#00000000'
+          stop3: 0.5
+          color4: '#00000000'
+          stop4: 0.75
+        anchorMin: 1 1
+        anchorMax: 1 1
+        pivot: 1 1
+        anchoredPos: -80 -10
+        width: 350
+        height: 18
+        SortingOrder: 0
+      - type: RenderGroup
+        Alpha: 0.6
+  - id: 10
+    parent: 6
+    name: HGroup
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        layout: Horizontal
+        spacing: 35
+        anchorMin: 0 0
+        anchorMax: 1 1
+        pivot: 0.5 0.5
+        width: -0
+        height: -0
+  - id: 11
+    parent: 10
+    name: UISprite
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 105
+        height: 105
+  - id: 12
+    parent: 11
+    name: ico-menu
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        sprite: e89247277b494feb92e4db33a8ac3e5b
+        spriteFit: Stretch
+        anchorMin: 0.5 0.5
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+        width: 59
+        height: 57
+        SortingOrder: 0
+  - id: 13
+    parent: 10
+    name: UISprite
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 1
+        height: 0
+  - id: 14
+    parent: 13
+    name: line-seperator-gradient
+    pos: 0 0 0
+    rot: 0 0 90
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        sprite: afa2517f24b642b1b4fd9cd04dc02ae5
+        spriteFit: Stretch
+        anchorMin: 0.5 0.5
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+        anchoredPos: 0 60
+        width: 89
+        height: 26
+        SortingOrder: 0
+  - id: 15
+    parent: 10
+    name: MEModule
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        height: 100
+      - type: MEModule
+  - id: 16
+    parent: 15
+    name: HGroup
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        layout: Horizontal
+        spacing: 10
+        alignChildren: Center
+        anchorMin: 0 0.5
+        anchorMax: 0 0.5
+        pivot: 0 0.5
+        width: 300
+  - id: 17
+    parent: 16
+    name: avatar#fit
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 86.8
+        height: 86.8
+  - id: 18
+    parent: 16
+    name: VGroup
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        layout: Vertical
+        spacing: -1
+        margin: 2 0 -2 0
+        BlocksRaycast: false
+  - id: 19
+    parent: 18
+    name: Label
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 0.84 1 1
+    components:
+      - type: LayoutBox
+        font: bold
+        textSize: 40
+        textEllipsis: true
+        textSpacing: -1
+        width: 540
+        SortingOrder: 4
+        BlocksRaycast: false
+      - type: Binding
+        Binds:
+          - Source: name
+            Target: '19:LayoutBox:0'
+            Path: text
+  - id: 20
+    parent: 5
+    name: UISprite
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        alignSelf: Stretch
+        width: 360
+        BlocksRaycast: false
+  - id: 21
+    parent: 20
+    name: btn-buychips-lobby
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        sprite: 27bb8ae6acee4d19bccdde31626cbc74
+        spriteFit: Stretch
+        anchorMin: 0.5 0.5
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+        width: 480
+        height: 109
+        SortingOrder: 0
+  - id: 22
+    parent: 21
+    name: HGroup
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        layout: Horizontal
+        spacing: 13
+        alignChildren: Center
+        anchorMin: 0.5 0.5
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+        height: 72
+  - id: 23
+    parent: 22
+    name: UISprite
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 100
+        height: 100
+  - id: 24
+    parent: 23
+    name: img-coin
+    pos: 0 0 0
+    rot: 0 0 -20
+    scale: 0.6 0.6 1
+    components:
+      - type: LayoutBox
+        sprite: c9bee49ac3e64bbd87b85c6518bf937c
+        spriteFit: Stretch
+        anchorMin: 0.5 0.5
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+        anchoredPos: -18 12
+        width: 139
+        height: 132
+        SortingOrder: 0
+  - id: 25
+    parent: 23
+    name: img-coin
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 0.65 0.65 1
+    components:
+      - type: LayoutBox
+        sprite: c9bee49ac3e64bbd87b85c6518bf937c
+        spriteFit: Stretch
+        anchorMin: 0.5 0.5
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+        anchoredPos: 14 8
+        width: 139
+        height: 132
+        SortingOrder: 0
+  - id: 26
+    parent: 22
+    name: lobbySceneBuyChips
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        font: primary
+        textSize: 46
+        textShadowColor: '#000000C0'
+        textShadowOffset: -3 1
+        textShadowBlur: 3
+        margin: -4 4 4 -4
+        SortingOrder: 4
+        text@loc: lobbySceneBuyChips
+  - id: 27
+    parent: 5
+    name: TOPRIGHTPART
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        grow: 1
+        alignSelf: Stretch
+        width: 0
+        BlocksRaycast: false
+  - id: 28
+    parent: 27
+    name: BonusModule
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        anchorMin: 0.5 0.5
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+  - id: 29
+    parent: 28
+    name: bg-box
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        sprite: 30bcda9001b740bcb47c23ec9b75930e
+        spriteFit: Stretch
+        slice9: 84 84 84 93
+        anchorMin: 0.5 0.5
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+        width: 300
+        height: 178
+  - id: 30
+    parent: 28
+    name: img-chest-opened
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        sprite: ecee9b70b0864f46bd49ea3191645b87
+        spriteFit: Stretch
+        anchorMin: 0 0
+        anchorMax: 0 0
+        pivot: 0.5 0.5
+        anchoredPos: -95 18
+        width: 119
+        height: 112
+  - id: 31
+    parent: 28
+    name: bg-bar
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 0.55 0.55 1
+    components:
+      - type: LayoutBox
+        sprite: 1a699e29e61541bd87a70f970bcac7f8
+        spriteFit: Stretch
+        slice9: 38 38 38 54
+        anchorMin: 0 0
+        anchorMax: 0 0
+        pivot: 0.5 0.5
+        anchoredPos: 40 35
+        width: 280
+        height: 92
+        SortingOrder: 0
+  - id: 32
+    parent: 28
+    name: btn-daily-claim
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 0.55 0.55 1
+    components:
+      - type: LayoutBox
+        sprite: 71c92d48abac4bd1a50eb2f2332d6782
+        spriteFit: Stretch
+        slice9: 29 32 28 29
+        anchorMin: 0 0
+        anchorMax: 0 0
+        pivot: 0.5 0.5
+        anchoredPos: 40 33
+        width: 250
+        height: 61
+        SortingOrder: 0
+  - id: 33
+    parent: 28
+    name: lobbySceneDailyBonusTitle
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        font: primary
+        textSize: 30
+        textAlign: Center
+        textFill:
+          type: Solid
+          direction: Vertical
+          color: '#00FF2AFF'
+          color2: '#ffffffff'
+          stops: 2
+          color3: '#ffffffff'
+          stop3: 0.5
+          color4: '#ffffffff'
+          stop4: 0.75
+        anchorMin: 0 0
+        anchorMax: 0 0
+        pivot: 0.5 0.5
+        anchoredPos: 40 -8
+        SortingOrder: 4
+        text@loc: lobbySceneDailyBonusTitle
+  - id: 34
+    parent: 28
+    name: Label
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        font: primary
+        textSize: 28
+        textAlign: Center
+        anchorMin: 0 0
+        anchorMax: 0 0
+        pivot: 0.5 0.5
+        anchoredPos: 40 35
+        width: 100
+        SortingOrder: 4
+  - id: 35
+    parent: 27
+    name: bg-header-lobby
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: -1 1 1
+    components:
+      - type: LayoutBox
+        sprite: 10ba5a30dd584c4195ff2b09c62d355d
+        spriteFit: Stretch
+        slice9: 40 64 268 67
+        anchorMin: 0 0.5
+        anchorMax: 1 0.5
+        pivot: 0.5 0.5
+        anchoredPos: 5 0
+        width: -0
+        height: 131
+        SortingOrder: 0
+  - id: 36
+    parent: 35
+    name: light-shine
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 0.7 0.7 1
+    components:
+      - type: LayoutBox
+        sprite: b291774478fc4d9f9914ae0e38a7242b
+        spriteFit: Stretch
+        slice9: 106 10 59 8
+        anchorMin: 0 1
+        anchorMax: 0 1
+        pivot: 0 1
+        anchoredPos: 360 -12
+        width: 250
+        height: 18
+        SortingOrder: 0
+  - id: 37
+    parent: 35
+    name: light-shine
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        sprite: b291774478fc4d9f9914ae0e38a7242b
+        spriteFit: Stretch
+        slice9: 106 10 59 8
+        fill:
+          type: Solid
+          direction: Vertical
+          color: '#0A51DAFF'
+          color2: '#00000000'
+          stops: 2
+          color3: '#00000000'
+          stop3: 0.5
+          color4: '#00000000'
+          stop4: 0.75
+        anchorMin: 0 1
+        anchorMax: 0 1
+        pivot: 0 1
+        anchoredPos: 240 -10
+        width: 350
+        height: 18
+        SortingOrder: 0
+      - type: RenderGroup
+        Alpha: 0.6
+  - id: 38
+    parent: 27
+    name: bg-bar
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        sprite: 1a699e29e61541bd87a70f970bcac7f8
+        spriteFit: Stretch
+        slice9: 38 38 38 54
+        anchorMin: 1 0.5
+        anchorMax: 1 0.5
+        pivot: 1 0.5
+        width: 420
+        height: 92
+        SortingOrder: 0
+  - id: 39
+    parent: 38
+    name: HGroup
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        layout: Horizontal
+        spacing: -7
+        anchorMin: 0 0
+        anchorMax: 1 1
+        pivot: 0 0.5
+        width: -0
+        height: -0
+  - id: 40
+    parent: 39
+    name: img-coins#fit
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 108.55
+        height: 80.6
+        margin: -8 5 8 -5
+  - id: 41
+    parent: 40
+    name: img-coins
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 0.65 0.65 1
+    components:
+      - type: LayoutBox
+        sprite: 3ecf2ec2a4aa44fa8fdfcf6a73fb7acb
+        spriteFit: Stretch
+        anchorMin: 0.5 0.5
+        width: 167
+        height: 124
+        SortingOrder: 0
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+  - id: 42
+    parent: 39
+    name: MEModule
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        alignSelf: Stretch
+      - type: MEModule
+  - id: 43
+    parent: 42
+    name: Label
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        font: primary
+        textSize: 44
+        textShadowColor: '#0000005A'
+        textShadowOffset: 0 1
+        textShadowBlur: 3
+        anchorMin: 0 0.5
+        anchorMax: 0 0.5
+        pivot: 0 0.5
+        SortingOrder: 4
+  - id: 44
+    parent: 38
+    name: btn-green
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 0.8 0.8 1
+    components:
+      - type: LayoutBox
+        sprite: d33b743328e746df9f87acd8eb3b01ee
+        spriteFit: Stretch
+        anchorMin: 1 0.5
+        anchorMax: 1 0.5
+        pivot: 1 0.5
+        anchoredPos: -7 -1
+        width: 102
+        height: 106
+        SortingOrder: 0
+  - id: 45
+    parent: 44
+    name: ico-plus
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1.2 1.2 1
+    components:
+      - type: LayoutBox
+        sprite: 853dd9a4c7a64fb78407e06b2865bee8
+        spriteFit: Stretch
+        anchorMin: 0.5 0.5
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+        anchoredPos: -1 -7
+        width: 48
+        height: 48
+        SortingOrder: 0
+  - id: 46
+    parent: 3
+    name: UISprite
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        anchorMin: 0 1
+        anchorMax: 1 1
+        pivot: 0.5 1
+        width: -0
+        height: 120
+  - id: 47
+    parent: 46
+    name: HGroup
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        layout: Horizontal
+        alignChildren: Center
+        anchorMin: 0.5 0
+        anchorMax: 0.5 1
+        pivot: 0.5 1
+        height: -0
+        width: 1745
+        BlocksRaycast: false
+  - id: 48
+    parent: 47
+    name: UISprite
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        grow: 1
+        alignSelf: Stretch
+        width: 0
+        BlocksRaycast: false
+  - id: 49
+    parent: 48
+    name: bg-footer-lobby
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        sprite: 56f33ab75dff4ed0817ad3a3bd332310
+        spriteFit: Stretch
+        slice9: 212 65 212 59
+        anchorMin: 0 0.5
+        anchorMax: 1 0.5
+        pivot: 0.5 0.5
+        width: -0
+        height: 124
+        SortingOrder: 0
+  - id: 50
+    parent: 49
+    name: HGroup
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        layout: Horizontal
+        spacing: 25
+        anchorMin: 0.5 0.5
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+        anchoredPos: 0 -18
+  - id: 51
+    parent: 50
+    name: btn-footer-lobby
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        sprite: 0bd88af78f0541caa0d89fdb2190c677
+        spriteFit: Stretch
+        width: 152
+        height: 139
+        SortingOrder: 0
+  - id: 52
+    parent: 51
+    name: img-friends
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        sprite: f84e38d644ec48dcb9f14f682212d94c
+        spriteFit: Stretch
+        anchorMin: 0.5 0.5
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+        anchoredPos: 2 0
+        width: 118
+        height: 86
+        SortingOrder: 0
+  - id: 53
+    parent: 51
+    name: UnreadMessageModule
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        anchorMin: 0 0
+        anchorMax: 0 0
+        pivot: 0.5 0.5
+        anchoredPos: 130 10
+        width: 0
+        height: 0
+        BlocksRaycast: false
+      - type: RenderGroup
+        Alpha: 1
+      - type: MovieClip
+        PlayOnStart: false
+        Loop: false
+        Labels:
+          - Frame: 0
+            Name: 'Unread:Messages'
+        Tracks:
+          - Target: '53:Transform:0'
+            Path: Scale
+            Mask: 15
+            Keys:
+              - Frame: 0
+                Mode: Tween
+                Ease: OutBack
+                Value: 0.5 0.5 1 0
+                Ref: ''
+              - Frame: 12
+                Mode: Tween
+                Ease: Linear
+                Value: 1 1 1 0
+                Ref: ''
+          - Target: '53:RenderGroup:0'
+            Path: Alpha
+            Mask: 15
+            Keys:
+              - Frame: 0
+                Mode: Tween
+                Ease: Linear
+                Value: 0 0 0 0
+                Ref: ''
+              - Frame: 0
+                Mode: Tween
+                Ease: Linear
+                Value: 1 0 0 0
+                Ref: ''
+        FrameCount: 12
+      - type: MovieClip
+        PlayOnStart: false
+        Loop: false
+        Labels:
+          - Frame: 0
+            Name: 'Unread:NoMessages'
+        Tracks:
+          - Target: '53:Transform:0'
+            Path: Scale
+            Mask: 15
+            Keys:
+              - Frame: 0
+                Mode: Tween
+                Ease: Linear
+                Value: 1 1 1 0
+                Ref: ''
+              - Frame: 3
+                Mode: Tween
+                Ease: Linear
+                Value: 0.5 0.5 1 0
+                Ref: ''
+          - Target: '53:RenderGroup:0'
+            Path: Alpha
+            Mask: 15
+            Keys:
+              - Frame: 0
+                Mode: Tween
+                Ease: Linear
+                Value: 1 0 0 0
+                Ref: ''
+              - Frame: 3
+                Mode: Tween
+                Ease: Linear
+                Value: 0 0 0 0
+                Ref: ''
+        FrameCount: 3
+  - id: 54
+    parent: 53
+    name: UISprite
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        anchorMin: 0 0
+        anchorMax: 0 0
+        pivot: 0.5 0.5
+  - id: 55
+    parent: 54
+    name: UISprite
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        anchorMin: 0.5 0.5
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+        width: 0
+        height: 0
+  - id: 56
+    parent: 55
+    name: light-effect-pt
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1.2 1.2 1
+    components:
+      - type: LayoutBox
+        sprite: acc25c43fde040eab2c9776f8c28fdde
+        spriteFit: Stretch
+        fill:
+          type: Solid
+          direction: Vertical
+          color: '#F41B1BFF'
+          color2: '#00000000'
+          stops: 2
+          color3: '#00000000'
+          stop3: 0.5
+          color4: '#00000000'
+          stop4: 0.75
+        anchorMin: 0.5 0.5
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+        width: 128
+        height: 128
+        SortingOrder: 0
+  - id: 57
+    parent: 54
+    name: Html
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        padding: 0 0 0 0
+        anchorMin: 0 0
+        anchorMax: 0 0
+        pivot: 0.5 0.5
+        height: 70
+        minWidth: 100
+  - id: 58
+    parent: 57
+    name: bg-notification-red
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        sprite: 7e40b9a9094e4b9fa1c1c1a54166e944
+        spriteFit: Stretch
+        slice9: 34 34 34 34
+        anchorMin: 0 0
+        anchorMax: 0 0
+        pivot: 0.5 0.5
+        width: 70
+        height: 70
+  - id: 59
+    parent: 57
+    name: HGroup
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        layout: Horizontal
+        spacing: 5
+        alignChildren: Center
+        anchorMin: 0 0
+        anchorMax: 0 0
+        pivot: 0.5 0.5
+  - id: 60
+    parent: 59
+    name: ico-msj-small
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        sprite: 91cf4495469d4326acad7d552bad6196
+        spriteFit: Stretch
+        margin: 0 12 0 -12
+        width: 27
+        height: 23
+        SortingOrder: 0
+  - id: 61
+    parent: 59
+    name: Label
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        font: primary
+        textSize: 36
+        textShadowColor: '#000000C0'
+        textShadowOffset: -2 1
+        textShadowBlur: 1
+        margin: 0 8 0 -8
+        SortingOrder: 4
+      - type: Binding
+        Binds:
+          - Source: UnreadMessageCount
+            Target: '61:LayoutBox:0'
+            Path: text
+  - id: 62
+    parent: 51
+    name: FriendCountModule
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        anchorMin: 0 0
+        anchorMax: 0 0
+        pivot: 0.5 0.5
+        anchoredPos: 15 15
+        width: 0
+        height: 0
+        BlocksRaycast: false
+      - type: RenderGroup
+        Alpha: 1
+      - type: MovieClip
+        PlayOnStart: false
+        Loop: false
+        Labels:
+          - Frame: 0
+            Name: 'Friend:Online'
+        Tracks:
+          - Target: '62:Transform:0'
+            Path: Scale
+            Mask: 15
+            Keys:
+              - Frame: 0
+                Mode: Tween
+                Ease: OutBack
+                Value: 0.5 0.5 1 0
+                Ref: ''
+              - Frame: 12
+                Mode: Tween
+                Ease: Linear
+                Value: 1 1 1 0
+                Ref: ''
+          - Target: '62:RenderGroup:0'
+            Path: Alpha
+            Mask: 15
+            Keys:
+              - Frame: 0
+                Mode: Tween
+                Ease: Linear
+                Value: 0 0 0 0
+                Ref: ''
+              - Frame: 0
+                Mode: Tween
+                Ease: Linear
+                Value: 1 0 0 0
+                Ref: ''
+        FrameCount: 12
+      - type: MovieClip
+        PlayOnStart: false
+        Loop: false
+        Labels:
+          - Frame: 0
+            Name: 'Friend:NoOnline'
+        Tracks:
+          - Target: '62:Transform:0'
+            Path: Scale
+            Mask: 15
+            Keys:
+              - Frame: 0
+                Mode: Tween
+                Ease: Linear
+                Value: 1 1 1 0
+                Ref: ''
+              - Frame: 3
+                Mode: Tween
+                Ease: Linear
+                Value: 0.5 0.5 1 0
+                Ref: ''
+          - Target: '62:RenderGroup:0'
+            Path: Alpha
+            Mask: 15
+            Keys:
+              - Frame: 0
+                Mode: Tween
+                Ease: Linear
+                Value: 1 0 0 0
+                Ref: ''
+              - Frame: 3
+                Mode: Tween
+                Ease: Linear
+                Value: 0 0 0 0
+                Ref: ''
+        FrameCount: 3
+  - id: 63
+    parent: 62
+    name: UISprite
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        anchorMin: 0.5 0.5
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+        width: 0
+        height: 0
+  - id: 64
+    parent: 63
+    name: light-effect-pt
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1.2 1.2 1
+    components:
+      - type: LayoutBox
+        sprite: acc25c43fde040eab2c9776f8c28fdde
+        spriteFit: Stretch
+        fill:
+          type: Solid
+          direction: Vertical
+          color: '#34E577FF'
+          color2: '#00000000'
+          stops: 2
+          color3: '#00000000'
+          stop3: 0.5
+          color4: '#00000000'
+          stop4: 0.75
+        anchorMin: 0.5 0.5
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+        width: 128
+        height: 128
+        SortingOrder: 0
+  - id: 65
+    parent: 62
+    name: Html
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        anchorMin: 0 0
+        anchorMax: 0 0
+        pivot: 0.5 0.5
+        width: 70
+        height: 70
+  - id: 66
+    parent: 65
+    name: bg-onlinefriends
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        sprite: 5819c8bce0a54980845376f2378a66a9
+        spriteFit: Stretch
+        slice9: 34 34 34 34
+        anchorMin: 0 0
+        anchorMax: 0 0
+        pivot: 0.5 0.5
+        width: 70
+        height: 70
+        SortingOrder: 0
+  - id: 67
+    parent: 65
+    name: Label
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        font: primary
+        textSize: 36
+        textShadowColor: '#000000C0'
+        textShadowOffset: -3 1
+        textShadowBlur: 3
+        anchorMin: 0 0
+        anchorMax: 0 0
+        pivot: 0.5 0.5
+        SortingOrder: 4
+  - id: 68
+    parent: 50
+    name: UISprite
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        alignSelf: Stretch
+  - id: 69
+    parent: 68
+    name: line-seperator-gradient
+    pos: 0 0 0
+    rot: 0 0 90
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        sprite: afa2517f24b642b1b4fd9cd04dc02ae5
+        spriteFit: Stretch
+        anchorMin: 0.5 0.5
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+        anchoredPos: 0 100
+        width: 89
+        height: 26
+        SortingOrder: 0
+  - id: 70
+    parent: 50
+    name: btn-footer-lobby
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        sprite: 0bd88af78f0541caa0d89fdb2190c677
+        spriteFit: Stretch
+        width: 152
+        height: 139
+  - id: 71
+    parent: 70
+    name: img-top25
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        sprite: 084023a978ad4619930f85e5b59c07db
+        spriteFit: Stretch
+        anchorMin: 0.5 0.5
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+        anchoredPos: 0 -8
+        width: 100
+        height: 91
+        SortingOrder: 0
+  - id: 72
+    parent: 47
+    name: UISprite
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        alignSelf: Stretch
+        width: 350
+        BlocksRaycast: false
+  - id: 73
+    parent: 47
+    name: UISprite
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        grow: 1
+        alignSelf: Stretch
+        width: 0
+        BlocksRaycast: false
+  - id: 74
+    parent: 73
+    name: bg-footer-lobby
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        sprite: 56f33ab75dff4ed0817ad3a3bd332310
+        spriteFit: Stretch
+        slice9: 212 65 212 59
+        anchorMin: 0 0.5
+        anchorMax: 1 0.5
+        pivot: 0.5 0.5
+        width: -0
+        height: 124
+        SortingOrder: 0
+  - id: 75
+    parent: 74
+    name: HGroup
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        layout: Horizontal
+        spacing: 25
+        anchorMin: 0.5 0.5
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+        anchoredPos: 0 -18
+  - id: 76
+    parent: 75
+    name: btn-footer-lobby
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        sprite: 0bd88af78f0541caa0d89fdb2190c677
+        spriteFit: Stretch
+        width: 152
+        height: 139
+        SortingOrder: 0
+  - id: 77
+    parent: 76
+    name: ico-mail
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        sprite: a849942a6a3e4b3f929a8c33bcf79c4f
+        spriteFit: Stretch
+        anchorMin: 0.5 0.5
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+        anchoredPos: 1 -8
+        width: 84
+        height: 64
+  - id: 78
+    parent: 76
+    name: UnreadMessageModule
+    active: false
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        anchorMin: 0 0
+        anchorMax: 0 0
+        pivot: 0.5 0.5
+        anchoredPos: 110 20
+        width: 0
+        height: 0
+      - type: RenderGroup
+        Alpha: 1
+      - type: MovieClip
+        PlayOnStart: false
+        Loop: false
+        Labels:
+          - Frame: 0
+            Name: 'UnreadContact:Messages'
+        Tracks:
+          - Target: '78:Transform:0'
+            Path: Scale
+            Mask: 15
+            Keys:
+              - Frame: 0
+                Mode: Tween
+                Ease: OutBack
+                Value: 0.5 0.5 1 0
+                Ref: ''
+              - Frame: 12
+                Mode: Tween
+                Ease: Linear
+                Value: 1 1 1 0
+                Ref: ''
+          - Target: '78:RenderGroup:0'
+            Path: Alpha
+            Mask: 15
+            Keys:
+              - Frame: 0
+                Mode: Tween
+                Ease: Linear
+                Value: 0 0 0 0
+                Ref: ''
+              - Frame: 0
+                Mode: Tween
+                Ease: Linear
+                Value: 1 0 0 0
+                Ref: ''
+        FrameCount: 12
+      - type: MovieClip
+        PlayOnStart: false
+        Loop: false
+        Labels:
+          - Frame: 0
+            Name: 'UnreadContact:NoMessages'
+        Tracks:
+          - Target: '78:Transform:0'
+            Path: Scale
+            Mask: 15
+            Keys:
+              - Frame: 0
+                Mode: Tween
+                Ease: Linear
+                Value: 1 1 1 0
+                Ref: ''
+              - Frame: 3
+                Mode: Tween
+                Ease: Linear
+                Value: 0.5 0.5 1 0
+                Ref: ''
+          - Target: '78:RenderGroup:0'
+            Path: Alpha
+            Mask: 15
+            Keys:
+              - Frame: 0
+                Mode: Tween
+                Ease: Linear
+                Value: 1 0 0 0
+                Ref: ''
+              - Frame: 3
+                Mode: Tween
+                Ease: Linear
+                Value: 0 0 0 0
+                Ref: ''
+        FrameCount: 3
+  - id: 79
+    parent: 78
+    name: Html
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        padding: 0 0 0 0
+        anchorMin: 0 0
+        anchorMax: 0 0
+        pivot: 0.5 0.5
+        height: 70
+        minWidth: 100
+  - id: 80
+    parent: 79
+    name: UISprite
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        anchorMin: 0.5 0.5
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+        width: 0
+        height: 0
+  - id: 81
+    parent: 80
+    name: light-effect-pt
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1.2 1.2 1
+    components:
+      - type: LayoutBox
+        sprite: acc25c43fde040eab2c9776f8c28fdde
+        spriteFit: Stretch
+        fill:
+          type: Solid
+          direction: Vertical
+          color: '#F41B1BFF'
+          color2: '#00000000'
+          stops: 2
+          color3: '#00000000'
+          stop3: 0.5
+          color4: '#00000000'
+          stop4: 0.75
+        anchorMin: 0.5 0.5
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+        anchoredPos: 25 10
+        width: 128
+        height: 128
+        SortingOrder: 0
+  - id: 82
+    parent: 79
+    name: bg-notification-red
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        sprite: 7e40b9a9094e4b9fa1c1c1a54166e944
+        spriteFit: Stretch
+        slice9: 34 34 34 34
+        anchorMin: 0 0
+        anchorMax: 0 0
+        pivot: 0.5 0.5
+        width: 70
+        height: 70
+        SortingOrder: 0
+  - id: 83
+    parent: 79
+    name: HGroup
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        layout: Horizontal
+        spacing: 5
+        alignChildren: Center
+        anchorMin: 0 0
+        anchorMax: 0 0
+        pivot: 0.5 0.5
+  - id: 84
+    parent: 83
+    name: ico-msj-small
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        sprite: 91cf4495469d4326acad7d552bad6196
+        spriteFit: Stretch
+        margin: 0 12 0 -12
+        width: 27
+        height: 23
+        SortingOrder: 0
+  - id: 85
+    parent: 83
+    name: Label
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        font: primary
+        textSize: 36
+        textShadowColor: '#000000C0'
+        textShadowOffset: -2 1
+        textShadowBlur: 1
+        margin: 0 8 0 -8
+        SortingOrder: 4
+      - type: Binding
+        Binds:
+          - Source: UnreadContactMessageCount
+            Target: '85:LayoutBox:0'
+            Path: text
+  - id: 86
+    parent: 75
+    name: UISprite
+    active: false
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        alignSelf: Stretch
+        BlocksRaycast: false
+  - id: 87
+    parent: 86
+    name: line-seperator-gradient
+    pos: 0 0 0
+    rot: 0 0 90
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        sprite: afa2517f24b642b1b4fd9cd04dc02ae5
+        spriteFit: Stretch
+        anchorMin: 0.5 0.5
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+        anchoredPos: 0 100
+        width: 89
+        height: 26
+        SortingOrder: 0
+  - id: 88
+    parent: 75
+    name: BonusModule
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        margin: 20 0 -20 0
+        width: 152
+        height: 139
+  - id: 89
+    parent: 88
+    name: ico-video-tekel
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1.2 1.2 1
+    components:
+      - type: LayoutBox
+        sprite: 2ade7f6d1acc41129ecdf20750bfb431
+        spriteFit: Stretch
+        anchorMin: 0 0
+        anchorMax: 0 0
+        pivot: 0.5 0.5
+        anchoredPos: 50 30
+        width: 122
+        height: 121
+        SortingOrder: 0
+  - id: 90
+    parent: 88
+    name: p0
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 0.4 0.4 1
+    components:
+      - type: LayoutBox
+        sprite: 6602ce094aeb4a9c985fd596dbb31a5e
+        spriteFit: Stretch
+        anchorMin: 0 0
+        anchorMax: 0 0
+        pivot: 0.5 0.5
+        anchoredPos: 126 30
+        width: 158
+        height: 159
+        SortingOrder: 1
+  - id: 91
+    parent: 88
+    name: p1
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 0.4 0.4 1
+    components:
+      - type: LayoutBox
+        sprite: 3005b79e668244749b5106516649ac16
+        spriteFit: Stretch
+        anchorMin: 0 0
+        anchorMax: 0 0
+        pivot: 0.5 0.5
+        anchoredPos: 110 46
+        width: 186
+        height: 152
+        SortingOrder: 1
+  - id: 92
+    parent: 88
+    name: light-blur
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1.1 1.1 1
+    components:
+      - type: LayoutBox
+        sprite: eb9fa5f53b884fe5ba1a83984300b903
+        spriteFit: Stretch
+        fill:
+          type: Solid
+          direction: Vertical
+          color: '#000000FF'
+          color2: '#00000000'
+          stops: 2
+          color3: '#00000000'
+          stop3: 0.5
+          color4: '#00000000'
+          stop4: 0.75
+        anchorMin: 0 0
+        anchorMax: 0 0
+        pivot: 0.5 0.5
+        anchoredPos: 80 86
+        width: 181
+        height: 54
+        SortingOrder: 1
+  - id: 93
+    parent: 88
+    name: light-blur
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1.1 1.1 1
+    components:
+      - type: LayoutBox
+        sprite: eb9fa5f53b884fe5ba1a83984300b903
+        spriteFit: Stretch
+        fill:
+          type: Solid
+          direction: Vertical
+          color: '#000000FF'
+          color2: '#00000000'
+          stops: 2
+          color3: '#00000000'
+          stop3: 0.5
+          color4: '#00000000'
+          stop4: 0.75
+        anchorMin: 0 0
+        anchorMax: 0 0
+        pivot: 0.5 0.5
+        anchoredPos: 80 76
+        width: 181
+        height: 54
+        SortingOrder: 1
+  - id: 94
+    parent: 88
+    name: lobbySceneLobbyAdBonusWatchWin
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        font: primary
+        textSize: 36
+        textAlign: Center
+        textFill:
+          type: Solid
+          direction: Vertical
+          color: '#00FF2AFF'
+          color2: '#ffffffff'
+          stops: 2
+          color3: '#ffffffff'
+          stop3: 0.5
+          color4: '#ffffffff'
+          stop4: 0.75
+        anchorMin: 0 0
+        anchorMax: 0 0
+        pivot: 0.5 0.5
+        anchoredPos: 66 80
+        SortingOrder: 4
+        text@loc: lobbySceneLobbyAdBonusWatchWin
+  - id: 95
+    parent: 88
+    name: light-effect-pt
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        sprite: acc25c43fde040eab2c9776f8c28fdde
+        spriteFit: Stretch
+        fill:
+          type: Solid
+          direction: Vertical
+          color: '#F41B1BFF'
+          color2: '#00000000'
+          stops: 2
+          color3: '#00000000'
+          stop3: 0.5
+          color4: '#00000000'
+          stop4: 0.75
+        anchorMin: 0 0
+        anchorMax: 0 0
+        pivot: 0.5 0.5
+        anchoredPos: -10 20
+        width: 128
+        height: 128
+        SortingOrder: 0
+  - id: 96
+    parent: 95
+    name: bg-notification-red
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        sprite: 7e40b9a9094e4b9fa1c1c1a54166e944
+        spriteFit: Stretch
+        anchorMin: 0.5 0.5
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+        width: 70
+        height: 70
+        SortingOrder: 0
+  - id: 97
+    parent: 95
+    name: 1
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        font: primary
+        textSize: 42
+        textShadowColor: '#0000005A'
+        textShadowOffset: 0 1
+        textShadowBlur: 2
+        anchorMin: 0.5 0.5
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+        anchoredPos: -2 -4
+        SortingOrder: 4
+        text@loc: main.1_2
+  - id: 98
+    parent: 88
+    name: bg-bar
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 0.45 0.45 1
+    components:
+      - type: LayoutBox
+        sprite: 1a699e29e61541bd87a70f970bcac7f8
+        spriteFit: Stretch
+        slice9: 38 38 38 54
+        anchorMin: 0 0
+        anchorMax: 0 0
+        pivot: 0.5 0.5
+        anchoredPos: 66 115
+        width: 320
+        height: 92
+        SortingOrder: 0
+  - id: 99
+    parent: 88
+    name: Label
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        font: primary
+        textSize: 34
+        textAlign: Center
+        anchorMin: 0 0
+        anchorMax: 0 0
+        pivot: 0.5 0.5
+        anchoredPos: 66 115
+        width: 220
+        SortingOrder: 4
+  - id: 100
+    parent: 46
+    name: UISprite
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        anchorMin: 0.5 0
+        anchorMax: 0.5 1
+        pivot: 0.5 0.5
+        height: -0
+        width: 350
+        BlocksRaycast: false
+  - id: 101
+    parent: 100
+    name: HGroup
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        layout: Horizontal
+        anchorMin: 0.5 0.5
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+        BlocksRaycast: false
+  - id: 102
+    parent: 101
+    name: btn-createtable
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        sprite: 70993743b439486ea65b5974d6d02c05
+        spriteFit: Stretch
+        width: 312
+        height: 110
+        SortingOrder: 0
+  - id: 103
+    parent: 102
+    name: lobbySceneCreateTable
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        font: primary
+        textSize: 44
+        textShadowColor: '#000000C0'
+        textShadowOffset: -3 1
+        textShadowBlur: 3
+        anchorMin: 0.5 0.5
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+        anchoredPos: 30 0
+        SortingOrder: 4
+        text@loc: lobbySceneCreateTable
+  - id: 104
+    parent: 101
+    name: btn-playnow
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        sprite: 400802bb6fb14039815f6c365914c8af
+        spriteFit: Stretch
+        width: 312
+        height: 110
+        SortingOrder: 0
+  - id: 105
+    parent: 104
+    name: lobbyScenePlayNow
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        font: primary
+        textSize: 44
+        textShadowColor: '#000000C0'
+        textShadowOffset: -3 1
+        textShadowBlur: 3
+        anchorMin: 0.5 0.5
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+        anchoredPos: -30 0
+        SortingOrder: 4
+        text@loc: lobbyScenePlayNow
+  - id: 106
+    parent: 2
+    name: Sprite2D
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        anchorMin: 0.5 0.5
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+        BlocksRaycast: false
+  - id: 107
+    parent: 2
+    name: Group2D
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        anchorMin: 0 0
+        anchorMax: 1 1
+        pivot: 0.5 0.5
+        width: -0
+        height: -0
+        BlocksRaycast: false
+  - id: 108
+    parent: 107
+    name: VGroup
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        layout: Vertical
+        spacing: 140
+        alignChildren: Center
+        anchorMin: 0.5 0.5
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+        anchoredPos: 0 -170
+        BlocksRaycast: false
+      - type: MovieClip
+        PlayOnStart: true
+        Loop: false
+        Tracks:
+          - Target: '108:Transform:0'
+            Path: Scale
+            Mask: 15
+            Keys:
+              - Frame: 12
+                Mode: Tween
+                Ease: OutBack
+                Value: 0.8 0.8 1 0
+                Ref: ''
+              - Frame: 18
+                Mode: Tween
+                Ease: Linear
+                Value: 1 1 1 0
+                Ref: ''
+        FrameCount: 18
+  - id: 109
+    parent: 108
+    name: UISprite
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        height: 100
+        BlocksRaycast: false
+  - id: 110
+    parent: 108
+    name: LobbyListModule
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 940
+        height: 150
+        BlocksRaycast: false
+  - id: 111
+    parent: 110
+    name: Carousel
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        anchorMin: 0.5 0
+        anchorMax: 0.5 0
+        pivot: 0.5 0
+        anchoredPos: 0 80
+  - id: 112
+    parent: 110
+    name: HGroup
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        layout: Horizontal
+        spacing: 50
+        alignChildren: Center
+        anchorMin: 0 0.5
+        anchorMax: 1 0.5
+        pivot: 0.5 0.5
+        width: -0
+        height: 80
+        BlocksRaycast: false
+  - id: 113
+    parent: 112
+    name: UISprite
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+  - id: 114
+    parent: 113
+    name: emboss
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        sprite: ead9c312c1874b4e9d00bd32a72e82f6
+        spriteFit: Stretch
+        anchorMin: 0.5 0.5
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+        width: 92
+        height: 92
+        SortingOrder: 0
+  - id: 115
+    parent: 114
+    name: btn-round
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        sprite: b6d7809174fb4e648fc326bf8063b1f2
+        spriteFit: Stretch
+        anchorMin: 0.5 0.5
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+        anchoredPos: 0 4
+        width: 83
+        height: 83
+        SortingOrder: 0
+  - id: 116
+    parent: 115
+    name: ico-chevron
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        sprite: 10e258d4b2814875b1cfea9370869937
+        spriteFit: Stretch
+        anchorMin: 0.5 0.5
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+        anchoredPos: -2 -5
+        width: 38
+        height: 51
+        SortingOrder: 0
+  - id: 117
+    parent: 113
+    name: AnyMotion
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        anchorMin: 0 0
+        anchorMax: 0 0
+        pivot: 0.5 0.5
+  - id: 118
+    parent: 112
+    name: UISprite
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        fill:
+          type: Solid
+          direction: Vertical
+          color: '#DFDFDFFF'
+          color2: '#00000000'
+          stops: 2
+          color3: '#00000000'
+          stop3: 0.5
+          color4: '#00000000'
+          stop4: 0.75
+        alignSelf: Stretch
+        width: 680
+        BlocksRaycast: false
+  - id: 119
+    parent: 112
+    name: UISprite
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+  - id: 120
+    parent: 119
+    name: emboss
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        sprite: ead9c312c1874b4e9d00bd32a72e82f6
+        spriteFit: Stretch
+        anchorMin: 0.5 0.5
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+        width: 92
+        height: 92
+        SortingOrder: 0
+  - id: 121
+    parent: 120
+    name: btn-round
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: -1 1 1
+    components:
+      - type: LayoutBox
+        sprite: b6d7809174fb4e648fc326bf8063b1f2
+        spriteFit: Stretch
+        anchorMin: 0.5 0.5
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+        anchoredPos: 0 4
+        width: 83
+        height: 83
+        SortingOrder: 0
+  - id: 122
+    parent: 121
+    name: ico-chevron
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        sprite: 10e258d4b2814875b1cfea9370869937
+        spriteFit: Stretch
+        anchorMin: 0.5 0.5
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+        anchoredPos: -2 -5
+        width: 38
+        height: 51
+        SortingOrder: 0
+  - id: 123
+    parent: 119
+    name: AnyMotion
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        anchorMin: 0 0
+        anchorMax: 0 0
+        pivot: 0.5 0.5
+  - id: 124
+    parent: 108
+    name: TABLELISTMODULE
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 800
+        height: 320
+  - id: 125
+    parent: 124
+    name: TABLECARO
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        anchorMin: 0.5 0
+        anchorMax: 0.5 1
+        pivot: 0.5 0.5
+        height: -0
+        width: 600
+  - id: 126
+    parent: 124
+    name: UISprite
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        anchorMin: 0.5 0.5
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+        BlocksRaycast: false
+  - id: 127
+    parent: 126
+    name: table
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 0.45 0.45 1
+    components:
+      - type: LayoutBox
+        sprite: 0cded328f8384014910f92765ad9cedb
+        spriteFit: Stretch
+        anchorMin: 0.5 0.5
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+        anchoredPos: -510 -15
+        width: 919
+        height: 918
+  - id: 128
+    parent: 126
+    name: table
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: -0.45 0.45 1
+    components:
+      - type: LayoutBox
+        sprite: 0cded328f8384014910f92765ad9cedb
+        spriteFit: Stretch
+        anchorMin: 0.5 0.5
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+        anchoredPos: 510 -15
+        width: 919
+        height: 918
+  - id: 129
+    parent: 126
+    name: HGroup
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        layout: Horizontal
+        anchorMin: 0.5 0.5
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+  - id: 130
+    parent: 129
+    name: table#fit
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 551.4
+        height: 550.8
+  - id: 131
+    parent: 130
+    name: table
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 0.6 0.6 1
+    components:
+      - type: LayoutBox
+        sprite: 0cded328f8384014910f92765ad9cedb
+        spriteFit: Stretch
+        width: 919
+        height: 918
+        anchorMin: 0.5 0.5
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+  - id: 132
+    parent: 129
+    name: table#fit
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 551.4
+        height: 550.8
+        margin: -1 0 1 0
+  - id: 133
+    parent: 132
+    name: table
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: -0.6 0.6 1
+    components:
+      - type: LayoutBox
+        sprite: 0cded328f8384014910f92765ad9cedb
+        spriteFit: Stretch
+        anchorMin: 0.5 0.5
+        width: 919
+        height: 918
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+  - id: 134
+    parent: 126
+    name: HGroup
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        layout: Horizontal
+        anchorMin: 0.5 0.5
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+      - type: RenderGroup
+        Alpha: 0.6
+  - id: 135
+    parent: 134
+    name: table#fit
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 551.4
+        height: 550.8
+  - id: 136
+    parent: 135
+    name: table
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 0.6 0.6 1
+    components:
+      - type: LayoutBox
+        sprite: 0cded328f8384014910f92765ad9cedb
+        spriteFit: Stretch
+        fill:
+          type: Solid
+          direction: Vertical
+          color: '#000000FF'
+          color2: '#00000000'
+          stops: 2
+          color3: '#00000000'
+          stop3: 0.5
+          color4: '#00000000'
+          stop4: 0.75
+        width: 919
+        height: 918
+        anchorMin: 0.5 0.5
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+  - id: 137
+    parent: 134
+    name: table#fit
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 551.4
+        height: 550.8
+  - id: 138
+    parent: 137
+    name: table
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: -0.6 0.6 1
+    components:
+      - type: LayoutBox
+        sprite: 0cded328f8384014910f92765ad9cedb
+        spriteFit: Stretch
+        fill:
+          type: Solid
+          direction: Vertical
+          color: '#000000FF'
+          color2: '#00000000'
+          stops: 2
+          color3: '#00000000'
+          stop3: 0.5
+          color4: '#00000000'
+          stop4: 0.75
+        width: 919
+        height: 918
+        anchorMin: 0.5 0.5
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+  - id: 139
+    parent: 124
+    name: Group2D
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        anchorMin: 0 0
+        anchorMax: 1 1
+        pivot: 0.5 0.5
+        width: -0
+        height: -0
+  - id: 140
+    parent: 139
+    name: VGroup
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        layout: Vertical
+        spacing: 8
+        alignChildren: Center
+        anchorMin: 0.5 0
+        anchorMax: 0.5 0
+        pivot: 0.5 0
+        anchoredPos: 0 -55
+      - type: MovieClip
+        PlayOnStart: false
+        Loop: false
+        Labels:
+          - Frame: 0
+            Name: 'Lobby:TableListRefreshed'
+        FrameCount: 1
+      - type: MovieClip
+        PlayOnStart: false
+        Loop: false
+        Labels:
+          - Frame: 0
+            Name: 'Lobby:Joining'
+        FrameCount: 1
+  - id: 141
+    parent: 140
+    name: btn-round
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        sprite: b6d7809174fb4e648fc326bf8063b1f2
+        spriteFit: Stretch
+        width: 83
+        height: 83
+        SortingOrder: 0
+  - id: 142
+    parent: 141
+    name: ico-alert
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 0.7 0.7 1
+    components:
+      - type: LayoutBox
+        sprite: adb82378924d4ba9870770c66e59caf5
+        spriteFit: Stretch
+        anchorMin: 0.5 0.5
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+        anchoredPos: 1 -3
+        width: 32
+        height: 92
+        SortingOrder: 0
+  - id: 143
+    parent: 140
+    name: Html
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        margin: 0 -10 0 10
+        width: 700
+  - id: 144
+    parent: 143
+    name: lobbyLobbyRowNotEnoughMoney-prev
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        font: regular
+        textSize: 46
+        textAlign: Center
+        textSpacing: -2
+        textShadowColor: '#000000C0'
+        textShadowOffset: -3 1
+        textShadowBlur: 3
+        anchorMin: 0 0
+        anchorMax: 0 0
+        pivot: 0.5 0.5
+        height: 48
+        SortingOrder: 4
+        text@loc: lobbyLobbyRowNotEnoughMoney-prev
+  - id: 145
+    parent: 143
+    name: br
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        anchorMin: 0 0
+        anchorMax: 0 0
+        pivot: 0.5 0.5
+  - id: 146
+    parent: 143
+    name: Label
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        font: regular
+        textSize: 46
+        textAlign: Center
+        textSpacing: -2
+        anchorMin: 0 0
+        anchorMax: 0 0
+        pivot: 0.5 0.5
+        width: 180
+        height: 48
+        SortingOrder: 4
+  - id: 147
+    parent: 146
+    name: Label
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        font: primary
+        textSize: 52
+        textAlign: Right
+        textShadowColor: '#000000C0'
+        textShadowOffset: -3 1
+        textShadowBlur: 3
+        anchorMin: 0.5 0.5
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+        anchoredPos: 0 -6
+        width: 180
+        height: 30
+        SortingOrder: 4
+  - id: 148
+    parent: 143
+    name: lobbyLobbyRowNotEnoughMoney-post
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        font: regular
+        textSize: 46
+        textAlign: Center
+        textSpacing: -2
+        textShadowColor: '#000000C0'
+        textShadowOffset: -3 1
+        textShadowBlur: 3
+        anchorMin: 0 0
+        anchorMax: 0 0
+        pivot: 0.5 0.5
+        height: 48
+        SortingOrder: 4
+        text@loc: lobbyLobbyRowNotEnoughMoney-post
+  - id: 149
+    parent: 143
+    name: br
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        anchorMin: 0 0
+        anchorMax: 0 0
+        pivot: 0.5 0.5
+  - id: 150
+    parent: 140
+    name: btn-green
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        sprite: d33b743328e746df9f87acd8eb3b01ee
+        spriteFit: Stretch
+        slice9: 46 49 46 57
+        width: 330
+        height: 106
+        SortingOrder: 0
+  - id: 151
+    parent: 150
+    name: HGroup
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        layout: Horizontal
+        spacing: 15
+        alignChildren: Center
+        anchorMin: 0.5 0.5
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+        anchoredPos: 0 -14
+  - id: 152
+    parent: 151
+    name: UISprite
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 100
+        height: 100
+  - id: 153
+    parent: 152
+    name: img-coin
+    pos: 0 0 0
+    rot: 0 0 -20
+    scale: 0.6 0.6 1
+    components:
+      - type: LayoutBox
+        sprite: c9bee49ac3e64bbd87b85c6518bf937c
+        spriteFit: Stretch
+        anchorMin: 0.5 0.5
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+        anchoredPos: -18 12
+        width: 139
+        height: 132
+        SortingOrder: 0
+  - id: 154
+    parent: 152
+    name: img-coin
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 0.65 0.65 1
+    components:
+      - type: LayoutBox
+        sprite: c9bee49ac3e64bbd87b85c6518bf937c
+        spriteFit: Stretch
+        anchorMin: 0.5 0.5
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+        anchoredPos: 14 8
+        width: 139
+        height: 132
+        SortingOrder: 0
+  - id: 155
+    parent: 151
+    name: lobbyLobbyRowBuyChips
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        font: primary
+        textSize: 46
+        textShadowColor: '#000000C0'
+        textShadowOffset: -3 1
+        textShadowBlur: 3
+        margin: 0 9 0 -9
+        SortingOrder: 4
+        text@loc: lobbyLobbyRowBuyChips
+  - id: 156
+    parent: 124
+    name: Group2D
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        anchorMin: 0 0
+        anchorMax: 1 1
+        pivot: 0.5 0.5
+        width: -0
+        height: -0
+  - id: 157
+    parent: 156
+    name: VGroup
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        layout: Vertical
+        spacing: 20
+        alignChildren: Center
+        anchorMin: 0 0
+        anchorMax: 1 0
+        pivot: 0.5 0
+        anchoredPos: 0 -45
+        width: -0
+      - type: MovieClip
+        PlayOnStart: false
+        Loop: false
+        Labels:
+          - Frame: 0
+            Name: 'Lobby:TableListRefreshed'
+        FrameCount: 1
+      - type: MovieClip
+        PlayOnStart: false
+        Loop: false
+        Labels:
+          - Frame: 0
+            Name: 'Lobby:Joining'
+        FrameCount: 1
+  - id: 158
+    parent: 157
+    name: btn-round
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        sprite: b6d7809174fb4e648fc326bf8063b1f2
+        spriteFit: Stretch
+        width: 83
+        height: 83
+        SortingOrder: 0
+  - id: 159
+    parent: 158
+    name: ico-alert
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 0.7 0.7 1
+    components:
+      - type: LayoutBox
+        sprite: adb82378924d4ba9870770c66e59caf5
+        spriteFit: Stretch
+        anchorMin: 0.5 0.5
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+        anchoredPos: 1 -3
+        width: 32
+        height: 92
+        SortingOrder: 0
+  - id: 160
+    parent: 157
+    name: lobbyTableRowNoSuitableTable
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        font: regular
+        textSize: 46
+        textAlign: Center
+        textSpacing: -2
+        textShadowColor: '#000000C0'
+        textShadowOffset: -3 1
+        textShadowBlur: 3
+        margin: 0 -10 0 10
+        SortingOrder: 4
+        text@loc: lobbyTableRowNoSuitableTable
+  - id: 161
+    parent: 157
+    name: btn-blue
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        sprite: e59be2550cf246b7942fcf77ecd5b0a7
+        spriteFit: Stretch
+        slice9: 46 49 46 57
+        width: 330
+        height: 106
+        SortingOrder: 0
+  - id: 162
+    parent: 161
+    name: lobbyTableRowCreateTable
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        font: primary
+        textSize: 46
+        textShadowColor: '#000000C0'
+        textShadowOffset: -3 1
+        textShadowBlur: 3
+        anchorMin: 0.5 0.5
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+        anchoredPos: 0 -6
+        SortingOrder: 4
+        text@loc: lobbyTableRowCreateTable
+  - id: 163
+    parent: 2
+    name: UISprite
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        anchorMin: 0 0
+        anchorMax: 0 0
+        pivot: 0.5 0.5
+      - type: MovieClip
+        PlayOnStart: false
+        Loop: false
+        Labels:
+          - Frame: 0
+            Name: 'Player:HasNoChips'
+        FrameCount: 1
+  - id: 164
+    parent: 2
+    name: Group2D
+    active: false
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        fitScreen: true
+        SortingOrder: 4
+      - type: RenderGroup
+        Alpha: 1
+      - type: MovieClip
+        PlayOnStart: false
+        Loop: false
+        Labels:
+          - Frame: 0
+            Name: 'Lobby:PlayNow'
+        Tracks:
+          - Target: '164:RenderGroup:0'
+            Path: Alpha
+            Mask: 15
+            Keys:
+              - Frame: 0
+                Mode: Tween
+                Ease: Linear
+                Value: 0 0 0 0
+                Ref: ''
+              - Frame: 4
+                Mode: Tween
+                Ease: Linear
+                Value: 1 0 0 0
+                Ref: ''
+              - Frame: 26
+                Mode: Tween
+                Ease: Linear
+                Value: 1 0 0 0
+                Ref: ''
+              - Frame: 30
+                Mode: Tween
+                Ease: Linear
+                Value: 0 0 0 0
+                Ref: ''
+        FrameCount: 30
+      - type: MovieClip
+        PlayOnStart: false
+        Loop: false
+        Labels:
+          - Frame: 0
+            Name: 'Login:Facebook'
+        FrameCount: 1
+      - type: MovieClip
+        PlayOnStart: false
+        Loop: false
+        Labels:
+          - Frame: 0
+            Name: 'Lobby:Error'
+        FrameCount: 1
+      - type: MovieClip
+        PlayOnStart: false
+        Loop: false
+        Labels:
+          - Frame: 0
+            Name: 'Login:Facebook:Error,Scene:Loaded'
+        FrameCount: 1
+  - id: 165
+    parent: 164
+    name: fill
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1.2 1.2 1
+    components:
+      - type: LayoutBox
+        sprite: 8fae9b2a39ec44a5a6fe56b35deb1762
+        spriteFit: Stretch
+        slice9: 1 1 1 1
+        fill:
+          type: Solid
+          direction: Vertical
+          color: '#000000FF'
+          color2: '#00000000'
+          stops: 2
+          color3: '#00000000'
+          stop3: 0.5
+          color4: '#00000000'
+          stop4: 0.75
+        anchorMin: 0 0
+        anchorMax: 1 1
+        pivot: 0.5 0.5
+        width: -0
+        height: -0
+        SortingOrder: 0
+      - type: RenderGroup
+        Alpha: 0.7
+  - id: 166
+    parent: 164
+    name: VGroup
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        layout: Vertical
+        alignChildren: Center
+        anchorMin: 0.5 0.5
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+  - id: 167
+    parent: 166
+    name: UISprite
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 300
+        height: 160
+  - id: 168
+    parent: 167
+    name: Image
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        anchorMin: 0.5 0.5
+        anchorMax: 0.5 0.5
+        pivot: 0.5 0.5
+        SortingOrder: 1
+      - type: MovieClip
+        PlayOnStart: false
+        Loop: false
+        Labels:
+          - Frame: 0
+            Name: 'Buy:Purchasing'
+        Tracks:
+          - Target: '168:Transform:0'
+            Path: Scale
+            Mask: 15
+            Keys:
+              - Frame: 0
+                Mode: Tween
+                Ease: OutBack
+                Value: 0 0 1 0
+                Ref: ''
+              - Frame: 6
+                Mode: Tween
+                Ease: Linear
+                Value: 1 1 1 0
+                Ref: ''
+        FrameCount: 6
+  - id: 169
+    parent: 168
+    name: SpriteSheet
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        anchorMin: 0 0
+        anchorMax: 0 0
+        pivot: 0.5 0.5
+  - id: 170
+    parent: 166
+    name: lobbySceneConnecting
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        font: ecbold
+        textSize: 30
+        textShadowColor: '#0000005A'
+        textShadowOffset: 0 4
+        textShadowBlur: 3
+        SortingOrder: 4
+        text@loc: lobbySceneConnecting
+  - id: 171
+    parent: 166
+    name: lobbySceneConnecting
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        font: primary
+        textSize: 30
+        textShadowColor: '#0000005A'
+        textShadowOffset: 0 4
+        textShadowBlur: 3
+        SortingOrder: 4
+        text@loc: lobbySceneConnecting
+  - id: 172
+    parent: 2
+    name: LOADER
+    active: false
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        fitScreen: true
+        SortingOrder: 1000
+      - type: RenderGroup
+        Alpha: 1
+      - type: MovieClip
+        PlayOnStart: false
+        Loop: false
+        Labels:
+          - Frame: 0
+            Name: 'LobbyScene:AdLoading'
+        Tracks:
+          - Target: '172:RenderGroup:0'
+            Path: Alpha
+            Mask: 15
+            Keys:
+              - Frame: 0
+                Mode: Tween
+                Ease: Linear
+                Value: 0 0 0 0
+                Ref: ''
+              - Frame: 3
+                Mode: Tween
+                Ease: Linear
+                Value: 1 0 0 0
+                Ref: ''
+        FrameCount: 3
+      - type: MovieClip
+        PlayOnStart: false
+        Loop: false
+        Labels:
+          - Frame: 0
+            Name: 'LobbyScene:Incomplete,LobbyScene:AdShown'
+        Tracks:
+          - Target: '172:RenderGroup:0'
+            Path: Alpha
+            Mask: 15
+            Keys:
+              - Frame: 0
+                Mode: Tween
+                Ease: Linear
+                Value: 1 0 0 0
+                Ref: ''
+              - Frame: 3
+                Mode: Tween
+                Ease: Linear
+                Value: 0 0 0 0
+                Ref: ''
+        FrameCount: 3
+      - type: MovieClip
+        PlayOnStart: false
+        Loop: false
+        Labels:
+          - Frame: 0
+            Name: 'LobbyScene:Complete'
+        Tracks:
+          - Target: '172:RenderGroup:0'
+            Path: Alpha
+            Mask: 15
+            Keys:
+              - Frame: 0
+                Mode: Tween
+                Ease: Linear
+                Value: 1 0 0 0
+                Ref: ''
+              - Frame: 3
+                Mode: Tween
+                Ease: Linear
+                Value: 0 0 0 0
+                Ref: ''
+        FrameCount: 3
+  - id: 173
+    parent: 172
+    name: Fill
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        fill:
+          type: Solid
+          direction: Vertical
+          color: '#000000FF'
+          color2: '#00000000'
+          stops: 2
+          color3: '#00000000'
+          stop3: 0.5
+          color4: '#00000000'
+          stop4: 0.75
+        anchorMin: 0 0
+        anchorMax: 1 1
+        pivot: 0.5 0.5
+        width: -0
+        height: -0
+      - type: RenderGroup
+        Alpha: 0.6
+  - id: 174
+    parent: 2
+    name: SettingsModule
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        anchorMin: 0 0
+        anchorMax: 0 0
+        pivot: 0.5 0.5
+  - id: 175
+    parent: 174
+    name: OFFERMODULE
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        anchorMin: 0 0
+        anchorMax: 0 0
+        pivot: 0.5 0.5
+  - id: 177
+    parent: 2
+    name: LOGOUTDIALOG
+    active: false
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    prefab: 043fc571931f4442b1999a17cb2caed1
+    prefabIds: '1:177 2:178 3:179 4:180 5:181 6:182 7:183 8:184 9:185 10:186 11:187 12:188 13:189 14:190 15:191 16:192'
+  - id: 193
+    parent: 2
+    name: NOTIFDIALOG
+    active: false
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    prefab: 043fc571931f4442b1999a17cb2caed1
+    prefabIds: '1:193 2:194 3:195 4:196 5:197 6:198 7:199 8:200 9:201 10:202 11:203 12:204 13:205 14:206 15:207 16:208'
+  - id: 176
+    parent: 2
+    name: PromotionModule
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        anchorMin: 0 0
+        anchorMax: 0 0
+        pivot: 0.5 0.5
+  - id: 209
+    parent: 17
+    name: avatar
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 0.62 0.62 1
+    prefab: 51a17cdbd0634f438d16dbe349121d0f
+    prefabIds: '1:209 2:210 3:211 4:212 5:213 6:214 7:215 8:216'
+  - id: 217
+    parent: 18
+    name: LEVELBAR
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    prefab: 23722d2f5c1940c69e09d7d2a992a580
+    prefabIds: '1:217 2:218 3:219 4:220 5:221 6:222 7:223'
+    overrides:
+      - node: 1
+        comp: 'LayoutBox:0'
+        prop: margin
+        value: -5 0 5 0
+      - node: 1
+        comp: 'LayoutBox:0'
+        prop: BlocksRaycast
+        value: false
+  - id: 224
+    parent: 124
+    name: loader
+    active: false
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    prefab: 53bc73aa0771402e905b2f838199714a
+    prefabIds: '1:224 2:225 3:226'
+    overrides:
+      - node: 1
+        comp: 'LayoutBox:0'
+        prop: anchorMin
+        value: 0 0
+      - node: 1
+        comp: 'LayoutBox:0'
+        prop: anchorMax
+        value: 1 1
+      - node: 1
+        comp: 'LayoutBox:0'
+        prop: anchoredPos
+        value: 0 -60
+      - node: 1
+        comp: 'LayoutBox:0'
+        prop: width
+        value: -0
+      - node: 1
+        comp: 'LayoutBox:0'
+        prop: height
+        value: -0
+      - node: 1
+        comp: 'LayoutBox:0'
+        prop: BlocksRaycast
+        value: false
+      - node: 1
+        prop: addComp
+        value:
+          type: MovieClip
+          PlayOnStart: false
+          Loop: false
+          Labels:
+            - Frame: 0
+              Name: 'Lobby:TableListRefreshed'
+          FrameCount: 1
+      - node: 1
+        prop: addComp
+        value:
+          type: MovieClip
+          PlayOnStart: false
+          Loop: false
+          Labels:
+            - Frame: 0
+              Name: 'Lobby:Joining'
+          FrameCount: 1
+  - id: 227
+    parent: 172
+    name: loader
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    prefab: 53bc73aa0771402e905b2f838199714a
+    prefabIds: '1:227 2:228 3:229'

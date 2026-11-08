@@ -1,0 +1,224 @@
+guid: 97106f0cdc5943508e4beed70aded2d9
+importer:
+  charset: 32
+  sdfSize: 32
+  useFontKerning: false
+  kerning:
+  customGlyphs:
+    - codepoint: U+0061
+      svg: Fonts/Icons/facebook.svg
+      scale: 0.72
+      advance: -1
+      offsetX: 0
+      offsetY: -0.05
+    - codepoint: U+0062
+      svg: Fonts/Icons/apple.svg
+      scale: 0.72
+      advance: -1
+      offsetX: 0
+      offsetY: -0.02
+    - codepoint: U+0063
+      svg: Fonts/Icons/add_friend.svg
+      scale: 0.72
+      advance: -1
+      offsetX: 0
+      offsetY: -0.02
+    - codepoint: U+0064
+      svg: Fonts/Icons/buble.svg
+      scale: 0.72
+      advance: -1
+      offsetX: 0
+      offsetY: -0.02
+    - codepoint: U+0065
+      svg: Fonts/Icons/calendar.svg
+      scale: 0.72
+      advance: -1
+      offsetX: 0
+      offsetY: -0.02
+    - codepoint: U+0066
+      svg: Fonts/Icons/chat.svg
+      scale: 0.72
+      advance: -1
+      offsetX: 0
+      offsetY: -0.02
+    - codepoint: U+0067
+      svg: Fonts/Icons/chevron_left.svg
+      scale: 0.72
+      advance: -1
+      offsetX: 0
+      offsetY: -0.02
+    - codepoint: U+0068
+      svg: Fonts/Icons/chevron_right.svg
+      scale: 0.72
+      advance: -1
+      offsetX: 0
+      offsetY: -0.02
+    - codepoint: U+0069
+      svg: Fonts/Icons/chip.svg
+      scale: 0.72
+      advance: -1
+      offsetX: 0
+      offsetY: -0.02
+    - codepoint: U+006A
+      svg: Fonts/Icons/clock.svg
+      scale: 0.72
+      advance: -1
+      offsetX: 0
+      offsetY: -0.02
+    - codepoint: U+006B
+      svg: Fonts/Icons/close.svg
+      scale: 0.72
+      advance: -1
+      offsetX: 0
+      offsetY: -0.02
+    - codepoint: U+006C
+      svg: Fonts/Icons/cog.svg
+      scale: 0.72
+      advance: -1
+      offsetX: 0
+      offsetY: -0.02
+    - codepoint: U+006D
+      svg: Fonts/Icons/coin.svg
+      scale: 0.72
+      advance: -1
+      offsetX: 0
+      offsetY: -0.02
+    - codepoint: U+006E
+      svg: Fonts/Icons/copy.svg
+      scale: 0.72
+      advance: -1
+      offsetX: 0
+      offsetY: -0.02
+    - codepoint: U+006F
+      svg: Fonts/Icons/crown.svg
+      scale: 0.72
+      advance: -1
+      offsetX: 0
+      offsetY: -0.02
+    - codepoint: U+0070
+      svg: Fonts/Icons/device.svg
+      scale: 0.72
+      advance: -1
+      offsetX: 0
+      offsetY: -0.02
+    - codepoint: U+0071
+      svg: Fonts/Icons/edit.svg
+      scale: 0.72
+      advance: -1
+      offsetX: 0
+      offsetY: -0.02
+    - codepoint: U+0072
+      svg: Fonts/Icons/edit_1.svg
+      scale: 0.72
+      advance: -1
+      offsetX: 0
+      offsetY: -0.02
+    - codepoint: U+0073
+      svg: Fonts/Icons/email.svg
+      scale: 0.72
+      advance: -1
+      offsetX: 0
+      offsetY: -0.02
+    - codepoint: U+0074
+      svg: Fonts/Icons/exit.svg
+      scale: 0.72
+      advance: -1
+      offsetX: 0
+      offsetY: -0.02
+    - codepoint: U+0075
+      svg: Fonts/Icons/friends.svg
+      scale: 0.72
+      advance: -1
+      offsetX: 0
+      offsetY: -0.02
+    - codepoint: U+0076
+      svg: Fonts/Icons/hand.svg
+      scale: 0.72
+      advance: -1
+      offsetX: 0
+      offsetY: -0.02
+    - codepoint: U+0077
+      svg: Fonts/Icons/lock.svg
+      scale: 0.72
+      advance: -1
+      offsetX: 0
+      offsetY: -0.02
+    - codepoint: U+0078
+      svg: Fonts/Icons/menu.svg
+      scale: 0.72
+      advance: -1
+      offsetX: 0
+      offsetY: -0.02
+    - codepoint: U+0079
+      svg: Fonts/Icons/message.svg
+      scale: 0.72
+      advance: -1
+      offsetX: 0
+      offsetY: -0.02
+    - codepoint: U+007A
+      svg: Fonts/Icons/search_friend.svg
+      scale: 0.72
+      advance: -1
+      offsetX: 0
+      offsetY: -0.02
+    - codepoint: U+0041
+      svg: Fonts/Icons/smiley.svg
+      scale: 0.72
+      advance: -1
+      offsetX: 0
+      offsetY: -0.02
+    - codepoint: U+0042
+      svg: Fonts/Icons/star.svg
+      scale: 0.72
+      advance: -1
+      offsetX: 0
+      offsetY: -0.02
+    - codepoint: U+0043
+      svg: Fonts/Icons/support.svg
+      scale: 0.72
+      advance: -1
+      offsetX: 0
+      offsetY: -0.02
+    - codepoint: U+0044
+      svg: Fonts/Icons/target.svg
+      scale: 0.72
+      advance: -1
+      offsetX: 0
+      offsetY: -0.02
+    - codepoint: U+0045
+      svg: Fonts/Icons/tick.svg
+      scale: 0.72
+      advance: -1
+      offsetX: 0
+      offsetY: -0.02
+    - codepoint: U+0046
+      svg: Fonts/Icons/tomato.svg
+      scale: 0.72
+      advance: -1
+      offsetX: 0
+      offsetY: -0.02
+    - codepoint: U+0047
+      svg: Fonts/Icons/trash.svg
+      scale: 0.72
+      advance: -1
+      offsetX: 0
+      offsetY: -0.02
+    - codepoint: U+0048
+      svg: Fonts/Icons/trophy.svg
+      scale: 0.72
+      advance: -1
+      offsetX: 0
+      offsetY: -0.02
+    - codepoint: U+0049
+      svg: Fonts/Icons/video.svg
+      scale: 0.72
+      advance: -1
+      offsetX: 0
+      offsetY: -0.02
+    - codepoint: U+004A
+      svg: Fonts/Icons/warning.svg
+      scale: 0.72
+      advance: -1
+      offsetX: 0
+      offsetY: -0.02
+  glyphOverrides:

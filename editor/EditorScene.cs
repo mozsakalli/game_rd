@@ -15,6 +15,9 @@ public sealed class EditorScene
     public SceneDoc Doc { get; private set; } = new();
     public string Path { get; private set; }
 
+    // Dosya tasindi/yeniden adlandi (AssetOps): doc degismez, yalniz yol izlenir (watcher eski yolu reload etmesin).
+    internal void SetPath(string path) => Path = path;
+
     // Prefab stage: doc tek koklu kalmali (kok silinemez, koke yeni GO/reparent kok altina duser).
     public bool SingleRoot { get; init; }
 
@@ -461,6 +464,186 @@ public sealed class EditorScene
         return g;
     }
 
+    // --- Kopyala / Yapistir / Cogalt (Unity Ctrl+C/V/D) ---
+
+    // Alt agacin DERIN kopyasi: yeni id'ler, parent/prefab isaretleri ve komponent Go/CompRef'leri
+    // haritayla remap (ic ref → kopya, dis ref aynen; Unity Instantiate semantigi). Prefab KOKU
+    // kopyalaniyorsa kopya da instance'tir (override'lariyla); kok disinda kalan prefab COCUGU
+    // tek basina kopyalaninca prefab isaretleri silinir → duz GO (Unity gibi). Doc'a EKLEMEZ.
+    // source: alt agacin icinde yasadigi liste (sahne doc'u ya da pano snapshot'i).
+    // nextId: ilk yeni id (ust uste klonlarda NextId cakismasin diye cagiran surer).
+    public List<SceneDoc.GoDoc> CloneSubtree(List<SceneDoc.GoDoc> source, SceneDoc.GoDoc root, ref int nextId)
+    {
+        var src = new List<SceneDoc.GoDoc>();
+        CollectSubtree(source, root, src);
+        var map = new Dictionary<int, int>(src.Count);
+        foreach (var o in src)
+            map[o.Id] = nextId++;
+        bool rootIsPlainChild = root.IsPrefabChild; // kokun instance koku kopyada yok
+        var result = new List<SceneDoc.GoDoc>(src.Count);
+        foreach (var o in src)
+        {
+            var ng = new SceneDoc.GoDoc
+            {
+                Id = map[o.Id],
+                Parent = o == root ? root.Parent : map[o.Parent],
+                Name = o.Name,
+                Active = o.Active,
+                Layer = o.Layer,
+                Pos = o.Pos,
+                Rot = o.Rot,
+                Scale = o.Scale,
+            };
+            if (o.PrefabRootId != 0 && map.TryGetValue(o.PrefabRootId, out int newRoot) && !rootIsPlainChild)
+            {
+                ng.PrefabRootId = newRoot;
+                ng.PrefabLocalId = o.PrefabLocalId;
+                if (o.IsPrefabRoot)
+                {
+                    ng.PrefabGuid = o.PrefabGuid;
+                    ng.PrefabIds = new Dictionary<int, int>();
+                    foreach (var kv in o.PrefabIds)
+                        if (map.TryGetValue(kv.Value, out int nid))
+                            ng.PrefabIds[kv.Key] = nid;
+                    if (o.PrefabRemoved is { Count: > 0 })
+                        ng.PrefabRemoved = new List<int>(o.PrefabRemoved);
+                }
+            }
+            foreach (var cd in o.Components)
+            {
+                var nc = new SceneDoc.CompDoc { Type = cd.Type, Enabled = cd.Enabled };
+                foreach (var kv in cd.Props)
+                    nc.Props.Add(new(kv.Key, kv.Value.Clone()));
+                SceneDoc.RemapCompRefs(nc, _catalog, map, clearUnmapped: false);
+                ng.Components.Add(nc);
+            }
+            result.Add(ng);
+        }
+        return result;
+    }
+
+    static void CollectSubtree(List<SceneDoc.GoDoc> source, SceneDoc.GoDoc root, List<SceneDoc.GoDoc> into)
+    {
+        into.Add(root);
+        foreach (var c in source)
+            if (c.Parent == root.Id)
+                CollectSubtree(source, c, into);
+    }
+
+    // Klonlanmis alt agaci (ilk eleman kok) parentId altina, insertBeforeId'li kardesin ONUNE ekler
+    // (0 = sona). Kok adi benzersizlestirilir; tek AddSubtreeOp (undo hepsini birden kaldirir).
+    public SceneDoc.GoDoc InsertSubtree(List<SceneDoc.GoDoc> docs, int parentId, int insertBeforeId)
+    {
+        if (docs == null || docs.Count == 0)
+            return null;
+        if (SingleRoot && parentId == 0)
+        {
+            EditorLog.Warning("[prefab] prefab has a single root; paste under it");
+            return null;
+        }
+        var root = docs[0];
+        root.Parent = parentId;
+        root.Name = UniqueName(root.Name);
+        int index = Doc.Objects.Count;
+        if (insertBeforeId != 0)
+            for (int i = 0; i < Doc.Objects.Count; i++)
+                if (Doc.Objects[i].Id == insertBeforeId) { index = i; break; }
+        var op = new AddSubtreeOp();
+        for (int i = 0; i < docs.Count; i++)
+            op.Items.Add((docs[i], index + i));
+        History.Push(op);
+        for (int i = 0; i < docs.Count; i++)
+            Doc.Objects.Insert(index + i, docs[i]);
+        RefreshLive();
+        return root;
+    }
+
+    // Secimdeki (atasi secili olmayan) GO'lari her birinin hemen arkasina kopyalar; tek undo. Yeni kok id'leri doner.
+    public List<int> DuplicateGameObjects(IEnumerable<int> ids)
+    {
+        var roots = new List<SceneDoc.GoDoc>();
+        foreach (int id in ids)
+        {
+            var g = FindGo(id);
+            if (g != null && !AncestorIn(g, ids))
+                roots.Add(g);
+        }
+        var created = new List<int>();
+        if (roots.Count == 0)
+            return created;
+        // Doc sirasina gore: kopya orijinalin alt agacinin hemen arkasina girer.
+        roots.Sort((a, b) => Doc.Objects.IndexOf(a).CompareTo(Doc.Objects.IndexOf(b)));
+        BeginBatch();
+        try
+        {
+            int nextId = NextId();
+            foreach (var g in roots)
+            {
+                if (SingleRoot && g.Parent == 0)
+                {
+                    EditorLog.Warning("[prefab] prefab root cannot be duplicated");
+                    continue;
+                }
+                var docs = CloneSubtree(Doc.Objects, g, ref nextId);
+                var r = InsertSubtree(docs, g.Parent, IdAfterSubtree(g));
+                if (r != null)
+                    created.Add(r.Id);
+            }
+        }
+        finally { EndBatch(); }
+        return created;
+    }
+
+    // Pano icerigini (klon snapshot listeleri; ilk eleman kok) yapistirir: parentId altina,
+    // insertBeforeId onune (0 = sona); tek undo. Snapshot dokunulmadan kalir — her yapistirmada
+    // yeniden klonlanir (coklu paste), ic ref'ler yeni id'lere remap olur.
+    public List<int> PasteSubtrees(IReadOnlyList<List<SceneDoc.GoDoc>> trees, int parentId, int insertBeforeId)
+    {
+        var created = new List<int>();
+        if (trees == null || trees.Count == 0)
+            return created;
+        BeginBatch();
+        try
+        {
+            int nextId = NextId();
+            foreach (var t in trees)
+            {
+                if (t.Count == 0)
+                    continue;
+                var docs = CloneSubtree(t, t[0], ref nextId);
+                var r = InsertSubtree(docs, parentId, insertBeforeId);
+                if (r != null)
+                    created.Add(r.Id);
+            }
+        }
+        finally { EndBatch(); }
+        return created;
+    }
+
+    // Alt agacin son elemanindan SONRAKI doc elemaninin id'si (0 = liste sonu).
+    int IdAfterSubtree(SceneDoc.GoDoc g)
+    {
+        var sub = new List<(SceneDoc.GoDoc doc, int index)>();
+        CollectSubtree(g, sub);
+        int last = -1;
+        foreach (var (_, idx) in sub)
+            if (idx > last) last = idx;
+        return last + 1 < Doc.Objects.Count ? Doc.Objects[last + 1].Id : 0;
+    }
+
+    internal bool AncestorIn(SceneDoc.GoDoc g, IEnumerable<int> ids)
+    {
+        int cur = g.Parent, guard = 0;
+        while (cur != 0 && guard++ < 1000)
+        {
+            foreach (int id in ids)
+                if (id == cur)
+                    return true;
+            cur = FindGo(cur)?.Parent ?? 0;
+        }
+        return false;
+    }
+
     // Prefab instance'i: kok kaydi eklenir ve hemen expand edilir (bellek hep acik model).
     // Stage'de kendisini ya da kendisini iceren bir prefab'i sokmak DONGU olurdu → red (dosyaya hic yazilamaz).
     public SceneDoc.GoDoc InstantiatePrefab(string guid, int parentId, Vec3? worldPos = null)
@@ -643,6 +826,52 @@ public sealed class EditorScene
             }
             root.PrefabGuid = op.Guid;
             root.PrefabIds = ids;
+        }
+    }
+
+    // Prefab instance'ini TAMAMEN cozer (Unity "Unpack Completely"): g kok ya da cocuk olabilir, kok bulunur;
+    // kok + PrefabRootId==kok olan tum GO'lar duz GO olur. Prop'lar genisletilmis doc'ta zaten tam oldugundan
+    // yalniz isaretler silinir; prefab dosyasi ve canli sahne dokunulmaz. Ic instance'lar outermost kuraliyla
+    // zaten duz cocuk oldugundan tek seviye unpack yoktur. Undo isaretleri birebir geri koyar.
+    public bool UnpackPrefab(SceneDoc.GoDoc g)
+    {
+        if (g == null)
+            return false;
+        var root = g.IsPrefabRoot ? g : g.IsPrefabChild ? FindGo(g.PrefabRootId) : null;
+        if (root == null || !root.IsPrefabRoot)
+            return false;
+        var op = new UnpackPrefabOp();
+        foreach (var o in Doc.Objects)
+        {
+            if (o != root && !(o.IsPrefabChild && o.PrefabRootId == root.Id))
+                continue;
+            op.Marks.Add(new UnpackPrefabOp.Entry
+            {
+                GoId = o.Id,
+                PrevGuid = o.PrefabGuid,
+                PrevLocalId = o.PrefabLocalId,
+                PrevRootId = o.PrefabRootId,
+                PrevIds = o.PrefabIds,
+                PrevRemoved = o.PrefabRemoved,
+            });
+        }
+        History.Push(op);
+        ApplyUnpackPrefab(op, undo: false);
+        return true;
+    }
+
+    internal void ApplyUnpackPrefab(UnpackPrefabOp op, bool undo)
+    {
+        foreach (var e in op.Marks)
+        {
+            var o = FindGo(e.GoId);
+            if (o == null)
+                continue;
+            o.PrefabGuid = undo ? e.PrevGuid : null;
+            o.PrefabLocalId = undo ? e.PrevLocalId : 0;
+            o.PrefabRootId = undo ? e.PrevRootId : 0;
+            o.PrefabIds = undo ? e.PrevIds : null;
+            o.PrefabRemoved = undo ? e.PrevRemoved : null;
         }
     }
 

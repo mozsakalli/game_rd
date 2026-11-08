@@ -281,6 +281,16 @@ public static class ImportPipeline
         return File.Exists(p) ? File.ReadAllText(p) : null;
     }
 
+    // Asset silinince (AssetOps.Delete) artifact klasoru de gider; yoksa sessiz.
+    public static void DeleteArtifacts(string guid)
+    {
+        if (string.IsNullOrEmpty(guid) || _artifactsRoot == null)
+            return;
+        string dir = Path.Combine(_artifactsRoot, guid);
+        try { if (Directory.Exists(dir)) Directory.Delete(dir, recursive: true); }
+        catch (Exception e) { EditorLog.Warning($"[import] artifacts not deleted for {guid}: {e.Message}"); }
+    }
+
     // UCUZ bakis (damga/hash YOK): daha once import edilmis asset'in artifact'ini oldugu gibi okur; bayat
     // olabilir (watcher reimport'u AssetChangeVersion ile cache'leri dusurur). Hic import edilmemisse bir kez
     // import eder. Liste/ikon gibi her frame'e yakin sorgular icin (EnsureImported kaynagi her cagrida hash'ler).

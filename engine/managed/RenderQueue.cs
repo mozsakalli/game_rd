@@ -74,6 +74,11 @@ public sealed unsafe class RenderQueue
 
     // Biriken draw sayisi (testler quad emisyonunu dogrular).
     internal int Count => _count;
+    // Test/teshis: i. kaydedilen instance'in uv dikdortgeni (u0, v0, uGenislik, vYukseklik; negatif = aynali).
+    internal Vec4 InstanceUvRect(int i)
+        => (uint)i < (uint)_count
+            ? new Vec4(_instances[i].uvRect[0], _instances[i].uvRect[1], _instances[i].uvRect[2], _instances[i].uvRect[3])
+            : default;
 
     // Test: i. draw'in tint0 alfasi (grup alfasi uygulanmis).
     internal byte TintAlphaAt(int i) => _instances[i].tint0.a;

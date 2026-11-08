@@ -1,0 +1,66 @@
+scene: Main
+objects:
+  - id: 1
+    parent: 0
+    name: CAMERA
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: CameraComponent
+      - type: FitPerspectiveProjection
+        fov: 20
+        referenceResolution: 1920 1080
+  - id: 2
+    parent: 0
+    name: ROOT
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        fitScreen: true
+        sprite: 8e715cde85594f89a547d5f557b7d267
+  - id: 4
+    parent: 2
+    name: GameObject
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        sprite: 10ba5a30dd584c4195ff2b09c62d355d
+        width: 0
+        height: 131
+        anchorMin: 0 0
+        slice9: 40 64 268 67
+        spriteFit: Stretch
+        anchorMax: 0.41 0
+        pivot: 0.5 0
+        anchoredPos: 0 -13.966669
+  - id: 5
+    parent: 2
+    name: GameObject (1)
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        sprite: 27bb8ae6acee4d19bccdde31626cbc74
+        width: 483
+        height: 109
+        anchorMax: 0.5 0
+        anchorMin: 0.5 0
+        pivot: 0.5 0
+  - id: 3
+    parent: 2
+    name: TOPBAR
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        anchorMin: 0 0
+        anchorMax: 1 0
+        height: 200
+        pivot: 0.5 0

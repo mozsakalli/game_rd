@@ -50,6 +50,16 @@ public sealed class PreviewableAttribute : Attribute
 {
 }
 
+// Hiyerarsi ikonu: component sinifina tek Unicode glif ("\u25ad" vb.). GO'nun ikonu = component
+// listesinde ilk [Icon]'lu tipin glifi. Editor tip-ozel ikon bilmez; attribute yoksa ikonsuz.
+[AttributeUsage(AttributeTargets.Class, Inherited = false)]
+public sealed class IconAttribute : Attribute
+{
+    public readonly string Glyph;
+
+    public IconAttribute(string glyph) => Glyph = glyph;
+}
+
 // Unity ExecuteInEditMode: isaretli component'in yasam dongusu (Awake/OnEnable/Start/
 // OnDisable/OnDestroy) EDIT sahnesinde de kosar. Isaretsiz component = oyun mantigi;
 // editor projeksiyonunda uyur (Awake'te SetActive(false) gibi yan etkiler sahneyi bozmaz).
@@ -117,11 +127,22 @@ public sealed class HideInInspectorAttribute : Attribute
 
 // Ayar penceresi kategorisi (yalniz editor; serilesmeyi etkilemez). Kategorili pencere (PlayerSettingsWindow) alanlari
 // sol listedeki gruba gore suzer: ObjectDrawer.Filter + FieldSchema.Category. Isaretsiz alan = "General".
+// Component inspector'inda da ayni attribute katlanir alt-bolum basligi olur (herkese acik; oyun kodu dahil).
 [AttributeUsage(AttributeTargets.Field)]
 public sealed class CategoryAttribute : Attribute
 {
     public string Name { get; }
     public CategoryAttribute(string name) { Name = name; }
+}
+
+// Vektor alaninin bilesen etiketleri (yalniz editor; serilesmeyi etkilemez): Vec4 padding/border/margin icin
+// "L","T","R","B", radius icin "TL","TR","BR","BL" — inspector X/Y/Z/W yerine bunlari yazar, comp.schema
+// 'labels' olarak verir. Bilesen sayisi kadar etiket; eksikse kalanlar varsayilan (X/Y/Z/W).
+[AttributeUsage(AttributeTargets.Field)]
+public sealed class LabelsAttribute : Attribute
+{
+    public string[] Names { get; }
+    public LabelsAttribute(params string[] names) { Names = names; }
 }
 
 // Hassas ayar alani (docs/plugins.md "Sensitive"): deger editor icinde olagan akar, ama RPC/MCP yanitlarinda (AI'a giden her sey:

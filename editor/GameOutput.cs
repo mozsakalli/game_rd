@@ -19,6 +19,10 @@ static unsafe class GameOutput
     [DllImport(Lib, EntryPoint = "de_sokol_read_image")]
     static extern int ReadImage(uint img, int w, int h, void* rgba);
 
+    // RT piksellerini okur (RGBA, GL satir 0 = alt). Yalniz GL backend; pass disinda cagrilmali.
+    internal static bool ReadRgba(Texture rt, int w, int h, byte* dst)
+        => rt != null && ReadImage(rt.ImageId, w, h, dst) != 0;
+
     public readonly struct Device
     {
         public readonly string Name;

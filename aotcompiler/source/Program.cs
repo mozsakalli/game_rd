@@ -86,56 +86,22 @@ public static class Program
     //   DigitoyEngine.dll     engine/managed/**.cs, NoStdLib, ref CoreLib, DE_AOT     -> prebuilt (sdk/) ya da dev'de taze
     //   <Ad>.Game.dll         <proje>/Assets/**/*.cs (Editor/ haric)                -> her build (kullanici makinesi; script yoksa yok)
     // KURULU MOD: aotcompiler.dll'in yaninda Digitoy.CoreLib.dll + DigitoyEngine.dll varsa (publisher sdk/) onlar kullanilir;
-    // DEV MOD: repo kaynaklarindan derlenir, obj/aot-il/ altinda mtime cache.
-    static readonly string AotIlDir = Path.Combine("obj", "aot-il");
+    // DEV MOD: repo kaynaklarindan derlenir, obj/aot-il/ altinda mtime cache (DigitoyEngine.Build.AotIl — editor AotCompatCheck ile ORTAK).
     static string PrebuiltDir => AppContext.BaseDirectory;
     static bool Installed => File.Exists(Path.Combine(PrebuiltDir, "Digitoy.CoreLib.dll")) && !Directory.Exists(Path.Combine("c_runtime", "corelib"));
-    // Hedef -> renderer define'i (Shader.cs GLSL profili). windows: GLCORE 410; mac: Metal; android/wasm: GLES3.
-    static string RendererDefine(string target) => target switch
-    {
-        "android" or "wasm" => "DE_RENDERER_GLES3",
-        "mac" or "ios" => "DE_RENDERER_METAL",
-        _ => OperatingSystem.IsMacOS() ? "DE_RENDERER_METAL" : "DE_RENDERER_OPENGL",
-    };
-    // Hedefin platform define'lari: renderer + DE_DESKTOP (GLFW binding'leri yalniz masaustunde).
-    static IEnumerable<string> TargetDefines(string target)
-    {
-        yield return RendererDefine(target);
-        if (target == "windows" || target == "mac") yield return "DE_DESKTOP";
-    }
-    // Prebuilt engine IL hedefe gore: masaustu kokte DigitoyEngine.dll; digerleri DigitoyEngine.<target>.dll.
-    static string EngineIlName(string target) => target == "windows" || target == "mac" ? "DigitoyEngine.dll" : $"DigitoyEngine.{target}.dll";
+    static IEnumerable<string> TargetDefines(string target) => DigitoyEngine.Build.AotIl.TargetDefines(target);
+    static string EngineIlName(string target) => DigitoyEngine.Build.AotIl.EngineIlName(target);
 
     static string CoreLibDll()
     {
         if (Installed) return Path.Combine(PrebuiltDir, "Digitoy.CoreLib.dll");
-        string dll = Path.Combine(AotIlDir, "Digitoy.CoreLib.dll");
-        var r = DigitoyEngine.Build.RoslynCompiler.CompileToFile(new DigitoyEngine.Build.RoslynBuild
-        {
-            AssemblyName = "Digitoy.CoreLib",
-            SourceFiles = DigitoyEngine.Build.RoslynCompiler.SourcesUnder(Path.Combine("c_runtime", "corelib")),
-            NoStdLib = true,
-        }, dll, useCache: true);
-        if (!r.Ok) throw new Exception("corelib derlemesi basarisiz (Roslyn):\n" + r.Errors);
-        return dll;
+        return DigitoyEngine.Build.AotIl.BuildCoreLib(".");
     }
 
     static string EngineAotDll(string target)
     {
         if (Installed) return Path.Combine(PrebuiltDir, EngineIlName(target));
-        string dll = Path.Combine(AotIlDir, EngineIlName(target));
-        var defines = new List<string> { "DE_AOT" }; defines.AddRange(TargetDefines(target));
-        var r = DigitoyEngine.Build.RoslynCompiler.CompileToFile(new DigitoyEngine.Build.RoslynBuild
-        {
-            AssemblyName = "DigitoyEngine",
-            SourceFiles = DigitoyEngine.Build.RoslynCompiler.SourcesUnder(Path.Combine(RepoRoot, "engine", "managed")),
-            References = { CoreLibDll() },
-            Defines = defines.ToArray(),
-            NoStdLib = true,
-            Optimize = true,
-        }, dll, useCache: true);
-        if (!r.Ok) throw new Exception("engine AOT derlemesi basarisiz (Roslyn):\n" + r.Errors);
-        return dll;
+        return DigitoyEngine.Build.AotIl.BuildEngine(".", RepoRoot, target);
     }
 
     // Managed plugin'ler: Assets/**/*.dll (yolu /Editor/ icerenler haric) — editor GameCode.PluginDlls ile AYNI kural.

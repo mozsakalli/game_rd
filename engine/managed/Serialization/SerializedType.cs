@@ -36,7 +36,8 @@ public static class SerializedType
         public bool Sensitive;         // [Sensitive]: RPC/MCP ciktisinda "***", inspector maskeli (editor)
         public bool DevOnly;           // [DevOnly]: release pak'ina YAZILMAZ (default okunur); dev build/editor: normal (editor)
         public bool FontName;          // [FontName]: string alan = FontTable adi (editor combo / rpc format)
-        public string Category;        // [Category]: ayar penceresi grubu (editor); null = General
+        public string Category;        // [Category]: ayar penceresi grubu / inspector alt-bolumu (editor); null = General
+        public string[] Labels;        // [Labels]: vektor bilesen etiketleri (editor; null = X/Y/Z/W)
 
         // CEKIRDEK boxed erisimciler + kuruculuar: serializer/clone IC YOLLARI yalniz
         // bunlari kullanir (Info'ya asla dokunmaz). Editorde FieldInfo'dan sarilir;
@@ -97,6 +98,7 @@ public static class SerializedType
             f.DevOnly = f.Info.GetCustomAttribute<DevOnlyAttribute>() != null;
             f.FontName = f.Kind == Kind.String && f.Info.GetCustomAttribute<FontNameAttribute>() != null;
             f.Category = f.Info.GetCustomAttribute<CategoryAttribute>()?.Name;
+            f.Labels = f.Info.GetCustomAttribute<LabelsAttribute>()?.Names;
             var attr = f.Info.GetCustomAttribute<ShowIfAttribute>();
             if (attr == null)
                 continue;

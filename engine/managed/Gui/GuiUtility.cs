@@ -20,8 +20,16 @@ public static class GuiUtility
     // Mouse'u yakalamis kontrol (MouseDown'da alinir, MouseUp'ta birakilir).
     public static int HotControl;
 
-    // Keyboard focus'lu kontrol.
-    public static int KeyboardControl;
+    // Keyboard focus'lu kontrol. Yazim izi (KeyboardClaimed) GuiHost'un MouseDown sonrasi "kimse talep etmedi →
+    // odak dus" kararini besler (odak birakma kontrolun icinde degil, merkezde: olay once baska kontrolce Use edilse
+    // ya da odakli kontrol o frame hic cizilmese de dis tik odagi dusurur).
+    public static int KeyboardControl
+    {
+        get => _keyboardControl;
+        set { _keyboardControl = value; if (value != 0) KeyboardClaimed = true; }
+    }
+    static int _keyboardControl;
+    public static bool KeyboardClaimed;
 
     // Bu pass'te son uretilen id: bilesik widget'larin (TextField, DragInt) ic
     // kontrol id'sine cagiran taraftan erismek icin (odak sahipligi takibi).

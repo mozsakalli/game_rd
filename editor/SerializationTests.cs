@@ -180,34 +180,34 @@ public static class SerializationTests
     static void LayoutBoxFourValues(TypeCatalog catalog)
     {
         var schema = catalog.Find(nameof(LayoutBox)).Schema;
-        foreach (string name in new[] { "padding", "border", "radius", "slice9" })
+        foreach (string name in new[] { "padding", "border", "radius" })
             Check(SerializedType.Find(schema, name)?.Kind == SerializedType.Kind.Vec4,
                 "LayoutBox " + name + " tek satir Vec4 semasi");
         Check(SerializedType.Find(schema, "borderLeft") == null, "eski tekil alanlar semada yok");
+        Check(SerializedType.Find(schema, "slice9") == null, "slice9 semada yok (border sprite'in ozelligi)");
+        Check(SerializedType.Find(schema, "padding")?.Labels is { Length: 4 } pl && pl[0] == "L" && pl[3] == "B",
+            "[Labels] padding L/T/R/B");
 
         var box = new GameObject("quad-box").AddComponent<LayoutBox>();
         box.Padding = new Vec4(1, 2, 3, 4);
         box.Border = new Vec4(5, 6, 7, 8);
         box.Radius = new Vec4(9, 10, 11, 12);
-        box.Scale9 = new Vec4(13, 14, 15, 16);
         var node = ObjectSerializer.ToNode(box, null);
         var restored = new GameObject("quad-restored").AddComponent<LayoutBox>();
         ObjectSerializer.FromNode(restored, node, null);
         Check(Same(restored.Padding, box.Padding) && Same(restored.Border, box.Border)
-            && Same(restored.Radius, box.Radius) && Same(restored.Scale9, box.Scale9),
+            && Same(restored.Radius, box.Radius),
             "LayoutBox grouped serialization round-trip");
-        Check(box.PadBottom == 4 && box.BorderRight == 7 && box.RadiusBL == 12 && box.Slice9Top == 14,
+        Check(box.PadBottom == 4 && box.BorderRight == 7 && box.RadiusBL == 12,
             "grouped degerler tekil API'de");
         box.BorderLeft = 25;
         box.RadiusTR = 30;
-        box.Slice9Bottom = 40;
-        Check(box.Border.x == 25 && box.Radius.y == 30 && box.Scale9.w == 40,
+        Check(box.Border.x == 25 && box.Radius.y == 30,
             "tekil setter grouped degeri degistirir");
         box.CornerRadius = 2;
         box.BorderWidth = 3;
-        box.Slice9 = 4;
-        Check(Same(box.Radius, new Vec4(2, 2, 2, 2)) && Same(box.Border, new Vec4(3, 3, 3, 3))
-            && Same(box.Scale9, new Vec4(4, 4, 4, 4)), "uniform setter'lar korunur");
+        Check(Same(box.Radius, new Vec4(2, 2, 2, 2)) && Same(box.Border, new Vec4(3, 3, 3, 3)),
+            "uniform setter'lar korunur");
         box.Layout = LayoutMode.Horizontal;
         var child = new GameObject("quad-child").AddComponent<LayoutBox>();
         child.transform.SetParent(box.transform, false);

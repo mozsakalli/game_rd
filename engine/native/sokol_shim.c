@@ -1490,6 +1490,17 @@ SOKOL_API int de_menu_show_context(void *glfwWindow, void *popup)
     SetForegroundWindow(hwnd); // menu disina tiklaninca kapanabilsin
     int cmd = (int)TrackPopupMenu((HMENU)popup, TPM_RETURNCMD | TPM_RIGHTBUTTON,
                                   pt.x, pt.y, 0, hwnd, NULL);
+    // Menuyu kapatan dis tik WM_*BUTTONDOWN olarak kuyrukta kalir ve sonraki glfwPollEvents'te
+    // pencereye "normal basma" olarak iner (hiyerarside drag baslatiyordu — olculdu). Yalniz
+    // button-down mesajlari yutulur; eslesmez MouseUp hot=0 oldugundan zararsizdir.
+    MSG m;
+    while (PeekMessageW(&m, hwnd, WM_LBUTTONDOWN, WM_LBUTTONDOWN, PM_REMOVE)
+        || PeekMessageW(&m, hwnd, WM_RBUTTONDOWN, WM_RBUTTONDOWN, PM_REMOVE)
+        || PeekMessageW(&m, hwnd, WM_MBUTTONDOWN, WM_MBUTTONDOWN, PM_REMOVE)
+        || PeekMessageW(&m, hwnd, WM_XBUTTONDOWN, WM_XBUTTONDOWN, PM_REMOVE)
+        || PeekMessageW(&m, hwnd, WM_LBUTTONDBLCLK, WM_LBUTTONDBLCLK, PM_REMOVE)
+        || PeekMessageW(&m, hwnd, WM_RBUTTONDBLCLK, WM_RBUTTONDBLCLK, PM_REMOVE))
+        ;
     return cmd >= 1000 ? cmd - 1000 : -1;
 }
 

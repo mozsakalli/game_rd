@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
@@ -9,7 +10,7 @@ using System.Text.Json.Nodes;
 // image content eklenir -> AI ekran goruntusunu dogrudan gorur.
 //
 // Kullanim (.vscode/mcp.json): "command": "dotnet", "args": ["run","--project","tools/mcp-bridge"]
-// Env: DIGITOY_RPC_PORT (default 5157).
+// Env: DIGITOY_RPC_PORT (default 5157), DIGITOY_RPC_TIMEOUT_SEC (default 120; editor yanitsizsa bekleme ust siniri).
 
 static class Program
 {
@@ -30,22 +31,46 @@ static class Program
         var reader = new StreamReader(stdin, new UTF8Encoding(false));
         _out = new StreamWriter(stdout, new UTF8Encoding(false)) { AutoFlush = true };
 
-        string? line;
-        while ((line = reader.ReadLine()) != null)
+        // Istekler tek worker'da SIRAYLA kosar (mevcut tek-is semantigi); ana thread yalniz stdin okur. Boylece
+        // editor cevap vermese bile VS Code stdin'i kapatinca EOF gorulur ve surec biter — yetim mcp-bridge kalmaz
+        // (eski model: Handle ana thread'de, Rpc icinde takilinca EOF hic okunmuyordu).
+        var worker = new Thread(() =>
         {
-            if (line.Length == 0)
-                continue;
-            JsonNode? msg;
-            try { msg = JsonNode.Parse(line); }
-            catch (Exception e) { Log("parse hatasi: " + e.Message); continue; }
-            if (msg == null)
-                continue;
-            var response = Handle(msg);
-            if (response != null)
-                Send(response);
+            foreach (var msg in _inbox.GetConsumingEnumerable())
+            {
+                var response = Handle(msg);
+                if (response != null)
+                    Send(response);
+            }
+        })
+        { IsBackground = true, Name = "mcp-handle" };
+        worker.Start();
+
+        string? line;
+        try
+        {
+            while ((line = reader.ReadLine()) != null)
+            {
+                if (line.Length == 0)
+                    continue;
+                JsonNode? msg;
+                try { msg = JsonNode.Parse(line); }
+                catch (Exception e) { Log("parse hatasi: " + e.Message); continue; }
+                if (msg == null)
+                    continue;
+                _inbox.Add(msg);
+            }
         }
+        catch (IOException) { }
+        // Kuyruktakiler bitsin (istemci isteklerini yazip stdin'i hemen kapatmis olabilir); editor takiliysa sinirli bekle.
+        _inbox.CompleteAdding();
+        if (!worker.Join(TimeSpan.FromSeconds(5)))
+            Log("stdin kapandi, editor yanitsiz — bekleyen istek dusuruldu");
+        Environment.Exit(0);
         return 0;
     }
+
+    static readonly BlockingCollection<JsonNode> _inbox = new();
 
     // stdout tek yazar: yanitlar (ana dongu) + list_changed bildirimi (izleyici is parcacigi) kilitle siralanir.
     static StreamWriter? _out;
@@ -92,6 +117,7 @@ static class Program
         var sb = new StringBuilder();
         foreach (var kv in describe.AsObject().OrderBy(k => k.Key, StringComparer.Ordinal))
         {
+            if (kv.Value is not JsonObject) continue; // komut olmayan meta anahtar (orn. sizeHint)
             sb.Append(kv.Key).Append('(');
             if (kv.Value?["params"] is JsonArray ps)
                 foreach (var pn in ps)
@@ -204,6 +230,7 @@ static class Program
         _toolToCmd.Clear();
         foreach (var kv in describe.AsObject())
         {
+            if (kv.Value is not JsonObject) continue; // komut olmayan meta anahtar (orn. sizeHint)
             string cmd = kv.Key;
             string tool = cmd.Replace('.', '_');
             _toolToCmd[tool] = cmd;
@@ -309,6 +336,11 @@ static class Program
 
     // --- editor RPC (TCP, satir-bazli) ---
 
+    // Editor yanit vermezse (ana thread kilitli / modal dialog) sonsuza kadar beklenmez: sure dolunca baglanti
+    // kapatilir ve istemciye net hata doner. Deferred komutlar (sim.run, code.build) uzun surebilir → genis pay.
+    // Timeout'ta TEKRAR DENEME YOK: komut editorde kosmus olabilir (mutasyon iki kez uygulanmasin).
+    static readonly int TimeoutSec = int.TryParse(Environment.GetEnvironmentVariable("DIGITOY_RPC_TIMEOUT_SEC"), out int t) && t > 0 ? t : 120;
+
     static JsonNode Rpc(string cmd, JsonObject? args)
     {
         lock (_rpcLock)
@@ -327,12 +359,20 @@ static class Program
                         return resp["result"] ?? new JsonObject();
                     throw new RpcFailure(resp["error"]?.ToString() ?? "bilinmeyen hata");
                 }
+                catch (IOException e) when (IsTimeout(e))
+                {
+                    Disconnect(); // gec gelecek yanit eski baglantida kalsin, sonraki istekle karismasin
+                    throw new RpcFailure($"editor {TimeoutSec}s icinde yanit vermedi ('{cmd}') — editor ana thread'i mesgul/kilitli olabilir " +
+                        "(modal dialog, uzun derleme, donmus frame). Editor penceresine bak; komut kosmus olabilir, kor tekrar yapma");
+                }
                 catch (IOException) when (attempt == 0) { Disconnect(); }
                 catch (SocketException) when (attempt == 0) { Disconnect(); }
             }
             throw new RpcFailure($"editor RPC'ye ulasilamiyor (localhost:{Port}) — DigitoyEditor acik mi?");
         }
     }
+
+    static bool IsTimeout(IOException e) => e.InnerException is SocketException { SocketErrorCode: SocketError.TimedOut };
 
     static void Connect()
     {
@@ -342,6 +382,7 @@ static class Program
         _tcp = new TcpClient();
         _tcp.Connect("127.0.0.1", Port);
         var s = _tcp.GetStream();
+        s.ReadTimeout = TimeoutSec * 1000;
         _rd = new StreamReader(s, new UTF8Encoding(false));
         _wr = new StreamWriter(s, new UTF8Encoding(false)) { AutoFlush = true };
     }

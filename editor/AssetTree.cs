@@ -64,6 +64,19 @@ public static class AssetTree
             else
                 into.Add(new Node(rest, rel, kv.Value, SubAssets.IsContainer(rel) ? Kind.Container : Kind.File));
         }
+        // BOS klasorler guid tablosunda yoktur (dosya yok): diskten tamamlanir (gizli '.' klasorler haric).
+        string full = path.Length > 0 ? System.IO.Path.Combine(assets.Root, path) : assets.Root;
+        if (System.IO.Directory.Exists(full))
+        {
+            foreach (var d in System.IO.Directory.GetDirectories(full))
+            {
+                string name = System.IO.Path.GetFileName(d);
+                if (name.Length == 0 || name[0] == '.')
+                    continue;
+                if (dirs.Add(name))
+                    into.Add(new Node(name, prefix + name, null, Kind.Folder));
+            }
+        }
         into.Sort((a, b) => (a.Kind == Kind.Folder) != (b.Kind == Kind.Folder) ? (a.Kind == Kind.Folder ? -1 : 1)
             : string.CompareOrdinal(a.Name, b.Name));
     }

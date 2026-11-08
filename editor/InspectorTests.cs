@@ -68,7 +68,7 @@ public static class InspectorTests
                         {
                             args = new object[] { "quad", SerializedType.Kind.Vec4, typeof(Vec4),
                                 default(SerializedType.Kind), null, null, node, "vec4-doc", 0,
-                                0f, 400f, 0f, (Action)(() => { }), false };
+                                0f, 400f, 0f, (Action)(() => { }), false, null };
                             drawDoc.Invoke(inspector, args);
                             Check((float)args[9] == 22f, "doc Vec4 input pass tek satir");
                         }

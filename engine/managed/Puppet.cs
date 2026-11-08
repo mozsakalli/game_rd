@@ -97,6 +97,7 @@ public static class CueHash
 
 [Previewable]
 [ExecuteInEditMode]
+[Icon("\u25C6")]
 [AddComponentMenu("Animation/Puppet")]
 public sealed class Puppet : Component
 {

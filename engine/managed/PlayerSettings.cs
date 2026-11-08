@@ -38,7 +38,14 @@ public class PlayerSettings
     // olmayan sahne ve ona ozel icerik build'e girmez. startScene listede olmak zorundadir
     // (pencere zorlar; builder eksikse uyarip ekler). Ikisi de ozel bolumle cizilir.
     [HideInInspector] public List<string> scenes = new();
-    [HideInInspector] public string startScene = "Scenes/Main.scene"; // Assets'e goreli ilk sahne
+    [HideInInspector] public string startScene = "Scenes/Main.scene"; // Assets'e goreli ilk sahne VEYA kod sahnesi tip adi
+
+    // KOD SAHNESI (docs/engine-notes.md "KOD SAHNESI"): startScene bir dosya yolu degil, katalogdaki bir Component tip adiysa
+    // (uzanti yok, '/' yok) host bos Scene yaratir, tek GO'ya o component'i ekler; agaci component kodla kurar. Sahne dosyasi,
+    // doc, serializer yok. Tema = turetilmis sinif adi. Tek kural tek yerde: burasi.
+    public static bool IsCodeScene(string startScene)
+        => !string.IsNullOrWhiteSpace(startScene) && startScene.IndexOf('/') < 0 && startScene.IndexOf('\\') < 0
+           && !startScene.EndsWith(".scene", StringComparison.OrdinalIgnoreCase);
 
     // OYUN GIRISI (docs/plugins.md "IGameBoot"): oyunun TEK ayar+baslatma nesnesi — [Serializable, Asset] bir sinif, IGameBoot uygular,
     // alanlari gomulu (NetworkSettings, GameDefinition... ayri dosya degil). GameHost pak acilip katalog kurulunca, startScene'den
@@ -84,11 +91,11 @@ public class PlayerSettings
     // iOS'a ozel yayin ayarlari (Build iOS Project -> generated/app.xcconfig; Xcode kabugu her build okur).
     [Category("iOS")] public IosSettings ios = new();
 
-    // Build kokleri: scenes + startScene (tekil, sira korunur, startScene listede yoksa basa).
+    // Build kokleri: scenes + startScene (tekil, sira korunur, startScene listede yoksa basa). Kod sahnesi dosya degil, kok olmaz.
     public List<string> BuildScenes()
     {
         var list = new List<string>();
-        if (!string.IsNullOrWhiteSpace(startScene))
+        if (!string.IsNullOrWhiteSpace(startScene) && !IsCodeScene(startScene))
             list.Add(startScene.Trim());
         foreach (var s in scenes)
             if (!string.IsNullOrWhiteSpace(s) && !list.Contains(s.Trim()))

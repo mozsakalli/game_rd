@@ -1,5 +1,6 @@
 #if DE_EDITOR
 using System;
+using System.Collections.Generic;
 using System.Text;
 using DigitoyEngine;
 using DigitoyEngine.Editor;
@@ -28,7 +29,9 @@ public static class LifecycleTests
         SelfDisableInOnEnable(s);
         InactiveParentChain(s);
         InstantiateDuringUpdate(s);
+        InstantiateDeepCopy(s);
         TweenChainSurvivesKill(s);
+        IsDestroyedFlag(s);
         EditModeGatesGameLogic();
 
         Scene.SetActive(prev);
@@ -133,6 +136,28 @@ public static class LifecycleTests
         Check(r.Log == "AESUDX", "olu component tekrar Update almaz");
     }
 
+    // IsDestroyed: Destroy() cagrisiyla ANINDA true (flush beklemez); GO, component ve alt agac yollari.
+    static void IsDestroyedFlag(Scene s)
+    {
+        var go = new GameObject("t2b");
+        var child = new GameObject("t2b-child"); child.transform.SetParent(go.transform, false);
+        var a = go.AddComponent<Recorder>();
+        var b = go.AddComponent<Recorder>();
+        var cc = child.AddComponent<Recorder>();
+        Check(!go.IsDestroyed && !a.IsDestroyed && !child.IsDestroyed && !cc.IsDestroyed, "IsDestroyed baslangicta false");
+
+        GameObject.Destroy(a);
+        Check(a.IsDestroyed && !b.IsDestroyed && !go.IsDestroyed, "component Destroy: kuyrukta aninda true, kardes/GO etkilenmez");
+        s.Update(0f);
+        Check(a.IsDestroyed && !b.IsDestroyed, "component flush sonrasi true kalir");
+
+        GameObject.Destroy(go);
+        Check(go.IsDestroyed && b.IsDestroyed && go.activeInHierarchy, "GO Destroy: kuyrukta IsDestroyed true, activeInHierarchy flush'a kadar degismez");
+        Check(child.IsDestroyed && cc.IsDestroyed, "alt agac: ata kuyruktaysa cocuk ve component'leri de IsDestroyed");
+        s.Update(0f);
+        Check(go.IsDestroyed && b.IsDestroyed && child.IsDestroyed && cc.IsDestroyed && !go.activeInHierarchy, "flush sonrasi kok + alt agac + tum component'ler IsDestroyed");
+    }
+
     static void StartOnceOnReEnable(Scene s)
     {
         var go = new GameObject("t3");
@@ -215,6 +240,53 @@ public static class LifecycleTests
         GameObject.Destroy(template);
         GameObject.Destroy(go);
         GameObject.Destroy(sp.Spawned);
+        s.Update(0f);
+    }
+
+    [Serializable]
+    public sealed class RefItem
+    {
+        public Component Target;
+        public string Tag;
+    }
+
+    [AddComponentMenu("")]
+    public sealed class RefHolder : Component
+    {
+        public List<RefItem> Items = new();
+        public RefItem Single;
+        public List<GameObject> Gos = new();
+        public List<int> Ints = new();
+    }
+
+    // Instantiate: serilesen liste/ic ice nesne SABLONLA PAYLASILMAZ, icindeki klon-ici ref'ler klona remap edilir;
+    // dis referans aynen kalir. (MovieClip.Tracks / Binding.Binds bu yolla cogalir.)
+    static void InstantiateDeepCopy(Scene s)
+    {
+        var outsider = new GameObject("t6b-out");
+        var tpl = new GameObject("t6b-template");
+        var child = new GameObject("t6b-child");
+        child.transform.SetParent(tpl.transform, false);
+        var rec = child.AddComponent<Recorder>();
+        var h = tpl.AddComponent<RefHolder>();
+        h.Items.Add(new RefItem { Target = rec, Tag = "in" });
+        h.Items.Add(new RefItem { Target = outsider.transform, Tag = "out" });
+        h.Single = new RefItem { Target = rec };
+        h.Gos.Add(child); h.Gos.Add(outsider);
+        h.Ints.Add(7);
+
+        var clone = GameObject.Instantiate(tpl);
+        var ch = clone.GetComponent<RefHolder>();
+        var cloneRec = clone.transform.GetChild(0).gameObject.GetComponent<Recorder>();
+        Check(!ReferenceEquals(ch.Items, h.Items) && !ReferenceEquals(ch.Items[0], h.Items[0]) && !ReferenceEquals(ch.Single, h.Single)
+            && !ReferenceEquals(ch.Ints, h.Ints), "Instantiate: liste/nesne yeni ornek (paylasim yok)");
+        Check(ch.Items.Count == 2 && ch.Items[0].Tag == "in" && ch.Ints[0] == 7, "Instantiate: icerik kopyalandi");
+        Check(ReferenceEquals(ch.Items[0].Target, cloneRec) && ReferenceEquals(ch.Single.Target, cloneRec) && ReferenceEquals(ch.Gos[0], cloneRec.gameObject),
+            "Instantiate: liste/nesne icindeki klon-ici ref klona remap");
+        Check(ReferenceEquals(ch.Items[1].Target, outsider.transform) && ReferenceEquals(ch.Gos[1], outsider), "Instantiate: dis ref aynen");
+        ch.Items.Add(new RefItem());
+        Check(h.Items.Count == 2, "klon listesine ekleme sablonu etkilemez");
+        GameObject.Destroy(outsider); GameObject.Destroy(tpl); GameObject.Destroy(clone);
         s.Update(0f);
     }
 

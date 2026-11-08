@@ -350,7 +350,7 @@ objects:
   - id: 21
     parent: 0
     name: GameObject (5)
-    pos: 106.38196 -116.79721 0
+    pos: 299.54724 131.73386 0
     rot: 0 0 0
     scale: 1 1 1
     components:
@@ -620,7 +620,7 @@ objects:
   - id: 25
     parent: 0
     name: STONE
-    pos: -350.03314 83.851074 0
+    pos: 366.03162 277.0163 0
     rot: 0 0 0
     scale: 1 1 1
     prefab: caad6699497e45e5a9ea3e5ed5660cde
@@ -811,3 +811,16 @@ objects:
       - type: TextSprite
         Font: fd5600eb13f947c7af4439bb29c33b96
         Text@loc: login.deneme
+  - id: 31
+    parent: 1
+    name: S9Test
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        width: 400
+        height: 200
+        sprite: a472cdcd94cd482ead585c2bec926a6d
+        spriteFit: Stretch
+        anchoredPos: 0 0

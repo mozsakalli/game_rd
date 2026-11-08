@@ -1,0 +1,15 @@
+scene: Column
+objects:
+  - id: 1
+    parent: 0
+    name: Column
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        layout: Vertical
+        spacing: 8
+        alignChildren: Center
+        minWidth: 48
+        minHeight: 48

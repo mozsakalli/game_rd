@@ -25,6 +25,9 @@ public sealed class RpcCommandAttribute : Attribute
     // Doc'u DEGISTIREN komut (prop.set, scene.apply...): RpcHost tema kapisindan gecer — calisilan tema default degilse
     // istek theme:'<ad>' tasimali ya da baglanti theme.set ile o temayi beyan etmis olmali (yanlis katmana kazara yazim yok).
     public bool Mutates { get; set; }
+    // Editor durumuna DOKUNMAYAN komut (rpc.describe, rpc.stats, log.tail...): insan jesti/klavye odagi varken de kosar
+    // (MCP initialize bunlara muhtac; kapali kapida sessiz kalmasin). Varsayilan false = kapida bekler.
+    public bool Pure { get; set; }
 
     public RpcCommandAttribute(string name, string help = "")
     {
@@ -52,6 +55,7 @@ public static class RpcRegistry
         public MethodInfo Method;
         public ParameterInfo[] Params;
         public bool Mutates;
+        public bool Pure;
     }
 
     static readonly Dictionary<string, Entry> _byName = new();
@@ -79,6 +83,7 @@ public static class RpcRegistry
                         Method = m,
                         Params = m.GetParameters(),
                         Mutates = attr.Mutates,
+                        Pure = attr.Pure,
                     };
                 }
         }
@@ -101,6 +106,8 @@ public static class RpcRegistry
                 cmd.Add("help", DocNode.Scal(e.Help));
             if (e.Mutates)
                 cmd.Add("mutates", DocNode.Scal("true")); // tema kapisi: calisilan tema default degilse theme:'<ad>' ister (rpc.guide themes)
+            if (e.Pure)
+                cmd.Add("pure", DocNode.Scal("true")); // editor jest/odak kapisindan muaf
             var ps = DocNode.Seq();
             foreach (var p in e.Params)
             {
@@ -513,10 +520,23 @@ public static class RpcHost
         catch { }
     }
 
-    // ANA THREAD, frame basinda (jest yokken) cagrilir: biriken istekleri kosar.
-    public static void Pump(RpcContext ctx)
+    // Kapali kapida (insan jesti / klavye odagi / ui otomasyonu) bir istek en fazla bu kadar frame bekler;
+    // sonra CALISTIRILMADAN "editor busy" hatasi doner (sessiz asilma yok — istemci nedenini gorur).
+    public const int GateMaxFrames = 90;
+    static int _gatedFrames;
+    static readonly List<Request> _gateScratch = new();
+
+    // ANA THREAD, her frame cagrilir. gate == null: kapi acik, her sey kosar. gate != null: neden metni;
+    // yalniz Pure komutlar kosar, digerleri bekler; GateMaxFrames asilinca hata ile dusurulur.
+    public static void Pump(RpcContext ctx, string gate = null)
     {
-        FrameCount++;
+        if (gate != null)
+        {
+            PumpGated(ctx, gate);
+            return;
+        }
+        FrameCount++; // yalniz acik kapida ilerler: deferred poll'larin (sim.run, input.tap hold) saati pompalanan frame'dir
+        _gatedFrames = 0;
         // Bekleyen deferred yanitlar: poll dene, sonuclanani yaz.
         for (int i = _pending.Count - 1; i >= 0; i--)
         {
@@ -528,7 +548,7 @@ public static class RpcHost
                 var result = p.Poll();
                 if (result == null)
                     continue; // hala bekliyor
-                response = Ok(p.HasId, p.Id, result);
+                response = Ok(p.HasId, p.Id, result, p.Cmd);
             }
             catch (RpcError ex)
             {
@@ -557,6 +577,67 @@ public static class RpcHost
     }
 
     static string _lastCmd; // Execute'un cozdugu komut adi (telemetri; ana thread)
+
+    // Kapi kapali: kuyrugu suz — Pure olanlar kosar, digerleri sirasi bozulmadan geri konur ya da sure doldu ise
+    // hata ile dusurulur. Deferred poll'lar (sim.run vb.) dokunulmaz, kapi acilinca surer.
+    static void PumpGated(RpcContext ctx, string gate)
+    {
+        if (_queue.IsEmpty)
+        {
+            _gatedFrames = 0;
+            return;
+        }
+        _gatedFrames++;
+        bool expire = _gatedFrames > GateMaxFrames;
+        _gateScratch.Clear();
+        while (_queue.TryDequeue(out var req))
+            _gateScratch.Add(req);
+        foreach (var req in _gateScratch)
+        {
+            PeekRequest(req.Line, out string cmd, out bool hasId, out long id);
+            var entry = cmd != null ? RpcRegistry.Find(cmd) : null;
+            if (entry != null && entry.Pure)
+            {
+                long begin = RpcStats.Begin();
+                string response = Execute(ctx, req.Line, req.From, begin);
+                if (response != null)
+                {
+                    RpcStats.End(_lastCmd, begin, response, !response.Contains("\"ok\":true", StringComparison.Ordinal));
+                    Send(req.From, response);
+                }
+            }
+            else if (expire)
+            {
+                string response = Error(hasId, id, $"editor busy: {gate} — '{cmd}' NOT executed (waited {_gatedFrames} frames); retry when the editor is idle");
+                RpcStats.End(cmd ?? "?", RpcStats.Begin(), response, true);
+                Send(req.From, response);
+            }
+            else
+                _queue.Enqueue(req);
+        }
+        _gateScratch.Clear();
+        if (expire)
+            _gatedFrames = 0;
+    }
+
+    // Execute oncesi ucuz on-okuma: komut adi ve id (kapi karari icin; gecersiz JSON'da cmd null, Execute hatayi verir).
+    static void PeekRequest(string line, out string cmd, out bool hasId, out long id)
+    {
+        cmd = null; hasId = false; id = -1;
+        try
+        {
+            using var doc = JsonDocument.Parse(line);
+            var root = doc.RootElement;
+            if (root.TryGetProperty("id", out var idEl) && idEl.ValueKind == JsonValueKind.Number)
+            {
+                id = idEl.GetInt64();
+                hasId = true;
+            }
+            if (root.TryGetProperty("cmd", out var cmdEl) && cmdEl.ValueKind == JsonValueKind.String)
+                cmd = cmdEl.GetString();
+        }
+        catch (System.Text.Json.JsonException) { }
+    }
 
     static void Send(Client to, string response)
     {
@@ -604,7 +685,7 @@ public static class RpcHost
                 _deferredPoll = null;
                 return null; // yanit poll sonuclaninca
             }
-            return Ok(hasId, id, result);
+            return Ok(hasId, id, result, cmd);
         }
         catch (System.Text.Json.JsonException ex)
         {
@@ -623,12 +704,15 @@ public static class RpcHost
 
     const int BigResponseBytes = 8 * 1024;
 
-    static string Ok(bool hasId, long id, DocNode result)
+    static string Ok(bool hasId, long id, DocNode result, string cmd)
     {
         result = RpcRedact.Apply(result); // [Sensitive] alanlar AI'a gitmez (tek cikis noktasi)
         string s = Serialize(hasId, id, result);
         // Buyuk yanit: AI'a daraltma ipucu (select/root/types/delta). Goruntu yanitlari zaten kucuk (yol doner).
-        if (s.Length > BigResponseBytes && result != null && result.IsMap && result.Get("sizeHint") == null && result.Get("delta") == null)
+        // Sema komutlari (rpc.describe/rpc.guide) muaf: daraltma parametreleri yok, kok anahtarlari komut adi olarak
+        // tuketilir (MCP koprusu) — araya meta anahtar girmemeli.
+        bool schemaCmd = cmd == "rpc.describe" || cmd == "rpc.guide";
+        if (!schemaCmd && s.Length > BigResponseBytes && result != null && result.IsMap && result.Get("sizeHint") == null && result.Get("delta") == null)
         {
             result.Add("sizeHint", DocNode.Scal($"{s.Length / 1024} KB — buyuk yanit. Sonraki ayni sorgu yalniz degiseni doner; daraltmak icin select/root/types/go/depth kullan"));
             s = Serialize(hasId, id, result);

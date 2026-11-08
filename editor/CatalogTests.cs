@@ -62,9 +62,9 @@ public static class CatalogTests
                 lb.CopyTo(src, dst);
                 Check(wa.Get(dst).ToFloat() == 77f, "private alan CopyTo + erisimciler");
             }
-            // Metin stili alanlari text'e bagli ([ShowIf(nameof(text))]); font = [FontName] string (asset degil).
-            var tf = SerializedType.Find(lb.Schema, "textSize");
-            Check(tf == null || (tf.ShowIf != null && tf.ShowIf.Name == "text"), "ShowIf referansi bagli");
+            // Fill alanlari sprite'a bagli ([ShowIf(nameof(sprite))]); font = [FontName] string (asset degil).
+            var tf = SerializedType.Find(lb.Schema, "spriteFit");
+            Check(tf == null || (tf.ShowIf != null && tf.ShowIf.Name == "sprite"), "ShowIf referansi bagli");
             var ff = SerializedType.Find(lb.Schema, "font");
             Check(ff != null && ff.Kind == SerializedType.Kind.String && ff.FontName, "font alani [FontName] string");
         }

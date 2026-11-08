@@ -127,6 +127,15 @@ public sealed partial class InspectorPanel
             p.ApplyAssetSettings();
     }
 
+    // Disaridan (Sprite Editor) meta yazildi: ayni asset gosteriliyorsa ayarlari yeniden bagla (bekleyen duzenleme yoksa).
+    public static void ReloadAssetSettings(string rel)
+    {
+        var p = _instance;
+        if (p == null || !p._aIsMeta || p._aDirty || p._aPath == null || RelAssetPath(p._aPath) != rel)
+            return;
+        p._aDrawer.Bind(ImportPipeline.LoadSettings(rel));
+    }
+
     readonly Dictionary<string, char[]> _docStrBufs = new();
     readonly Dictionary<string, int> _docStrLens = new();
     readonly Dictionary<string, string> _docStrValues = new();
@@ -181,7 +190,7 @@ public sealed partial class InspectorPanel
         }
         DrawDocValue(field.Name, field.Kind, field.FieldType, field.ElementKind,
             field.ElementType, field.Nested, edited, path, 0, ref y, right, 0,
-            deferredCommit, ref changed);
+            deferredCommit, ref changed, field.Labels);
         if (changed)
             scene.SetProp(go, component, field, current, edited);
     }
@@ -240,7 +249,7 @@ public sealed partial class InspectorPanel
     void DrawDocValue(string label, SerializedType.Kind kind, Type valueType,
         SerializedType.Kind elementKind, Type elementType, SerializedType.FieldSchema[] nested,
         DocNode node, string path, int indent, ref float y, float right, float rightReserve,
-        Action deferredCommit, ref bool changed)
+        Action deferredCommit, ref bool changed, string[] labels = null)
     {
         if (kind == SerializedType.Kind.List)
         {
@@ -323,7 +332,7 @@ public sealed partial class InspectorPanel
             case SerializedType.Kind.Vec4:
                 {
                     Vec4 current = SerializedType.ParseVec4(scalar);
-                    Vec4 next = Vec4Drags(valueRect, current);
+                    Vec4 next = Vec4Drags(valueRect, current, labels);
                     if (!Same(next, current))
                     {
                         node.Scalar = SerializedType.Format(next, kind);
@@ -377,7 +386,7 @@ public sealed partial class InspectorPanel
             }
             DrawDocValue(field.Name, field.Kind, field.FieldType, field.ElementKind,
                 field.ElementType, field.Nested, child, path + "." + field.Name,
-                indent + 1, ref y, right, 0, deferredCommit, ref changed);
+                indent + 1, ref y, right, 0, deferredCommit, ref changed, field.Labels);
         }
     }
 

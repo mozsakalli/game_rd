@@ -1,0 +1,5 @@
+<!-- Managed code stripping (IL2CPP) bu assembly'yi "kullanılmıyor" sanıp atmasın:
+     ViewRefs yalnızca bundle'daki prefab'lardan referanslanır, derleme zamanında görünmeyebilir. -->
+<linker>
+  <assembly fullname="Game.ViewContract" preserve="all" />
+</linker>

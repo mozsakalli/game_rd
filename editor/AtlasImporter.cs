@@ -182,6 +182,14 @@ public sealed partial class AtlasImporter : AssetImporter
                     continue;
                 }
                 s = RegionSource.FromBuffer(key, RegionKind.Color, rgba, 4, w, 0, 0, w, h);
+                // 9-slice kenarlari png'nin import ayarindan (stamp zinciri uyeyi kapsar: border degisince grup yeniden paketlenir).
+                if (ImportPipeline.LoadSettings(key) is ImageImportSettings { HasBorder: true } isx)
+                {
+                    s.BorderL = (int)MathF.Round(Math.Max(0, isx.border.x));
+                    s.BorderT = (int)MathF.Round(Math.Max(0, isx.border.y));
+                    s.BorderR = (int)MathF.Round(Math.Max(0, isx.border.z));
+                    s.BorderB = (int)MathF.Round(Math.Max(0, isx.border.w));
+                }
             }
             else
             {
@@ -251,6 +259,7 @@ public sealed partial class AtlasImporter : AssetImporter
                 var (pix, pstride, _) = pixelBlobs[pixels];
                 var s = RegionSource.FromBuffer(e.Name, e.Kind, pix, 4, pstride, e.X, e.Y, e.W, e.H);
                 s.OffX = e.OffX; s.OffY = e.OffY; s.OrigW = e.OrigW; s.OrigH = e.OrigH;
+                s.BorderL = e.BorderL; s.BorderT = e.BorderT; s.BorderR = e.BorderR; s.BorderB = e.BorderB;
                 s.Pad = Math.Max(e.Pad, g.padding);
                 s.Unit = man.SinglePage ? unit : -1;
                 sources.Add(s);
@@ -301,6 +310,10 @@ public sealed partial class AtlasImporter : AssetImporter
                     OffY = src.OffY,
                     OrigW = src.OrigW,
                     OrigH = src.OrigH,
+                    BorderL = src.BorderL,
+                    BorderT = src.BorderT,
+                    BorderR = src.BorderR,
+                    BorderB = src.BorderB,
                     Kind = src.Kind,
                     Pad = src.Pad,
                 });

@@ -263,22 +263,23 @@ public sealed unsafe class SceneViewPanel : EditorWindow
         if (ev.Type == EventType.Repaint)
         {
             DrawGameFrame();
-            // Proje panelinden PREFAB birakma: imlecin dunya konumuna instance
-            // (kabul karari importer tipinden — dosya tipi hardcode edilmez).
+            // Library/Proje panelinden PREFAB birakma: imlec altindaki GO kap olur (prefab cocugu ise
+            // instance koku), yoksa sahne koku; yerlesim kabin surucusune gore (ElementPlacement).
+            // Kabul karari importer tipinden — dosya tipi hardcode edilmez.
             if (DragDrop.Kind == DragDrop.Payload.Asset
                 && AssetDatabase.ImportTypeOf(DragDrop.AssetPath) == typeof(Prefab)
                 && vis.Contains(ev.MousePosition))
             {
                 var wp = PanelToWorld(ev.MousePosition);
                 string guid = DragDrop.AssetGuid;
+                var es = App.EditScene;
+                int parent = es != null ? ElementPlacement.ContainerFor(es, HitTest(wp)) : 0;
+                var parentLive = parent > 0 ? es.Live(parent) : null;
+                if (parentLive != null)
+                    DrawSelectionBrackets(parentLive, new Color(90, 170, 90, 220)); // hedef kap vurgusu
                 GuiRenderer.DrawRect(new Rect(ev.MousePosition.x - 4, ev.MousePosition.y - 4, 8, 8),
                     new Color(90, 170, 90, 220), 5);
-                DragDrop.RegisterTarget(() =>
-                {
-                    var r = App.EditScene.InstantiatePrefab(guid, 0, new Vec3(wp.x, wp.y, 0f));
-                    if (r != null)
-                        Selection.DocId = r.Id;
-                });
+                DragDrop.RegisterTarget(() => ElementPlacement.DropAt(guid, parent, wp));
             }
         }
     }

@@ -157,11 +157,12 @@ public enum BoxLookFields
     TextOutline = 1 << 8,   // textOutlineWidth + textOutline
     TextShadow = 1 << 9,    // textShadowColor/Offset/Blur
     Transform = 1 << 10,    // scale + rotation
-    Sprite = 1 << 11,       // sprite + spriteFit + slice9 (adim)
+    Sprite = 1 << 11,       // sprite + spriteFit (adim)
 }
 
-// Bir durumun gorunumu: isimli key + lerp'lenen BoxLook + adim alanlari (sprite/fit/slice). Varyantta `overrides`
+// Bir durumun gorunumu: isimli key + lerp'lenen BoxLook + adim alanlari (sprite/fit). Varyantta `overrides`
 // maskesi hangi gruplarin tabani ezdigini soyler; Normal (BoxStyle.normal) tam set, key'i yok.
+// 9-slice kenari sprite'in kendi ozelligi (import ayari); stilde ayri alan yok.
 [Serializable]
 public struct BoxStyleState
 {
@@ -170,7 +171,6 @@ public struct BoxStyleState
     public BoxLook look;
     public Sprite sprite;
     public SpriteFit spriteFit;
-    public Vec4 slice9;
 }
 
 // Paylasilan kutu stili ([Asset] -> .asset dosyasi, LayoutBox.style referansi). Bir kez yaz, N kutu
@@ -268,6 +268,6 @@ public sealed class BoxStyle
         if ((m & BoxLookFields.TextShadow) != 0)
         { L.textShadowColor = V.textShadowColor; L.textShadowOffset = V.textShadowOffset; L.textShadowBlur = V.textShadowBlur; }
         if ((m & BoxLookFields.Transform) != 0) { L.scale = V.scale; L.rotation = V.rotation; }
-        if ((m & BoxLookFields.Sprite) != 0) { r.sprite = v.sprite; r.spriteFit = v.spriteFit; r.slice9 = v.slice9; }
+        if ((m & BoxLookFields.Sprite) != 0) { r.sprite = v.sprite; r.spriteFit = v.spriteFit; }
     }
 }

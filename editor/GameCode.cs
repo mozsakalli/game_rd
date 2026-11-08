@@ -12,8 +12,8 @@ namespace DigitoyEditor;
 // derlenir; yolu /Editor/ iceren dosyalar oyun assembly'sine GIRMEZ (custom editor
 // kodu — ayri assembly olarak derlenmesi sonraki faz). Derleme: IN-PROCESS Roslyn
 // (RegistryCompiler ile ayni; .NET SDK GEREKMEZ — kurulu editor yalniz runtime ister;
-// docs/editor-distribution.md Faz 2). Cikti Library/Build/bin/<Ad>.Game.dll + portable pdb
-// (satir numarali trace). Yukleme: collectible AssemblyLoadContext (unload -> taze derleme
+// docs/editor-distribution.md Faz 2). Cikti Library/Build/bin/<Ad>.Game.dll (portable PDB gomulu;
+// satir numarali trace). Yukleme: collectible AssemblyLoadContext (unload -> taze derleme
 // -> TypeCatalog yeniden kurulur).
 public sealed class GameCode
 {
@@ -91,6 +91,9 @@ public sealed class GameCode
             SourceFiles = job.Scripts,
             References = { typeof(DigitoyEngine.GameObject).Assembly.Location },
             Defines = new[] { "DEBUG", "TRACE", "DE_GAME" },
+            // Gomulu PDB: ayri .pdb dosyasi vsdbg tarafindan kilitleniyordu -> debugger altinda hot reload PDB'yi
+            // yazamiyor, breakpoint "source code is different" oluyordu. DLL stream'den yuklendigi icin kilitlenmez.
+            EmbedPdb = true,
         };
         build.References.AddRange(job.Plugins);
         // Basarisizsa diskteki eski (calisan) dll'e dokunulmaz (CompileToFile once bellege derler).
@@ -226,8 +229,7 @@ public sealed class GameCode
         {
             try
             {
-                using var ps = File.OpenRead(p);
-                plugins.Add(_alc.LoadFromStream(ps));
+                plugins.Add(LoadWithSymbols(p));
             }
             catch (Exception e)
             {
@@ -243,10 +245,7 @@ public sealed class GameCode
             return null;
         };
         if (job.Dll != null)
-        {
-            using (var fs = File.OpenRead(job.Dll))
-                GameAssembly = _alc.LoadFromStream(fs);
-        }
+            GameAssembly = LoadWithSymbols(job.Dll);
         GameDllPath = job.Dll;
         Console.WriteLine($"[gamecode] yuklendi: {job.AsmName ?? "(script yok)"} ({job.Scripts.Count} script, {plugins.Count} plugin)");
         UpdateTypemap(project, assets, job.Scripts);
@@ -345,6 +344,18 @@ public sealed class GameCode
         File.WriteAllText(mapPath, DigitoyEngine.Yaml.Write(root));
     }
 
+    // DLL'i stream'den (dosya kilitlenmez) yukler. Oyun DLL'inde PDB gomulu (CoreCLR + vsdbg bunu dogrudan gorur);
+    // plugin DLL'lerinde yanindaki portable PDB varsa stream olarak verilir. PDB yoksa sembolsuz.
+    Assembly LoadWithSymbols(string dllPath)
+    {
+        string pdbPath = Path.ChangeExtension(dllPath, ".pdb");
+        using var dll = File.OpenRead(dllPath);
+        if (!File.Exists(pdbPath))
+            return _alc.LoadFromStream(dll);
+        using var pdb = File.OpenRead(pdbPath);
+        return _alc.LoadFromStream(dll, pdb);
+    }
+
     public void Unload()
     {
         DigitoyEngine.Plugin.MockHost.Instance.Clear(); // eski ALC mock'lari tutulmasin (reload kacagi)
@@ -389,8 +400,7 @@ public sealed class GameCode
         }
         try
         {
-            using (var fs = File.OpenRead(dll))
-                EditorAssembly = _alc.LoadFromStream(fs);
+            EditorAssembly = LoadWithSymbols(dll);
         }
         catch (Exception e) { EditorLog.Error("[gamecode] Editor.dll yuklenemedi: " + e.Message); return; }
         int mocks = 0;

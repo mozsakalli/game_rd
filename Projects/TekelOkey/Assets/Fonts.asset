@@ -1,0 +1,10 @@
+type: FontTable
+fields:
+  Entries:
+    - Name: regular
+      Font: 78a14126f0f24ffb9f078285b11eade8
+    - Name: bold
+      Font: 5b14e2587c284cdc9439270ecb00cd57
+    - Name: primary
+      Font: 3502ad23ed0c4760a8363a1cf8f0f5be
+  DefaultFont: primary

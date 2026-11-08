@@ -35,8 +35,42 @@ public static class SceneLoader
     public static SceneLoadOp LoadAsync(string key, AssetDatabase assets, TypeCatalog catalog, Transform parent = null, bool replace = false)
     {
         var op = new SceneLoadOp();
+        if (PlayerSettings.IsCodeScene(key))
+        {
+            // Kod sahnesi: dosya/bagimlilik yok, senkron dogar (asset'leri component kendisi ister).
+            try { op.Root = SpawnCode(key, assets, catalog, replace); op.IsDone = true; op._tcs.TrySetResult(true); }
+            catch (System.Exception e) { Fail(op, e.GetType().Name + ": " + e.Message); }
+            return op;
+        }
         _ = Run(op, key, assets, catalog, parent, replace); // async void yok (corelib: yalniz Task builder'lari)
         return op;
+    }
+
+    // KOD SAHNESI (PlayerSettings.IsCodeScene): tek kok GO + katalogdan isimle yaratilan Component; agaci component kurar
+    // (Awake/Start). replace=true: yeni bos Scene aktif olur, eski aktif atilir; replace=false: aktif sahneye dogar.
+    public static GameObject SpawnCode(string typeName, AssetDatabase assets, TypeCatalog catalog, bool replace = false)
+    {
+        var entry = catalog?.Find(typeName);
+        if (entry == null || entry.Create == null)
+            throw new System.Exception("kod sahnesi tipi katalogda yok (Component olmali): " + typeName);
+        Scene old = null, target;
+        if (replace)
+        {
+            old = Scene.Active;
+            target = Scene.Create(typeName);
+            target.Catalog = catalog;
+            target.Assets = assets;
+            Scene.SetActive(target);
+        }
+        else
+            target = Scene.Active;
+        target.DiscardDeltaFrames = 2;
+        var go = new GameObject(typeName);
+        go.AddComponentRaw(entry);
+        go.ActivateComponentsNow();
+        if (old != null && old != target)
+            Scene.Unload(old);
+        return go;
     }
 
     static async Task<bool> Run(SceneLoadOp op, string key, AssetDatabase assets, TypeCatalog catalog, Transform parent, bool replace)

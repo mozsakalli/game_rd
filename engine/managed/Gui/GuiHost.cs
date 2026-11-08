@@ -35,7 +35,14 @@ public sealed class GuiHost
             Vec2 delta = q.Type == EventType.ScrollWheel ? q.Delta : Mul(q.Delta, inv);
             Vec2 m = Mul(q.Mouse, inv);
             RunPass(EventType.Layout, m, default, 0, 1, 0, '\0', EventModifiers.None, screen, gui);
+            GuiUtility.KeyboardClaimed = false;
             RunPass(q.Type, m, delta, q.Button, q.ClickCount, q.Key, q.Character, q.Mods, screen, gui);
+            // Merkezi odak kurali (Unity): tik hicbir kontrolce klavye odagi olarak talep edilmediyse ve mouse'u
+            // yakalayan kontrol odakli kontrol degilse odak duser. Odakli kontrolun kendi "disari tik" dali olayi hic
+            // gormese de (onceki kontrol Use etti, kontrol bu frame cizilmedi) gecerli — odak takili kalmaz.
+            if (q.Type == EventType.MouseDown && !GuiUtility.KeyboardClaimed
+                && GuiUtility.KeyboardControl != 0 && GuiUtility.HotControl != GuiUtility.KeyboardControl)
+                GuiUtility.KeyboardControl = 0;
             mouse = m;
         }
         GuiInput.Clear(window);

@@ -251,6 +251,17 @@ DE_API int de_msdf_svg_glyph(const char *svg, int svgLen, float sdfSize, float s
     };
     out5[0] = advanceEm < 0 ? (float)(img->width * k) : advanceEm * sdfSize;
 
+    // Dejenere kenar esigi (px). Illustrator export'u konturu 0.01 birim acik birakir; nanosvg 'Z' icin
+    // HER ZAMAN baslangica lineTo ekler -> ~1e-6..1e-3 px'lik kenar. msdfgen'de yonu belirsiz mikro kenar
+    // (ozellikle eksene paralel) pseudo-distance'ta glyph boyunca ince bir cizgi artefakti uretir.
+    // Cozum: baslangica eps icinde donen bitis start'a snap'lenir, dort noktasi eps icinde toplanan kenar
+    // ATLANIR (cur ilerletilmez -> kontur surekli kalir).
+    const double eps = 0.05;
+    auto near = [eps](const msdfgen::Point2 &a, const msdfgen::Point2 &b) {
+        double dx = a.x - b.x, dy = a.y - b.y;
+        return dx * dx + dy * dy < eps * eps;
+    };
+
     msdfgen::Shape shape;
     for (NSVGshape *s = img->shapes; s; s = s->next)
     {
@@ -267,11 +278,14 @@ DE_API int de_msdf_svg_glyph(const char *svg, int svgLen, float sdfSize, float s
             {
                 const float *q = &p->pts[i * 2];
                 msdfgen::Point2 c1 = map(q[2], q[3]), c2 = map(q[4], q[5]), to = map(q[6], q[7]);
-                if (!(cur == to) || !(c1 == cur) || !(c2 == to))
-                    c.addEdge(msdfgen::EdgeHolder(cur, c1, c2, to));
+                if (near(to, start))
+                    to = start;
+                if (near(cur, to) && near(c1, cur) && near(c2, to))
+                    continue; // dejenere: atla, cur yerinde kalsin
+                c.addEdge(msdfgen::EdgeHolder(cur, c1, c2, to));
                 cur = to;
             }
-            if (!(cur == start))
+            if (!near(cur, start))
                 c.addEdge(msdfgen::EdgeHolder(cur, start));
             if (c.edges.empty())
                 shape.contours.pop_back();

@@ -213,6 +213,34 @@ public static class LocTableStore
         Touch(scope);
     }
 
+    // Kaynak dili (sutun 0 = fallback) degistirir: secilen dil sutunu one tasinir, tum hucreler ayni sirayla
+    // yeniden dizilir (veri kaybi yok). Dil tabloda yoksa once eklenir.
+    public static bool SetSourceLanguage(string scope, string code)
+    {
+        code = code?.Trim().ToLowerInvariant();
+        if (string.IsNullOrEmpty(code) || !IsKnownLanguage(code))
+            return false;
+        AddLanguage(scope, code);
+        var t = Get(scope);
+        int li = t?.LanguageIndex(code) ?? -1;
+        if (li < 0)
+            return false;
+        if (li == 0)
+            return true;
+        t.Languages.RemoveAt(li);
+        t.Languages.Insert(0, code);
+        foreach (var e in t.Entries)
+        {
+            if (e.Values.Count <= li)
+                continue;
+            var v = e.Values[li];
+            e.Values.RemoveAt(li);
+            e.Values.Insert(0, v);
+        }
+        Touch(scope);
+        return true;
+    }
+
     internal static void Touch(string scope)
     {
         _dirty.Add(scope);

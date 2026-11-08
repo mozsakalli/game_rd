@@ -33,6 +33,15 @@ public sealed class Sprite : IAsset, ISpriteSource
     public int OrigH { get; private set; }
     public bool Rotated { get; private set; } // rezerve: v1 packer dondurmez
 
+    // 9-slice kenarlari (MANTIKSAL doku pikseli; left/top/right/bottom). Resmin OZELLIGI (Unity Sprite.border):
+    // import ayarindan gelir (.meta border -> standalone "border" artifact'i / atlas Region), kullanim basina
+    // kopya yok. Stretch modundaki LayoutBox HasBorder ise 3x3 grid cizer. Hicbir renderer bunu yazmaz.
+    public int BorderL { get; private set; }
+    public int BorderT { get; private set; }
+    public int BorderR { get; private set; }
+    public int BorderB { get; private set; }
+    public bool HasBorder => BorderL > 0 || BorderT > 0 || BorderR > 0 || BorderB > 0;
+
     public bool IsRegion => W > 0;
 
     // Normalize UV (sayfa uzayinda, satir 0 = depolama ilk satiri): bind aninda bir kez hesaplanir,
@@ -56,13 +65,14 @@ public sealed class Sprite : IAsset, ISpriteSource
     // Atlas build/loader: ayni instance yerinde yeniden baglanir (motor-ici +
     // editor InternalsVisibleTo; oyun kodu sprite mutasyonuna kapali).
     internal void BindRegion(Texture page, int x, int y, int w, int h,
-        int offX, int offY, int origW, int origH)
+        int offX, int offY, int origW, int origH, int bl = 0, int bt = 0, int br = 0, int bb = 0)
     {
         Page = page;
         X = x; Y = y; W = w; H = h;
         OffX = offX; OffY = offY;
         OrigW = origW; OrigH = origH;
         Rotated = false;
+        BorderL = bl; BorderT = bt; BorderR = br; BorderB = bb;
         float iw = page != null && page.Width > 0 ? 1f / page.Width : 0f;
         float ih = page != null && page.Height > 0 ? 1f / page.Height : 0f;
         U0 = x * iw; V0 = y * ih;
@@ -70,7 +80,8 @@ public sealed class Sprite : IAsset, ISpriteSource
         BindVersion++;
     }
 
-    // Atlas uyeligi dusunce kaynak dokuya geri doner (tum-sayfa modu).
+    // Atlas uyeligi dusunce kaynak dokuya geri doner (tum-sayfa modu). Border kaynak png'nin kendi
+    // degeriyle (standalone artifact) yeniden kurulur; cagiran SetBorder ile yazar.
     internal void BindFull(Texture page)
     {
         Page = page;
@@ -78,8 +89,18 @@ public sealed class Sprite : IAsset, ISpriteSource
         OffX = OffY = 0;
         OrigW = OrigH = 0;
         Rotated = false;
+        BorderL = BorderT = BorderR = BorderB = 0;
         U0 = V0 = 0f;
         U1 = V1 = 1f;
+        BindVersion++;
+    }
+
+    // Standalone png'nin border'i (artifact'ten) / editor canli tazeleme. Degismediyse sessiz.
+    internal void SetBorder(int l, int t, int r, int b)
+    {
+        if (BorderL == l && BorderT == t && BorderR == r && BorderB == b)
+            return;
+        BorderL = l; BorderT = t; BorderR = r; BorderB = b;
         BindVersion++;
     }
 }

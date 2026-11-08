@@ -115,12 +115,16 @@ static class PlayMode
             State = PlayState.Playing;
     }
 
-    public static void Stop()
+    public static void Stop() => Stop(keepSockets: false);
+
+    // keepSockets: kod reload'unda sahnenin emanet biraktigi soketler (WebSocket.Keep) yasar; kullanici Stop'unda kapanir.
+    public static void Stop(bool keepSockets)
     {
         if (State == PlayState.Editing)
             return;
         State = PlayState.Editing;
         DestroyPlayScene();
+        if (!keepSockets) DigitoyEngine.WebSocket.DropKept();
         Plugin.ResetAll(); // plugin instance'lari Play omurlu (bekleyen Task'lar GC'ye)
         PlayerPrefs.Save(); // oyun kodunun kaydetmedigi prefs Stop'ta diske (release'teki Shutdown muadili)
         FlushRepeatedException();
@@ -151,6 +155,21 @@ static class PlayMode
             if (GameHost.GameBoot == null) EditorLog.Warning("[play] boot calismadi: " + key + " (Console/stdout)");
         }
         var doc = App.EditScene.Doc;
+        string start = App.Project?.Player?.startScene;
+        if (PlayerSettings.IsCodeScene(start))
+        {
+            // KOD SAHNESI: acik doc'tan bagimsiz; sahne component kodundan dogar (hot reload = yeniden dogum).
+            var cs = Scene.Create(start + " (Oyun)");
+            cs.Catalog = App.Catalog;
+            cs.Assets = App.Assets;
+            Scene.SetActive(cs);
+            try { SceneLoader.SpawnCode(start, App.Assets, App.Catalog); }
+            catch (Exception e) { ReportGameException(e, "code scene spawn: " + start); }
+            cs.DiscardDeltaFrames = 2;
+            _spawned = cs;
+            SpawnedDocVersion = App.EditScene.History.Version;
+            return;
+        }
         var s = Scene.Create(doc.Name + " (Oyun)");
         try { doc.InstantiateInto(s, App.Catalog, App.Assets); } // aktif sahne = oyun
         catch (Exception e) { ReportGameException(e, "Awake/OnEnable (scene spawn)"); } // kismi sahne ile devam
@@ -166,6 +185,7 @@ static class PlayMode
     // Oyun kodu kendi sahnesine gecmisse (replace) doc ile bagi kalmadi → bayat sayilmaz.
     public static int SpawnedDocVersion { get; private set; }
     public static bool PlaySceneStale => _spawned != null && IsLoaded(_spawned)
+        && !PlayerSettings.IsCodeScene(App.Project?.Player?.startScene) // kod sahnesi doc'a bagli degil
         && App.EditScene.History.Version != SpawnedDocVersion;
 
     static void DestroyPlayScene()

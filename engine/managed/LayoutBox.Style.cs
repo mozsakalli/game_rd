@@ -10,7 +10,7 @@ namespace DigitoyEngine;
 // Hicbir BoxLook alani layout'u etkilemez -> gecis MarkDirty uretmez, dirty zinciri calismaz.
 public sealed partial class LayoutBox
 {
-    [SerializeField] BoxStyle style;
+    [SerializeField, Category("Fill")] BoxStyle style;
 
     public BoxStyle Style
     {
@@ -154,7 +154,6 @@ public sealed partial class LayoutBox
     {
         sprite = st.sprite;
         spriteFit = st.spriteFit;
-        slice9 = st.slice9;
     }
 
     public BoxLook CaptureLook()

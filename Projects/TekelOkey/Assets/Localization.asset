@@ -1,0 +1,1748 @@
+type: LocalizationTable
+fields:
+  Languages:
+    - tr
+    - en
+    - de
+  Entries:
+    - Key: AskAdTrackBtnNo
+      Values:
+        - SONRA
+        - LATER
+        - SPATER
+    - Key: AskAdTrackBtnYes
+      Values:
+        - İZİN VER
+        - ALLOW
+        - AKTIVIEREN
+    - Key: AskAdTrackDesc
+      Values:
+        - Reklamları ilgi alanlarınıza uygun hale getirmek için bilgilerinizin bir kısmını reklam verenler ile paylaşacağız.
+        - We will share some of your information with advertisers to personalize ads to your interests.
+        - Wir werden einige Ihrer Informationen an Werbetreibende weitergeben, um Anzeigen auf Ihre Interessen.
+    - Key: AskAdTrackDesc-prefix
+      Values:
+        - İzin ver, daha çok bonus kazan
+        - Allow & Earn more bonus
+        - um mehr Bonus zu bekommen
+    - Key: AskAdTrackTitle
+      Values:
+        - Reklamlarınızı Kişiselleştirin
+        - Personalize Your Ads
+        - Personalisieren Sie Ihre Anzeigen
+    - Key: CoinBonus
+      Values:
+        - BONUS
+        - Bonus
+        - Bonus
+    - Key: CoinBuy
+      Values:
+        - SATIN ALMA İŞLEMİ BAŞARIYLA TAMAMLANDI
+        - Thanks for your purchase
+        - Danke für ihren Einkauf
+    - Key: CoinDaily
+      Values:
+        - GÜNLÜK BONUS
+        - ''
+        - ''
+    - Key: CoinLevel
+      Values:
+        - SEVİYE BONUSU
+        - Level Bonus
+        - Level Bonus
+    - Key: CoinReferral
+      Values:
+        - DAVET BONUSU
+        - Referral Bonus
+        - Empfehlungsbonus
+    - Key: Notification-1
+      Values:
+        - arkadaşlık isteği gönderdi!
+        - sent you a friend request?
+        - hat dir eine Freundschaftsanfrage geschickt?
+    - Key: Notification-1-button-no
+      Values:
+        - REDDET
+        - ''
+        - ''
+    - Key: Notification-1-button-yes
+      Values:
+        - KABUL ET
+        - ''
+        - ''
+    - Key: Notification-1-prefix
+      Values:
+        - ''
+        - ''
+        - ''
+    - Key: Notification-100
+      Values:
+        - masaya davet ediyor!
+        - wants to challenge?
+        - will herausfordern?
+    - Key: Notification-100-button-no
+      Values:
+        - KAPAT
+        - ''
+        - ''
+    - Key: Notification-100-button-yes
+      Values:
+        - KATIL
+        - ''
+        - ''
+    - Key: Notification-100-prefix
+      Values:
+        - ''
+        - ''
+        - ''
+    - Key: Notification-2
+      Values:
+        - oyunda.
+        - is online.
+        - ist online.
+    - Key: Notification-2-prefix
+      Values:
+        - Arkadaşın
+        - Your friend
+        - Dein Freund
+    - Key: Notification-3
+      Values:
+        - oyundan ayrıldı!
+        - left game!
+        - das Spiel verlassen!
+    - Key: Notification-3-prefix
+      Values:
+        - Arkadaşın
+        - Your friend
+        - Dein Freund
+    - Key: Notification-4
+      Values:
+        - bir masaya oturdu, ona katıl!
+        - play on a table, join!
+        - Auf einem Tisch spielen, mitmachen!
+    - Key: Notification-4-button-no
+      Values:
+        - KAPAT
+        - ''
+        - ''
+    - Key: Notification-4-button-yes
+      Values:
+        - KATIL
+        - ''
+        - ''
+    - Key: Notification-4-prefix
+      Values:
+        - Arkadaşın
+        - Your friend
+        - Dein Freund
+    - Key: Notification-5
+      Values:
+        - sana bir mesaj gönderdi!
+        - sent you a message!
+        - hat dir eine Nachricht geschickt!
+    - Key: Notification-5-prefix
+      Values:
+        - Arkadaşın
+        - Your friend
+        - Dein Freund
+    - Key: Notification-6
+      Values:
+        - hesabına yüklendi.
+        - ''
+        - ''
+    - Key: Notification-6-prefix
+      Values:
+        - Bonus çip
+        - ''
+        - ''
+    - Key: Notification1
+      Values:
+        - ''
+        - ''
+        - ''
+    - Key: Notification1-prefix
+      Values:
+        - Beklenmeyen bir hata oluştu!
+        - ''
+        - ''
+    - Key: Notification101
+      Values:
+        - kez isim değiştirebilirsin!
+        - ''
+        - ''
+    - Key: Notification101-prefix
+      Values:
+        - Günde en fazla
+        - ''
+        - ''
+    - Key: Notification102
+      Values:
+        - kez isim değiştirebilirsin!
+        - ''
+        - ''
+    - Key: Notification102-prefix
+      Values:
+        - Ayda en fazla
+        - ''
+        - ''
+    - Key: Notification201
+      Values:
+        - ''
+        - ''
+        - ''
+    - Key: Notification201-prefix
+      Values:
+        - Lütfen tekrar deneyin
+        - ''
+        - ''
+    - Key: Notification205
+      Values:
+        - ''
+        - ''
+        - ''
+    - Key: Notification205-prefix
+      Values:
+        - Kullanıcı adın 4-16 karakter arasında olmalıdır!
+        - ''
+        - ''
+    - Key: Notification3
+      Values:
+        - ''
+        - ''
+        - ''
+    - Key: Notification3-prefix
+      Values:
+        - Aynı adresten giren oyuncularla oynayamazsın!
+        - ''
+        - ''
+    - Key: Notification301
+      Values:
+        - ''
+        - ''
+        - ''
+    - Key: Notification301-prefix
+      Values:
+        - Satın alma gerçekleştirilemedi!
+        - ''
+        - ''
+    - Key: Notification9
+      Values:
+        - ''
+        - ''
+        - ''
+    - Key: Notification9-prefix
+      Values:
+        - Aynı masada oturma yasağı aldığın oyuncularla oynayamazsın!
+        - ''
+        - ''
+    - Key: aDayAgo
+      Values:
+        - bir gün önce
+        - a day ago
+        - am Tag zuvor
+    - Key: aMinuteAgo
+      Values:
+        - bir dakika önce
+        - a minute ago
+        - vor einer Minute
+    - Key: aMonthAgo
+      Values:
+        - bir ay önce
+        - a month ago
+        - vor einem Monat
+    - Key: aWeekAgo
+      Values:
+        - bir hafta önce
+        - a week ago
+        - vor einer Woche
+    - Key: anHourAgo
+      Values:
+        - bir saat önce
+        - an hour ago
+        - vor einer Stunde
+    - Key: askPushNotifBtnNo
+      Values:
+        - SONRA
+        - ''
+        - ''
+    - Key: askPushNotifBtnYes
+      Values:
+        - AÇ
+        - ''
+        - ''
+    - Key: askPushNotifDesc
+      Values:
+        - Bildirimleri aç, hediye çipleri kaçırma!
+        - ''
+        - ''
+    - Key: askPushNotifTitle
+      Values:
+        - FIRSATLARI KAÇIRMA
+        - ''
+        - ''
+    - Key: buyHourlyBonusDesc0
+      Values:
+        - Zamanı takip et
+        - To get
+        - Folge der Uhr
+    - Key: buyHourlyBonusDesc1
+      Values:
+        - bedava çipleri
+        - free coins
+        - verdiene
+    - Key: buyHourlyBonusDesc2
+      Values:
+        - kazan!
+        - follow the clock!
+        - Chips!
+    - Key: buyStoreError-1
+      Values:
+        - DEVAM ETMEK İÇİN PLAY STORE'A GİRİŞ YAPMALISIN!
+        - To continue you must sign in Play Store!
+        - Um fortzufahren, müssen Sie sich im Play Store anmelden!
+    - Key: buyStoreError-2
+      Values:
+        - DEVAM ETMEK İÇİN APP STORE'A GİRİŞ YAPMALISIN!
+        - To continue you must sign in App Store!
+        - Um fortzufahren, müssen Sie sich im App Store anmelden!
+    - Key: buyPurchaseNotCompleted
+      Values:
+        - Satın alma işlemi gerçekleştirilemedi!
+        - Purchase could not be completed!
+        - Kauf konnte nicht abgeschlossen werden!
+    - Key: connectionBannedDesc
+      Values:
+        - 'HESABINIZ HİZMET ŞARTLARIMIZI İHLAL ETMİŞTİR VE YASAKLANMIŞTIR. EN YAYGIN İHLALLERDEN BAZILARI: OYUN PARASI TRANSFERİ, ŞİRKET YAPMAK VE NEFRET İÇERİKLİ SOHBETTİR.'
+        - We want to let you know that your account is in violation of our Terms of Service so your account being banned. The most common violations include coin transferring, inappropriate okey play and offensive chat.
+        - Wir möchten Sie darüber informieren, dass Ihr Konto gegen unsere Nutzungsbedingungen verstößt, sodass Ihr Konto gesperrt wird. Zu den häufigsten Verstößen zählen das Übertragen von Münzen, unangemessenes Spielen und anstößiges Chatten.
+    - Key: connectionBannedDuration
+      Values:
+        - 'BİTİŞ TARİHİ: %%0'
+        - 'End Date: %%0'
+        - ''
+    - Key: connectionBtnReconnect
+      Values:
+        - YENİDEN BAĞLAN
+        - Reconnect
+        - Wiederverbinden
+    - Key: connectionBtnUpdate
+      Values:
+        - GÜNCELLE
+        - Update
+        - Aktualisieren
+    - Key: connectionErrorCode
+      Values:
+        - 'HATA KODU: %%0'
+        - ''
+        - ''
+    - Key: connectionErrorMessage-1
+      Values:
+        - Sunucu Hatası. Lütfen daha sonra tekrar deneyin.
+        - ''
+        - ''
+    - Key: connectionErrorMessage-10
+      Values:
+        - Lütfen internet bağlantınızı kontrol edin.
+        - Please check your internet connection.
+        - Bitte überprüfe deine Internetverbindung.
+    - Key: connectionErrorMessage-11
+      Values:
+        - Bağlantı kurulmaya çalışılıyor.
+        - Trying to recover your connection.
+        - Versucht, Ihre Verbindung wiederherzustellen.
+    - Key: connectionErrorMessage-12
+      Values:
+        - Bağlantınız kurtarılamadı!
+        - Connection Lost!
+        - Verbindung unterbrochen!
+    - Key: connectionErrorMessage-13
+      Values:
+        - Sunucu Hatası. Lütfen daha sonra tekrar deneyin.
+        - Server Error. Please try again later.
+        - Serverfehler. Bitte versuchen Sie es später noch einmal.
+    - Key: connectionErrorMessage-14
+      Values:
+        - Sunucu Hatası. Lütfen daha sonra tekrar deneyin.
+        - Server Error. Please try again later.
+        - Serverfehler. Bitte versuchen Sie es später noch einmal.
+    - Key: connectionErrorMessage-15
+      Values:
+        - Facebook bağlantısı iptal edildi.
+        - Could Not connect with Facebook!
+        - Konnte nicht mit Facebook verbinden!
+    - Key: connectionErrorMessage-16
+      Values:
+        - Bir hata oluştu daha sonra tekrar deneyin!
+        - Error occured. Please try again later!
+        - Ein Fehler ist aufgetreten. Bitte versuchen Sie es später noch einmal!
+    - Key: connectionErrorMessage-17
+      Values:
+        - Güvenli internet ayarlarınızdan dolayı bağlantı kurulamıyor, kontrol edip tekrar deneyin.
+        - Cannot connect due to your secure internet settings, check and try again.
+        - Aufgrund Ihrer sicheren Interneteinstellungen kann keine Verbindung hergestellt werden. Überprüfen Sie dies und versuchen Sie es erneut.
+    - Key: connectionErrorMessage-21
+      Values:
+        - Apple bilgileriniz alınamadı. Lütfen tekrar deneyiniz.
+        - Your Apple information could not be retrieved. Please try again.
+        - Ihre Apple-Informationen konnten nicht abgerufen werden. Bitte versuchen Sie es erneut.
+    - Key: connectionErrorMessage-22
+      Values:
+        - Lütfen mevcut hesabınızla giriş yapmayı deneyin!
+        - Please try to login with your existing account.
+        - Bitte versuchen Sie sich mit Ihrem bestehenden Konto anzumelden.
+    - Key: connectionErrorMessage-3
+      Values:
+        - Oyundan uzaklaştırıldınız, giriş yapamazsınız!
+        - You are banned permanently. You can't login!
+        - Sie sind dauerhaft gesperrt. Sie können sich nicht anmelden!
+    - Key: connectionErrorMessage-4
+      Values:
+        - Devam edebilmeniz için güncelleme yapmanız gerekmektedir.
+        - You need to update the game before you can continue.
+        - Sie müssen das Spiel aktualisieren, bevor Sie fortfahren können.
+    - Key: connectionErrorMessage-5
+      Values:
+        - Facebook bilgileriniz alınamadı. Lütfen tekrar deneyiniz.
+        - Your facebook information could not be retrieved. Please try again.
+        - Ihre Facebook-Informationen konnten nicht abgerufen werden. Bitte versuchen Sie es erneut.
+    - Key: contactBtnContactUs
+      Values:
+        - BİZE ULAŞIN
+        - Contact Us
+        - Kontaktiere uns
+    - Key: contactFormEmail
+      Values:
+        - E-POSTA
+        - ''
+        - ''
+    - Key: contactFormEnterMessage
+      Values:
+        - Mesajınızı girin...
+        - Enter your message...
+        - Gib deine Nachricht ein...
+    - Key: contactFormEnterValidEmail
+      Values:
+        - Geçerli bir eposta girin...
+        - Enter a valid email...
+        - Geben Sie eine gültige E-Mail-Adresse ein...
+    - Key: contactFormMessage
+      Values:
+        - MESAJ
+        - ''
+        - ''
+    - Key: contactFormMessageSent
+      Values:
+        - MESAJINIZ ALINMIŞTIR
+        - YOUR MESSAGE HAS BEEN SENT
+        - IHRE NACHRICHT WURDE GESENDET
+    - Key: contactHeader
+      Values:
+        - İLETİŞİM
+        - CONTACT
+        - KONTAKT
+    - Key: contactNoMessage
+      Values:
+        - HENÜZ BİR MESAJIN YOK!
+        - No any message!
+        - Keine Nachricht!
+    - Key: createTableBan
+      Values:
+        - MASA AÇMA YASAĞINIZ VAR!
+        - YOU HAVE A BAN ON CREATING A TABLE!
+        - SIE HABEN EIN VERBOT FÜR DIE ERSTELLUNG EINES TISCHS!
+    - Key: createTableBtnBuy
+      Values:
+        - MAĞAZA
+        - STORE
+        - GESCHÄFT
+    - Key: createTableBtnOk
+      Values:
+        - TAMAM
+        - Ok
+        - Okay
+    - Key: createTableOptionFastTitle
+      Values:
+        - Hızlı masa
+        - FAST TABLE
+        - SCHNELLER TISCH
+    - Key: createTableOptionRevengeTitle
+      Values:
+        - Rövanş
+        - REVENGE
+        - REVANCHE
+    - Key: createTableOptionVersusTitle
+      Values:
+        - 2 oyuncu
+        - VERSUS
+        - VERSUS
+    - Key: createTableTitle
+      Values:
+        - MASA ÖZELLİKLERİNİ SEÇ
+        - CREATE TABLE
+        - TABELLE ERSTELLEN
+    - Key: dailyBonusBtnClaimBonus
+      Values:
+        - BONUSU AL
+        - Claim Bonus
+        - Bonus Erhalten
+    - Key: dailyBonusDay
+      Values:
+        - GÜN
+        - DAY
+        - TAG
+    - Key: dailyBonusTitle
+      Values:
+        - GÜNLÜK BONUS
+        - Daily Bonus
+        - Taglicher Bonus
+    - Key: dailyBonusToday
+      Values:
+        - BUGÜN
+        - TODAY
+        - HEUTE
+    - Key: dailyBonusTomorrow
+      Values:
+        - YARIN
+        - MORROW
+        - MORGEN
+    - Key: dailyBonusYesterday
+      Values:
+        - DÜN
+        - YESTERDAY
+        - GESTERN
+    - Key: daysAgo
+      Values:
+        - %%0 gün önce
+        - %%0 days ago
+        - vor %%0 Tagen
+    - Key: friendsRowMessage
+      Values:
+        - MESAJ
+        - MESSAGE
+        - ''
+    - Key: friendsRowPendingRequest
+      Values:
+        - Arkadaşlık isteği gönderdi
+        - Sent you a friend request
+        - Schickte Freundschaftsanfrage
+    - Key: friendsRowPlay
+      Values:
+        - OYNA
+        - PLAY
+        - ''
+    - Key: hoursAgo
+      Values:
+        - %%0 saat önce
+        - %%0 hours ago
+        - vor %%0 Stunden
+    - Key: informationOkay
+      Values:
+        - TAMAM
+        - ''
+        - ''
+    - Key: leadersBtnTabDaily
+      Values:
+        - GÜNÜN İYİLERİ
+        - Daily
+        - Taglich
+    - Key: leadersBtnTabGeneral
+      Values:
+        - EN İYİLER
+        - Hall of Fame
+        - Ruhmeshalle
+    - Key: leagueInfoPage1Group
+      Values:
+        - GRUP
+        - GROUP
+        - GRUPPE
+    - Key: leagueInfoPage1Title
+      Values:
+        - LİGLERDE YÜKSEL VE EFSANE OL!
+        - MOVE UP IN LEAGUES AND BECOME A LEGEND!
+        - BEWEGEN SIE SICH IN DEN LIGAS UND WERDEN SIE EINE LEGENDE!
+    - Key: leagueInfoPage2Info1
+      Values:
+        - OYNA
+        - PLAY
+        - ABSPIELEN
+    - Key: leagueInfoPage2Info1Desc
+      Values:
+        - Herhangi bir lobide oynamaya başla, puanları topla. Kazandığın her çip 1 lig puanına eşit.
+        - Start playing in any lobby, collect points. Each chip you win equals 1 league point.
+        - Spielen Sie in einer Lobby und sammeln Sie die Punkte. Jeder Chip, den Sie gewinnen entspricht 1 Liga punkt.
+    - Key: leagueInfoPage2Info2
+      Values:
+        - YÜKSEL
+        - MOVE UP
+        - AUFSTEIGEN
+    - Key: leagueInfoPage2Info2Desc
+      Values:
+        - Grubundaki diğer oyunculardan daha fazla puan kazan, sıralamada yüksel!
+        - Earn more points than other players in your group, rise in the rankings!
+        - Verdiene mehr Punkte als andere Spieler in deiner Gruppe und steige in der Rangliste auf!
+    - Key: leagueInfoPage2Info3
+      Values:
+        - ÜST LİGE GEÇ
+        - PROMOTE
+        - OBERE LIGA
+    - Key: leagueInfoPage2Info3Desc
+      Values:
+        - Grup sıralamasında yükselme potasında kal, bir üst lige geç.
+        - Stay in the advancement group in the group rankings, move up to the next league.
+        - Bleiben Sie in der Gruppenwertung im Aufstiegstopf und steigen Sie in die obere Liga auf.
+    - Key: leagueInfoPage2Title
+      Values:
+        - LİGLERDE NASIL İLERLENİR?
+        - HOW TO PROGRESS THE LEAGUES?
+        - WIE KOMMT MAN VORAN IN DER LIGAS?
+    - Key: leagueInfoPage3PromotionZone
+      Values:
+        - YÜKSELME POTASI
+        - PROMOTION ZONE
+        - AUFSTEIGSZONE
+    - Key: leagueInfoPage3PromotionZoneDesc
+      Values:
+        - Bir üst lige çıkma şansı.
+        - Chance to move up a league.
+        - Chance, zu eine Liga aufzusteigen.
+    - Key: leagueInfoPage3RelegationZone
+      Values:
+        - DÜŞME POTASI
+        - RELEGATION ZONE
+        - ABSTIEGSZONE
+    - Key: leagueInfoPage3RelegationZoneDesc
+      Values:
+        - Bir alt lige düşme riski.
+        - Risk of falling into a lower league.
+        - Gefahr, in eine niedrigere Liga zu fallen.
+    - Key: leagueInfoPage3SafeZone
+      Values:
+        - GÜVENLİ ALAN
+        - SAFE ZONE
+        - SİCHERHEITSZONE
+    - Key: leagueInfoPage3SafeZoneDesc
+      Values:
+        - Aynı ligde devam et.
+        - Continue in the same league.
+        - Weiter spielen in der gleichen Liga.
+    - Key: leagueInfoPage3TitleP1
+      Values:
+        - BİR ÜST LİGE ÇIKMAK İÇİN
+        - TO MOVE UP TO THE NEXT LEAGUE
+        - FÜR EINE OBERE LIGA REINZUKOMMEN
+    - Key: leagueInfoPage3TitleP2
+      Values:
+        - GRUBUNDAKİ OYUNCULARLA REKABET ET!
+        - COMPETE WITH PLAYERS IN YOUR GROUP!
+        - WETTBEWERB MIT SPIELERN IN IHRER GRUPPE!
+    - Key: leagueInfoPage3You
+      Values:
+        - SEN
+        - YOU
+        - SIE
+    - Key: leagueLobbyErrorMessage1
+      Values:
+        - Bir hata oluştu!
+        - Something went wrong!
+        - Etwas ist schief gelaufen!
+    - Key: leagueLobbyErrorMessage2
+      Values:
+        - Daha sonra tekrar deneyin.
+        - Try again later.
+        - Versuchen Sie es später noch einmal.
+    - Key: leagueTableErrorMessage1
+      Values:
+        - Bir hata oluştu!
+        - Something went wrong!
+        - Ein fehler enstanden
+    - Key: leagueTableErrorMessage2
+      Values:
+        - Daha sonra tekrar deneyin.
+        - Try again later.
+        - Nacher versuchen
+    - Key: leagueTableInstantPromoteBarDialogDesc1
+      Values:
+        - %%0 kazan
+        - Win %%0
+        - Gewinn %%0
+    - Key: leagueTableInstantPromoteBarDialogDesc2
+      Values:
+        - HIZLA YÜKSEL
+        - RISE FAST
+        - Schnell Aufsteigen
+    - Key: lessMinuteAgo
+      Values:
+        - az önce
+        - less than a minute
+        - gerade jetzt
+    - Key: levelUpCollect
+      Values:
+        - TAMAM
+        - COLLECT
+        - SAMMELN
+    - Key: levelUpCongratsMessage1
+      Values:
+        - Tebrikler seviye
+        - Congratulations you reached level
+        - Herzlichen Glückwunsch, Sie haben das Niveau erreicht
+    - Key: levelUpCongratsMessage2
+      Values:
+        - oldun!
+        - !
+        - !
+    - Key: levelUpFootage
+      Values:
+        - Artık daha iyi bir oyuncusun. Yüksek çipli masalarda oynayarak daha hızlı seviye atlayabilirsin!
+        - Now you are a better player. Play higher bets to achive levels faster!
+        - Jetzt bist du ein besserer Spieler. Spielen Sie höhere Einsätze, um schneller Level zu erreichen!
+    - Key: levelXpExperience
+      Values:
+        - TECRÜBE
+        - EXPERIENCE
+        - ERFAHRUNG
+    - Key: levelXpMatchOver
+      Values:
+        - MAÇ BİTTİ
+        - MATCH OVER
+        - MATCH VORBEI
+    - Key: lobbyLobbyRowBet
+      Values:
+        - 'BAHİS: '
+        - ''
+        - ''
+    - Key: lobbyLobbyRowBuyChips
+      Values:
+        - MAĞAZA
+        - ''
+        - ''
+    - Key: lobbyLobbyRowEntry
+      Values:
+        - 'GİRİŞ: '
+        - ''
+        - ''
+    - Key: lobbyLobbyRowNotEnoughMoney-post
+      Values:
+        - çipin olmalı!
+        - ''
+        - ''
+    - Key: lobbyLobbyRowNotEnoughMoney-prev
+      Values:
+        - Bu salonda oynamak için en az
+        - ''
+        - ''
+    - Key: lobbyMenuDeleteAccount
+      Values:
+        - Hesabımı Sil
+        - ''
+        - ''
+    - Key: lobbyMenuFBConnect
+      Values:
+        - BAĞLAN
+        - ''
+        - ''
+    - Key: lobbyMenuFBSignOut
+      Values:
+        - OTURUMU KAPAT
+        - ''
+        - ''
+    - Key: lobbyMenuFriends
+      Values:
+        - Arkadaşlar
+        - FRIENDS
+        - FREUNDE
+    - Key: lobbyMenuLeaderBoard
+      Values:
+        - Top 25
+        - LEADER BOARD
+        - BESTENLISTE
+    - Key: lobbyMenuMusic
+      Values:
+        - Müzik
+        - MUSIC
+        - MUSIK
+    - Key: lobbyMenuSettings
+      Values:
+        - Ayarlar
+        - SETTINGS
+        - EINSTELLUNGEN
+    - Key: lobbyMenuSupport
+      Values:
+        - İletişim
+        - ''
+        - ''
+    - Key: lobbyMenuTitle
+      Values:
+        - MENÜ
+        - ''
+        - ''
+    - Key: lobbySceneBtnBuyChips
+      Values:
+        - MAĞAZA
+        - STORE
+        - GESCHÄFT
+    - Key: lobbySceneBuyChips
+      Values:
+        - MAĞAZA
+        - STORE
+        - GESCHÄFT
+    - Key: lobbySceneConnecting
+      Values:
+        - BAĞLANIYOR
+        - CONNECTING
+        - VERBINDUNG
+    - Key: lobbySceneCreateTable
+      Values:
+        - MASA AÇ
+        - ''
+        - ''
+    - Key: lobbySceneDailyBonusPercentMore
+      Values:
+        - %%%0 DAHA FAZLA!
+        - ''
+        - ''
+    - Key: lobbySceneDailyBonusReady
+      Values:
+        - TOPLA
+        - ''
+        - ''
+    - Key: lobbySceneDailyBonusTitle
+      Values:
+        - GÜNLÜK BONUS
+        - ''
+        - ''
+    - Key: lobbySceneLobbyAdBonusReady
+      Values:
+        - TOPLA
+        - ''
+        - ''
+    - Key: lobbySceneLobbyAdBonusWatchWin
+      Values:
+        - BEDAVA ÇİP
+        - ''
+        - ''
+    - Key: lobbySceneLobbyAdBonusWatchWinDesc
+      Values:
+        - Video izle %%0 çip kazan!
+        - ''
+        - ''
+    - Key: lobbySceneLobbyAdBonusWatchWinWatch
+      Values:
+        - İZLE
+        - ''
+        - ''
+    - Key: lobbySceneLogoutPromptNo
+      Values:
+        - HAYIR
+        - NO
+        - NEIN
+    - Key: lobbySceneLogoutPromptText
+      Values:
+        - Çıkış yapmak istediğinizden emin misiniz?
+        - Are you sure you want to logout?
+        - Sind Sie sicher, dass Sie sich ausloggen möchten?
+    - Key: lobbySceneLogoutPromptTitle
+      Values:
+        - EMİN MİSİN?
+        - ARE YOU SURE?
+        - BIST DU DIR SICHER?
+    - Key: lobbySceneLogoutPromptYes
+      Values:
+        - EVET
+        - YES
+        - JA
+    - Key: lobbyScenePlayNow
+      Values:
+        - HEMEN OYNA
+        - ''
+        - ''
+    - Key: lobbySceneSit
+      Values:
+        - OTUR
+        - SIT
+        - ''
+    - Key: lobbySceneTop25
+      Values:
+        - TOP 25
+        - ''
+        - ''
+    - Key: lobbyTableRowCreateTable
+      Values:
+        - MASA AÇ
+        - ''
+        - ''
+    - Key: lobbyTableRowNoSuitableTable
+      Values:
+        - Uygun masa bulunamadı!
+        - ''
+        - ''
+    - Key: loginSceneAgreement-postfix
+      Values:
+        - kabul etmiş olursunuz.
+        - .
+        - .
+    - Key: loginSceneAgreement-prefix
+      Values:
+        - Giriş tuşlarına basarak
+        - By clicking login buttons you accept our
+        - Durch Klicken auf die Anmeldeschaltflächen akzeptieren Sie unsere
+    - Key: loginSceneAnd
+      Values:
+        - ve
+        - and
+        - und
+    - Key: loginSceneAppleLogin
+      Values:
+        - APPLE İLE GİRİŞ YAP
+        - Sign in with Apple
+        - Mit Apple anmelden
+    - Key: loginSceneFBLogin
+      Values:
+        - BAĞLAN
+        - Connect
+        - Verbinden
+    - Key: loginSceneGuestLogin
+      Values:
+        - MİSAFİR GİRİŞİ
+        - Guest Login
+        - Gast-Login
+    - Key: loginScenePrivacyPolicy
+      Values:
+        - GİZLİLİK POLİTİKAMIZI
+        - Privacy Policy
+        - Datenschutzbestimmungen
+    - Key: loginSceneTermsOfService
+      Values:
+        - HİZMET ŞARTLARIMIZI
+        - Terms of Use
+        - Nutzungsbedingungen
+    - Key: loginSceneCancelDeleteRequestAvailable
+      Values:
+        - DATA SİLME İSTEĞİNİ İPTAL ET
+        - Cancel Account Deletion Request
+        - ''
+    - Key: loginSceneCancelDeleteRequestMessage
+      Values:
+        - Bekleyen data silme isteğiniz var. Oyun oynamaya devam etmek için isteği iptal etmelisiniz.
+        - You have a pending account deletion request. You must cancel this request to continue playing the game.
+        - ''
+    - Key: loginSceneCancelDeleteRequestNow
+      Values:
+        - ŞİMDİ İPTAL ET
+        - CANCEL NOW
+        - ''
+    - Key: loginSceneCancelDeleteRequestTryLater
+      Values:
+        - DAHA SONRA DENE
+        - TRY LATER
+        - ''
+    - Key: minutesAgo
+      Values:
+        - %%0 dakika önce
+        - %%0 minutes ago
+        - vor %%0 Minuten
+    - Key: monthsAgo
+      Values:
+        - %%0 ay önce
+        - %%0 months ago
+        - vor %%0 Monaten
+    - Key: profileAddFriend
+      Values:
+        - ARKADAŞ EKLE
+        - ADD FRIEND
+        - FREUND HINZUFÜGEN
+    - Key: profileAvatarsChangeAvatar
+      Values:
+        - AVATAR DEĞİŞTİR
+        - ''
+        - ''
+    - Key: profileAvatarsOk
+      Values:
+        - TAMAM
+        - ''
+        - ''
+    - Key: profileAvatarsRowLevel
+      Values:
+        - SEVİYE
+        - LEVEL
+        - STUFE
+    - Key: profileBlock
+      Values:
+        - ENGELLE
+        - BLOCK
+        - BLOCK
+    - Key: profileBlocked
+      Values:
+        - OYUNCU ENGELLENDİ!
+        - PLAYER BLOCKED!
+        - SPIELER BLOCKIERT!
+    - Key: profileErrorMessage
+      Values:
+        - BİR HATA OLUŞTU DAHA SONRA TEKRAR DENEYİN!
+        - An unexpected error. Please try again later!
+        - Ein unerwarteter Fehler. Bitte versuchen Sie es später noch einmal
+    - Key: profileFriendRequestAccept
+      Values:
+        - KABUL ET
+        - ACCEPT
+        - AKZEPTIEREN
+    - Key: profileFriendRequestDeny
+      Values:
+        - REDDET
+        - DENY
+        - VERWEIGERN
+    - Key: profileFriendRequestSent
+      Values:
+        - İSTEK GÖNDERİLDİ
+        - REQUEST SENT
+        - VERSENDET
+    - Key: profileGamesPlayed
+      Values:
+        - 'OYNANAN OYUN:'
+        - 'GAMES PLAYED:'
+        - 'SPIELE GESPIELT:'
+    - Key: profileGamesWon
+      Values:
+        - 'KAZANILAN OYUN:'
+        - 'GAMES WON:'
+        - 'GEWONNENE SPIELE:'
+    - Key: profileHighestBet
+      Values:
+        - 'EN YÜKSEK BAHİS:'
+        - 'HIGHEST BET:'
+        - 'HÖCHSTE WETTE:'
+    - Key: profileHighestJackpot
+      Values:
+        - 'EN YÜKSEK ÇANAK:'
+        - 'HIGHEST JACKPOT:'
+        - 'HÖCHSTER JACKPOT:'
+    - Key: profileLevelTooLow0
+      Values:
+        - İsim değişikliği yapmak için en az
+        - For changing nick, you have to be at least
+        - Zumindest um einen Namen zu ändern
+    - Key: profileLevelTooLow1
+      Values:
+        - Seviye %%0
+        - Level %%0
+        - Stufe %%0
+    - Key: profileLevelTooLow2
+      Values:
+        - olman gerekiyor.
+        - ''
+        - du musst sein.
+    - Key: profileNickChangeMontlyLimit0
+      Values:
+        - Son bir ayda
+        - You can change your name
+        - Im letzten Monat
+    - Key: profileNickChangeMontlyLimit1
+      Values:
+        - %%0 kez
+        - %%0 times
+        - %%0 Mal
+    - Key: profileNickChangeMontlyLimit2
+      Values:
+        - isim değişikliği yapabilirsin.
+        - in the last month.
+        - Sie können den Namen ändern.
+    - Key: profileNickChangeMontlyLimit3
+      Values:
+        - 'Kalan süre: '
+        - 'Remaining: '
+        - 'Verbleibende Zeit: '
+    - Key: profileNickChangeMontlyLimit4
+      Values:
+        - %%0 gün
+        - %%0 days
+        - %%0 Tag
+    - Key: profileNickChangeMontlyLimit5
+      Values:
+        - %%0 gün
+        - %%0 day
+        - %%0 Tag
+    - Key: profileNickChangeMontlyLimit6
+      Values:
+        - %%0 kez
+        - %%0 time
+        - %%0 Mal
+    - Key: profileNotEnoughMoney0
+      Values:
+        - Yeterli çipiniz bulunmamaktadır.
+        - You don't have enough coins.
+        - Sie haben nicht genug Chips.
+    - Key: profileNotEnoughMoney1
+      Values:
+        - 'İsim Değiştirme Ücreti: %%0'
+        - 'Changing nick price: %%0'
+        - 'Namensänderungsgebühr: %%0'
+    - Key: profileRemoveFriend
+      Values:
+        - ARKADAŞLIKTAN ÇIKAR
+        - REMOVE FRIEND
+        - FREUND ENTFERNEN
+    - Key: profileReport
+      Values:
+        - ŞİKAYET ET
+        - REPORT
+        - PRÜFBERICHT
+    - Key: profileReportEnterMessage
+      Values:
+        - Şikayetinizi yazın...
+        - Write something about your complaint...
+        - Schreiben Sie etwas über Ihre Beschwerde...
+    - Key: profileReportPlayerHeader
+      Values:
+        - ŞİKAYET BİLDİR
+        - REPORT PLAYER
+        - MELDE SPIELER
+    - Key: profileReportSuccess
+      Values:
+        - Şikayetiniz alınmıştır.
+        - Your complaint has been sent.
+        - Ihre Beschwerde wurde gesendet.
+    - Key: profileUnblock
+      Values:
+        - ENGELLİ KALDIR
+        - UNBLOCK
+        - ENTFLOCKEN
+    - Key: rateMeDesc
+      Values:
+        - Uygulamamıza 5 yıldız ver, ödül kazan!
+        - ''
+        - ''
+    - Key: rateMeFeedBackDesc
+      Values:
+        - Fikirleriniz bizim için önemli. Uygulama hakkındaki görüşlerini bizimle paylaş, oyunu geliştirmemize yardımcı ol!
+        - ''
+        - ''
+    - Key: rateMeFeedBackTitle
+      Values:
+        - GERİ DÖNÜŞ YAP
+        - ''
+        - ''
+    - Key: rateMeFeedback
+      Values:
+        - TAMAM
+        - ''
+        - ''
+    - Key: rateMeLater
+      Values:
+        - SONRA
+        - ''
+        - ''
+    - Key: rateMeRateFirst
+      Values:
+        - PUAN VER
+        - ''
+        - ''
+    - Key: rateMeTitle
+      Values:
+        - TEKEL OKEY'İ BEĞENDİN Mİ?
+        - ''
+        - ''
+    - Key: settingsChat
+      Values:
+        - Sohbet
+        - CHAT
+        - CHAT
+    - Key: settingsHeader
+      Values:
+        - AYARLAR
+        - SETTINGS
+        - EINSTELLUNGEN
+    - Key: settingsNotifications
+      Values:
+        - Bildirimler
+        - ''
+        - ''
+    - Key: settingsSound
+      Values:
+        - Ses
+        - SOUND
+        - SOUND
+    - Key: settingsVibration
+      Values:
+        - Titreşim
+        - VIBRATION
+        - VIBRATION
+    - Key: shortBillion
+      Values:
+        - MYR
+        - B
+        - Mrd
+    - Key: shortMillion
+      Values:
+        - MİL
+        - M
+        - Mio
+    - Key: shortThousand
+      Values:
+        - BİN
+        - K
+        - Tsd
+    - Key: socialChatClearMessages
+      Values:
+        - Mesajları Temizle
+        - ''
+        - ''
+    - Key: socialChatClearMessagesPromptDesc
+      Values:
+        - Tüm mesaj geçmişinin silinmesini istediğinden emin misin?
+        - ''
+        - ''
+    - Key: socialChatClearMessagesPromptNo
+      Values:
+        - HAYIR
+        - ''
+        - ''
+    - Key: socialChatClearMessagesPromptYes
+      Values:
+        - EVET
+        - ''
+        - ''
+    - Key: socialChatFriendOnline
+      Values:
+        - Çevrimiçi
+        - ''
+        - ''
+    - Key: socialChatWriteMessage
+      Values:
+        - Mesajını Yaz...
+        - ''
+        - ''
+    - Key: socialFriendAccept
+      Values:
+        - KABUL ET
+        - ''
+        - ''
+    - Key: socialFriendDeny
+      Values:
+        - REDDET
+        - ''
+        - ''
+    - Key: socialFriendsFacebookConnect
+      Values:
+        - BAĞLAN
+        - ''
+        - ''
+    - Key: socialFriendsPlayHandsToFind
+      Values:
+        - Yeni arkadaşlar bulmak ve davet etmek için hemen oyna!
+        - ''
+        - ''
+    - Key: socialFriendsPlayNow
+      Values:
+        - HEMEN OYNA
+        - ''
+        - ''
+    - Key: socialFriendsTitle
+      Values:
+        - ARKADAŞLAR
+        - ''
+        - ''
+    - Key: socialLastPlayedTitle
+      Values:
+        - SON OYNADIKLARIM
+        - ''
+        - ''
+    - Key: socialNoFriends
+      Values:
+        - Henüz hiç arkadaşın yok.
+        - ''
+        - ''
+    - Key: socialNoLastPlayed
+      Values:
+        - Henüz kimseyle oynamadın.
+        - ''
+        - ''
+    - Key: tableChatEnterMessage
+      Values:
+        - Mesajını yaz...
+        - Write something...
+        - Schreibe etwas...
+    - Key: tableChatHeader
+      Values:
+        - SOHBET
+        - CHAT
+        - CHAT
+    - Key: tableChatQuickMessage0
+      Values:
+        - Seri Lütfen!
+        - Hurry Up
+        - Schneller Bitte
+    - Key: tableChatQuickMessage1
+      Values:
+        - Tebrikler
+        - Congratulations
+        - Gratulation
+    - Key: tableChatQuickMessage2
+      Values:
+        - Teşekkürler
+        - Thanks
+        - Dankeschön
+    - Key: tableChatQuickMessage3
+      Values:
+        - Bol Şanslar
+        - Good Luck
+        - Viel Glück
+    - Key: tableChatQuickMessageUpper0
+      Values:
+        - SERİ LÜTFEN!
+        - ''
+        - ''
+    - Key: tableChatQuickMessageUpper1
+      Values:
+        - TEBRİKLER
+        - ''
+        - ''
+    - Key: tableChatQuickMessageUpper2
+      Values:
+        - TEŞEKKÜRLER
+        - ''
+        - ''
+    - Key: tableChatQuickMessageUpper3
+      Values:
+        - BOL ŞANSLAR
+        - ''
+        - ''
+    - Key: tableChatSendMessage
+      Values:
+        - GÖNDER
+        - ''
+        - ''
+    - Key: tableGiftBtnSend
+      Values:
+        - GÖNDER
+        - SEND
+        - SENDEN
+    - Key: tableGiftHeader
+      Values:
+        - HEDİYELER
+        - GIFTS
+        - GESCHENKE
+    - Key: tableInviteHeader
+      Values:
+        - DAVET ET
+        - INVITE
+        - EINLADEN
+    - Key: tableInviteRowSend
+      Values:
+        - DAVET ET
+        - ''
+        - ''
+    - Key: tableInviteRowSent
+      Values:
+        - GÖNDERİLDİ
+        - ''
+        - ''
+    - Key: tableMenuLeaveTable
+      Values:
+        - Masadan kalk
+        - LEAVE TABLE
+        - VERLASSEN
+    - Key: tableMenuTitle
+      Values:
+        - MENÜ
+        - ''
+        - ''
+    - Key: tableSceneAllThrownStonesTitle
+      Values:
+        - ATILAN TAŞLAR
+        - THROWN STONES
+        - GEWORFENE STEINE
+    - Key: tableSceneBtnChangeTable
+      Values:
+        - MASA DEĞİŞTİR
+        - CHANGE TABLE
+        - TISCH WECHSELN
+    - Key: tableSceneBtnRunForTwins
+      Values:
+        - ÇİFTE GİT
+        - RUN PAIRS
+        - RUN PAIRS
+    - Key: tableSceneBtnShowThrownStones
+      Values:
+        - TAŞLARI GÖSTER
+        - SHOW STONES
+        - STEINE ANZEIGEN
+    - Key: tableSceneBtnSortRuns
+      Values:
+        - SERİ DİZ
+        - SORT RUNS
+        - SORT RUNS
+    - Key: tableSceneBtnSortTwins
+      Values:
+        - ÇİFT DİZ
+        - SORT PAIRS
+        - SORT Pairs
+    - Key: tableSceneChooseASeatDesc
+      Values:
+        - Oynamak istediğin boş bir yeri seç ve oyuna başla.
+        - Choose an empty seat you want to play and start the game.
+        - Wählen Sie einen freien Platz, den Sie spielen möchten.
+    - Key: tableSceneChooseASeatTitle
+      Values:
+        - OYNAMAK İÇİN YER SEÇ!
+        - CHOOSE A SEAT TO PLAY!
+        - WÄHLE EINEN PLATZ ZUM SPIELEN!
+    - Key: tableSceneContinue
+      Values:
+        - DEVAM ET
+        - ''
+        - ''
+    - Key: tableSceneGameIsFullTitle
+      Values:
+        - BU MASA DOLU!
+        - TABLE CLOSED!
+        - TISCH GESCHLOSSEN!
+    - Key: tableSceneGameStartedDesc
+      Values:
+        - Dilersen masadaki oyunu izleyebilir ya da başka bir masaya geçebilirsin.
+        - You can spectate the game or play on another table.
+        - Sie können das Spiel sehen oder an einem anderen Tisch spielen.
+    - Key: tableSceneGameStartedTitle
+      Values:
+        - BU MASADA OYUN BAŞLADI!
+        - GAME ALREADY STARTED!
+        - DAS SPIEL HAT SCHON ANGEFANGEN!
+    - Key: tableSceneIndicator
+      Values:
+        - GÖSTERGE
+        - INDICATOR
+        - ANZEIGE
+    - Key: tableSceneInvite
+      Values:
+        - DAVET ET
+        - INVITE
+        - ''
+    - Key: tableSceneJackpot
+      Values:
+        - Çanak
+        - Jackpot
+        - Jackpot
+    - Key: tableSceneJackpot1
+      Values:
+        - %%0 Çanak Kırdı!
+        - %%0 Jackpot
+        - %%0 Jackpot
+    - Key: tableSceneLeaveTable
+      Values:
+        - MASADAN ÇIK
+        - ''
+        - ''
+    - Key: tableSceneLeaveTablePromptAccept
+      Values:
+        - EVET
+        - YES
+        - JA
+    - Key: tableSceneLeaveTablePromptDeny
+      Values:
+        - HAYIR
+        - NO
+        - NEIN
+    - Key: tableSceneLeaveTablePromptText
+      Values:
+        - Oyundan çıkarsan çiplerini kaybedeceksin.
+        - If you leave, you will lose the chips you bet.
+        - Wenn Sie gehen, verlieren Sie die eingesetzten Chips.
+    - Key: tableSceneLeaveTablePromptTitle
+      Values:
+        - EMİN MİSİN?
+        - ARE YOU SURE?
+        - BIST DU SICHER?
+    - Key: tableSceneLeaveTableStartingButton
+      Values:
+        - MASADAN ÇIK
+        - ''
+        - ''
+    - Key: tableSceneLog100
+      Values:
+        - masaya katıldı
+        - joined table
+        - beigetreten den Tisch
+    - Key: tableSceneLog101
+      Values:
+        - masadan ayrıldı
+        - left table
+        - verließ den Tisch
+    - Key: tableSceneLog200
+      Values:
+        - Gösterge yaptın
+        - You show the Indicator Tile!
+        - Sie haben eine Anzeige gemacht
+    - Key: tableSceneLog201
+      Values:
+        - gösterge yaptı!
+        - show the Indicator Tile!
+        - hat eine Anzeige gemacht!
+    - Key: tableSceneLog202
+      Values:
+        - Duman oldun...
+        - You have just vanished.
+        - Sie haben dich gefeuert.
+    - Key: tableSceneLog203
+      Values:
+        - duman oldu
+        - has just vanished!
+        - einfach verschwunden.
+    - Key: tableSceneLog204
+      Values:
+        - çifte gidiyor...
+        - is going for 7 pairs...
+        - geht mit paaren...
+    - Key: tableSceneLog205
+      Values:
+        - kendisine bir hediye aldı.
+        - buys a gift for himself/herself.
+        - kauft sich ein Geschenk.
+    - Key: tableSceneLog206
+      Values:
+        - %%0, %%1 için bir hediye aldı.
+        - %%0 buys a gift for %%1.
+        - %%0 kauft ein Geschenk für %%1.
+    - Key: tableSceneLog300
+      Values:
+        - Sıra sende değil!
+        - It's not your turn!
+        - Es ist nicht deine Reihe!
+    - Key: tableSceneLog301
+      Values:
+        - Önce bir taş çek!
+        - Pick a tile first!
+        - Ziehe erst einen Stein.
+    - Key: tableSceneLog302
+      Values:
+        - Zaten taş çektin!
+        - You already picked a tile!
+        - Du hast schon gezogen
+    - Key: tableSceneLog303
+      Values:
+        - OOOKEEEY!!!!
+        - OOOUCCHHHH!!!!
+        - Waas? OOOKEEEY!!!!
+    - Key: tableSceneLog304
+      Values:
+        - Elin bitmiş görünmüyor!
+        - Please check your hand!
+        - deine Hand ist nicht komplett!
+    - Key: tableSceneLog305
+      Values:
+        - Çifte bitmek zorundasın!
+        - You have finish with 7 pairs!
+        - Ich dachte du sammelst Paare?
+    - Key: tableSceneLog306
+      Values:
+        - Çifte bitmek için en az iki el oynamalısın!
+        - Play at least 2 rounds before finish 7 pairs
+        - Um die Runde zu beenden, müssen Sie mindestens 2 Runden spielen
+    - Key: tableSceneLog307
+      Values:
+        - Mesaj yazma yasağınız var!
+        - You have a ban on writing messages!
+        - Sie haben ein Verbot, Nachrichten zu schreiben!
+    - Key: tableSceneLog308
+      Values:
+        - 3 saniyeden az kala masaya oturamazsın!
+        - You can't sit on the table in less than 3 seconds!
+        - Sie können nicht in weniger als 3 Sekunden auf dem Tisch sitzen!
+    - Key: tableSceneRevengeAnim
+      Values:
+        - RÖVANŞ
+        - ''
+        - ''
+    - Key: tableSceneSit
+      Values:
+        - OTUR
+        - SIT
+        - ''
+    - Key: tableSceneStarting-0
+      Values:
+        - TAŞLAR KARIŞTIRILIYOR
+        - SHUFFLING TILES
+        - DIE STEINE WERDEN GEMISCHELT
+    - Key: tableSceneStarting-1
+      Values:
+        - EL DAĞITILIYOR
+        - DEALING TILES
+        - SATZ WIRD AUSGETEILT
+    - Key: tableSceneStarting-2
+      Values:
+        - OYUN BAŞLIYOR
+        - GAME IS STARTING
+        - DAS SPIEL STARTET
+    - Key: tableSceneTwinModePromptAccept
+      Values:
+        - EVET
+        - YES
+        - JA
+    - Key: tableSceneTwinModePromptDeny
+      Values:
+        - HAYIR
+        - NO
+        - NEIN
+    - Key: tableSceneTwinModePromptText
+      Values:
+        - Çifte gidip açabilmek için en az 2 el daha oynamalısınız. Devam etmek istiyor musunuz?
+        - If choose to run for 7 Pairs, you can only win the game with 7 pairs. Also, you can finish the game after 2 turns. Are you sure?
+        - Wenn du dich für 7 Paare gehst, kannst du das Spiel nur mit 7 Paaren gewinnen. Auch kannst du das Spiel nach 2 Runde beenden. Bist du sicher?
+    - Key: tableSceneWaitingPlayersDesc
+      Values:
+        - Dilersen lobideki diğer oyuncuları masanıza davet edebilirsin.
+        - You can invite other players from lobby.
+        - Sie können andere Spieler aus der Lobby einladen
+    - Key: tableSceneWaitingPlayersTitle
+      Values:
+        - OYUNCULAR BEKLENİYOR
+        - WAITING FOR OTHER PLAYERS
+        - WARTEN AUF ANDERE SPIELER
+    - Key: updateAvailableBtnCancel
+      Values:
+        - VAZGEÇ
+        - CANCEL
+        - ABBRECHEN
+    - Key: updateAvailableBtnConfirm
+      Values:
+        - ONAYLA
+        - CONFIRM
+        - BESTÄTIGEN
+    - Key: updateAvailableText
+      Values:
+        - Yeni versiyon mevcut. Güncellemek ister misiniz?
+        - New version is available. Do you want update?
+        - Es gibt eine neue Version. Möchten sie es aktualisieren?
+    - Key: updateAvailableTitle
+      Values:
+        - YENİ VERSİYON
+        - NEW VERSION
+        - NEUE VERSION
+    - Key: offerExpire
+      Values:
+        - 'FIRSATIN BİTMESİNE:'
+        - 'EXPIRE IN:'
+        - 'LÄUFT AB:'
+    - Key: weeksAgo
+      Values:
+        - %%0 hafta önce
+        - %%0 weeks ago
+        - vor %%0 Wochen
+    - Key: main.lobby_scene_buy_chips
+      Values:
+        - ''
+        - lobbySceneBuyChips
+        - ''
+    - Key: main.lobby_scene_daily_bonus_title
+      Values:
+        - ''
+        - lobbySceneDailyBonusTitle
+        - ''
+    - Key: main.lobby_scene_lobby_ad_bonus_watch_win
+      Values:
+        - ''
+        - lobbySceneLobbyAdBonusWatchWin
+        - ''
+    - Key: main.1
+      Values:
+        - ''
+        - 1
+        - ''
+    - Key: main.lobby_scene_create_table
+      Values:
+        - ''
+        - lobbySceneCreateTable
+        - ''
+    - Key: main.lobby_scene_play_now
+      Values:
+        - ''
+        - lobbyScenePlayNow
+        - ''
+    - Key: main.lobby_lobby_row_not_enough_money_prev
+      Values:
+        - ''
+        - lobbyLobbyRowNotEnoughMoney-prev
+        - ''
+    - Key: main.lobby_lobby_row_not_enough_money_post
+      Values:
+        - ''
+        - lobbyLobbyRowNotEnoughMoney-post
+        - ''
+    - Key: main.lobby_lobby_row_buy_chips
+      Values:
+        - ''
+        - lobbyLobbyRowBuyChips
+        - ''
+    - Key: main.lobby_table_row_no_suitable_table
+      Values:
+        - ''
+        - lobbyTableRowNoSuitableTable
+        - ''
+    - Key: main.lobby_table_row_create_table
+      Values:
+        - ''
+        - lobbyTableRowCreateTable
+        - ''
+    - Key: main.lobby_scene_connecting
+      Values:
+        - ''
+        - lobbySceneConnecting
+        - ''
+    - Key: main.lobby_scene_buy_chips_2
+      Values:
+        - lobbySceneBuyChips
+        - ''
+        - ''
+    - Key: main.lobby_scene_daily_bonus_title_2
+      Values:
+        - lobbySceneDailyBonusTitle
+        - ''
+        - ''
+    - Key: main.lobby_scene_lobby_ad_bonus_watch_win_2
+      Values:
+        - lobbySceneLobbyAdBonusWatchWin
+        - ''
+        - ''
+    - Key: main.1_2
+      Values:
+        - 1
+        - ''
+        - ''
+    - Key: main.lobby_scene_create_table_2
+      Values:
+        - lobbySceneCreateTable
+        - ''
+        - ''
+    - Key: main.lobby_scene_play_now_2
+      Values:
+        - lobbyScenePlayNow
+        - ''
+        - ''
+    - Key: main.lobby_lobby_row_not_enough_money_prev_2
+      Values:
+        - lobbyLobbyRowNotEnoughMoney-prev
+        - ''
+        - ''
+    - Key: main.lobby_lobby_row_not_enough_money_post_2
+      Values:
+        - lobbyLobbyRowNotEnoughMoney-post
+        - ''
+        - ''
+    - Key: main.lobby_lobby_row_buy_chips_2
+      Values:
+        - lobbyLobbyRowBuyChips
+        - ''
+        - ''
+    - Key: main.lobby_table_row_no_suitable_table_2
+      Values:
+        - lobbyTableRowNoSuitableTable
+        - ''
+        - ''
+    - Key: main.lobby_table_row_create_table_2
+      Values:
+        - lobbyTableRowCreateTable
+        - ''
+        - ''
+    - Key: main.lobby_scene_connecting_2
+      Values:
+        - lobbySceneConnecting
+        - ''
+        - ''
+  Enums:

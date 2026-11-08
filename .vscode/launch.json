@@ -1,0 +1,46 @@
+{
+    // Editör + oyun kodu debug (Unity "Attach to Editor" karşılığı). Oyun DLL'i Debug derlenir ve PDB ile ALC'ye
+    // yüklenir (GameCode.LoadWithSymbols) → Assets/**/*.cs'e breakpoint doğrudan konur; hot reload sonrası breakpoint'ler
+    // yeni assembly'ye otomatik bağlanır. justMyCode=false: motor/editör koduna da girilebilir.
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "Editor (digitoyclient)",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build editor",
+            "program": "${workspaceFolder}/editor/bin/Debug/net10.0/DigitoyEditor.exe",
+            "args": ["Projects/digitoyclient"],
+            "cwd": "${workspaceFolder}",
+            "console": "internalConsole",
+            "stopAtEntry": false,
+            "justMyCode": false,
+            "enableStepFiltering": false,
+            "symbolOptions": {
+                "searchMicrosoftSymbolServer": false,
+                "searchNuGetOrgSymbolServer": false
+            }
+        },
+        {
+            "name": "Editor (TekelOkey)",
+            "type": "coreclr",
+            "request": "launch",
+            "preLaunchTask": "build editor",
+            "program": "${workspaceFolder}/editor/bin/Debug/net10.0/DigitoyEditor.exe",
+            "args": ["Projects/TekelOkey"],
+            "cwd": "${workspaceFolder}",
+            "console": "internalConsole",
+            "stopAtEntry": false,
+            "justMyCode": false,
+            "enableStepFiltering": false
+        },
+        {
+            "name": "Attach to Editor",
+            "type": "coreclr",
+            "request": "attach",
+            "processName": "DigitoyEditor",
+            "justMyCode": false,
+            "enableStepFiltering": false
+        }
+    ]
+}

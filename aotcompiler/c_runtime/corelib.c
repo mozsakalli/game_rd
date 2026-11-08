@@ -175,6 +175,7 @@ float System_MathF_Max_Float_Float(float x, float y)
 
 float System_MathF_Abs_Float(float value) { return fabsf(value); }
 float System_MathF_Asin_Float(float value) { return asinf(value); }
+float System_MathF_Atan_Float(float value) { return atanf(value); }
 float System_MathF_Atan2_Float_Float(float y, float x) { return atan2f(y, x); }
 float System_MathF_Ceiling_Float(float value) { return ceilf(value); }
 float System_MathF_Cos_Float(float value) { return cosf(value); }

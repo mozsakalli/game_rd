@@ -1,0 +1,19 @@
+scene: Text
+objects:
+  - id: 1
+    parent: 0
+    name: Text
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        text: Text
+        textSize: 32
+        textAlign: Left
+        textAlignV: Start
+        textFill:
+          type: Solid
+          direction: Vertical
+          color: '#ffffffff'
+          color2: '#ffffffff'

@@ -64,6 +64,14 @@ static class RpcLoc
         return Languages(ctx, scope);
     }
 
+    [RpcCommand("loc.setSource", "Kaynak dili (fallback, sutun 0) degistirir: secilen dil sutunu one tasinir, hucreler korunur. Dil yoksa eklenir")]
+    static DocNode SetSource(RpcContext ctx, string code, string scope = "")
+    {
+        if (!LocTableStore.SetSourceLanguage(Scope(ctx, scope), code))
+            throw new RpcError("katalog disi dil: " + code);
+        return Languages(ctx, scope);
+    }
+
     [RpcCommand("loc.removeLanguage", "Dil sutununu ve o dildeki tum hucreleri siler (kaynak dil silinemez)")]
     static DocNode RemoveLanguage(RpcContext ctx, string code, string scope = "")
     {

@@ -19,6 +19,7 @@ public unsafe class App
             try { System.IO.File.AppendAllText("crash.log", text); }
             catch { }
         };
+        NativeAsync.Install(); // async void istisnasi thread pool'a degil Pump'a duser (editor crash etmez)
 
         GLFW.Init();
         // Backend DERLEME zamani secilir: DE_RENDERER_METAL / DE_RENDERER_OPENGL
@@ -188,6 +189,7 @@ public unsafe class App
         RebuildCatalog();
 #if DE_EDITOR
         LifecycleTests.Run(_catalog); // izole sahnede kenar durum smoke testleri
+        BindingTests.Run(_catalog);
         MovieClipTests.Run(_catalog);
         PuppetTests.Run(_catalog);
         ParticleTests.Run(_catalog);
@@ -271,14 +273,17 @@ public unsafe class App
             // RPC komutlari yalniz insan jesti yokken kosar (drag ortasinda yapisal
             // mutasyon = IMGUI id-kaymasi sinifi bug'lar; kural notlarda). Otomasyon (ui.*)
             // sentetik jest surerken de bekler; klavye odagi sentetik girdiden kaldiysa engel degil.
+            // Kapi kapaliysa nedeni Pump'a gider: Pure komutlar yine kosar, digerleri sureli bekler
+            // (sessiz "sunucu oldu" gorunumu yok — istemci "editor busy: <neden>" alir).
             bool idle = GuiUtility.HotControl == 0 && GuiUtility.KeyboardControl == 0;
-            if ((idle || UiAutomation.Engaged) && !UiAutomation.Busy)
-            {
-                _rpcCtx.Scene = _editScene;
-                _rpcCtx.Catalog = _catalog;
-                _rpcCtx.Assets = _assets;
-                RpcHost.Pump(_rpcCtx);
-            }
+            string rpcGate = UiAutomation.Busy ? "ui automation gesture in progress"
+                : (idle || UiAutomation.Engaged) ? null
+                : GuiUtility.KeyboardControl != 0 ? "keyboard focus held by an editor text field (press Esc or click an empty area)"
+                : "mouse gesture (hot control) in progress";
+            _rpcCtx.Scene = _editScene;
+            _rpcCtx.Catalog = _catalog;
+            _rpcCtx.Assets = _assets;
+            RpcHost.Pump(_rpcCtx, rpcGate);
             GLFW.GetFramebufferSize(window, out int fbw, out int fbh);
             if (fbw <= 0 || fbh <= 0)
                 continue; // minimize
@@ -405,6 +410,7 @@ public unsafe class App
             cameras.Add(mainCam);
 
             cb.Begin();
+            PrefabThumbs.Encode(cb); // Library kucuk resmi (frame basina en fazla bir prefab, kendi RT'sine)
             // Oyun kameralari ayrica encode edilir (Order = depth sirasi): frame
             // debugger yalniz bu araligi yakalar — editor UI draw'lari capture'a girmez.
 #if DE_EDITOR
@@ -425,6 +431,7 @@ public unsafe class App
 #endif
             cb.Submit();
             Sokol.Commit();
+            PrefabThumbs.AfterSubmit(); // RT readback + gecici sahne kaldirma
             UiAutomation.CaptureIfRequested(fbw, fbh, lw, lh); // ui.screenshot: tamamlanmis arka tampon
 #if DE_EDITOR
             RenderDebug.AfterSubmit(cb);
@@ -926,7 +933,8 @@ public unsafe class App
     // ANA THREAD swap: derlenmis dll'i yukler (eski instance'lar once olur ki ALC bosalsin).
     internal static void ApplyCompiledGame(GameCode.CompileJob job)
     {
-        PlayMode.Stop(); // eski oyun tiplerinin instance'lari ALC'yi rehin almasin
+        bool wasPlaying = PlayMode.State != PlayState.Editing;
+        PlayMode.Stop(keepSockets: wasPlaying); // eski oyun tiplerinin instance'lari ALC'yi rehin almasin; emanet soketler yeni koda devrolur
 #if DE_EDITOR
         RenderDebug.Unfreeze(); // frozen capture eski tiplerin kaynaklarini tutmasin
 #endif
@@ -938,8 +946,9 @@ public unsafe class App
         RebuildCatalog();
         _stashedScene?.Instantiate(_catalog, _assets); // once stash: aktif sahne sonda edit'in olsun
         _editScene.Instantiate(_catalog, _assets); // bellekteki doc'tan (kaydedilmemis duzenlemeler korunur)
-        // AOT uyumluluk: scriptler corelib'e karsi ikinci kez derlenir (bilgi amacli; editor play'ini etkilemez).
-        AotCompatCheck.Check(job.Scripts, job.Plugins);
+        // AOT uyumluluk: scriptler corelib'e karsi ikinci kez derlenir (bilgi amacli; editor play'ini etkilemez). Arka planda:
+        // dev modda once AOT IL'i tazelenir (motor degistiyse saniyeler surer, ana thread'i dondurmasin).
+        AotCompatCheck.CheckAsync(job.Scripts, job.Plugins);
     }
 
     internal static Project Project => _project;

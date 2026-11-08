@@ -1,0 +1,71 @@
+scene: Main
+objects:
+  - id: 1
+    parent: 0
+    name: GameObject
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: Test
+  - id: 2
+    parent: 0
+    name: Connection
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: ConnectionModule
+      - type: BindingContext
+        ModelType: Digitoy.ConnectionModule
+  - id: 3
+    parent: 2
+    name: StatusLabel
+    pos: 194.23721 66.37256 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: TextSprite
+        Size: 36
+        Fill:
+          color: '#FFFFFFFF'
+        Text@loc: main.status_label
+      - type: Binding
+        Binds:
+          - Source: Status
+            Target: '3:TextSprite:0'
+            Path: Text
+  - id: 4
+    parent: 2
+    name: Spinner
+    pos: 317.22174 62.468254 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: TextSprite
+        Size: 24
+        Fill:
+          color: '#FFCC66FF'
+        Text@loc: main.spinner
+      - type: Binding
+        Binds:
+          - Source: IsBusy
+            Target: '4:Transform:0'
+            Path: Active
+  - id: 6
+    parent: 2
+    name: Image
+    pos: 215.71072 221.56721 0
+    rot: 0 0 0
+    scale: 1 1 1
+    prefab: cde4fcd746944e20addfe9cc7f707c38
+    prefabIds: '1:6'
+  - id: 5
+    parent: 0
+    name: Camera
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: CameraComponent
+        background: '#202830FF'

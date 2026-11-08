@@ -1,5 +1,438 @@
 # DigitoyEngine R&D (game_rd)
 
+## RPC "SESSİZ ÖLÜM": KLAVYE ODAĞI POMPAYI KAPATIYORDU; MERKEZİ ODAK DÜŞÜRME (2026-11-09)
+- BELİRTİ: MCP/RPC bir süre sonra "bozuluyor": port dinliyor, bağlantı kabul ediliyor, yanıt hiç gelmiyor; VS Code MCP start
+  nedensiz hata. Editör çalışıyor (ana thread native frame döngüsünde, Write'ta DEĞİL — dotnet-stack ile ölçüldü).
+- KÖK NEDEN: [EditorApp](../editor/EditorApp.cs) `RpcHost.Pump` kapısı `HotControl==0 && KeyboardControl==0` idi; bir text
+  field odakta kaldıkça pompa hiç koşmaz (Esc'e basınca anında cevap geldi). Odak takılı kalıyordu çünkü "dışarı tık → odak
+  bırak" [GuiTextField](../engine/managed/Gui/GuiTextField.cs) İÇİNDEYDİ: MouseDown'ı önce başka kontrol `Use()` ederse
+  (toolbar Play) ya da field o frame çizilmezse olay hiç görülmez.
+- FİX: (1) [GuiHost](../engine/managed/Gui/GuiHost.cs) merkezi kural: MouseDown pass'i sonrası hiçbir kontrol
+  `KeyboardControl` yazmadıysa (`GuiUtility.KeyboardClaimed`) ve HotControl ≠ KeyboardControl ise odak düşer (Unity).
+  (2) `RpcHost.Pump(ctx, gate)` her frame çağrılır; kapı kapalıysa `[RpcCommand(Pure=true)]` komutlar (rpc.describe/guide/
+  stats, log.tail) yine koşar, diğerleri 90 frame bekler sonra ÇALIŞTIRILMADAN `editor busy: <neden>` hatası döner.
+  `FrameCount` yalnız açık kapıda ilerler (deferred poll saati). (3) [mcp-bridge](../tools/mcp-bridge/Program.cs): TCP
+  ReadTimeout (`DIGITOY_RPC_TIMEOUT_SEC`, 120) — timeout'ta RETRY YOK (mutasyon iki kez koşmasın); stdin ana thread'de,
+  Handle worker'da → EOF'ta 5 s drenaj + çıkış (yetim köprü kalmaz). (4) [InspectorPanel](../editor/InspectorPanel.cs) ad
+  alanı yalnız ODAKLIYKEN tamponu doc'a yazar; odaksızken dış değişikliği (RPC scene.rename, undo) tampona alır — eskiden
+  seçili GO'nun rename/undo'su her frame sessizce geri basılıyordu.
+- KURAL: Tüm RPC komutları `Mutates` işaretli DEĞİL (scene.open, undo, play.start, sim.run, asset.write işaretsiz) —
+  `Mutates=false`'u "salt okunur" sayma; kapı muafiyeti için `Pure`. Sentetik `ui.*` sonrası `Engaged` insan girdisine kadar
+  açık kalır → otomasyon kendi odağıyla kapıya takılmaz.
+- DOĞRULAMA: RPC ile ad alanına tık+yaz (ROOTX), toolbar'a tık+yaz → ikinci yazım girmedi; seçili GO'da scene.rename +
+  edit.undo tutuyor; köprü stdin initialize+tools/list → 2 yanıt, 0.2 s çıkış. Çalışan editör YAYIN paketi
+  (`C:\DigitoyPublish\0.1.0`, `dotnet run --project tools/EditorPublisher`; editör kapalıyken) — dev build'i değil.
+
+## RPC sizeHint × MCP KÖPRÜSÜ: ŞEMA KOMUTLARI MUAF (2026-11-08)
+- BELİRTİ: MCP `tools/list` → `InvalidOperationException: The node must be of type 'JsonObject'` ([mcp-bridge
+  Program.cs](../tools/mcp-bridge/Program.cs) `Signature`); araç listesi boş.
+- KÖK NEDEN: `rpc.describe` 8 KB eşiğini aştı (113 komut, ~37 KB) → [RpcHost.Ok](../editor/RpcHost.cs) kök map'e
+  `sizeHint` STRING ekledi; köprü describe'ın her kök anahtarını komut map'i sayıyor.
+- FİX: (1) Köprü `Signature`/`ToolsList` JsonObject olmayan kök anahtarı atlar. (2) `Ok(..., cmd)` komut adını alır;
+  `rpc.describe` / `rpc.guide` sizeHint'ten muaf (daraltma parametresi yok, ipucu yanıltıcı; kök anahtarlar = komut adı).
+- KURAL: RPC yanıt kökünü şema/sözleşme olarak tüketen istemci varsa (köprü) o köke meta anahtar enjekte etme.
+- DOĞRULAMA: bridge stdin `initialize`+`tools/list` → 113 araç, hata yok. Köprü DLL'i VS Code'daki MCP süreci
+  (`dotnet ... mcp-bridge.dll`) kilitler → rebuild için PID'i bul, Stop-Process.
+
+## SVG GLYPH ARTEFAKTI: DEJENERE KAPANIŞ KENARI (2026-11-08, digitoyclient Digitoy-Icon.ttf)
+- BELİRTİ: `<font=icon>` ile çizilen SVG glyph'lerinde (apple, smiley, friends, video, support, coin) glyph boyunca ince
+  düz çizgi/kesik; aynı SVG SpriteRenderer'da (DVEC scanline) temiz, TTF glyph'leri temiz.
+- KÖK NEDEN: Illustrator export'u konturu ~0.01 birim açık bırakır (`…16.44-7.87Z`, bitiş 17.96 vs başlangıç 17.95);
+  nanosvg `Z` için HER ZAMAN başlangıca lineTo ekler ([nanosvg.h](../engine/native/nanosvg.h) `nsvg__addPath`) — tam
+  kapalı path'te bile float toplamı 1e-6 fark bırakır. [de_msdf_svg_glyph](../engine/native/msdf_shim.cpp) bunu ~1e-6 px'lik
+  dejenere cubic olarak msdfgen'e veriyordu; yönü belirsiz mikro kenar (eksene paralel) pseudo-distance'ta glyph boyunca
+  çizgi artefaktı üretir. SVG'yi düzeltmek ÇÖZMEZ (float); SpriteRenderer yolu etkilenmez.
+- FİX (yalnız SVG yolu; TTF `de_build_shape` dokunulmadı): `eps = 0.05 px` — bitiş start'a eps içindeyse start'a snap;
+  dört noktası eps içinde toplanan kenar atlanır (cur ilerletilmez → kontur sürekli); kapanış lineTo yalnız |cur−start| ≥ eps.
+- DOĞRULAMA: render.screenshot scale=3 apple ikonu önce/sonra (dikey çizgi gitti); sheet artifact median-decode ile 36
+  ikonun tamamı temiz. Ölçüm tuzağı: `render.screenshot` `region` + `scale>1` birlikte bölgeyi yanlış kırpıyor (ayrı iş);
+  tam ekran scale=3 çekip PIL ile kırp.
+- AYRICA: digitoyclient `.meta` customGlyphs yolları `Shared/Fonts/Icons/` → `Fonts/Icons/` düzeltildi (import FAIL idi).
+  RPC asset yolları `Assets/` ÖNEKSİZ (`Fonts/Digitoy-Icon.ttf`).
+
+## HİYERARŞİ: DUPLICATE / COPY / PASTE + SAĞ-TIK MENÜ, PREFAB İKONU KALKTI (2026-11-08)
+- Unity kısayolları [HierarchyPanel](../editor/HierarchyPanel.cs): imleç panel üstünde + textfield/drag yokken **Ctrl+C /
+  Ctrl+V / Ctrl+Shift+V (as child) / Ctrl+D / Delete**; sağ-tık menüsü (Copy, Duplicate, Paste, Paste as Child, Delete,
+  Create Empty, Create Empty Child). Çoklu seçimde atası seçili olan atlanır (alt ağaç bütün gelir). Del butonu dahil
+  hepsi TEK undo (`BeginBatch/EndBatch`).
+- Çekirdek [EditorScene](../editor/EditorScene.cs): `CloneSubtree(source, root, ref nextId)` derin klon — yeni id'ler,
+  parent/prefab işaretleri ve komponent Go/CompRef'leri haritayla remap (iç ref → kopya, dış ref aynen; Instantiate
+  semantiği). Prefab KÖKÜ kopyalanınca kopya da instance (PrefabIds/Removed/override'larıyla); prefab ÇOCUĞU tek başına
+  kopyalanınca işaretler silinir → düz GO (Unity). `InsertSubtree` = `AddSubtreeOp` (RemoveGoOp aynası);
+  `DuplicateGameObjects` kopyayı orijinalin alt ağacının hemen arkasına koyar; `PasteSubtrees` seçilinin parent'ına/
+  arkasına (seçim yoksa köke, sona). SingleRoot (prefab stage) kökü çoğaltma/köke yapıştırma reddedilir.
+- [GoClipboard](../editor/GoClipboard.cs): SÜREÇ İÇİ pano (dosya/sistem panosu yok): copy anında snapshot (id uzayı 1..n),
+  paste her seferinde yeniden klonlar → çoklu paste, sahneler arası taşıma (dışa bakan GO ref'i hedefte yoksa null).
+- TUZAK: `EditorMenu.ShowContext` native ve SENKRON (eylem dönmeden çalışır) → `doc.Objects` enumerasyonu İÇİNDE
+  açılmaz (Duplicate "Collection was modified" patlattı). Satır sağ-tık'ı yalnız `_pendingMenuId` işaretler, menü OnGui
+  sonunda açılır. Doc'u değiştiren her menü için aynı kural.
+- KARAR: hiyerarşide prefab kökü için Library küçük resmi KALDIRILDI — UI (LayoutBox) prefab'ı izole kadrajda beyaz kare
+  çıkıyordu (parent layout/tema olmadan anlamsız; 16px'te tanınmaz). Unity gibi prefab kökü + çocukları MAVİ metin.
+- UNPACK PREFAB COMPLETELY (aynı gün): `EditorScene.UnpackPrefab(g)` (kök ya da çocuk → kökü bulur) + `UnpackPrefabOp`
+  (ConnectPrefabOp'un aynası; undo işaretleri geri koyar). Doc bellekte GENİŞLETİLMİŞ (prefab değeri + override birleşik)
+  olduğundan unpack = yalnız `PrefabGuid/Ids/Removed/LocalId/RootId` silmek; prop'lar aynen kalır, prefab dosyası ve canlı
+  sahne dokunulmaz. Tek seviye unpack YOK: iç instance'lar outermost kuralıyla zaten düz çocuk (ancak sahnede ayrı
+  instance olarak duran iç kök kendi başına unpack edilir). Hiyerarşi sağ-tık "Unpack Prefab Completely" (çoklu seçim,
+  tek undo), RPC `prefab.unpack(go)` (edit.batch'te izinli).
+- INSPECTOR GÖRÜNÜM TAZELEME + ENTER (ölçüldü): Inspector `CompView` cache'i `KeyboardControl≠0` iken bilinçli
+  tazelenmez (IMGUI kontrol sayısı); metin alanı her tuşta doc'a yazdığından [ShowIf] alanları odak düşene kadar
+  görünmüyordu. Fix: `GuiTextField` Enter/Escape klavye odağını bırakır (Unity Inspector; Escape geri almaz, yalnız
+  odak). LayoutBox metin alanlarındaki `ShowIf(nameof(text))` da kaldırıldı — "Text" kategorisi zaten gruplar.
+- SAĞ-TIK MENÜ DAVRANIŞI: sağ tık seçimi HEMEN değiştirir, menü bir sonraki frame'in Repaint'inde açılır (`_menuWait`;
+  senkron native popup frame sunumunu bloke ettiğinden vurgu önce ekrana basılmalı). TUZAK (ölçüldü): Win32
+  `TrackPopupMenu`'yü kapatan dış tık WM_*BUTTONDOWN olarak kuyrukta kalıp sonraki `glfwPollEvents`'te pencereye
+  normal basma olarak iniyordu (hiyerarşide sahte drag). Fix `de_menu_show_context`: dönüşte bekleyen button-down
+  mesajları `PeekMessage(PM_REMOVE)` ile yutulur (move/up kalır; eşsiz MouseUp hot=0 → zararsız). Tüm panellere geçerli.
+- TİPE GÖRE GLİF İKON (aynı gün): component sınıfına `[Icon("glyph")]` (Attributes.cs) → `TypeCatalog.Entry.Icon`
+  (yalnız DE_EDITOR, reflection'dan). Hiyerarşi `DrawNode`: ok sonrası SABİT ikon sütunu (RowH-2 genişlik, her satırda
+  ayrılır → isimler hizalı); glif = GO'nun component listesindeki ilk `[Icon]`'lu tip. Editörde tip-özel ikon kodu YOK.
+  Çekirdek: LayoutBox ▭, SpriteRenderer ▦, TextSprite "T", ParticleSystem ✦, Camera ▣, MovieClip ▶, AudioSource ●, Puppet ◆.
+  TUZAK: gömülü editör fontunda geometrik glifler YOK → `GuiFont.BakeShape` (BakeTriangle gibi) ■□▣▦▭◆●○✦ şekillerini
+  prosedürel olarak raster atlasa basar (cap-ortalı metrik, 4x4 supersample). Yeni glif isteyen `ShapeHit`'e case ekler;
+  fonta bakıp "var sanmak" yok — önce ekran görüntüsüyle doğrula (notdef kare çıkar).
+
+## LAYOUTBOX SPRITE FLIP (spriteFlipX/Y) (2026-11-08)
+- `LayoutBox.spriteFlipX/spriteFlipY` (Fill kategorisi, `ShowIf(sprite)`): resmi scale -1 kullanmadan aynalar.
+  Uygulama tek noktada, MANTIKSAL sprite uzayında ([LayoutBox.cs](../engine/managed/LayoutBox.cs) `EncodeTextured`/
+  `SpriteSpace`/`EmitSpriteCell`): trim kutusu aynalanır, 9-slice L↔R / T↔B takas edilir, hücre UV kesri `1-f` olur →
+  Stretch/9-slice/Contain/Cover/Tile/trim hepsi otomatik doğru; bayraklar kapalıyken çıktı bit-bit aynı, ek alloc yok.
+- BoxStyle'a BİLEREK eklenmedi (stil durumlar arası flip animasyonu anlamsız). Test: `LayoutTests.Scale9Smoke`
+  `RenderQueue.InstanceUvRect(i)` (internal, test/teşhis) ile uv genişliğinin işaretini kontrol eder.
+
+## 9-SLICE = RESMİN ÖZELLİĞİ (Sprite.Border) + [Labels] + Sprite Editor (2026-11-08)
+- KARAR (Unity modeli, seçenek A): 9-slice kenarı LayoutBox'ın değil RESMİN ayarı. `.meta importer.border` (Vec4
+  L/T/R/B, kaynak piksel) → [ImageImporter](../editor/ImageImporter.cs) `"border"` artifact'i (4×int32 LE,
+  Standalone) → runtime `AssetDatabase.LoadSprite` standalone yolda `key#border` okur → `Sprite.BorderL/T/R/B`
+  ([Sprite.cs](../engine/managed/Sprite.cs), `HasBorder`). Atlas üyesinde değer `SpriteTable.Region.Border*`'a geçer
+  (AtlasImporter png ayarını okur; stamp üye ayarını kapsar → border değişince atlas otomatik yeniden paketlenir).
+- LayoutBox: `slice9` alanı, `Scale9/Slice9*` property'leri ve `BoxStyleState.slice9` KALDIRILDI. Stretch modunda
+  `sprite.HasBorder` ise otomatik 3×3 grid; border MANTIKSAL (kırpılmamış) pikselde → trim ile uyumlu. Migrasyon
+  yapılmadı (kullanıcı kararı: test projeleri bozulabilir); eski sahnelerdeki `slice9:` bilinmeyen alan, yok sayılır.
+- Canlı güncelleme: Apply/`asset.reimport` = `SaveSettings → EnsureImported → Assets.InvalidateImported(rel)
+  (standalone sprite border'ı tazeler) → AtlasSystem.RefreshAll()`. `.meta` dosyası watcher'da izlenmez (dış düzenleme
+  yayılmaz); release'te `LoadNodeAsync` `#border`'ı preload eder (senkron ReadBlob uyarısı yok).
+- `[Labels("L","T","R","B")]` ([Attributes.cs](../engine/managed/Serialization/Attributes.cs)): Vec4 alan eksen
+  etiketleri (X/Y/Z/W yerine). Herkese açık, `FieldSchema.Labels`, `comp.schema` `labels` döndürür. LayoutBox
+  margin/padding/border L T R B, radius TL TR BR BL.
+- [SpriteEditorPopup](../editor/SpriteEditorPopup.cs) (EditorPopup): resim üzerinde 4 sürüklenebilir kılavuz + L/T/R/B
+  sayı alanı, Apply/Revert. Açılış: görsel asset inspector'ındaki "Sprite Editor..." (ImageImporter önizlemesi, kayıtlı
+  kılavuzları çizer) ve Sprite referansı yanındaki "9" düğmesi (ObjectDrawer.DrawAssetRef; yalnız png/jpg sahip).
+  Popup odak kaybında kapanır → editör ön planda değilse açılamaz (RPC ile UI testi bu yüzden kullanıcıya bırakıldı).
+- TUZAK: InspectorTests `DrawDocValue`'yu yansımayla çağırır; imzaya parametre eklenince test argüman listesi de
+  güncellenmeli (TargetParameterCountException editörü açılışta çökertir).
+
+## INSPECTOR [Category] GRUPLARI — sadeleştirilmiş inspector (Dilim 2) (2026-11-08)
+- KARAR: inspector sadeleşmesi ŞEMADAN sürer, tip-özel kod yok. `[Category("…")]`
+  ([Attributes.cs](../engine/managed/Serialization/Attributes.cs)) artık component alanlarında da katlanır alt-başlık
+  (PlayerSettings penceresiyle aynı attribute); HERKESE AÇIK — oyun kodu da kullanır. `FieldSchema.Category` yalnız
+  editör okur; serileşme/pak etkilenmez. `comp.schema` RPC `category` döndürür.
+- DENENDİ-VAZGEÇİLDİ: Quick/All modu + `[Essential]` + "+ Property…" seçici (varsayılanı doc'a yazarak alan "ekleme").
+  Kullanıcı: pratik değil; mantıklı gruplama yeterli. Kod tamamen kaldırıldı (ölü sözleşme bırakılmadı).
+- [InspectorPanel.View.cs](../editor/InspectorPanel.View.cs): component "görünümü" (DocVisible alanların kategori
+  grupları) `(goId, compIndex)` anahtarlı cache; `History.Version`/tip değişince tazelenir, AMA `HotControl`/
+  `KeyboardControl` doluyken ASLA (IMGUI kontrol sayısı sabit kalır). `MeasureHeight` ve `OnGui` aynı görünümü okur.
+  Tek grup ve kategorisizse alt-başlık çizilmez (eski düz görünüm). Kategorisiz grup ("General") en başta, gerisi şema
+  sırası. Katlama tür bazlı (`EditorSettings.inspectorFolded` = "Type/Category"), GO'dan bağımsız.
+- Kategoriler: LayoutBox → Size & Anchor, Children, Fill (`style` dahil), Shadow, Text; `Renderer` tabanı → Rendering
+  (SortingOrder/Space, BlendMode, Effects, FxParams, BlocksRaycast) — TÜM renderer'larda "General" + "Rendering" grubu
+  görünür (bilinçli).
+- Otomasyon notu: `EditorPopup` ayrı GLFW penceresi; `ui.screenshot`/`ui.windows` görmez ve editör önplanda değilse
+  focus alamayıp 15 frame'de kapanır. Doğrulama: `WScript.Shell.AppActivate` + `ui.click` + masaüstü ekran görüntüsü
+  (PIL ImageGrab) + `SendKeys`. Aynı `rpc.ps1` dizisinde art arda iki `ui.click` aynı frame'e düşebilir (ikincisi
+  yutuldu) — ayrı çağrı yap.
+
+## UI ELEMENTS / LIBRARY PANELİ — tasarımcı için sıfır-kod UI (Dilim 1) (2026-11-08)
+- KARAR: UI authoring için ayrı markup/DSL/React katmanı YOK; "eleman" = PREFAB. Library = projedeki `Assets/Library/`
+  klasörü (alt klasör = kategori); şablon değişince instance'lar mevcut prefab sistemiyle güncellenir (ölçüldü:
+  prefab stage'de width değişti → sahnedeki instance anında 400). Yeni kavram/sözleşme eklenmedi; panel component tipi
+  bilmez (liste `AssetDatabase.ImportTypeOf == Prefab`, yerleşim `ITransformDriver` üzerinden).
+- Yol haritası (kullanıcı onayı, sırayla): (1) palet + yerleştirme ✓, (2) sadeleştirilmiş inspector, (3) doğrudan
+  manipülasyon + inline metin, (4) sıfır-yazım binding (⚡ seçici), (5) stil paneli. Sonraki dilime geçmeden plan sun.
+- [LibraryPanel](../editor/LibraryPanel.cs) (`Window/Library`): kategori sekmeleri + arama; tek tık = asset seçimi,
+  çift tık / sağ tık "Add to Scene" = **tıklamadan önceki GO seçiminin içine** ekle (ilk tık asset seçimi yapıp
+  `Selection.DocId`'yi sildiği için `_targetGo` hatırlanır), sürükle = `DragDrop.BeginAsset`. Hierarchy'den GO bırakma →
+  seçili kategoriye `.prefab` (`CreatePrefabAsset`) = "kendi yaptığını library'ye at". Boş durumda / menüde "Add starter
+  elements": [StarterKit](../editor/LibraryPanel.cs) editöre gömülü `Resources/Library/*.prefab` (Text, Image, Button,
+  Panel, Row, Column, Spacer — hepsi tek LayoutBox) dosyalarını var olanın üstüne yazmadan kopyalar. Button bir
+  component değil, stilli LayoutBox (etkileşim sonraki dilim).
+- [ElementPlacement](../editor/ElementPlacement.cs): `ContainerFor(hit)` = imleç altındaki GO (prefab çocuğuysa instance
+  kökü; SingleRoot stage'de tek kök). `DropAt`: kap sürücüsüz → local pos; `PositionEditField` varsa (anchor) proxy alana
+  delta `SetProp`; flex dizen kapta → kardeş merkezlerinin yayılma eksenine göre `insertBefore` seçip `MoveGameObject`.
+  Tek undo grubu. SceneView prefab drop ve Hierarchy prefab satırı ikonu buna/Library thumb'a bağlandı.
+- Prefab küçük resimleri: [PrefabThumbs](../editor/PrefabThumbs.cs) frame başına 1 prefab'ı geçici `Scene`'de
+  (EditMode, ExternallyDriven, `Scene.SetActive` swap) instantiate edip 128² kalıcı RT'ye kare ortho ile çizer
+  (`EditorApp`: `cb.Begin` sonrası `Encode`, `Sokol.Commit` sonrası `AfterSubmit`), `GameOutput.ReadRgba` ile okur.
+  ÖLÇÜLDÜ: readback atlas hücresine ters düşüyor → satırlar çevrilir; RT premultiplied → un-premultiply; tamamen saydam
+  sonuç (dolgusuz Row/Column/Spacer) → `Put(null)` ve panel harf rozeti çizer. Disk önbelleği ThumbnailCache'in
+  (`Library/Thumbs`, stamp'li); yön/format değişirse klasörü sil.
+- RPC otomasyon notu: `ui.click clicks=2` çift tık, `ui.drag x0 y0 x1 y1`; `prop.set` parametreleri `go, comp(int), prop,
+  value`; `scene.dump props=true`.
+
+## PROJECT PANEL — boş klasör, rename/move/delete (2026-11-08)
+- Boş klasörler: [AssetTree.List](../editor/AssetTree.cs) artık AllAssets'e ek olarak diskteki `Directory.GetDirectories`
+  ile klasör satırı üretir ('.' ile başlayanlar hariç). Önceden klasör yalnız içinde asset varsa görünüyordu.
+- Dosya işlemleri TEK yerde: [AssetOps](../editor/AssetOps.cs) `Rename/Move/Delete`. Kurallar: `.meta` dosyayla birlikte
+  taşınır → GUID korunur, referanslar bozulmaz; artifact'ler GUID'li olduğundan taşımada dokunulmaz, silmede
+  `ImportPipeline.DeleteArtifacts(guid)` (klasör altındaki tüm guid'ler). Hedef varsa reddedilir (yalnız büyük/küçük
+  harf farkı serbest). Kaynak+hedef yollara `AssetWatcher.NoteSelfWrite` (watcher sahneyi yeniden yüklemesin); açık
+  sahne/prefab stage taşınırsa `EditScene.SetPath` ile yol izlenir, SİLİNMESİ reddedilir. Seçim yeni yola taşınır.
+  Sonrası `ScanMetas + NoteFileListChanged + AtlasSystem.RefreshAll`. Alt asset'ler (`yol#id`) işlem dışı.
+- SINIRLAR (bilinçli): undo yok, geri dönüşüm kutusu yok (kalıcı sil, ConfirmPopup ile). Yol-string tutan alanlar
+  (AtlasGroup.folders prefix, Localize kapsamı vb.) taşımada otomatik güncellenmez. Klasör sürükleme yok (tek tık klasöre
+  girer); klasör için rename/delete sağ tık menüsünden.
+- UX ([ProjectPanel](../editor/ProjectPanel.cs)): satırda sağ tık → Rename…/Delete…/Show in Explorer (+ Create/Refresh);
+  boş alanda sağ tık → Create/Refresh. F2/Delete (imleç panelde, metin alanı odaklı değilken). Sürükle-bırak: asset →
+  klasör satırı veya `^` butonu (üst klasöre) = Move; hedef highlight'lı.
+- Genel popup'lar: [TextPromptPopup](../editor/TextPromptPopup.cs) (Enter=OK, uzantı dışı ad seçili açılır) ve
+  [ConfirmPopup](../editor/ConfirmPopup.cs). Callback `OnClosing`'de koşar. Yardımcı: `Gui.FocusTextField(id, anchor, caret)`
+  ([GuiTextField.cs](../engine/managed/Gui/GuiTextField.cs)) — TextEditState private olduğundan dışarıdan odak/seçim için.
+- OTOMASYON TUZAĞI: EditorPopup pencereleri (ayrı GLFW penceresi) `ui.windows`/`ui.screenshot window=`/`ui.key` ile
+  ERİŞİLEMEZ (önceden de böyleydi). Ekranda var ve odaklı; doğrulama gerçek klavye (SendKeys) + masaüstü yakalama ile
+  yapıldı: rename/move/delete üçü de ölçülerek PASS. İleride istenirse `asset.rename/move/delete` RPC komutu AssetOps'a
+  bağlanabilir.
+
+## VS CODE DEBUG — editör + oyun kodu (2026-11-07)
+- `.vscode/launch.json`: `Editor (digitoyclient|TekelOkey)` coreclr launch (preLaunchTask `build editor`,
+  `justMyCode:false`) ve `Attach to Editor` (processName DigitoyEditor; Unity "Attach to Editor" karşılığı).
+  `.vscode/tasks.json`: `build editor` = `dotnet build editor`. Gereksinim: C# eklentisi (ms-dotnettools.csharp).
+- Oyun DLL'i zaten Debug (`Optimize=false`) + portable PDB (`Library/Build/bin/<Proj>.Game.pdb`, mutlak kaynak yolu)
+  idi; eksik olan ALC'ye PDB'nin verilmesiydi. [GameCode.LoadWithSymbols](../editor/GameCode.cs): Game/Editor/plugin
+  DLL'leri `LoadFromStream(dll, pdb)`. Kanıt: oyun kodundan trace artık `at Test.Awake() in ...\Test.cs:line 9`
+  (önceki crash.log'da satır yoktu). Breakpoint'ler `Assets/**/*.cs`'e doğrudan; hot reload → yeni assembly'ye
+  otomatik yeniden bağlanır. Tuzak: debugger'da durup kalınca frozen frame — RT resize/destroy yasak (aşağıdaki not).
+- PROJE TARAFI: editör her açılışta proje köküne `.vscode/launch.json` yazar ([IdeFiles.LaunchJson](../editor/IdeFiles.cs)):
+  `DigitoyEditor (<Proj>)` = çalışan editör exe'si (`Environment.ProcessPath`, makineye özel → gitignore şablonuna eklendi,
+  mevcut .gitignore'da satır yoksa uyarı) `${workspaceFolder}` argümanıyla + `Attach to DigitoyEditor`. preLaunchTask/
+  tasks.json yok: oyun kodunu editör derler. Proje tek başına VS Code'da açıkken F5 yeter.
+- PDB CHECKSUM TUZAĞI (2026-11-07): breakpoint'te "source code is different from the original version" uyarısı.
+  ÖLÇÜM: PDB'deki Server.cs SHA1 = `sha1(EF BB BF + dosya baytları)`, disk SHA1 = `sha1(dosya)`. Sebep: Roslyn string
+  tabanlı `SourceText.From(string, Encoding.UTF8)` checksum'ına `encoding.GetPreamble()` (statik UTF8 → BOM) katar;
+  dosyalar BOM'suz → vsdbg eşleştiremez. FIX: [RoslynCompiler.Compile](../aotcompiler/source/RoslynCompiler.cs) ve
+  [ModuleBuilder.CompileModuleDll](../editor/ModuleBuilder.cs) kaynakları `SourceText.From(stream, UTF8)` ile okur
+  (csc gibi; checksum = diskteki gerçek baytlar, BOM varsa o da sayılır). `requireExactSource:false` ile uyarıyı
+  susturma — bayat kodda yanlış satırda durur. Kanıt: fix sonrası PDB hash == disk SHA1 (`26d17f…`).
+- PDB KİLİT TUZAĞI (2026-11-07): debugger altında hot reload `IOException: <Proj>.Game.pdb being used by another
+  process` → PDB bayat kaldı → yine "source code is different". ÖLÇÜM: dll 19:31'de yazıldı, pdb 19:29'da kaldı;
+  debugger'sız koşuda yazma sorunsuz → kilitleyen vsdbg (PE debug directory'deki mutlak pdb yolunu diskten açıp modül
+  yüklü kaldıkça tutuyor; eski ALC hemen çökmez). FIX: oyun DLL'i artık **gömülü** portable PDB (`RoslynBuild.EmbedPdb`,
+  `DebugInformationFormat.Embedded`); ayrı `.pdb` yazılmaz, varsa eski silinir. DLL stream'den yüklendiği için
+  kilitlenmez; CoreCLR + vsdbg gömülü PDB'yi doğrudan okur (`LoadWithSymbols` pdb yoksa `LoadFromStream(dll)`).
+  Plugin DLL'leri (yanında .pdb) ve ModuleBuilder/AOT yolu değişmedi (CilFrontend zaten EmbeddedPortablePdb okur).
+
+## ASYNC VOID İSTİSNASI EDİTÖRÜ DÜŞÜRMEZ — ana thread SynchronizationContext (2026-11-07)
+- ÖLÇÜM (crash.log): `async void Server.LoadSettings()` içinde `await Http.GetAsync` SONRASI NRE →
+  `Task.ThrowAsync → ThreadPoolWorkQueue.Dispatch` → process ölür. Kullanıcı "cctor" sandı; gerçek yol async void.
+  Sebep: .NET `AsyncVoidMethodBuilder.SetException` istisnayı `SynchronizationContext.Current`'a Post eder; motor hiç
+  ctx kurmadığından thread pool'a gider. EditorApp'teki `try/catch (PlayScene != null)` başka thread'i göremez.
+- FIX: [NativeAsync.cs](../engine/managed/NativeAsync.cs) `MainThreadSyncContext` (+ `NativeAsync.Install()`): Post →
+  kilitli kuyruk; `Pump` sonunda `DrainPosted` her öğeyi `try/catch` ile koşar → `Debug.LogException` (editörde
+  `Debug.OnError = EditorLog.Error` → Console, Play sürer). AOT corelib ile AYNI semantik ("logla, yut"); `#if !DE_AOT`
+  (AOT corelib'de SynchronizationContext yok, gerek de yok). Kurulum: EditorApp.Main başı, GameHost.Init/InitLoose.
+- Normal `await` devamları ETKİLENMEZ: tamamlama ana thread'de (Current == yakalanan ctx) iken .NET
+  `SynchronizationContextAwaitTaskContinuation` inline koşar; yalnız async-void hata yolu + cross-thread tamamlamalar
+  kuyruğa girer. "continuation Pump içinde inline" sözleşmesi korunur. Test: AsyncQueueTests #8 (32 PASS).
+- Doğrulama: digitoyclient'ta geçici `async void` throw (Http await sonrası) → `[Error] ... at NativeAsync.DrainPosted`,
+  editör ayakta, crash.log'a kayıt yok. İz kaldırıldı.
+
+## TEKELOKEY PORTU — eski Digiplay istemcisi yeni motora, Adım 1: BINDING (2026-11-05, Projects/TekelOkey)
+- BAĞLAM: `digiplay-net/TekelOkey` (eski motor: xml sahne, Sprite2D, 87 xml / 325 farklı `bind:` ifadesi) + `Digibo`
+  (model+net, 5.6k — görsel katmana BAĞLI DEĞİL, 4 dosyada 7 referans) + `Digibo.Module` (37 UI modülü, 36'sı
+  UISprite/Group2D türevi). Sunucu protokolü/modeller SABİT (Digibo), sunucu değişikliği yok.
+- REDDEDİLEN YOL: eski motor çekirdeğini (46k) sokol üstüne "compat layer" ile taşımak — terk edilecek koda yatırım.
+  KARAR: büyük plan yok, ADIM ADIM; önce Digibo.Module'ün iki engeli: (1) Sprite2D türevi → Component, (2) Binding →
+  yeni motorda daha yetenekli bir binding. Digiplay kopyası (`game_rd/digiplay`) silindi; orijinaller salt okunur.
+- İLKE (kullanıcı): **"Unity gibi — çekirdek nesnelere dokunmadan her ihtiyaç karşılanabilsin."** Şimdiye kadar her
+  özellik Component'e alan ekledi (`_loc`, `_animTouched`, ...). Yeni kural: özelliğe özel durum Component'e alan olarak
+  GİRMEZ; yan tablo (`ConditionalWeakTable`) + tek genel ömür kancası `destroyCancellationToken`. Kanıt olsun diye Binding
+  OYUN KODUNDA yazıldı (motor DLL'inde değil): `Projects/TekelOkey/Assets/Scripts/Ui/Binding.cs`, `Binding.List.cs`
+  (Adım 2b'de SİLİNDİ, aşağı bak) — motor çekirdeğinde SIFIR değişiklik.
+- TASARIM: `Bindable<T>` (tipli, ANINDA yayılım, eşit değer de yayılır = eski `Refresh` semantiği, `SetIfChanged`/
+  `SetSilent`, `Changed(new,old)`, intrusive dinleyici listesi, yayılım alloc=0, yeniden giriş = son değer kazanır);
+  `owner.Bind(b, v => ...)` (hemen uygular; sahip yok edilince `BindScope` token ile düşer; sahip başına tek scope);
+  `Bindable.Compute(() => ifade, deps)` (xml `bind:` karşılığı, zincirlenir, sahipli/sahipsiz); `Bus.Get<T>(tag)/Publish`
+  (eski Tags/DispatchByTag/Global; O(1), tip uyuşmazlığı hata); `ListBindable<T>` + `owner.BindList(list, container,
+  create, bind)` (eski ListBinding: index'e göre görünüm yeniden kullanımı, fazlası Destroy). Reflection/alan adı YOK.
+- TEST: `Tests/BindingTests.cs` (Adım 2b'de silindi) `BindingTests.Run()` 33 PASS —
+  oyun DLL'i HEADLESS çalıştı (Scene.Create/Update native'siz; konsol harness: DigitoyEngine.dll + TekelOkey.Game.dll
+  referansı, `BindingTests.Run()`). Oyun-tarafı testler için editör gerekmiyor.
+- MOTOR BOŞLUKLARI (bu adımda görülen, dokunulmadı): Component'te public `destroyed`/`IsDestroyed` yok (yalnız
+  `isActiveAndEnabled`); oyun-tarafı açılış testi kancası yok (editör test listesi sabit).
+- TUZAK: harness csproj'u `Private=false` olmadan referans alınca oyun DLL'ini kendi bin'ine KOPYALAR → oyun yeniden
+  derlense de harness bayat DLL çalıştırır (iki sahte FAIL). Harness'ı da derle ya da `Private=false`.
+- ADIM 2a — `IsDestroyed` (motor, 2026-11-05): `GameObject.IsDestroyed` ve `Component.IsDestroyed` public. Sözleşme:
+  `Destroy()` çağrıldığı ANDAN true (kuyrukta ya da yok edilmiş); GO için ebeveyn zinciri de sayılır (ata kuyruktaysa
+  alt ağaç da true, O(derinlik)); component için kendi bayrağı ∨ GO'su. `activeInHierarchy` flush'a kadar DEĞİŞMEZ —
+  "gitti mi?" sorusunun tek doğru cevabı IsDestroyed. Düzeltme: `Scene.QueueDestroy(Component)` zaten kuyrukta
+  `_destroyed=true` yazıyordu (önceki "bug" notu yanlıştı). Test: LifecycleTests.IsDestroyedFlag; ListView artık
+  dışarıdan yok edilen görünümü IsDestroyed ile algılayıp yeniden yaratıyor.
+- ADIM 2b — **BINDING MOTORA TAŞINDI, PULL modeli; Adım 1 game-side binding İPTAL** (2026-11-05, kullanıcı kararı):
+  "eskiyi birebir alma; doğru yöntemi kur, editör uyumlu olsun, leak/performans kullanıcı insafına kalmasın."
+  Oyun-tarafı `Bindable<T>`/`Bus`/`ListBindable` ve harness SİLİNDİ. Tek sahip: [Binding.cs](../engine/managed/Binding.cs).
+  - MODEL: düz C# sınıf `[Bindable]` (public alanlar + `[Bindable]` okunabilir property'ler; iç içe `[Bindable]`/
+    `[Serializable]` struct/sınıf derinlik≤6; koleksiyon yok). Setter/notify YOK — model tamamen "aptal".
+  - PULL: `BindingSystem : ISceneSystem` her frame `Sync` fazında her bind için kaynağı okur (`Reflect.ModelGetter<T>`,
+    AOT'ta alan offset yolu), tipli `AnimValue.Same(last, kind)` ile karşılaştırır, değiştiyse `AnimProperty.Apply` ile
+    hedefe yazar → mevcut `NoteAnimated → OnValidate` akışı. Abonelik yok → leak İMKÂNSIZ; hesaplanan getter'lar için
+    bağımlılık takibi gerekmez; model swap/null önemsiz; aynı frame deterministik; sıcak yol sıfır alloc.
+    Bench: 3000 bind idle ~0.4-0.5 ms/frame. `IBindVersion` kısa devre gerekirse sonra.
+  - CODEGEN YOK: Registry codegen zaten kaldırılmıştı (docs/registry-removal.md); katalog reflection AOT-tipli
+    (`FieldInfo.RefAt`). `[Bindable]` property AOT'ta boxed (Animatable ile aynı kabul).
+  - BİLEŞENLER: `BindingContext` (GO'ya model nesnesi: `SetModel(obj)`; edit modunda `ModelType` adına göre örnek
+    instance üretir → editörde canlı önizleme), `Binding` (`List<Bind>{Source, Target, Path}`; kaynak `"Total"`/
+    `"Position.P"` = hiyerarşide en yakın BindingContext, `"$Name.path"` = sahne globali `BindingSystem.SetGlobal`).
+    Sahte yollar çalışır (`Transform.Active`, `Enabled`). Kaynak-hedef tür uyumu: sayısallar çapraz OK, String/Ref
+    yalnız aynı tür. Reparent OTOMATİK ALGILANMAZ → `Invalidate()`; context yok edilince sonraki frame yeniden çözülür.
+  - MOTOR DEĞİŞİKLİKLERİ: `ISceneSystem.Sync(scene)` yeni faz (LateUpdate'ten sonra, `FlushAnimated`'tan ÖNCE; edit
+    modunda da koşar; LayoutSystem'de boş — sistemler birbirine sızmaz, Scene her sistemi bağımsız çağırır).
+    `Reflect.ModelGetter<T>`. (İlk sürümdeki `AnimKind.String`/`AnimAll`/`FindBindable` eklemeleri ADIM 2d'de GERİ ALINDI.)
+  - TEST: [BindingTests.cs](../editor/BindingTests.cs) 40 PASS (kaynak tablosu, context yayılımı/en yakın kazanır,
+    global, model swap, pseudo yol, ömür, edit-mode örnek, 1000 GO×3 bind alloc=0). ÖLÇÜM: `ResolvedCount` hedef
+    çözümünü sayar (kaynak çözümü model gelince tembel) → beklenen 7, 6 değil; Stopwatch'ı alloc ölçümünden ÖNCE kur
+    (ilk `StartNew` 40 B).
+  - SONRAKİ DİLİMLER (onay gerek): dönüştürücü/format (YAGNI: modelde `[Bindable] string X => $"..."` yeter),
+    inspector UX (ModelType combo, yol seçici), RPC'de `anim.props` benzeri açılım; sonra Digibo.Module
+    `OnlineCountModule` portu (`[Bindable]` model + SetGlobal).
+- ADIM 2c — **ListBinding + Instantiate derin kopya** (2026-11-05): [Binding.List.cs](../engine/managed/Binding.List.cs).
+  - `ListBinding : Component` (`Source` = context'te/`$Global.`'de `IList` yolu; `Prefab` asset ya da `Template` GO
+    (hiyerarşide PASİF tutulur, klon aktif edilir); `Container` boşsa kendisi). Her frame `Count` + indeks başına eleman
+    REFERANSI kıyaslanır: eksik görünüm doğar, fazlası `Destroy`, elemanı değişen indekste çocuk `BindingContext.SetModel`
+    (prefab'ta yoksa eklenir) — görünüm içindeki `Binding`'ler "en yakın context" ile kendiliğinden bağlanır; ek
+    mekanizma yok. Dışarıdan yok edilen görünüm (`IsDestroyed`) yeniden yaratılır. Kaynak tablosunda liste alanı/
+    `[Bindable]` liste property'si `BindSource.IsList` (Kind=Ref); `Binding` bunları atlar. Computed liste (`FindAll`)
+    çalışır ama her frame yeni liste = alloc (model yazarının bilinçli tercihi). SINIR: eleman tipi SINIF; struct listesi
+    yok. Görünümler yalnız `Simulating` sahnede üretilir (edit sahnesine runtime çocuk sızmaz; önizleme yok).
+    Sistem Sync sırası: önce listeler, sonra binding'ler (doğan görünümler AYNI frame'de bağlanır — sweep sınırı canlı).
+    Spawn sırasında `Scene.SetActive(sahip)` kaydet/geri al: `new GameObject` Scene.Active'e doğar, editörde edit+play
+    sahneleri birlikte yüklü.
+  - BULUNAN MOTOR HATASI (ölçümle): `GameObject.Instantiate` → `Entry.CopyTo` SHALLOW: `List<Bind>`/`MovieClip.Tracks`
+    şablonla PAYLAŞILIYORDU ve `RemapRefs` yalnız üst düzey Go/CompRef'e bakıyordu (liste/nesne içindeki `Bind.Target`,
+    `ClipTrack.Target` ŞABLONA işaret kalıyordu → klon şablonu güncelliyordu). Prefab yolu (`SceneDoc.Spawn`) doğruydu.
+    FİX: [InstanceClone.cs](../engine/managed/Serialization/InstanceClone.cs) — Unity semantiği, Unity maliyeti DEĞİL:
+    tip başına BİR KEZ şemadan `ClonePlan` (yalnız liste / class nesne / liste taşıyan struct = Deep; alt ağacında ref
+    olan = Refs). Plansız component shallow CopyTo'da kalır (sıfır ek iş); plandakiler şema delegate'leriyle (Get/Set/
+    NewList/NewArray/NewElement) derin kopyalanır ve iç içe ref'ler klon haritasıyla remap edilir. Şema dışı public
+    alanlar eskisi gibi shallow (Texture/Material by-ref). Test: LifecycleTests.InstantiateDeepCopy (5 kontrol).
+  - TEST: `[binding] 56 PASS` (liste: boş/büyüme/küçülme/swap/dış destroy/computed/idle alloc 0/temizle/kayıt düşme),
+    `[lifecycle] 34 PASS`, 26 paket 0 FAIL.
+- ADIM 2d — **ANİM ↔ BINDING AYRIMI** (2026-11-05, kullanıcı: "binding'e mümkün olduğunca anim sızmasın, çok alakasız
+  iki konu"; "money gibi değerleri long tut" bunu tetikledi — AnimValue float taşıyor, long kaybı).
+  - KURAL (kullanıcı, kalıcı): **Konular arası sızma/bağlaşım kararı gerektiğinde TEK BAŞINA KARAR VERME, ÖNCE SOR.**
+    (LayoutSystem→Binding, Anim→Binding örnekleri: "farklı sistemler birbirine sızmamalı".)
+  - Binding artık animasyonla HİÇBİR ŞEY paylaşmaz: `AnimValue/AnimKind/AnimRegistry/NoteAnimated` kullanılmaz;
+    Animation.cs ve TypeCatalog ADIM 2b öncesine döndü (`PropsOf` keyframe listesi değişmedi, editör seçiciler aynı).
+  - `BindValue` (alloc'suz; `BindType{Null,Int,Float,Bool,String,Vec2..Color,Object}`; `long I` kayıpsız, `double F`,
+    `Vec4 V`, `object Ref`). Kaynak tablosu `BindSource` (tam tipli `ModelGetter<T>`: int/long/short/…/enum→Int,
+    float/double→Float, string, Vec*, Color, IAsset/Component/GO→Object; liste `IsList`). SÖZLÜK MODELİ:
+    `IDictionary<string,object>` (Digiplay `Dynamic`) → yol = anahtar zinciri `"ME.money"`, tür okumada
+    (`BindValue.From(object)`), eksik anahtar/ara düğüm = `Null` → YAZILMAZ, son değer kalır; `BindSource.Dynamic`
+    (ListBinding `Ref as IList` ile dener).
+  - Hedef tablosu `BindTarget` (BindingSystem instance cache; katalog şeması + şema dışı public alanlar (örn. `long`,
+    serileşmez ama bağlanır) + Component altında bildirilen public get/set property'ler (ör. LayoutBox `Text`);
+    ad çakışmasında şema alanı kazanır; pseudo `Active`/`Enabled`). Setter tam tipli (AOT `Ref<T>` birebir; genişletme
+    yok), `BindValue`→alan daraltması setter'da.
+  - DÖNÜŞÜM tek yerde `BindValue.TryConvert`: sayı↔sayı↔bool, sayı/bool→string (invariant, yalnız değişimde → alloc
+    kabul); string→sayı, Vec3→Vec2, farklı referans tipi YOK (sessiz atlanır). Kıyas kaynak ham değeriyle (dönüşümden
+    önce) → idle frame sıfır alloc korunur.
+  - OnValidate: BindingSystem kendi dedupe'u (`HashSet` + dizi, sweep sonunda component başına BİR `OnValidate`; yalnız
+    `LifecycleFlags.Validate` olanlar; pseudo yazımları bildirmez). Anim'in `NoteAnimated` akışına dokunulmaz.
+  - TEST: `[binding] 74 PASS` (long 2^53+1 kayıpsız, sözlük zincir/Null/tür değişimi, long→string, property hedefi,
+    dönüşüm kuralları, sözlük idle alloc 0; bench 3000 bind idle ~0.31 ms), 26 paket 0 FAIL.
+- ADIM 3 — **İLK MODÜL PORTU: MEModule** (2026-11-05, strateji "minimal" + "A + sınır disiplini", kullanıcı onayı):
+  - KARAR (M.* sorusu): şimdi Common `M.*` modeline geçmek YOK — Digibo `Dynamic` üstüne kurulu (195 kullanım), çeviri
+    katmanı 2. fazda çöpe gider, TekelOkey'e özgü alanlar M.*'ta yok. Yatırım = SINIR DİSİPLİNİ: sunucu verisi tek kapıdan
+    (`GlobalModel`), görünümler yalnız YOL ADINA bağlanır (sözlük ↔ `[Bindable]` sınıf aynı yollarla çözülür → 2. fazda
+    ME'nin arkası M.Player adaptörü olur, sahneler değişmez), anahtar sözlüğü [tekelokey-model-keys.md](tekelokey-model-keys.md).
+  - DOSYALAR (`Projects/TekelOkey/Assets/Scripts/`): `Digibo/Digiplay/Collections.cs` (Map/Dynamic BİREBİR),
+    `Digibo/Digiplay/TypeExtensions.cs` (birebir; `ToColor` (Parser bağımlı) ve `Unbind` (eski Binding) PORT DIŞI),
+    `Digibo/Model/GlobalModel.cs` (yalnız `ME` + ME türevli saf getter'lar), `Digibo/Module/MEModule.cs`
+    (`Component`; Awake'te GO'nun `BindingContext`'ine `GlobalModel.ME` CANLI — eski `Clone()` dispatch'inin üst kümesi;
+    alt ağaçta yol `"name"`, context=ME), `Dev/MEModuleSmoke.cs` (kod ağacı, frame 2/4'te PASS/FAIL).
+  - DOĞRULAMA (RPC: code.build → scene.addGo/comp.add → sim.run 6 → stdout): `[me-smoke] PASS` ×2 — name/faceId/
+    money(2^53+1 long kayıpsız → LayoutBox.Text), değişim yayıldı, silinen anahtar son değeri bıraktı. Smoke GO sahneden
+    kaldırıldı (kaydedilmedi).
+  - MODÜL TABANI (ADIM 3b): `Digibo/Module/ModuleBase : Component` — modül GÖRSEL DEĞİL; Awake'te GO'nun
+    `BindingContext` modeli = `Model` (varsayılan modülün kendisi: public alan / `[Bindable]` getter = çocuk yolu;
+    eski `public Binding X` → `public int X`). Liste: `public List<T> Items` + sahnede `ListBinding(Source="Items")`,
+    ayrı ListModuleBase YOK. MEModule `Model => GlobalModel.ME` override. Smoke tekrar PASS ×2.
+  - XML SAYIMI (70 dosya): bind basit yol 77, **ifade 307**, action 340, `<Animation>` 456. KARARLAR (kullanıcı):
+    ifadeler **A = view-model C#** (ekran başına `[Bindable]` sınıf, computed getter; engine'e ifade dili YOK);
+    action'lar C# handler; animasyonlar MovieClip; XML→sahne dönüştürücü TEKRAR ÇALIŞTIRILABİLİR araç olacak
+    (aynı xml defalarca dönecek → idempotent, `id` ile güncelleme) — ayrı plan.
+  - AOT-COMPAT DÜZELTMESİ (aynı gün): `[aot-compat]` uyarıları bayat `obj/aot-il` yüzündendi — IL'i yalnız aotcompiler (player
+    build) üretiyor, editör sadece okuyordu (son build 19 Ekim). Çözüm: corelib+engine IL derlemesi `aotcompiler/source/AotIl.cs`
+    (`DigitoyEngine.Build.AotIl`, TEK SAHİP; Program.cs ve editör `Link` ile aynı dosya); `AotCompatCheck.CheckAsync` → `Task.Run`
+    içinde `EnsureFresh()` (dev modda mtime cache'li tazeleme; kurulu modda no-op) → denetim. `ModuleBuilder` de `EnsureFresh`.
+    Tazeleme hemen gerçek hata yakaladı: motor 23 Ekim'den beri AOT'ta derlenmiyordu (`ushort.MaxValue`, `MathF.Atan`) +
+    Binding.cs AOT dışı API'ler (decimal, CultureInfo, Dictionary.TryAdd, PropertyInfo.GetIndexParameters). Düzeltmeler:
+    corelib `UInt16.MaxValue/MinValue` (WellKnownTypes.cs), `MathF.Atan` (+ corelib.c `atanf`); Binding.cs `#if DE_AOT`
+    FmtI/FmtF (PlayerPrefs kalıbı), `IsIndexer` (AOT: ad == "Item"), decimal case yalnız .NET. TypeExtensions portunda
+    `TypeCode.Decimal` çıkarıldı (kullanıcı kararı). KURAL: `[aot-compat]` artık güvenilir; uyarı görünce motor/oyun kodunu
+    corelib'e göre düzelt, IL'i elle silme.
+
+## BOARD-GAME BAZI — sunucu sözleşmesi + "World / Sync / Resync" felsefesi, Adım A (2026-11-04, Projects/Gin)
+- TEK SAHİP: `docs/server-protocol.md` (kablo sözleşmesi + 5 kural + device key + World merge + Gin kuralları + hot reload).
+  Kod bu belgeye uyar. Kaynaklar: `Digitoy.Common.dll` (sunucu build çıktısı, `M.*` + `Codec`; OLDUĞU GİBİ referans, kopya yok),
+  core.upm device key mantığı (HMAC/AES sabitleri birebir — sahte anahtar YOK, prod'da gerçek oyuncu/gerçek token).
+- 5 KURAL: tek gerçek sunucu → yerel kopya `World` (Me/Table/Defs/Predicted/Version); tek çıkış `Sync(instant)` (motion =
+  ekran↔veri zone diff'i, event'e göre motion yok); tek kurtarma `Resync()` (anim kill, Predicted=null, Refresh, Sync(true));
+  prediction = World'e geçici kopya; fazlar `PhaseSet` set-diff ile veriden türer (eski digiplay `StateManager<T>` fikri).
+- KARARLAR: `Mirror/GinMirror` yok — TableState tüm oyunlarda aynı, oyun yalnız YORUMLAR (`GinRules` saf statik fonksiyonlar,
+  World değişmez). Konum şimdilik `Projects/Gin/Assets/Scripts/Net/` (Wire, Session, World, Auth, DeviceKey, PhaseSet) +
+  `Table/` (GinRules, Zone*, TableScene). digitoyclient/Services kodu TAŞINMADI (deneysel; yalnız sözleşme çıkarıldı).
+  FakeNetwork alınmadı. El-sırası (CheckAndSendOrderedCards) sunucuda yok — iptal. Config gameId 5, Gin masa/auth gameId 7.
+- GinRummyExtra'dan ALINAN: StateManager set-diff; zone sync (hand/thrown/board ekran↔veri); `HandSetVersion/force` = `instant`;
+  optimistic yerel model. ALINMAYAN: motion'un controller event'inden tetiklenmesi (kırılgan nokta).
+- HOT RELOAD + AĞ: kimlikli soket engine'de `Net.Keep/Take` ile ALC reload'ı aşar; oyun kodu Start'ta Take → Resync (Adım B).
+
+## AÇIK NOKTALAR — Open Points paneli + Roslyn geri-yazma + `tweak.*` RPC, Adım 2 (2026-11-03, Projects/Gin)
+- AÇIK NOKTA = oyun sınıfında `protected virtual <tip> Ad => <literal>;`. Keşif: `editor/OpenPoints.cs`, Play sahnesinin
+  component'lerinde (engine assembly dışı) parametresiz `virtual` property; tipler float/int/bool/string/enum/Color/Vec2/Vec3.
+  Override varsa en türemiş bildirim kazanır (ileride tema sınıfı). Kaynak konumu Roslyn ile `Assets/**/*.cs` içinde
+  `class <Declaring>` → property; ifade `=>`, `get =>` ya da tek `return`.
+- YAZILABİLİR İFADE: sayı (−), true/false, "metin", `Enum.Uye`, `new Color(r,g,b[,a])`, `new Vec2/Vec3(...)` (argümanlar
+  sayı). Başka şey (ör. `AvatarSize / 24`) = SALT OKUNUR: o AI'ın yapısal kararıdır, panelde gri gösterilir, `tweak.set`
+  hata verir. Yazım yalnız ifade span'ını değiştirir; yorum/biçim korunur; hex renk hex kalır; tam sayı float → `140`,
+  kesirli → `12.5f`. Yan dosya/override tablosu YOK (K-karar: dilin kendi mekanizması).
+- PANEL `Window/Open Points` (`editor/OpenPointsPanel.cs`): DragFloat (|v|≥20 → 1 adım, değilse 0.1), DragInt, Toggle,
+  enum tık=sonraki, string Enter ile yaz, Color swatch → ColorPickerWindow (her frame TryGet), Vec alanları 0.5 adım.
+  Yazım debounce'lu: ≥150 ms ve derleme sürmüyorsa; MouseUp'ta zorla. ÖLÇÜM: 8 ardışık sürükleme → TEK derleme; çünkü
+  AssetWatcher dosya olaylarını 0.35 s sessizlikle bekliyor → his "bırak → ~0.45 s sonra oyun yenilenir" (derleme ~0.1 s).
+  Sürükleme sırasında canlı akış istenirse OpenPoints.Set debounce'u atlayıp RequestBuild çağırabilir (şimdilik gerekmedi).
+- RPC: `tweak.list` → {key "Sınıf.Üye", type, value, expr, file:line, writable}; `tweak.set(key, value)` → koda yazar
+  (Color "#RRGGBB[AA]" | "r g b [a]", Vec "x y [z]"). AI döngüsü: tweak.list → tweak.set → log.tail "code reloaded" →
+  render.describe(which=play). Doğrulandı: OpponentTop 140→200 + FeltColor → tek derleme, describe `374 200`, fill #2a4a8a.
+- `AssetWatcher.IsBuilding` eklendi (panel gating). Tuzak: `GLFWConst.KEY_KP_ENTER` yok (335 literal kullanıldı).
+- SONRAKİ: tema sınıfına override ekleme (panelde tema seçiliyken yazım türemiş sınıfa `override` olarak gider), Game View
+  içinde doğrudan manipülasyon, çoklu dil (Strings sınıfları), asset referansı açık noktası.
+
+## KOD SAHNESİ — editör/prefab/serializer yerine "kaynak = C#" yönüne dönüş, Adım 1 (2026-11-03, Projects/Gin)
+- TARTIŞMA (kullanıcı): "mini bir Unity yazdık; varmak istediğim yer bu değildi; AI'ın daha çok girebileceği yapı istiyordum".
+  Hedef ürün: ~10 multiplayer board oyunu (ortak sunucu/kabuk ekranlar, farklı gameplay sahneleri), on yıllarca idame, tema +
+  dil + dinamik minigame/offer. Kullanıcı kod yazmayacak; AI metinle görsel/animasyon niyetini yakalayamıyor (binlerce satır
+  konuşma → yine istenen görsel yok). Engine + aotcompiler + pak/ObjectBinary + ALC hot reload + RPC doğrulama döngüsü
+  KALIR; sahne-YAML-kaynak / prefab / inspector / tema-katmanı yolu bu oyunlar için KULLANILMAYACAK.
+- REDDEDİLEN İKİ DENEME (aynı hata): (1) kodla kurulan ekran + sabit/çözünürlük-bağımsız `GinStyle` sabitleri — sayıların
+  kaynağı yine AI'ın tahmini; "3-5 görsel sabiti tweak diye constant'a almaktan öte değil". (2) Unity/Figma/Lottie importer
+  fikri — "yanlış". Ders: görsel sayıyı AI üretmesin; AI yapı/davranış, insan gözle karar veren her şey.
+- KARAR — TEK REPL: kullanıcı niyet söyler → AI kod yazar → anında hot reload → kullanıcı bakar → beğenmediği yer için
+  "AÇIK NOKTA" ister → AI o değeri `protected virtual` üye yapar → kullanıcı editörde canlı oyun üstünde DOKUNARAK kapatır →
+  değer KODDAKİ LİTERAL'e geri yazılır (Roslyn). Yan dosya/own format YOK: tema = türetilmiş sınıf (`WinterTableScene :
+  TableScene { override FeltColor => ... }`), dil = türetilmiş `Strings` sınıfı, denetim = derleyici (override edilen üye
+  kalkarsa hata). Tek tesisat: hangi sınıfın yaratılacağı (tip eşlemesi). Açık nokta türleri (sayı/vektör, renk, asset,
+  metin/çoklu dil, zamanlama, enum) aynı mekanizmanın türleri; ayrı sistem kurulmaz.
+- ADIM 1 (bu oturum, çalışıyor): **kod sahnesi** = `PlayerSettings.startScene` bir Component TİP ADI ise ('/' ve `.scene`
+  yok; katalog kısa ad kullanır → `TableScene`, namespace'siz) host boş Scene + tek GO + o component'i yaratır, ağacı
+  component `Start()`'ta kurar. [PlayerSettings.IsCodeScene](../engine/managed/PlayerSettings.cs),
+  [SceneLoader.SpawnCode](../engine/managed/SceneLoader.cs) (LoadAsync de kod sahnesini senkron doğurur), `GameHost.InitLoose`,
+  editör [PlayMode.SpawnPlayScene](../editor/PlayMode.cs) (doc'tan bağımsız; `PlaySceneStale` kod sahnesinde hep false),
+  `BuildScenes`/AssetPackBuilder kod sahnesini kök saymaz (Scenes In Build boş olabilir). Hot reload = Play sahnesi yeniden
+  doğar → literal değişimi anında ekranda (ölçüldü: `OpponentTop` 140→220, describe rect `374 140`→`374 220`).
+- AÇIK KONULAR: (a) pak trim — kod sahnesinin asset izi koddan çıkarılamaz (şimdilik uyarı; Scenes In Build + boot'tan izlenir).
+  (b) Adım 2: açık nokta dokunma + Roslyn geri-yazma. (c) tema tip eşlemesi. (d) font/asset yolu (Fonts.asset boş → metin yok).
+- TUZAK: lifecycle `protected override void Start()` — Unity alışkanlığıyla `void Start()` yazılırsa sessizce HİÇ koşmaz
+  (gölgeleme; `ComputeFlags` override arar). Editör uyarısı adayı.
+- Projects/Gin SIFIRDAN: eski Projects/ginrummy'ye (ve önceki Gin denemesine) dokunulmaz, "eski düşüncenin izi" taşır.
+
 ## PUPPET YENİDEN YAZIM — kendi veri modeli, MovieClip'e sıfır bağ (2026-10-25)
 - KULLANICI İTİRAZI: "`Params`/`Bindings`/`ActionBindings` var oğlu var neden?" + "MovieClip gibi mevcut koda ilişmeden sıfır yapı
   kuruyoruz, kafana göre iş yapıyorsun" + "hâlâ MovieClip diyorsun; tamamen sıfırdan, kendine özgü ve doğrusunu yaz". Haklı:
@@ -3849,7 +4282,7 @@ Depth test cogunlukla kapali (Material bazli) → genis aralik zararsiz.
 - Analiz bulguları (açık borçlar): nested prefab yok ve expand'de PrefabGuid klonlanmadığından
   SESSİZCE düşer; comp eşleme Tip:occurrence kırılgan (sıra değişirse override kayar); Apply
   kapsamı dar (addComp/removeComp/çocuk apply yok, Apply undo'suz); PrefabIds budanmıyor;
-  prefab edit modu / unpack / duplicate yok; FindById O(n) → büyük sahnede kuadratik.
+  prefab edit modu / unpack / duplicate yok (duplicate 2026-11-08'de eklendi); FindById O(n) → büyük sahnede kuadratik.
 - FIX 1: WritePrefabRecord — prefab kayıpken BuildOverrides null dönünce artık
   root.PendingOverrides AYNEN geri yazılır (eskiden missing prefab + Save = override kaybı);
   PrefabIds null guard'ı (NRE).

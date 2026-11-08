@@ -35,6 +35,7 @@ public static class AssetWatcher
     // RPC/otomasyon icin build sonucu sinyali: her biten derlemede versiyon artar.
     public static int BuildVersion { get; private set; }
     public static bool LastBuildOk { get; private set; }
+    public static bool IsBuilding => _building != null;
     public static string LastBuildOutput { get; private set; } = "";
 
     // Inspector gibi tuketicilerin dis degisikligi fark etmesi icin.
@@ -43,6 +44,9 @@ public static class AssetWatcher
 
     // Dosya SETI degisti (yeni/silinen/rename): ProjectPanel liste cache'ini tazeler.
     public static int FileListVersion { get; private set; }
+
+    // Editorun kendi dosya islemi (AssetOps) sonrasi: watcher yankisini beklemeden liste tazelensin.
+    public static void NoteFileListChanged() => FileListVersion++;
 
     // Editorun KENDI yazdigi dosyalar watcher'da yankilanmasin (reload dongusu/
     // yazma sirasinda text buffer sifirlanmasi olmasin).
@@ -155,6 +159,7 @@ public static class AssetWatcher
                     ImportPipeline.EnsureImported(rel, force: true);
                 if (assets.ReloadTexture(rel))
                     EditorLog.Info($"texture patched in-place: {rel}");
+                assets.InvalidateImported(rel); // .meta border degisimi (dis duzenleme) yuklu sprite'a yansisin
                 atlasDirty = true; // uye oldugu gruplar stamp'ten yeniden paketlenir
                 break;
             case ".prefab":

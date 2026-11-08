@@ -129,6 +129,15 @@ public sealed class ProjectPanel : EditorWindow
 
         if (Gui.Button(new Rect(2, 2, 28, 20), "^") && _dir.Length > 0)
             Enter(AssetTree.Parent(_dir));
+        // Surukle-tasi hedefi: ust klasor butonu (asset ust klasore tasinir).
+        var upRect = new Rect(2, 2, 28, 20);
+        if (ev.Type == EventType.Repaint && DragDrop.Kind == DragDrop.Payload.Asset && _dir.Length > 0
+            && AssetOps.IsOperable(DragDrop.AssetPath) && upRect.Contains(ev.MousePosition))
+        {
+            string src = DragDrop.AssetPath, dst = AssetTree.Parent(TargetDir);
+            DragDrop.RegisterTarget(() => AssetOps.Move(src, dst));
+            GuiRenderer.DrawRect(upRect, new Color(60, 100, 180, 120), 1);
+        }
         if (Gui.Button(new Rect(34, 2, 70, 20), "Refresh"))
         {
             assets.ScanMetas(createMissing: true);
@@ -151,30 +160,7 @@ public sealed class ProjectPanel : EditorWindow
             _pendingCellDelta = 0;
         }
 
-        // Native sag-tik menusu: sabit ogeler + [Serializable] tiplerden OTOMATIK
-        // Create/<Tip> girdileri (editor tipleri bilmez, kesif attribute'tan).
-        if (ev.Type == EventType.MouseDown && ev.Button == 1 && vis.Contains(ev.MousePosition))
-        {
-            string dir = TargetDir;
-            var items = new List<(string, Action)>
-            {
-                ("Create/Folder", () => CreateFolder(assets, dir)),
-                ("Create/Scene", () => CreateScene(assets, dir)),
-            };
-            if (App.AssetTypes.Count > 0)
-                items.Add(("Create/-", null));
-            foreach (var t in App.AssetTypes)
-            {
-                var tt = t;
-                var ca = (CreateAssetMenuAttribute)Attribute.GetCustomAttribute(tt, typeof(CreateAssetMenuAttribute));
-                string menu = string.IsNullOrEmpty(ca?.MenuName) ? tt.Name : ca.MenuName;
-                items.Add(($"Create/{menu}", () => CreateAsset(assets, dir, tt)));
-            }
-            items.Add(("-", null));
-            items.Add(("Refresh", () => { assets.ScanMetas(createMissing: true); _dirty = true; }));
-            EditorMenu.ShowContext(items.ToArray());
-            ev.Use();
-        }
+        // Native sag-tik menusu: scroll view sonrasinda (satir ustundeki sag tik dongude tuketilir -> satir menusu).
         if (ev.Type == EventType.Repaint)
             GuiRenderer.DrawTextIn(new Rect(110, 2, vis.width - 232, 20),
                 _dir.Length > 0 ? _dir : "Assets", Gui.FontSize - 3f, new Color(150, 153, 163, 255), false, 2);
@@ -237,6 +223,23 @@ public sealed class ProjectPanel : EditorWindow
             if (item.yMax < clipVis.y || item.y > clipVis.yMax)
                 continue;
             var row = _rows[i];
+
+            if (ev.Type == EventType.MouseDown && ev.Button == 1 && ev.MouseInClip && item.Contains(ev.MousePosition))
+            {
+                if (row.Kind != AssetTree.Kind.Folder)
+                    Select(assets, row);
+                ShowContextMenu(assets, row);
+                ev.Use();
+            }
+            // Surukle-tasi hedefi: klasor satiri (kendisi/alt ogesi haric).
+            if (ev.Type == EventType.Repaint && row.Kind == AssetTree.Kind.Folder && DragDrop.Kind == DragDrop.Payload.Asset
+                && AssetOps.IsOperable(DragDrop.AssetPath) && item.Contains(ev.MousePosition)
+                && !string.Equals(DragDrop.AssetPath, row.Key, StringComparison.OrdinalIgnoreCase))
+            {
+                string src = DragDrop.AssetPath, dst = row.Key;
+                DragDrop.RegisterTarget(() => AssetOps.Move(src, dst));
+                GuiRenderer.DrawRect(item, new Color(60, 100, 180, 120), 1);
+            }
 
             if (ev.Type == EventType.MouseDown && ev.Button == 0 && ev.MouseInClip && item.Contains(ev.MousePosition))
             {
@@ -304,6 +307,83 @@ public sealed class ProjectPanel : EditorWindow
                 break;
         }
         Gui.EndScrollView();
+
+        // Bos alanda sag tik: klasor menusu (Create/Refresh).
+        if (ev.Type == EventType.MouseDown && ev.Button == 1 && vis.Contains(ev.MousePosition))
+        {
+            ShowContextMenu(assets, null);
+            ev.Use();
+        }
+        // Klavye (imlec panelde, metin alani odakli degil): F2 = rename, Delete = sil.
+        if (ev.Type == EventType.KeyDown && GuiUtility.KeyboardControl == 0 && vis.Contains(ev.MousePosition)
+            && ev.KeyCode is GLFWConst.KEY_F2 or GLFWConst.KEY_DELETE)
+        {
+            int sel = SelectedRow(assets);
+            if (sel >= 0 && AssetOps.IsOperable(_rows[sel].Key))
+            {
+                if (ev.KeyCode == GLFWConst.KEY_F2) PromptRename(_rows[sel]);
+                else PromptDelete(_rows[sel]);
+                ev.Use();
+            }
+        }
+    }
+
+    int SelectedRow(AssetDatabase assets)
+    {
+        for (int i = 0; i < _rows.Count; i++)
+            if (_rows[i].Kind != AssetTree.Kind.Folder && IsSelected(assets, _rows[i]))
+                return i;
+        return -1;
+    }
+
+    // Sag tik menusu: satir ustundeyse Rename/Delete/Show in Explorer + klasor ogeleri; bos alanda yalniz klasor ogeleri.
+    // Create/<Tip> girdileri [CreateAssetMenu] tiplerden OTOMATIK (editor tipleri bilmez, kesif attribute'tan).
+    void ShowContextMenu(AssetDatabase assets, AssetTree.Node? rowOrNull)
+    {
+        string dir = TargetDir;
+        var items = new List<(string, Action)>();
+        if (rowOrNull is AssetTree.Node row)
+        {
+            if (AssetOps.IsOperable(row.Key))
+            {
+                items.Add(("Rename...", () => PromptRename(row)));
+                items.Add(("Delete...", () => PromptDelete(row)));
+            }
+            items.Add(("Show in Explorer", () => AssetOps.ShowInExplorer(SubAssets.Split(row.Key, out _))));
+            items.Add(("-", null));
+        }
+        items.Add(("Create/Folder", () => CreateFolder(assets, dir)));
+        items.Add(("Create/Scene", () => CreateScene(assets, dir)));
+        if (App.AssetTypes.Count > 0)
+            items.Add(("Create/-", null));
+        foreach (var t in App.AssetTypes)
+        {
+            var tt = t;
+            var ca = (CreateAssetMenuAttribute)Attribute.GetCustomAttribute(tt, typeof(CreateAssetMenuAttribute));
+            string menu = string.IsNullOrEmpty(ca?.MenuName) ? tt.Name : ca.MenuName;
+            items.Add(($"Create/{menu}", () => CreateAsset(assets, dir, tt)));
+        }
+        items.Add(("-", null));
+        items.Add(("Refresh", () => { assets.ScanMetas(createMissing: true); _dirty = true; }));
+        EditorMenu.ShowContext(items.ToArray());
+    }
+
+    static void PromptRename(AssetTree.Node row)
+    {
+        string key = row.Key;
+        string name = row.Name;
+        int selEnd = row.Kind == AssetTree.Kind.Folder ? name.Length
+            : Math.Max(0, name.Length - System.IO.Path.GetExtension(name).Length);
+        TextPromptPopup.Show("Rename " + name, name, newName => AssetOps.Rename(key, newName), selEnd);
+    }
+
+    static void PromptDelete(AssetTree.Node row)
+    {
+        string key = row.Key;
+        string detail = row.Kind == AssetTree.Kind.Folder
+            ? $"Folder and {AssetOps.CountAssets(key)} asset(s) inside will be permanently deleted."
+            : "This cannot be undone.";
+        ConfirmPopup.Show($"Delete \"{row.Name}\"?", detail, "Delete", () => AssetOps.Delete(key));
     }
 
     static void Select(AssetDatabase assets, in AssetTree.Node row)

@@ -545,22 +545,38 @@ public static class LayoutTests
         s.Update(0f);
     }
 
-    // Doku + 9-slice: 3x3 grid quad'lari; slice sifirlaninca tek stretch quad.
+    // Doku + 9-slice: kenar sprite'in ozelligi (import ayari); 3x3 grid quad'lari, kenar sifirlaninca tek stretch quad.
     static void Scale9Smoke(Scene s)
     {
         var tex = Texture.FromColor(32, 32, Color.White);
         var b = NewBox("tex9");
         b.Width = 120; b.Height = 60;
-        b.Sprite = Sprite.FromTexture(tex);
-        b.Slice9 = 8;
+        var sp = Sprite.FromTexture(tex);
+        sp.SetBorder(8, 8, 8, 8);
+        b.Sprite = sp;
         var q = new RenderQueue();
         q.Begin();
         b.Encode(q);
         Check(q.Count == 9, "scale9 3x3 grid quad'lari");
-        b.Slice9 = 0; // stretch moda dusmeli (tek quad)
+        sp.SetBorder(0, 0, 0, 0); // stretch moda dusmeli (tek quad)
         q.Begin();
         b.Encode(q);
-        Check(q.Count == 1, "slice sifirlaninca tek stretch quad");
+        Check(q.Count == 1, "border sifirlaninca tek stretch quad");
+        // Flip: uv dikdortgeni ters yonde (negatif genislik/yukseklik), quad sayisi degismez.
+        var nf = q.InstanceUvRect(0);
+        b.SpriteFlipX = true;
+        q.Begin(); b.Encode(q);
+        var fx = q.InstanceUvRect(0);
+        Check(q.Count == 1 && nf.z > 0 && fx.z < 0 && MathF.Abs(fx.z + nf.z) < 1e-4f, "flipX uv aynali");
+        b.SpriteFlipX = false; b.SpriteFlipY = true;
+        q.Begin(); b.Encode(q);
+        var fy = q.InstanceUvRect(0);
+        Check(MathF.Abs(fy.w + nf.w) < 1e-4f && MathF.Abs(fy.z - nf.z) < 1e-4f, "flipY uv aynali, u degismez");
+        sp.SetBorder(8, 8, 8, 8);
+        b.SpriteFlipX = true;
+        q.Begin(); b.Encode(q);
+        Check(q.Count == 9, "flip + 9-slice yine 3x3");
+        b.SpriteFlipX = b.SpriteFlipY = false;
         GameObject.Destroy(b.gameObject);
         tex.Destroy();
         s.Update(0f);
@@ -610,12 +626,13 @@ public static class LayoutTests
         var tex = Texture.FromColor(32, 16, Color.White);
         var b = NewBox("fit");
         b.Width = 100; b.Height = 40;
-        b.Sprite = Sprite.FromTexture(tex);
-        b.Slice9 = 8; // Stretch disinda yok sayilmali
+        var sp = Sprite.FromTexture(tex);
+        sp.SetBorder(8, 8, 8, 8); // Stretch disinda yok sayilmali
+        b.Sprite = sp;
         var q = new RenderQueue();
         b.SpriteFit = SpriteFit.Contain;
         q.Begin(); b.Encode(q);
-        Check(q.Count == 1, "Contain tek quad (slice9 yok sayilir)");
+        Check(q.Count == 1, "Contain tek quad (border yok sayilir)");
         b.SpriteFit = SpriteFit.Cover;
         q.Begin(); b.Encode(q);
         Check(q.Count == 1, "Cover tek quad");

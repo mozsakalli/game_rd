@@ -79,8 +79,12 @@ static class AssetPackBuilder
         outPath ??= Path.Combine(GameBuildDir(project), "game.pak");
 
         // Kokler: Scenes In Build (+ startScene). Eksik kok = build iptal (sessiz bos pak yok).
+        // KOD SAHNESI startScene: dosya degil, kok olmaz; asset izi koddan cikarilamaz (ACIK KONU: trim). Sahne listesi bos olabilir.
+        bool codeStart = PlayerSettings.IsCodeScene(project.Player.startScene);
+        if (codeStart)
+            EditorLog.Warning($"[pak] startScene kod sahnesi ({project.Player.startScene}): asset canliligi yalniz Scenes In Build + boot'tan izlenir");
         var roots = project.Player.BuildScenes();
-        if (roots.Count == 0)
+        if (roots.Count == 0 && !codeStart)
         {
             EditorLog.Error("[pak] build'e dahil sahne yok: Project > Player Settings > Scenes In Build");
             return false;
@@ -96,7 +100,7 @@ static class AssetPackBuilder
         }
         if (!rootsOk)
             return false;
-        if (!project.Player.scenes.Contains(project.Player.startScene))
+        if (!codeStart && !project.Player.scenes.Contains(project.Player.startScene))
             EditorLog.Warning($"[pak] startScene listede degil, otomatik eklendi: {project.Player.startScene}");
 
         // Bagimlilik grafigi (pak index'ine yazilir): kim neyi yuklenmeden once ister.

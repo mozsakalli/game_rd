@@ -33,6 +33,7 @@ public sealed partial class InspectorPanel : EditorWindow
         if (_inspectedTarget != inspectedTarget)
         {
             _inspectedTarget = inspectedTarget;
+            _views.Clear();
             Gui.CancelNumericEdit();
             GuiUtility.KeyboardControl = 0;
         }
@@ -63,7 +64,17 @@ public sealed partial class InspectorPanel : EditorWindow
         }
         Gui.TextField(new Rect(28, y, w - 28, 20), _nameBuf, ref _nameLen);
         if (!BufferEquals(g.Name))
-            es.SetName(g, new string(_nameBuf, 0, _nameLen));
+        {
+            // Yalniz odakliyken tampon doc'a yazilir; odaksizken fark DIS degisikliktir (RPC scene.rename, undo) →
+            // tampon doc'tan tazelenir, yoksa eski ad her frame geri basilirdi.
+            if (GuiUtility.KeyboardControl == GuiUtility.LastControlID)
+                es.SetName(g, new string(_nameBuf, 0, _nameLen));
+            else
+            {
+                _nameLen = Math.Min(g.Name.Length, _nameBuf.Length);
+                g.Name.CopyTo(0, _nameBuf, 0, _nameLen);
+            }
+        }
         y += RowH + 4;
 
         // Layer: kamera cullingMask yonlendirme biti (8 layer, cocuklara miras yok).
@@ -180,13 +191,20 @@ public sealed partial class InspectorPanel : EditorWindow
                     PreviewSession.Restart();
                 y += RowH;
             }
-            foreach (var f in entry.Schema)
+            var view = GetView(es, g, cd, compIndex, entry.Schema);
+            var baseComp = es.BaseCompOf(g, cd);
+            foreach (var grp in view.Groups)
             {
-                if (!DocVisible(f, cd))
+                if (view.Grouped && !CategoryHeader(ref y, w, cd.Type, grp.Name))
                     continue;
-                DrawField(es, g, cd, f, ref y, w, prefabComp, prefabMap, es.BaseCompOf(g, cd));
-                if (NativeSizeTargets(entry.Schema, f, out var widthField, out var heightField))
-                    DrawSetNativeSize(es, g, cd, f, widthField, heightField, ref y, w);
+                foreach (var f in grp.Fields)
+                {
+                    if (AnchorPresetTargets(entry.Schema, f, out var aMax, out var aPivot, out var aPos, out var aW, out var aH))
+                        DrawAnchorPresets(es, g, cd, f, aMax, aPivot, aPos, aW, aH, ref y, w);
+                    DrawField(es, g, cd, f, ref y, w, prefabComp, prefabMap, baseComp);
+                    if (NativeSizeTargets(entry.Schema, f, out var widthField, out var heightField))
+                        DrawSetNativeSize(es, g, cd, f, widthField, heightField, ref y, w);
+                }
             }
             y += 6;
             compIndex++;
@@ -784,20 +802,26 @@ public sealed partial class InspectorPanel : EditorWindow
         return new Vec3(x, yv, z);
     }
 
-    internal static Vec4 Vec4Drags(in Rect rect, Vec4 v)
+    static readonly string[] XyzwLabels = { "X", "Y", "Z", "W" };
+
+    // labels: [Labels] etiketleri (null/eksik -> X/Y/Z/W).
+    internal static Vec4 Vec4Drags(in Rect rect, Vec4 v, string[] labels = null)
     {
         float pw = (rect.width - 12) / 4;
         return new Vec4(
-            AxisDrag(new Rect(rect.x, rect.y, pw, 18), "X", v.x),
-            AxisDrag(new Rect(rect.x + pw + 4, rect.y, pw, 18), "Y", v.y),
-            AxisDrag(new Rect(rect.x + (pw + 4) * 2, rect.y, pw, 18), "Z", v.z),
-            AxisDrag(new Rect(rect.x + (pw + 4) * 3, rect.y, pw, 18), "W", v.w));
+            AxisDrag(new Rect(rect.x, rect.y, pw, 18), AxisLabel(labels, 0), v.x),
+            AxisDrag(new Rect(rect.x + pw + 4, rect.y, pw, 18), AxisLabel(labels, 1), v.y),
+            AxisDrag(new Rect(rect.x + (pw + 4) * 2, rect.y, pw, 18), AxisLabel(labels, 2), v.z),
+            AxisDrag(new Rect(rect.x + (pw + 4) * 3, rect.y, pw, 18), AxisLabel(labels, 3), v.w));
     }
 
-    // Unity paritesi: eksen etiketi drag tutamaci, alan tikla-yaz.
+    static string AxisLabel(string[] labels, int i)
+        => labels != null && i < labels.Length && !string.IsNullOrEmpty(labels[i]) ? labels[i] : XyzwLabels[i];
+
+    // Unity paritesi: eksen etiketi drag tutamaci, alan tikla-yaz. Cok harfli etiket (TL/BR) daha genis tutamac.
     static float AxisDrag(in Rect cell, ReadOnlySpan<char> axis, float v)
     {
-        const float lw = 14;
+        float lw = axis.Length > 1 ? 14 + (axis.Length - 1) * 7 : 14;
         var labelRect = new Rect(cell.x, cell.y, lw, cell.height);
         if (Event.Current.Type == EventType.Repaint)
             GuiRenderer.DrawTextIn(labelRect, axis, SmallFont, LabelDimColor, false, 2);
@@ -892,16 +916,26 @@ public sealed partial class InspectorPanel : EditorWindow
             else
             {
                 h += 6;
-                foreach (var field in entry.Schema)
+                var view = GetView(App.EditScene, g, cd, componentIndex, entry.Schema);
+                foreach (var grp in view.Groups)
                 {
-                    if (!DocVisible(field, cd))
-                        continue;
-                    string fpath = "c:" + g.Id + ":" + componentIndex + ":" + field.Name;
-                    h += MeasureDocField(field, FindProp(cd, field), fpath);
-                    if (IsLocCandidate(field))
-                        h += RowH * LocExtraRows(App.EditScene, cd, field, fpath);
-                    if (NativeSizeTargets(entry.Schema, field, out _, out _))
-                        h += RowH;
+                    if (view.Grouped)
+                    {
+                        h += CatH + 2;
+                        if (CatFolded(cd.Type, grp.Name))
+                            continue;
+                    }
+                    foreach (var field in grp.Fields)
+                    {
+                        string fpath = "c:" + g.Id + ":" + componentIndex + ":" + field.Name;
+                        h += MeasureDocField(field, FindProp(cd, field), fpath);
+                        if (IsLocCandidate(field))
+                            h += RowH * LocExtraRows(App.EditScene, cd, field, fpath);
+                        if (NativeSizeTargets(entry.Schema, field, out _, out _))
+                            h += RowH;
+                        if (AnchorPresetTargets(entry.Schema, field, out _, out _, out _, out _, out _))
+                            h += AnchorBlockH;
+                    }
                 }
             }
             if (entry != null && entry.Previewable)

@@ -42,6 +42,8 @@ public class EditorSettings
     public string playerSettingsGame = "";
     // Window/Perf HUD: Game View sol ustunde frame ms / alloc / GO / image havuzu (varsayilan kapali).
     public bool perfHud;
+    // Inspector katlanmis [Category] alt-basliklari: "Type/Category" (tur bazli; GO'dan bagimsiz).
+    public List<string> inspectorFolded = new();
 
     public GameEditorState StateFor(string game, bool create)
     {

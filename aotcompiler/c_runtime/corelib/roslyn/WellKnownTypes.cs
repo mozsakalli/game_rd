@@ -9,7 +9,7 @@ namespace System
     // Char: Numeric.cs (statik yuzey: IsDigit/ToUpperInvariant...)
     public struct Byte { }
     public struct SByte { }
-    public struct UInt16 { }
+    public struct UInt16 { public const ushort MaxValue = 65535; public const ushort MinValue = 0; } // Mesh index siniri (ushort.MaxValue)
     public struct UInt64 { }
     public struct UIntPtr { }
     public struct RuntimeTypeHandle { }

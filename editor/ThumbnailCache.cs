@@ -81,6 +81,7 @@ public static class ThumbnailCache
     {
         _slots.Clear();
         _pending.Clear();
+        PrefabThumbs.ClearQueue();
         foreach (var p in _pages)
         {
             Array.Clear(p.Used);
@@ -247,6 +248,24 @@ public static class ThumbnailCache
 
     // ---- uretim ----
 
+    // Disaridan uretilen kucuk resim (prefab render'i): hucreye yaz + disk onbellegine kaydet.
+    // rgba null = kaynak yok (slot "denendi" olarak kalir, ikon cizilir).
+    public static void Put(string key, byte[] rgba, int w, int h)
+    {
+        if (string.IsNullOrEmpty(key))
+            return;
+        if (!_slots.TryGetValue(key, out var s))
+        {
+            s = new Slot();
+            _slots[key] = s;
+        }
+        s.Done = true;
+        if (rgba == null || w <= 0 || h <= 0 || w > MaxSize || h > MaxSize)
+            return;
+        Place(s, rgba, w, h);
+        SaveCached(DiskPath(key, out _), rgba, w, h);
+    }
+
     static void Place(Slot s, byte[] rgba, int w, int h)
     {
         if (!AllocCell(out int page, out int cell))
@@ -283,7 +302,13 @@ public static class ThumbnailCache
         }
         else
         {
-            if (AssetDatabase.ImportTypeOf(owner) != typeof(Sprite))
+            var itype = AssetDatabase.ImportTypeOf(owner);
+            if (itype == typeof(Prefab))
+            {
+                PrefabThumbs.Request(key); // asenkron: render frame sonunda Put ile gelir
+                return;
+            }
+            if (itype != typeof(Sprite))
                 return;
             string full = ImportPipeline.FullPath(owner);
             px = full != null ? EditorPixels.DecodeFile(full, out w, out h) : null;

@@ -1,0 +1,10 @@
+type: FontTable
+fields:
+  Entries:
+    - Name: Bold
+      Font: 781bfeebc5fa41c28f64d518c4dae7a9
+    - Name: Primary
+      Font: 92879bbcb6164abaa38ed5038c103d74
+    - Name: Regular
+      Font: aa8c5d4213d24f6d91853bc4b4de9874
+  DefaultFont: Bold

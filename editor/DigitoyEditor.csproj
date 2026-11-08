@@ -32,8 +32,14 @@
     <PackageReference Include="Microsoft.CodeAnalysis.CSharp" Version="4.12.0" />
     <!-- Ortak in-process Roslyn derleyicisi (aotcompiler ile AYNI dosya): oyun kodu hot-reload -->
     <Compile Include="..\aotcompiler\source\RoslynCompiler.cs" Link="Build\RoslynCompiler.cs" />
+    <!-- Plugin DLL'lerinin System.* referanslari icin corelib facade'leri (AotCompatCheck, aotcompiler ile AYNI dosya) -->
+    <Compile Include="..\aotcompiler\source\FacadeBuilder.cs" Link="Build\FacadeBuilder.cs" />
+    <!-- Dev modda AOT IL'ini (corelib + engine) tazeleyen ortak derleyici (AotCompatCheck bayat referansla denetlemesin; aotcompiler ile AYNI dosya) -->
+    <Compile Include="..\aotcompiler\source\AotIl.cs" Link="Build\AotIl.cs" />
     <!-- Plugin kanca API'si: aotcompiler ile AYNI assembly (kopya degil) -> kullanici Editor/ kodu tek tip kimligi gorur -->
     <ProjectReference Include="..\aotcompiler\hooks\DigitoyEngine.Build.csproj" />
+    <!-- Library paneli baslangic elemanlari (prefab YAML): proje Assets/Library bosken kopyalanir. -->
+    <EmbeddedResource Include="Resources\Library\*.prefab" LogicalName="Library/%(Filename)%(Extension)" />
   </ItemGroup>
 
   <!-- Native motor kutuphanesi cikti klasorune kopyalanir (P/Invoke burada arar). -->

@@ -1,0 +1,13 @@
+scene: Spacer
+objects:
+  - id: 1
+    parent: 0
+    name: Spacer
+    pos: 0 0 0
+    rot: 0 0 0
+    scale: 1 1 1
+    components:
+      - type: LayoutBox
+        grow: 1
+        minWidth: 8
+        minHeight: 8

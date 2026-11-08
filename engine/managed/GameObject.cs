@@ -33,6 +33,17 @@ public sealed class GameObject
     public Scene scene => _scene;
     public bool activeSelf => _activeSelf;
     public bool activeInHierarchy => !_destroyed && _activeInHierarchy;
+    // Destroy() cagrildigi ANDAN itibaren true (kuyrukta ya da yok edilmis); ebeveyn zinciri de sayilir (ata gidiyorsa
+    // cocuk da gidiyor). Unity'deki "obje gitti mi?" belirsizligi yok. O(derinlik); guard icin yeterli.
+    public bool IsDestroyed
+    {
+        get
+        {
+            for (var g = this; g != null; g = g.transform.parent?._gameObject)
+                if (g._destroyed || g._destroyQueued) return true;
+            return false;
+        }
+    }
     internal int ComponentCount => _componentCount;
     internal Component ComponentAt(int i) => _components[i];
 
@@ -239,6 +250,9 @@ public sealed class GameObject
                 continue;
             var copy = go.AddComponentRaw(entry);
             entry.CopyTo(c, copy);
+            var plan = InstanceClone.PlanOf(entry);
+            if (plan.Length > 0)
+                InstanceClone.DeepCopy(plan, copy); // liste/ic ice nesne sablonla paylasilmaz
             copy._enabled = c._enabled;
             if (c._loc != null)
                 Localize.CopyBindings(c, copy);
@@ -262,19 +276,9 @@ public sealed class GameObject
             var entry = catalog?.Find(kv.Key.GetType());
             if (entry == null)
                 continue;
-            foreach (var f in entry.Schema)
-            {
-                if (f.Kind == SerializedType.Kind.CompRef)
-                {
-                    if (f.Get(kv.Value) is Component rc && compMap.TryGetValue(rc, out var mapped))
-                        f.Set(kv.Value, mapped);
-                }
-                else if (f.Kind == SerializedType.Kind.GoRef)
-                {
-                    if (f.Get(kv.Value) is GameObject rg && goMap.TryGetValue(rg, out var mappedGo))
-                        f.Set(kv.Value, mappedGo);
-                }
-            }
+            var plan = InstanceClone.PlanOf(entry);
+            if (plan.Length > 0)
+                InstanceClone.Remap(plan, kv.Value, compMap, goMap); // ust duzey + liste/nesne icindeki ref'ler
         }
     }
 

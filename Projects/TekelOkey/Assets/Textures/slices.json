@@ -1,0 +1,362 @@
+﻿{
+    "avatars/bg-bar2":  {
+                            "grid":  "38,38,14,0",
+                            "width":  90,
+                            "height":  92,
+                            "left":  38,
+                            "top":  38,
+                            "right":  38,
+                            "bottom":  54
+                        },
+    "avatars/bg-box2":  {
+                            "grid":  "84,84,10,1",
+                            "width":  178,
+                            "height":  178,
+                            "left":  84,
+                            "top":  84,
+                            "right":  84,
+                            "bottom":  93
+                        },
+    "avatars/box-back-green2":  {
+                                    "grid":  "84,84,10,1",
+                                    "width":  178,
+                                    "height":  178,
+                                    "left":  84,
+                                    "top":  84,
+                                    "right":  84,
+                                    "bottom":  93
+                                },
+    "coins/btn-green1":  {
+                             "grid":  "46,49,10,0",
+                             "width":  102,
+                             "height":  106,
+                             "left":  46,
+                             "top":  49,
+                             "right":  46,
+                             "bottom":  57
+                         },
+    "coins/notifications-back-blue1":  {
+                                           "grid":  "69,69,4,4",
+                                           "width":  142,
+                                           "height":  142,
+                                           "left":  69,
+                                           "top":  69,
+                                           "right":  69,
+                                           "bottom":  69
+                                       },
+    "common/bg-bar":  {
+                          "grid":  "38,38,14,0",
+                          "width":  90,
+                          "height":  92,
+                          "left":  38,
+                          "top":  38,
+                          "right":  38,
+                          "bottom":  54
+                      },
+    "common/bg-box":  {
+                          "grid":  "84,84,10,1",
+                          "width":  178,
+                          "height":  178,
+                          "left":  84,
+                          "top":  84,
+                          "right":  84,
+                          "bottom":  93
+                      },
+    "common/bg-chat-first":  {
+                                 "grid":  "58,51,7,7",
+                                 "width":  96,
+                                 "height":  70,
+                                 "left":  58,
+                                 "top":  51,
+                                 "right":  31,
+                                 "bottom":  12
+                             },
+    "common/bg-chat-rest":  {
+                                "grid":  "27,27,5,5",
+                                "width":  85,
+                                "height":  60,
+                                "left":  27,
+                                "top":  27,
+                                "right":  53,
+                                "bottom":  28
+                            },
+    "common/bg-dialog":  {
+                             "grid":  "92,94,4,1",
+                             "width":  188,
+                             "height":  188,
+                             "left":  92,
+                             "top":  94,
+                             "right":  92,
+                             "bottom":  93
+                         },
+    "common/bg-dialog-inside":  {
+                                    "grid":  "76,76,20,20",
+                                    "width":  174,
+                                    "height":  171,
+                                    "left":  76,
+                                    "top":  76,
+                                    "right":  78,
+                                    "bottom":  75
+                                },
+    "common/bg-footer-lobby":  {
+                                   "grid":  "212,65,20,0",
+                                   "width":  444,
+                                   "height":  124,
+                                   "left":  212,
+                                   "top":  65,
+                                   "right":  212,
+                                   "bottom":  59
+                               },
+    "common/bg-header-dialog":  {
+                                    "grid":  "185,48,4,0",
+                                    "width":  373,
+                                    "height":  97,
+                                    "left":  185,
+                                    "top":  48,
+                                    "right":  184,
+                                    "bottom":  49
+                                },
+    "common/bg-header-lobby":  {
+                                   "grid":  "40,64,35,0",
+                                   "width":  343,
+                                   "height":  131,
+                                   "left":  40,
+                                   "top":  64,
+                                   "right":  268,
+                                   "bottom":  67
+                               },
+    "common/bg-menu":  {
+                           "grid":  "74,74,20,20",
+                           "width":  191,
+                           "height":  154,
+                           "left":  74,
+                           "top":  74,
+                           "right":  97,
+                           "bottom":  60
+                       },
+    "common/bg-message":  {
+                              "grid":  "38,38,14,1",
+                              "width":  100,
+                              "height":  100,
+                              "left":  38,
+                              "top":  38,
+                              "right":  48,
+                              "bottom":  61
+                          },
+    "common/bg-notification-red":  {
+                                       "grid":  "34,34,2,2",
+                                       "width":  70,
+                                       "height":  70,
+                                       "left":  34,
+                                       "top":  34,
+                                       "right":  34,
+                                       "bottom":  34
+                                   },
+    "common/bg-onlinefriends":  {
+                                    "grid":  "34,34,2,2",
+                                    "width":  70,
+                                    "height":  70,
+                                    "left":  34,
+                                    "top":  34,
+                                    "right":  34,
+                                    "bottom":  34
+                                },
+    "common/bg-settings-button-off":  {
+                                          "grid":  "39,44,10,10",
+                                          "width":  87,
+                                          "height":  87,
+                                          "left":  39,
+                                          "top":  44,
+                                          "right":  38,
+                                          "bottom":  33
+                                      },
+    "common/bg-settings-button-on":  {
+                                         "grid":  "39,44,10,10",
+                                         "width":  87,
+                                         "height":  87,
+                                         "left":  39,
+                                         "top":  44,
+                                         "right":  38,
+                                         "bottom":  33
+                                     },
+    "common/bg-settings-divider":  {
+                                       "grid":  "8,18,4,0",
+                                       "width":  20,
+                                       "height":  36,
+                                       "left":  8,
+                                       "top":  18,
+                                       "right":  8,
+                                       "bottom":  18
+                                   },
+    "common/bg-tablechat-bubble":  {
+                                       "grid":  "39,39,2,2",
+                                       "width":  80,
+                                       "height":  80,
+                                       "left":  39,
+                                       "top":  39,
+                                       "right":  39,
+                                       "bottom":  39
+                                   },
+    "common/bg-timer":  {
+                            "grid":  "32,22,4,0",
+                            "width":  67,
+                            "height":  45,
+                            "left":  32,
+                            "top":  22,
+                            "right":  31,
+                            "bottom":  23
+                        },
+    "common/bg-underline":  {
+                                "grid":  "72,44,232,16",
+                                "width":  376,
+                                "height":  120,
+                                "left":  72,
+                                "top":  44,
+                                "right":  72,
+                                "bottom":  60
+                            },
+    "common/bg-xpbar":  {
+                            "grid":  "10,14,6,1",
+                            "width":  25,
+                            "height":  25,
+                            "left":  10,
+                            "top":  14,
+                            "right":  9,
+                            "bottom":  10
+                        },
+    "common/box-back-green":  {
+                                  "grid":  "84,84,10,1",
+                                  "width":  178,
+                                  "height":  178,
+                                  "left":  84,
+                                  "top":  84,
+                                  "right":  84,
+                                  "bottom":  93
+                              },
+    "common/btn-blue":  {
+                            "grid":  "46,49,10,0",
+                            "width":  102,
+                            "height":  106,
+                            "left":  46,
+                            "top":  49,
+                            "right":  46,
+                            "bottom":  57
+                        },
+    "common/btn-daily-claim":  {
+                                   "grid":  "29,32,4,0",
+                                   "width":  61,
+                                   "height":  61,
+                                   "left":  29,
+                                   "top":  32,
+                                   "right":  28,
+                                   "bottom":  29
+                               },
+    "common/btn-green":  {
+                             "grid":  "46,49,10,0",
+                             "width":  102,
+                             "height":  106,
+                             "left":  46,
+                             "top":  49,
+                             "right":  46,
+                             "bottom":  57
+                         },
+    "common/btn-grey":  {
+                            "grid":  "46,49,10,0",
+                            "width":  102,
+                            "height":  106,
+                            "left":  46,
+                            "top":  49,
+                            "right":  46,
+                            "bottom":  57
+                        },
+    "common/btn-purple":  {
+                              "grid":  "46,49,10,0",
+                              "width":  102,
+                              "height":  106,
+                              "left":  46,
+                              "top":  49,
+                              "right":  46,
+                              "bottom":  57
+                          },
+    "common/btn-red":  {
+                           "grid":  "46,49,10,0",
+                           "width":  102,
+                           "height":  106,
+                           "left":  46,
+                           "top":  49,
+                           "right":  46,
+                           "bottom":  57
+                       },
+    "common/btn-white":  {
+                             "grid":  "46,49,10,0",
+                             "width":  102,
+                             "height":  106,
+                             "left":  46,
+                             "top":  49,
+                             "right":  46,
+                             "bottom":  57
+                         },
+    "common/fill":  {
+                        "grid":  "1,1,1,1",
+                        "width":  3,
+                        "height":  3,
+                        "left":  1,
+                        "top":  1,
+                        "right":  1,
+                        "bottom":  1
+                    },
+    "common/gradient-h":  {
+                              "grid":  "2,2,1,14",
+                              "width":  100,
+                              "height":  30,
+                              "left":  2,
+                              "top":  2,
+                              "right":  97,
+                              "bottom":  14
+                          },
+    "common/light-shine":  {
+                               "grid":  "106,10,3,0",
+                               "width":  168,
+                               "height":  18,
+                               "left":  106,
+                               "top":  10,
+                               "right":  59,
+                               "bottom":  8
+                           },
+    "common/line-seperator-gradient":  {
+                                           "grid":  "21,12,2,0",
+                                           "width":  89,
+                                           "height":  26,
+                                           "left":  21,
+                                           "top":  12,
+                                           "right":  66,
+                                           "bottom":  14
+                                       },
+    "common/notifications-back":  {
+                                      "grid":  "1,1,1,1",
+                                      "width":  3,
+                                      "height":  191,
+                                      "left":  1,
+                                      "top":  1,
+                                      "right":  1,
+                                      "bottom":  189
+                                  },
+    "common/notifications-back-blue":  {
+                                           "grid":  "69,69,4,4",
+                                           "width":  142,
+                                           "height":  142,
+                                           "left":  69,
+                                           "top":  69,
+                                           "right":  69,
+                                           "bottom":  69
+                                       },
+    "common/notifications-back-red":  {
+                                          "grid":  "69,69,4,4",
+                                          "width":  142,
+                                          "height":  142,
+                                          "left":  69,
+                                          "top":  69,
+                                          "right":  69,
+                                          "bottom":  69
+                                      }
+}

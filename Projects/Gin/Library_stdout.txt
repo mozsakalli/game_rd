@@ -1,0 +1,67 @@
+[gamecode] yuklendi: Gin.Game (1 script, 0 plugin)
+[lifecycle] 23 PASS, 0 FAIL
+[movieclip] 65 PASS, 0 FAIL
+[puppet] 42 PASS, 0 FAIL
+[particle] 19 PASS, 0 FAIL
+[serialization] 53 PASS, 0 FAIL
+[inspector] 47 PASS, 0 FAIL
+[layout] bench arrange: 300 cocuk, 0.130 ms/cozum, alloc 0 B
+[layout] bench 2-stop: 300 kutu, 5700 quad, 5.39 ms/encode, alloc 0 B
+[layout] bench 4-stop: 300 kutu, 7500 quad, 9.10 ms/encode, alloc 0 B
+[layout] bench diagonal: 300 kutu, 5700 quad, 5.67 ms/encode, alloc 0 B
+[layout] 112 PASS, 0 FAIL
+[pointer] 24 PASS, 0 FAIL
+[rendergroup] 12 PASS, 0 FAIL
+[mesh] 29 PASS, 0 FAIL
+[prefs] 15 PASS, 0 FAIL
+[json] parse+bind alloc/cagri: 1592 B
+[json] 49 PASS, 0 FAIL
+[async] 28 PASS, 0 FAIL
+[net] 19 PASS, 0 FAIL
+[progress] 14 PASS, 0 FAIL
+[catalogtest] 14 PASS 0 FAIL
+[objtest] 40 PASS, 0 FAIL
+[localization] 60 PASS, 0 FAIL
+[richtext] SKIP: projede font yok (yerlesim testleri)
+[richtext] 21 PASS, 0 FAIL
+22:24:44.583 [info] [prefab] olusturuldu: Seat.prefab
+22:24:44.588 [warning] [prefab] cannot nest: Avatar.prefab contains or is Avatar.prefab (cycle)
+22:24:44.588 [warning] [prefab] cannot nest: Table.prefab contains or is Avatar.prefab (cycle)
+[prefab] 34 PASS, 0 FAIL
+22:24:44.623 [warning] [theme] sibling order is not part of a theme layer; switch to default theme to reorder
+[theme] 32 PASS, 0 FAIL
+22:24:44.652 [error] [plugin] TestPlugin.OnMessage: System.InvalidOperationException: boom
+   at DigitoyEditor.PluginTests.TestPlugin.OnMessage(String msg) in C:\Work\digitoygames\game_rd\editor\PluginTests.cs:line 23
+   at DigitoyEngine.Plugin.Deliver(String msg) in C:\Work\digitoygames\game_rd\engine\managed\Plugin.cs:line 75
+22:24:44.653 [warning] [plugin] Orphan: host'ta kayitli degil (bu platformda yok ya da mock yok) - Send dusurulur
+[plugin] 19 PASS, 0 FAIL
+22:24:44.667 [info] [project] eski ayar yerlesimi ProjectSettings/Games/ altina tasindi: gin, okey
+22:24:44.676 [warning] [game] bilinmeyen oyun 'yok' -> gin
+22:24:44.678 [info] [project] oyun tanimi yoktu: ProjectSettings/Games/Fresh_Proj/ olusturuldu
+[game] 25 PASS, 0 FAIL
+[redact] 12 PASS, 0 FAIL
+[memory] 31 PASS, 0 FAIL
+22:24:44.732 [info] [fonts] tablo olusturuldu: Fonts.asset
+22:24:44.739 [info] [rpc] dinleniyor: localhost:5157  (http://localhost:5157/ -> C:\Work\digitoygames\game_rd\Projects\Gin\Build\wasm)
+22:25:00.452 [info] ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"? PLAY START ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?
+22:26:07.783 [info] code change detected, compiling...
+22:26:07.950 [info] ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"? PLAY STOP ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?
+[gamecode] yuklendi: Gin.Game (1 script, 0 plugin)
+22:26:08.020 [info] ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"? PLAY START ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?
+22:26:08.021 [info] code reloaded (1 scripts)
+22:26:30.282 [info] ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"? HOT RELOAD ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?
+22:27:09.630 [info] code change detected, compiling...
+22:27:09.697 [info] ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"? PLAY STOP ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?
+[gamecode] yuklendi: Gin.Game (1 script, 0 plugin)
+22:27:09.750 [info] ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"? PLAY START ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?
+22:27:09.751 [info] code reloaded (1 scripts)
+22:27:29.163 [info] code change detected, compiling...
+22:27:29.179 [info] ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"? PLAY STOP ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?
+[gamecode] yuklendi: Gin.Game (1 script, 0 plugin)
+22:27:29.229 [info] ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"? PLAY START ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?
+22:27:29.229 [info] code reloaded (1 scripts)
+22:27:54.162 [info] code change detected, compiling...
+22:27:54.179 [info] ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"? PLAY STOP ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?
+[gamecode] yuklendi: Gin.Game (1 script, 0 plugin)
+22:27:54.192 [info] ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"? PLAY START ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?ƒ"?
+22:27:54.193 [info] code reloaded (1 scripts)

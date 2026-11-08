@@ -1,0 +1,43 @@
+type: LocalizationTable
+fields:
+  Languages:
+    - en
+    - tr
+  Entries:
+    - Key: lobby.magaza
+      Values:
+        - STORE
+        - MAĞAZA
+    - Key: lobby.createtable
+      Values:
+        - ''
+        - MASA AÇ
+    - Key: lobby.playnow
+      Values:
+        - ''
+        - HEMEN OYNA
+    - Key: lobby.bedava_cip
+      Values:
+        - FREE COINS
+        - BEDAVA ÇİP
+    - Key: lobby.topla
+      Values:
+        - ''
+        - TOPLA
+    - Key: login.guest_login
+      Values:
+        - ''
+        - Misafir Girişi
+    - Key: login.fb
+      Values:
+        - ''
+        - <font=icon>a</font>  Facebook ile Giriş
+    - Key: login.apple
+      Values:
+        - ''
+        - <font=icon>b</font>  Apple ile Giriş
+    - Key: login.policy
+      Values:
+        - ''
+        - Giriş tuşlarına tıklayarak <font=bold><link=privacy><u>Gizlilik Sözleşmesi</u></link></font> ve <font=bold><link=terms><u>Kullanım Koşulları</u></link></font> kabul etmiş olursunuz.
+  Enums:

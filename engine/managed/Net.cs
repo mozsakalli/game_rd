@@ -135,7 +135,7 @@ public sealed class HttpRequest
     public string Method = "GET";
     public string Url;
     public byte[] Body; // istek bitene dek native kopyasi yasar (1 kopya zorunlu)
-    public int TimeoutMs = 30000;
+    public int TimeoutMs = 5000;
     List<KeyValuePair<string, string>> _headers;
     public HttpRequest Header(string name, string value)
     {
@@ -232,8 +232,51 @@ public sealed class WebSocket : IDisposable
     IntPtr _lastReceived; // ReceiveAsync ile verilen son mesaj; bir sonraki ReceiveAsync/kapanis free eder
     TaskCompletionSource<bool> _connect;
     TaskCompletionSource<bool> _closeTask;
-    public Action<WsMessage> OnMessage;
+    Action<WsMessage> _onMessage;
+    // Atanirken kuyrukta bekleyen mesajlar (dinleyicisiz donem: Keep/Take arasi) hemen yeni dinleyiciye akar.
+    public Action<WsMessage> OnMessage
+    {
+        get => _onMessage;
+        set
+        {
+            _onMessage = value;
+            if (value == null || _inbox.Count == 0) return;
+            var pending = _inbox.ToArray();
+            _inbox.Clear();
+            for (int i = 0; i < pending.Length; i++)
+            {
+                if (_onMessage != null) _onMessage(pending[i]);
+                NativeAsync.Free(pending[i].Data);
+            }
+        }
+    }
     public Action<int, string> OnClose; // kod, sebep (hata: kod 0, sebep = hata metni)
+
+    // --- EMANET: sahne/kod yasam dongusunden bagimsiz soket (docs/server-protocol.md "Hot reload") ---
+    // Sahne yikilirken oyun kodu kimlikli soketi anahtarla motora birakir (Keep); yeni sahne/yeniden yuklenen kod
+    // Take ile geri alir. Keep dinleyicileri siler: mesajlar native kuyrukta bekler, kapanis State'e islenir;
+    // Take sonrasi OnMessage atanmasi birikeni akitir. Delegeler oyun assembly'sine isaret eder — Keep onlari
+    // sildigi icin eski ALC toplanabilir. Editor Play Stop'ta DropKept hepsini kapatir (release'te cagiran yok).
+    static readonly Dictionary<string, WebSocket> _kept = new();
+    public static void Keep(string key, WebSocket ws)
+    {
+        if (ws == null) return;
+        ws._onMessage = null;
+        ws.OnClose = null;
+        if (_kept.TryGetValue(key, out var old) && old != ws) old.Dispose();
+        if (ws._state == WebSocketState.Closed) { _kept.Remove(key); return; }
+        _kept[key] = ws;
+    }
+    public static WebSocket Take(string key)
+    {
+        if (!_kept.Remove(key, out var ws)) return null;
+        return ws._state == WebSocketState.Closed ? null : ws;
+    }
+    public static void DropKept()
+    {
+        foreach (var ws in _kept.Values) ws.Dispose();
+        _kept.Clear();
+    }
     public WebSocketState State => _state;
     public int CloseCode { get; private set; }
     public string CloseReason { get; private set; }

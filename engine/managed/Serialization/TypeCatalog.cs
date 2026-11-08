@@ -26,9 +26,13 @@ public sealed class TypeCatalog
         public LifecycleFlags Flags;
         public SerializedType.FieldSchema[] Schema;
         public bool Previewable; // [Previewable] — Inspector jenerik preview kontrolu
+        public string Icon;      // [Icon] glifi (editor hiyerarsisi); null = ikonsuz
         // Animatable property tablosu (AnimRegistry): uretilmis katalogda dolu gelir,
         // reflection katalogunda ilk istekte expression-compile ile kurulur.
         public AnimProperty[] Anim;
+        // Instantiate klon plani (InstanceClone.PlanOf ilk istekte kurar): shallow CopyTo'dan SONRA ek is isteyen
+        // alanlar (liste/ic ice nesne derin kopya, Go/CompRef remap). Bos dizi = component shallow'da kalir (sik yol).
+        internal InstanceClone.Field[] ClonePlan;
     }
 
     readonly Dictionary<string, Entry> _byName = new();
@@ -172,6 +176,7 @@ public sealed class TypeCatalog
             Schema = SerializedType.Build(tt),
 #if DE_EDITOR
             Previewable = tt.IsDefined(typeof(PreviewableAttribute), false),
+            Icon = (Attribute.GetCustomAttribute(tt, typeof(IconAttribute), false) as IconAttribute)?.Glyph,
 #endif
         });
         foreach (var oldName in Reflect.MovedFrom(tt))
