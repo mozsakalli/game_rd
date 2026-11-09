@@ -449,7 +449,7 @@ objects:
         fill:
           type: Linear
           direction: Vertical
-          color: '#181818ff'
+          color: '#363636ff'
           color2: '#000000ff'
           stops: 2
           color3: '#00000000'
@@ -504,7 +504,7 @@ objects:
           type: Linear
           direction: Vertical
           color: '#ffffffff'
-          color2: '#bebebeff'
+          color2: '#8b8b8bff'
           stops: 2
           color3: '#00000000'
           stop3: 0.5

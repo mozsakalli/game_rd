@@ -92,7 +92,6 @@ public static class ClipHash
 
 [Previewable]
 [ExecuteInEditMode]
-[Icon("\u25B6")]
 [AddComponentMenu("Animation/Movie Clip")]
 public sealed class MovieClip : Component
 {

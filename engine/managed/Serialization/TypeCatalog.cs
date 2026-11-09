@@ -26,7 +26,6 @@ public sealed class TypeCatalog
         public LifecycleFlags Flags;
         public SerializedType.FieldSchema[] Schema;
         public bool Previewable; // [Previewable] — Inspector jenerik preview kontrolu
-        public string Icon;      // [Icon] glifi (editor hiyerarsisi); null = ikonsuz
         // Animatable property tablosu (AnimRegistry): uretilmis katalogda dolu gelir,
         // reflection katalogunda ilk istekte expression-compile ile kurulur.
         public AnimProperty[] Anim;
@@ -176,7 +175,6 @@ public sealed class TypeCatalog
             Schema = SerializedType.Build(tt),
 #if DE_EDITOR
             Previewable = tt.IsDefined(typeof(PreviewableAttribute), false),
-            Icon = (Attribute.GetCustomAttribute(tt, typeof(IconAttribute), false) as IconAttribute)?.Glyph,
 #endif
         });
         foreach (var oldName in Reflect.MovedFrom(tt))

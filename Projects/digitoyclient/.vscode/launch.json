@@ -7,7 +7,7 @@
             "name": "DigitoyEditor (digitoyclient)",
             "type": "coreclr",
             "request": "launch",
-            "program": "C:/DigitoyPublish/0.1.0/DigitoyEditor-0.1.0/DigitoyEditor.exe",
+            "program": "C:/Work/digitoygames/game_rd/editor/bin/Debug/net10.0/DigitoyEditor.exe",
             "args": ["${workspaceFolder}"],
             "cwd": "${workspaceFolder}",
             "console": "internalConsole",

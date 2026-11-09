@@ -181,7 +181,7 @@ public sealed unsafe class GuiFont
         const int Cap = 160 * 160;
         _rScratch ??= new byte[Cap];
         float* met = stackalloc float[5];
-        if (!BakeTriangle(physPx, c, met) && !BakeShape(physPx, c, met))
+        if (!BakeTriangle(physPx, c, met))
         {
             int ok;
             fixed (byte* pTtf = _ttf)
@@ -242,85 +242,6 @@ public sealed unsafe class GuiFont
         return g;
     }
 
-    // Geometrik sekil glyph'leri (kare/elmas/daire/yildiz; hiyerarsi [Icon] glifleri) — ucgenler gibi
-    // PROSEDUREL: gomulu UI fontunda yok. Kare kenari = ucgen tabaniyla ayni (ikon sutunu hizali).
-    bool BakeShape(int physPx, char c, float* met)
-    {
-        int shape = c switch
-        {
-            '\u25A0' => 0, // ■ dolu kare
-            '\u25A1' => 1, // □ bos kare
-            '\u25A3' => 2, // ▣ kare icinde kare
-            '\u25A6' => 3, // ▦ izgara kare
-            '\u25AD' => 4, // ▭ yatay dikdortgen (bos)
-            '\u25C6' => 5, // ◆ dolu elmas
-            '\u25CF' => 6, // ● dolu daire
-            '\u25CB' => 7, // ○ bos daire
-            '\u2726' => 8, // ✦ dort uclu yildiz
-            _ => -1,
-        };
-        if (shape < 0)
-            return false;
-
-        int s = Math.Max(6, (int)MathF.Round(physPx * 0.5f));
-        int w = s, h = shape == 4 ? Math.Max(4, (int)MathF.Round(s * 0.7f)) : s;
-        float stroke = Math.Max(1f, s * 0.16f) / s; // bos sekillerin cizgi kalinligi (oran)
-
-        for (int py = 0; py < h; py++)
-            for (int pxl = 0; pxl < w; pxl++)
-            {
-                int hit = 0;
-                for (int sy = 0; sy < 4; sy++)
-                    for (int sx = 0; sx < 4; sx++)
-                    {
-                        float x = (pxl + (sx + 0.5f) * 0.25f) / w;
-                        float yv = (py + (sy + 0.5f) * 0.25f) / h;
-                        if (ShapeHit(shape, x, yv, stroke))
-                            hit++;
-                    }
-                _rScratch[py * w + pxl] = (byte)(hit * 255 / 16);
-            }
-
-        float ascent = RasterVMetrics(physPx).x;
-        met[0] = w + 2;
-        met[1] = 1;
-        met[2] = -MathF.Round((ascent + h) * 0.5f); // cap ortasina hizali (ucgenle ayni)
-        met[3] = w;
-        met[4] = h;
-        return true;
-    }
-
-    // (x,y) birim karede; sekil icinde mi. Bos sekillerde 'stroke' kalinliginda cerceve.
-    static bool ShapeHit(int shape, float x, float y, float stroke)
-    {
-        float dx = MathF.Abs(x - 0.5f), dy = MathF.Abs(y - 0.5f);
-        switch (shape)
-        {
-            case 0: return true;
-            case 1: case 4: return dx > 0.5f - stroke || dy > 0.5f - stroke;
-            case 2: return dx > 0.5f - stroke || dy > 0.5f - stroke || (dx < 0.5f - 2.2f * stroke && dy < 0.5f - 2.2f * stroke);
-            case 3:
-            {
-                // cerceve + orta cizgiler (2x2 izgara)
-                float half = stroke * 0.5f;
-                return dx > 0.5f - stroke || dy > 0.5f - stroke || dx < half || dy < half;
-            }
-            case 5: return dx + dy <= 0.5f;
-            case 6: return dx * dx + dy * dy <= 0.25f;
-            case 7:
-            {
-                float r2 = dx * dx + dy * dy, ri = 0.5f - stroke;
-                return r2 <= 0.25f && r2 >= ri * ri;
-            }
-            case 8:
-            {
-                // dort uclu yildiz: |dx|^0.5 + |dy|^0.5 <= sabit (ickukur elmas)
-                return MathF.Sqrt(dx) + MathF.Sqrt(dy) <= MathF.Sqrt(0.5f);
-            }
-        }
-        return false;
-    }
-
     // Ucgen ok glyph'leri (U+25B2..U+25C4 alt kumesi) PROSEDUREL pisirilir —
     // UI fontlarinin cogunda yok, .notdef karesi cikiyordu. Ayni raster atlasa
     // girer: draw call artmaz, DrawText her yerde ayni yoldan cizer.

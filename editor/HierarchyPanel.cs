@@ -54,15 +54,8 @@ public sealed class HierarchyPanel : EditorWindow
             top = barH;
         }
 
-        // Arac cubugu: kok GO / secilinin cocugu / secileni sil (hepsi undo'lu).
-        if (Gui.Button(new Rect(2, top + 2, 52, 20), "+ GO"))
-            Selection.DocId = es.AddGameObject(0).Id;
-        var sel = es.FindGo(Selection.DocId);
-        if (Gui.Button(new Rect(58, top + 2, 60, 20), "+ Child") && sel != null)
-            Selection.DocId = es.AddGameObject(sel.Id).Id;
-        if (Gui.Button(new Rect(122, top + 2, 44, 20), "Del"))
-            DeleteSelection(es);
-        float toolbarH = 26f + top;
+        // Olusturma/silme sag tik menusu ve kisayollardan; ust arac cubugu yok.
+        float toolbarH = top;
 
         HandleKeyboard(es);
 
@@ -81,6 +74,13 @@ public sealed class HierarchyPanel : EditorWindow
             if (g.Parent == 0)
                 DrawNode(doc, g, 0, ref y, ev, view.width, idDrag);
         HandleDrag(es, doc, ev, idDrag, view);
+        // Sol tik bos alan: secimi kaldir (satir tiklamasi DrawNode'da ev.Use() ile yutuldugundan buraya dusmez).
+        if (ev.Type == EventType.MouseDown && ev.Button == 0 && GuiUtility.HotControl == 0
+            && GuiClip.VisibleRect.Contains(ev.MousePosition))
+        {
+            Selection.Clear();
+            ev.Use();
+        }
         // Sag tik bos alan: baglam menusu (satir ustu DrawNode'da isaretlenir, asagida acilir).
         if (ev.Type == EventType.MouseDown && ev.Button == 1 && GuiUtility.HotControl == 0
             && GuiClip.VisibleRect.Contains(ev.MousePosition))
@@ -149,9 +149,7 @@ public sealed class HierarchyPanel : EditorWindow
             items.Add(("Delete", () => DeleteSelection(es)));
             items.Add(("-", null));
         }
-        items.Add(("Create Empty", () => Selection.DocId = es.AddGameObject(0).Id));
-        if (hasSel)
-            items.Add(("Create Empty Child", () => Selection.DocId = es.AddGameObject(Selection.DocId).Id));
+        items.Add(("Create Empty", () => Selection.DocId = es.AddGameObject(hasSel ? Selection.DocId : 0).Id));
         EditorMenu.ShowContext(items.ToArray());
     }
 
@@ -420,21 +418,6 @@ public sealed class HierarchyPanel : EditorWindow
         // Hayalet etiket global: DragDrop.DrawGhost (DrawUi) cizer.
     }
 
-    // GO ikonu: component listesinde ilk [Icon] tasiyan tipin glifi (katalogdan; tip-ozel bilgi yok).
-    static string IconOf(SceneDoc.GoDoc g)
-    {
-        var cat = App.Catalog;
-        if (cat == null)
-            return null;
-        foreach (var cd in g.Components)
-        {
-            var icon = cat.Find(cd.Type)?.Icon;
-            if (icon != null)
-                return icon;
-        }
-        return null;
-    }
-
     static bool HasChildren(SceneDoc doc, int id)
     {
         foreach (var g in doc.Objects)
@@ -511,19 +494,12 @@ public sealed class HierarchyPanel : EditorWindow
                 GuiRenderer.DrawTextIn(arrow, _collapsed.Contains(g.Id) ? "\u25b8" : "\u25be",
                     Gui.FontSize - 3f, new Color(150, 153, 163, 255));
             // Prefab instance (kok ve cocuklari): Unity gibi mavi metin — kucuk resim yok (UI prefab'i
-            // izole kadrajda anlamsiz cikiyordu). Tipe gore glif ikon ayri is (docs/engine-notes.md).
+            // izole kadrajda anlamsiz cikiyordu).
             bool prefab = g.IsPrefabRoot || g.IsPrefabChild;
             var textCol = g.Active
                 ? (prefab ? new Color(130, 180, 240, 255) : new Color(220, 224, 234, 255))
                 : (prefab ? new Color(80, 105, 140, 255) : new Color(120, 123, 133, 255)); // inaktif: soluk
             float textX = indent + 14;
-            // Sabit ikon sutunu (Unity gibi hizali): ilk [Icon]'lu component'in glifi; yoksa bos kalir.
-            float iconW = RowH - 2;
-            string icon = IconOf(g);
-            if (icon != null)
-                GuiRenderer.DrawTextIn(new Rect(textX, y, iconW, RowH - 1), icon, Gui.FontSize - 2f,
-                    g.Active ? new Color(165, 170, 185, 255) : new Color(100, 104, 116, 255), true, 2);
-            textX += iconW;
             GuiRenderer.DrawTextIn(new Rect(textX, y, width - textX, RowH - 1),
                 g.Name, Gui.FontSize, textCol, false, 2);
         }

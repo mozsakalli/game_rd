@@ -83,13 +83,10 @@
   `TrackPopupMenu`'yü kapatan dış tık WM_*BUTTONDOWN olarak kuyrukta kalıp sonraki `glfwPollEvents`'te pencereye
   normal basma olarak iniyordu (hiyerarşide sahte drag). Fix `de_menu_show_context`: dönüşte bekleyen button-down
   mesajları `PeekMessage(PM_REMOVE)` ile yutulur (move/up kalır; eşsiz MouseUp hot=0 → zararsız). Tüm panellere geçerli.
-- TİPE GÖRE GLİF İKON (aynı gün): component sınıfına `[Icon("glyph")]` (Attributes.cs) → `TypeCatalog.Entry.Icon`
-  (yalnız DE_EDITOR, reflection'dan). Hiyerarşi `DrawNode`: ok sonrası SABİT ikon sütunu (RowH-2 genişlik, her satırda
-  ayrılır → isimler hizalı); glif = GO'nun component listesindeki ilk `[Icon]`'lu tip. Editörde tip-özel ikon kodu YOK.
-  Çekirdek: LayoutBox ▭, SpriteRenderer ▦, TextSprite "T", ParticleSystem ✦, Camera ▣, MovieClip ▶, AudioSource ●, Puppet ◆.
-  TUZAK: gömülü editör fontunda geometrik glifler YOK → `GuiFont.BakeShape` (BakeTriangle gibi) ■□▣▦▭◆●○✦ şekillerini
-  prosedürel olarak raster atlasa basar (cap-ortalı metrik, 4x4 supersample). Yeni glif isteyen `ShapeHit`'e case ekler;
-  fonta bakıp "var sanmak" yok — önce ekran görüntüsüyle doğrula (notdef kare çıkar).
+- TİPE GÖRE GLİF İKON (aynı gün, 2026-11-09 İPTAL): component sınıfına `[Icon("glyph")]` → `TypeCatalog.Entry.Icon` →
+  hiyerarşide sabit ikon sütunu + `GuiFont.BakeShape` prosedürel ■□▣▦▭◆●○✦ glifleri denendi; pratikte işe yaramadı,
+  tamamen geri alındı (attribute, katalog alanı, ikon sütunu, BakeShape). Yalnız `BakeTriangle` okları kaldı.
+  Kalıcı ders: gömülü editör fontunda geometrik glifler YOK — fonta bakıp "var sanmak" yok, önce ekran görüntüsüyle doğrula.
 
 ## LAYOUTBOX SPRITE FLIP (spriteFlipX/Y) (2026-11-08)
 - `LayoutBox.spriteFlipX/spriteFlipY` (Fill kategorisi, `ShowIf(sprite)`): resmi scale -1 kullanmadan aynalar.

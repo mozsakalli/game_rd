@@ -50,16 +50,6 @@ public sealed class PreviewableAttribute : Attribute
 {
 }
 
-// Hiyerarsi ikonu: component sinifina tek Unicode glif ("\u25ad" vb.). GO'nun ikonu = component
-// listesinde ilk [Icon]'lu tipin glifi. Editor tip-ozel ikon bilmez; attribute yoksa ikonsuz.
-[AttributeUsage(AttributeTargets.Class, Inherited = false)]
-public sealed class IconAttribute : Attribute
-{
-    public readonly string Glyph;
-
-    public IconAttribute(string glyph) => Glyph = glyph;
-}
-
 // Unity ExecuteInEditMode: isaretli component'in yasam dongusu (Awake/OnEnable/Start/
 // OnDisable/OnDestroy) EDIT sahnesinde de kosar. Isaretsiz component = oyun mantigi;
 // editor projeksiyonunda uyur (Awake'te SetActive(false) gibi yan etkiler sahneyi bozmaz).

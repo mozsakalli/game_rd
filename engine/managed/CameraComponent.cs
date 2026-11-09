@@ -18,7 +18,6 @@ public enum CameraClearFlags
 }
 
 [ExecuteInEditMode]
-[Icon("\u25A3")]
 [AddComponentMenu("Camera/Camera")]
 public sealed class CameraComponent : Component
 {
